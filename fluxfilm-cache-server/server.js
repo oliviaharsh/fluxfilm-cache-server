@@ -107,8 +107,7 @@ app.post('/api', async (req, res) => {
   }
 });
 
-// -- Serve the storefront --
-app.use(express.static(STATIC_DIR));
+// -- Serve the storefront (single self-contained index.html) --
 app.get('*', (_req, res) => {
   if (INDEX) return res.sendFile(INDEX);
   res.status(404).type('text/plain').send('index.html not found. Open /__debug to see the server file layout.');
