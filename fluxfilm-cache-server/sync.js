@@ -23,6 +23,7 @@ const API_KEY = process.env.API_KEY || '';
 const s = (v) => (v == null ? null : String(v).trim() || null);
 const num = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
 const int = (v) => { const n = parseInt(v, 10); return isNaN(n) ? null : n; };
+const normPhone = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : null; };
 function dt(v) {
   if (v == null || v === '') return null;
   const d = v instanceof Date ? v : new Date(v);
@@ -70,6 +71,15 @@ const TABLES = {
       fulfilled_at: ['FulfilledAt', dt], notes: ['Notes', s],
     },
   },
+  plans: {
+    tab: 'PLANS', pk: 'service',
+    cols: {
+      service: ['Service', s], plan: ['Plan', s], duration_days: ['DurationDays', int],
+      price: ['Price', num], early_renew_discount: ['EarlyRenewDiscount', num],
+      early_renew_discount_7to2: ['EarlyRenewDiscount_7to2', num],
+      logo_url: ['LogoUrl', s], is_active: ['IsActive', s],
+    },
+  },
 };
 
 async function fetchDump(tab) {
@@ -91,6 +101,7 @@ function mapRow(def, srcRow) {
   for (const [col, [header, cast]] of Object.entries(def.cols)) {
     out[col] = cast(srcRow[header]);
   }
+  if (Object.prototype.hasOwnProperty.call(out, 'phone')) out.phone_norm = normPhone(out.phone);
   out.raw_json = JSON.stringify(srcRow);
   return out;
 }
