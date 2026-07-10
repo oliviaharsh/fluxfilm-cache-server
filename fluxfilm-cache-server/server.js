@@ -17,6 +17,11 @@ try { db = require('./db'); } catch (e) { console.log('[db] not loaded:', e.mess
 try { sync = require('./sync'); } catch (e) { console.log('[sync] not loaded:', e.message); }
 let reads = null;
 try { reads = require('./reads'); } catch (e) { console.log('[reads] not loaded:', e.message); }
+const DB_READS = {
+  getMySubscriptions: (a) => reads.getMySubscriptions(a[0]),
+  getCustomerOrders: (a) => reads.getCustomerOrders(a[0], a[1]),
+  getCustomerProfile: (a) => reads.getCustomerProfile(a[0]),
+};
 
 const app = express();
 app.use(cors());
@@ -104,10 +109,10 @@ app.post('/api', async (req, res) => {
   const body = req.body || {};
   const action = String(body.action || '');
   // Phase 3: fast reads from MySQL (flag-gated; any error falls back to Apps Script)
-  if (READ_FROM_DB && db.ENABLED && reads && (action === 'getMySubscriptions' || action === 'getCustomerOrders')) {
+  if (READ_FROM_DB && db.ENABLED && reads && DB_READS[action]) {
     try {
       const a = Array.isArray(body.args) ? body.args : [];
-      const out = action === 'getMySubscriptions' ? await reads.getMySubscriptions(a[0]) : await reads.getCustomerOrders(a[0], a[1]);
+      const out = await DB_READS[action](a);
       res.set('X-Source', 'mysql');
       return res.type('application/json').send(JSON.stringify(out));
     } catch (e) { console.log('[reads] fallback to Apps Script:', e.message); }
