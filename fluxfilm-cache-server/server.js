@@ -68,7 +68,7 @@ function requireAdmin(req, res) {
 }
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'fluxfilm-cache', indexFound: !!INDEX, dbConfigured: !!db.ENABLED, cachedKeys: [...cache.keys()] });
+  res.json({ ok: true, service: 'fluxfilm-cache', indexFound: !!INDEX, dbConfigured: !!db.ENABLED, cachedKeys: [...cache.keys()], lastSync: (typeof _lastSync !== 'undefined' ? _lastSync : null) });
 });
 
 app.get('/__debug', (_req, res) => {
@@ -123,5 +123,27 @@ app.get('*', (_req, res) => {
   if (INDEX) return res.sendFile(INDEX);
   res.status(404).type('text/plain').send('index.html not found. Open /__debug.');
 });
+
+// -- Auto-sync: keep MySQL fresh from the Sheet --
+const SYNC_INTERVAL_MIN = Number(process.env.SYNC_INTERVAL_MIN || 5);
+let _syncing = false;
+let _lastSync = null;
+async function autoSync() {
+  if (_syncing || !db.ENABLED) return;
+  _syncing = true;
+  try {
+    const r = await sync.runSync([], { dry: false });
+    _lastSync = { at: new Date().toISOString(), results: r.results || r.error || r };
+    console.log('[autosync]', JSON.stringify(_lastSync.results));
+  } catch (e) {
+    _lastSync = { at: new Date().toISOString(), error: String(e && e.message ? e.message : e) };
+    console.log('[autosync] error', _lastSync.error);
+  } finally { _syncing = false; }
+}
+if (db.ENABLED && SYNC_INTERVAL_MIN > 0) {
+  setTimeout(autoSync, 30000); // first run 30s after boot
+  setInterval(autoSync, SYNC_INTERVAL_MIN * 60 * 1000);
+  console.log('[autosync] enabled every ' + SYNC_INTERVAL_MIN + ' min');
+}
 
 app.listen(PORT, () => console.log('[FluxFilm] listening on :' + PORT + ' -> ' + API_PHP_URL));
