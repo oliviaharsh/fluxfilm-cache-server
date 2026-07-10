@@ -15,6 +15,8 @@ let db = { ENABLED: false, ping: async () => ({ ok: false, reason: 'db module mi
 let sync = { runSync: async () => ({ ok: false, error: 'sync module missing' }) };
 try { db = require('./db'); } catch (e) { console.log('[db] not loaded:', e.message); }
 try { sync = require('./sync'); } catch (e) { console.log('[sync] not loaded:', e.message); }
+let reads = null;
+try { reads = require('./reads'); } catch (e) { console.log('[reads] not loaded:', e.message); }
 
 const app = express();
 app.use(cors());
@@ -27,6 +29,7 @@ const API_KEY = process.env.API_KEY || '';
 const CACHE_TTL = Number(process.env.CACHE_TTL || 60);
 const ADMIN_KEY = process.env.CACHE_CLEAR_KEY || '';
 const CACHEABLE = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems']);
+const READ_FROM_DB = process.env.READ_FROM_DB === '1' || process.env.READ_FROM_DB === 'true';
 
 // -- Locate index.html wherever the deploy put it --
 const CANDIDATES = [
@@ -68,7 +71,7 @@ function requireAdmin(req, res) {
 }
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'fluxfilm-cache', indexFound: !!INDEX, dbConfigured: !!db.ENABLED, cachedKeys: [...cache.keys()], lastSync: (typeof _lastSync !== 'undefined' ? _lastSync : null) });
+  res.json({ ok: true, service: 'fluxfilm-cache', indexFound: !!INDEX, dbConfigured: !!db.ENABLED, readFromDb: READ_FROM_DB, cachedKeys: [...cache.keys()], lastSync: (typeof _lastSync !== 'undefined' ? _lastSync : null) });
 });
 
 app.get('/__debug', (_req, res) => {
@@ -100,6 +103,15 @@ app.get('/clearcache', (req, res) => {
 app.post('/api', async (req, res) => {
   const body = req.body || {};
   const action = String(body.action || '');
+  // Phase 3: fast reads from MySQL (flag-gated; any error falls back to Apps Script)
+  if (READ_FROM_DB && db.ENABLED && reads && (action === 'getMySubscriptions' || action === 'getCustomerOrders')) {
+    try {
+      const a = Array.isArray(body.args) ? body.args : [];
+      const out = action === 'getMySubscriptions' ? await reads.getMySubscriptions(a[0]) : await reads.getCustomerOrders(a[0], a[1]);
+      res.set('X-Source', 'mysql');
+      return res.type('application/json').send(JSON.stringify(out));
+    } catch (e) { console.log('[reads] fallback to Apps Script:', e.message); }
+  }
   if (!CACHEABLE.has(action)) {
     try { const { status, text } = await callApiPhp(body); res.status(status).type('application/json').send(text); }
     catch (err) { res.status(502).json({ ok: false, message: 'Upstream error', detail: String(err) }); }
