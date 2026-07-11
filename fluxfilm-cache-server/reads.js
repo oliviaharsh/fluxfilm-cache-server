@@ -186,5 +186,65 @@ async function getCustomerProfile(phone) {
   };
 }
 
-module.exports = { getMySubscriptions, getCustomerOrders, getCustomerProfile,
+async function getActiveCouponsForCustomer(phone) {
+  const ph = normPhone(phone);
+  if (!ph) return { ok: false, message: 'Phone required' };
+  const couponRows = await db.query('SELECT raw_json FROM coupons', []);
+  if (!couponRows.length) return { ok: true, coupons: [] };
+  const usageRows = await db.query(
+    "SELECT coupon_code, COUNT(*) c FROM coupon_usage WHERE phone_norm = ? AND UPPER(action) = 'USED' GROUP BY coupon_code", [ph]);
+  const usedMap = new Map();
+  for (const u of usageRows) usedMap.set(String(u.coupon_code || '').trim().toUpperCase(), Number(u.c) || 0);
+
+  const out = [];
+  for (const cr of couponRows) {
+    const raw = rawOf(cr.raw_json);
+    if (String(raw.Active || '').toUpperCase() !== 'TRUE') continue;
+    const showInProfile = raw.ShowInProfile != null ? String(raw.ShowInProfile).toUpperCase() : 'TRUE';
+    if (showInProfile !== 'TRUE') continue;
+    const code = String((raw.CouponCode != null ? raw.CouponCode : '') || (raw.Code != null ? raw.Code : '') || '').trim().toUpperCase();
+    if (!code) continue;
+    const allowedRaw = raw.AllowedPhones != null ? String(raw.AllowedPhones).trim() : 'ALL';
+    if (allowedRaw && allowedRaw.toUpperCase() !== 'ALL') {
+      const allowed = allowedRaw.split(',').map((x) => normPhone(x)).filter(Boolean);
+      if (!allowed.includes(ph)) continue;
+    }
+    const perLimit = raw.PerUserLimit != null ? Number(raw.PerUserLimit || 0) : 0;
+    const used = usedMap.get(code) || 0;
+    if (perLimit > 0 && used >= perLimit) continue;
+    out.push({
+      code,
+      description: String(raw.Description || ''),
+      scope: String(raw.Scope || 'ANY'),
+      type: String(raw.Type || ''),
+      value: Number(raw.Value || 0),
+      minAmount: Number(raw.MinAmount || 0),
+      maxDiscount: Number(raw.MaxDiscount || 0),
+      expiry: raw.Expiry ? isoOrRaw(raw.Expiry) : '',
+      perUserLimit: perLimit,
+      usedByUser: used,
+      remaining: perLimit > 0 ? Math.max(0, perLimit - used) : 'Unlimited',
+    });
+  }
+  return { ok: true, coupons: out };
+}
+
+async function getWalletByPhone(phone) {
+  const ph = normPhone(phone);
+  if (!ph) return { ok: false, message: 'Phone required.' };
+  const rows = await db.query(
+    'SELECT coins_balance, coins_lifetime, last_earned_at, last_spent_at, last_event FROM wallet WHERE phone_norm = ? LIMIT 1', [ph]);
+  if (!rows.length) return { ok: true, phone: ph, coinsBalance: 0, coinsLifetime: 0, lastEarnedAt: '', lastSpentAt: '', lastEvent: '' };
+  const r = rows[0];
+  return {
+    ok: true, phone: ph,
+    coinsBalance: asNum(r.coins_balance),
+    coinsLifetime: asNum(r.coins_lifetime),
+    lastEarnedAt: r.last_earned_at ? isoOrRaw(r.last_earned_at) : '',
+    lastSpentAt: r.last_spent_at ? isoOrRaw(r.last_spent_at) : '',
+    lastEvent: String(r.last_event || ''),
+  };
+}
+
+module.exports = { getMySubscriptions, getCustomerOrders, getCustomerProfile, getActiveCouponsForCustomer, getWalletByPhone,
   _internal: { normPhone, calcEarlyDiscount, renewEligibility, expiryMood, maskEmailFirst4, parseDbDate } };
