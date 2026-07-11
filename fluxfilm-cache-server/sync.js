@@ -80,6 +80,30 @@ const TABLES = {
       logo_url: ['LogoUrl', s], is_active: ['IsActive', s],
     },
   },
+  coupons: {
+    tab: 'COUPONS', pk: 'code',
+    cols: {
+      code: ['CouponCode', s], description: ['Description', s], scope: ['Scope', s], type: ['Type', s],
+      value: ['Value', num], min_amount: ['MinAmount', num], max_discount: ['MaxDiscount', num],
+      expiry: ['Expiry', dt], per_user_limit: ['PerUserLimit', int], global_limit: ['GlobalLimit', int],
+      active: ['Active', s], show_in_profile: ['ShowInProfile', s], allowed_phones: ['AllowedPhones', s],
+      first_time_only: ['FirstTimeOnly', s],
+    },
+  },
+  coupon_usage: {
+    tab: 'COUPON_USAGE', pk: 'coupon_code', mode: 'replace',
+    cols: {
+      coupon_code: ['CouponCode', s], phone: ['Phone', s], email: ['Email', s],
+      discount: ['Discount', num], order_id: ['OrderID', s], action: ['Action', s], ts: ['Timestamp', dt],
+    },
+  },
+  wallet: {
+    tab: 'WALLET', pk: 'phone',
+    cols: {
+      phone: ['Phone', s], coins_balance: ['CoinsBalance', num], coins_lifetime: ['CoinsLifetime', num],
+      last_earned_at: ['LastEarnedAt', dt], last_spent_at: ['LastSpentAt', dt], last_event: ['LastEvent', s],
+    },
+  },
 };
 
 async function fetchDump(tab) {
@@ -111,9 +135,14 @@ async function upsert(table, def, mapped) {
   const cols = Object.keys(mapped[0]);
   const values = mapped.map((r) => cols.map((c) => r[c]));
   const colList = cols.map((c) => `\`${c}\``).join(', ');
+  const pool = db.getPool();
+  if (def.mode === 'replace') {
+    await pool.query('TRUNCATE TABLE `' + table + '`');
+    await pool.query(`INSERT INTO \`${table}\` (${colList}) VALUES ?`, [values]);
+    return mapped.length;
+  }
   const updates = cols.filter((c) => c !== def.pk).map((c) => `\`${c}\`=VALUES(\`${c}\`)`).join(', ');
   const sql = `INSERT INTO \`${table}\` (${colList}) VALUES ? ON DUPLICATE KEY UPDATE ${updates}`;
-  const pool = db.getPool();
   await pool.query(sql, [values]);
   return mapped.length;
 }
