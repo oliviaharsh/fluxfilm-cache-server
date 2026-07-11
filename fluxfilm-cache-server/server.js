@@ -21,6 +21,8 @@ const DB_READS = {
   getMySubscriptions: (a) => reads.getMySubscriptions(a[0]),
   getCustomerOrders: (a) => reads.getCustomerOrders(a[0], a[1]),
   getCustomerProfile: (a) => reads.getCustomerProfile(a[0]),
+  getActiveCouponsForCustomer: (a) => reads.getActiveCouponsForCustomer(a[0]),
+  getWalletByPhone: (a) => reads.getWalletByPhone(a[0]),
 };
 
 const app = express();
