@@ -221,7 +221,7 @@ function lookup(){var p=$('#cp').value.trim();if(!p)return;api('/admin/api/custo
   $('#c360').innerHTML=box('👤 '+(pr.name||'Unknown')+' — '+r.phone,'<div class="muted">'+(pr.email||'')+' · member since '+fmt('since',pr.member_since)+'</div>')+
     box('🎬 Subscriptions ('+r.subs.length+')',tbl(r.subs,['sub_id','service','plan','expiry_date','status','login_id','password']))+
     box('🧾 Orders ('+r.orders.length+')',tbl(r.orders,['order_id','created_at_sheet','service','plan','final_amount','status']))+
-    box('🪙 Wallet',r.wallet?('Balance: <b>'+money(r.wallet.coins_balance)+'</b> · Lifetime: '+money(r.wallet.coins_lifetime)):'<p class="muted">no wallet</p>')}
+    box('🪙 Wallet',r.wallet?('Balance: <b>'+money(r.wallet.coins_balance)+'</b> · Lifetime: '+money(r.wallet.coins_lifetime)):'<p class="muted">no wallet</p>')})}
 
 if(KEY){api('/admin/api/summary').then(function(r){if(r.ok){shell();route()}else login()})}else login();
 </script></body></html>`;
