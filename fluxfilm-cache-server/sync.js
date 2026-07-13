@@ -104,6 +104,18 @@ const TABLES = {
       last_earned_at: ['LastEarnedAt', dt], last_spent_at: ['LastSpentAt', dt], last_event: ['LastEvent', s],
     },
   },
+  inventory_accounts: {
+    tab: 'INVENTORY_ACCOUNTS', pk: 'account_id', mode: 'replace',
+    cols: { service: ['Service', s], account_id: ['AccountID', s], login_id: ['LoginId', s], password: ['Password', s], is_active: ['IsActive', s], plan: ['Plan', s], notes: ['Notes', s] },
+  },
+  inventory_profiles: {
+    tab: 'INVENTORY_PROFILES', pk: 'account_id', mode: 'replace',
+    cols: { service: ['Service', s], account_id: ['AccountID', s], profile_name: ['ProfileName', s], profile_number: ['ProfileNumber', s], profile_pin: ['ProfilePIN', s], status: ['Status', s], current_sub_id: ['CurrentSubID', s] },
+  },
+  inventory_capacity: {
+    tab: 'INVENTORY_CAPACITY', pk: 'account_id', mode: 'replace',
+    cols: { service: ['Service', s], account_id: ['AccountID', s], max_total: ['MaxTotal', int], max_tv: ['MaxTV', int], is_active: ['IsActive', s], notes: ['Notes', s] },
+  },
 };
 
 async function fetchDump(tab) {
