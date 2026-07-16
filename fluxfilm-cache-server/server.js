@@ -112,6 +112,12 @@ app.get('/admin/sync', async (req, res) => {
   catch (e) { res.status(500).json({ ok: false, error: String(e && e.message ? e.message : e) }); }
 });
 
+app.get('/admin/imap-scan', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try { res.json(payments ? await payments.manualScan(Number(req.query.hours) || 24) : { ok: false, message: 'no payments module' }); }
+  catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
+});
+
 app.get('/clearcache', (req, res) => {
   if (!requireAdmin(req, res)) return;
   cache.clear();
