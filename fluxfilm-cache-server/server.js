@@ -19,6 +19,8 @@ let reads = null;
 try { reads = require('./reads'); } catch (e) { console.log('[reads] not loaded:', e.message); }
 let admin = null;
 try { admin = require('./admin'); } catch (e) { console.log('[admin] not loaded:', e.message); }
+let order = null; try { order = require('./order'); } catch (e) { console.log('[order] not loaded:', e.message); }
+let payments = null; try { payments = require('./payments'); } catch (e) { console.log('[payments] not loaded:', e.message); }
 const DB_READS = {
   getMySubscriptions: (a) => reads.getMySubscriptions(a[0]),
   getCustomerOrders: (a) => reads.getCustomerOrders(a[0], a[1]),
@@ -39,6 +41,12 @@ const CACHE_TTL = Number(process.env.CACHE_TTL || 60);
 const ADMIN_KEY = process.env.CACHE_CLEAR_KEY || '';
 const CACHEABLE = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems']);
 const READ_FROM_DB = process.env.READ_FROM_DB === '1' || process.env.READ_FROM_DB === 'true';
+const BUY_ON_DB = process.env.BUY_ON_DB === '1' || process.env.BUY_ON_DB === 'true';
+const DB_WRITES = order ? {
+  createOrder: (a) => order.createOrder(a[0]),
+  verifyPayment: (a) => order.verifyPayment(a[0]),
+  verifyPaymentByRef: (a) => order.verifyPaymentByRef(a[0], a[1]),
+} : {};
 
 // -- Locate index.html wherever the deploy put it --
 const CANDIDATES = [
@@ -121,6 +129,15 @@ app.post('/api', async (req, res) => {
       return res.type('application/json').send(JSON.stringify(out));
     } catch (e) { console.log('[reads] fallback to Apps Script:', e.message); }
   }
+  // Wave 2: buy flow on MySQL (flag-gated; any error falls back to Apps Script)
+  if (BUY_ON_DB && db.ENABLED && order && DB_WRITES[action]) {
+    try {
+      const a = Array.isArray(body.args) ? body.args : [];
+      const out = await DB_WRITES[action](a);
+      res.set('X-Source', 'mysql');
+      return res.type('application/json').send(JSON.stringify(out));
+    } catch (e) { console.log('[buy] fallback to Apps Script:', e.message); }
+  }
   if (!CACHEABLE.has(action)) {
     try { const { status, text } = await callApiPhp(body); res.status(status).type('application/json').send(text); }
     catch (err) { res.status(502).json({ ok: false, message: 'Upstream error', detail: String(err) }); }
@@ -169,5 +186,7 @@ if (db.ENABLED && SYNC_INTERVAL_MIN > 0) {
   setInterval(autoSync, SYNC_INTERVAL_MIN * 60 * 1000);
   console.log('[autosync] enabled every ' + SYNC_INTERVAL_MIN + ' min');
 }
+
+if (db.ENABLED && payments) { try { payments.startWatcher(); } catch (e) { console.log('[imap] start error', e.message); } }
 
 app.listen(PORT, () => console.log('[FluxFilm] listening on :' + PORT + ' -> ' + API_PHP_URL));
