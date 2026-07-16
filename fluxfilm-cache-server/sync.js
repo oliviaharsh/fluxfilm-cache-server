@@ -68,7 +68,7 @@ const TABLES = {
       login_id: ['LoginId', s], password: ['Password', s], profile_name: ['ProfileName', s],
       profile_pin: ['ProfilePIN', s], profile_number: ['ProfileNumber', s],
       last_access_sent_at: ['LastAccessSentAt', dt], release_eligible_at: ['ReleaseEligibleAt', dt],
-      fulfilled_at: ['FulfilledAt', dt], notes: ['Notes', s],
+      fulfilled_at: ['FulfilledAt', dt], notes: ['Notes', s], device_type: ['DeviceType', s],
     },
   },
   plans: {
