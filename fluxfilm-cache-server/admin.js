@@ -14,6 +14,7 @@ const TABLES = {
   inventory_accounts: { cols: 'service, account_id, login_id, password, is_active, plan', order: 'service ASC', phone: null, like: ['account_id', 'login_id', 'service'] },
   inventory_profiles: { cols: 'service, account_id, profile_name, profile_number, status, current_sub_id', order: 'account_id ASC', phone: null, like: ['account_id', 'profile_name', 'current_sub_id'] },
   inventory_capacity: { cols: 'service, account_id, max_total, max_tv, is_active', order: 'account_id ASC', phone: null, like: ['account_id', 'service'] },
+  bank_credits: { cols: 'received_at, amount, upi_ref, order_ids, consumed_order_id', order: 'received_at DESC', phone: null, like: ['upi_ref', 'order_ids', 'consumed_order_id'] },
 };
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 
@@ -149,7 +150,7 @@ canvas{max-height:260px}
 var $=function(s){return document.querySelector(s)};
 var KEY=localStorage.getItem('ff_admin_key')||'';
 var VIEW='dashboard',TAB='orders',OFFSET=0,Q='',charts={};
-var TBLS=['orders','subscriptions','customers','coupons','wallet','coupon_usage','plans','inventory_accounts','inventory_profiles','inventory_capacity'];
+var TBLS=['orders','subscriptions','customers','coupons','wallet','coupon_usage','plans','inventory_accounts','inventory_profiles','inventory_capacity','bank_credits'];
 function api(path,params){var u=new URL(location.origin+path);u.searchParams.set('key',KEY);params=params||{};Object.keys(params).forEach(function(k){u.searchParams.set(k,params[k])});return fetch(u).then(function(r){return r.json()})}
 function money(n){return '₹'+Number(n||0).toLocaleString('en-IN')}
 function pill(v){return v?'<span class="pill '+String(v).toUpperCase().replace(/[^A-Z]/g,'')+'">'+v+'</span>':''}
