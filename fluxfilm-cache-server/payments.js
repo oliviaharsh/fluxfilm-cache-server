@@ -1,37 +1,33 @@
 /**
  * FluxFilm - payment verification (Wave 2, Path B).
- * A background IMAP watcher reads the bank inbox, parses Equitas UPI credit
- * alerts, and saves each credit into `bank_credits`. verifyPayment then matches
- * against that table by OrderID (auto note) or by UPI ref (customer-entered).
- *
- * Env: IMAP_USER, IMAP_PASS (Gmail app password), IMAP_HOST (default imap.gmail.com),
- *      BANK_SENDER (default esfb-alerts@equitas.bank.in)
+ * IMAP watcher reads the bank inbox (default [Gmail]/All Mail so it catches
+ * emails even if a filter archives them), parses Equitas UPI credit alerts, and
+ * saves each into bank_credits. verifyPayment matches by OrderID or UPI ref.
+ * Env: IMAP_USER, IMAP_PASS, IMAP_HOST (imap.gmail.com), IMAP_FOLDER ([Gmail]/All Mail),
+ *      BANK_SENDER (esfb-alerts@equitas.bank.in)
  */
 const db = require('./db');
 
-// ---- parse one Equitas "UPI Credit Alert" body ----
 function parseEquitasCredit(body) {
   const text = String(body || '').replace(/\s+/g, ' ');
   const m = text.match(/An amount of INR\s+([\d,]+(?:\.\d+)?)\s+has been credited/i);
-  if (!m) return null; // not a credit alert
+  if (!m) return null;
   const amount = parseFloat(m[1].replace(/,/g, ''));
   const refM = text.match(/UPI REF NO\s+(\d+)/i);
   const upiRef = refM ? refM[1] : '';
   const orderIds = (text.match(/\bFF\d{6,}\b/gi) || []).map((x) => x.toUpperCase());
-  if (!upiRef) return null; // need a ref to dedupe
+  if (!upiRef) return null;
   return { type: 'CREDIT', amount, upiRef, orderIds, raw: text.slice(0, 380) };
 }
 
-// ---- store a credit (dedupe by upi_ref) ----
 async function ingestCredit(c, receivedAt) {
   if (!c || !c.upiRef) return false;
-  await db.query(
+  const r = await db.query(
     'INSERT IGNORE INTO bank_credits (upi_ref, amount, order_ids, raw, received_at) VALUES (?,?,?,?,?)',
     [c.upiRef, c.amount, (c.orderIds || []).join(','), c.raw || '', receivedAt || new Date()]);
-  return true;
+  return !!(r && r.affectedRows);
 }
 
-// ---- match + atomically consume a credit (so it can verify only ONE order) ----
 async function findByOrder(orderId, amount) {
   const oid = String(orderId || '').toUpperCase();
   const r = await db.query(
@@ -59,45 +55,64 @@ async function findByRef(orderId, ref, amount) {
   return null;
 }
 
-// ---- IMAP watcher (imapflow + mailparser) ----
+const HOST = () => process.env.IMAP_HOST || 'imap.gmail.com';
+const FOLDER = () => process.env.IMAP_FOLDER || '[Gmail]/All Mail';
+const SENDER = () => process.env.BANK_SENDER || 'esfb-alerts@equitas.bank.in';
+
+async function scanInbox(client, hours) {
+  const { simpleParser } = require('mailparser');
+  const lock = await client.getMailboxLock(FOLDER());
+  let found = 0, ingested = 0;
+  try {
+    const since = new Date(Date.now() - (hours || 6) * 3600 * 1000);
+    const uids = await client.search({ from: SENDER(), since });
+    if (uids && uids.length) {
+      for await (const msg of client.fetch(uids.slice(-60), { source: true, envelope: true })) {
+        try {
+          const parsed = await simpleParser(msg.source);
+          const c = parseEquitasCredit(parsed.text || parsed.html || '');
+          if (c) { found++; if (await ingestCredit(c, (msg.envelope && msg.envelope.date) || new Date())) ingested++; }
+        } catch (_) {}
+      }
+    }
+  } finally { lock.release(); }
+  return { found, ingested };
+}
+
+// One-shot scan (for the /admin/imap-scan button)
+async function manualScan(hours) {
+  const user = process.env.IMAP_USER, pass = process.env.IMAP_PASS;
+  if (!user || !pass) return { ok: false, message: 'IMAP not configured' };
+  const { ImapFlow } = require('imapflow');
+  const client = new ImapFlow({ host: HOST(), port: 993, secure: true, auth: { user, pass }, logger: false });
+  try {
+    await client.connect();
+    const r = await scanInbox(client, hours || 24);
+    return { ok: true, folder: FOLDER(), ...r };
+  } catch (e) {
+    return { ok: false, message: String(e && e.message || e) };
+  } finally { try { await client.logout(); } catch (_) {} }
+}
+
 let _watching = false;
 async function startWatcher() {
   const user = process.env.IMAP_USER, pass = process.env.IMAP_PASS;
   if (!user || !pass) { console.log('[imap] IMAP_USER/IMAP_PASS not set — watcher disabled'); return; }
   if (_watching) return; _watching = true;
-
   const { ImapFlow } = require('imapflow');
-  const { simpleParser } = require('mailparser');
-  const host = process.env.IMAP_HOST || 'imap.gmail.com';
-  const sender = process.env.BANK_SENDER || 'esfb-alerts@equitas.bank.in';
-
-  async function scan(client) {
-    const lock = await client.getMailboxLock('INBOX');
-    try {
-      const since = new Date(Date.now() - 2 * 60 * 60 * 1000); // last 2h
-      const uids = await client.search({ from: sender, since });
-      if (!uids || !uids.length) return;
-      for await (const msg of client.fetch(uids.slice(-40), { source: true, envelope: true })) {
-        try {
-          const parsed = await simpleParser(msg.source);
-          const c = parseEquitasCredit(parsed.text || parsed.html || '');
-          if (c) await ingestCredit(c, (msg.envelope && msg.envelope.date) || new Date());
-        } catch (_) {}
-      }
-    } finally { lock.release(); }
-  }
-
   (async function loop() {
     while (_watching) {
       let client;
       try {
-        client = new ImapFlow({ host, port: 993, secure: true, auth: { user, pass }, logger: false });
+        client = new ImapFlow({ host: HOST(), port: 993, secure: true, auth: { user, pass }, logger: false });
         await client.connect();
-        console.log('[imap] connected, watching', sender);
-        await scan(client);                                   // catch-up on start
+        console.log('[imap] connected, watching', FOLDER(), 'for', SENDER());
+        const r0 = await scanInbox(client, 6);
+        console.log('[imap] initial scan:', JSON.stringify(r0));
         while (_watching) {
-          await client.idle();                                // wakes on new mail
-          await scan(client);
+          await client.idle();
+          const r = await scanInbox(client, 1);
+          if (r.ingested) console.log('[imap] ingested', r.ingested, 'new credit(s)');
         }
       } catch (e) {
         console.log('[imap] error, reconnecting in 15s:', e.message);
@@ -108,4 +123,4 @@ async function startWatcher() {
   })();
 }
 
-module.exports = { parseEquitasCredit, ingestCredit, findByOrder, findByRef, startWatcher };
+module.exports = { parseEquitasCredit, ingestCredit, findByOrder, findByRef, startWatcher, manualScan };
