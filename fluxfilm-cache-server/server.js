@@ -21,6 +21,7 @@ let admin = null;
 try { admin = require('./admin'); } catch (e) { console.log('[admin] not loaded:', e.message); }
 let order = null; try { order = require('./order'); } catch (e) { console.log('[order] not loaded:', e.message); }
 let payments = null; try { payments = require('./payments'); } catch (e) { console.log('[payments] not loaded:', e.message); }
+let fulfill = null; try { fulfill = require('./fulfill'); } catch (e) { console.log('[fulfill] not loaded:', e.message); }
 const DB_READS = {
   getMySubscriptions: (a) => reads.getMySubscriptions(a[0]),
   getCustomerOrders: (a) => reads.getCustomerOrders(a[0], a[1]),
@@ -46,6 +47,7 @@ const DB_WRITES = order ? {
   createOrder: (a) => order.createOrder(a[0]),
   verifyPayment: (a) => order.verifyPayment(a[0]),
   verifyPaymentByRef: (a) => order.verifyPaymentByRef(a[0], a[1]),
+  fulfillAndGetAccess: (a) => (fulfill ? fulfill.fulfillAndGetAccess(a[0]) : Promise.resolve({ __fallback: true })),
 } : {};
 
 // -- Locate index.html wherever the deploy put it --
@@ -134,8 +136,10 @@ app.post('/api', async (req, res) => {
     try {
       const a = Array.isArray(body.args) ? body.args : [];
       const out = await DB_WRITES[action](a);
-      res.set('X-Source', 'mysql');
-      return res.type('application/json').send(JSON.stringify(out));
+      if (!out || !out.__fallback) {
+        res.set('X-Source', 'mysql');
+        return res.type('application/json').send(JSON.stringify(out));
+      }
     } catch (e) { console.log('[buy] fallback to Apps Script:', e.message); }
   }
   if (!CACHEABLE.has(action)) {
