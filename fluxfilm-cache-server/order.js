@@ -1,7 +1,8 @@
 /**
  * FluxFilm - buy flow on MySQL (Wave 2): createOrder + verifyPayment.
- * Fulfillment (account allocation) lives in fulfill.js (separate, careful step).
- * Env: UPI_VPA (default fluxfilm@upi), UPI_PAYEE (default FluxFilm)
+ * Gated to BUY_SERVICES (default 'prime') so only those services use MySQL;
+ * everything else returns {__fallback:true} and the server uses Apps Script.
+ * Node-created orders are tagged source='node' so we never touch synced orders.
  */
 const db = require('./db');
 const pay = require('./payments');
@@ -14,8 +15,12 @@ function genOrderId() {
   const rnd = String(Math.floor(Math.random() * 100)).padStart(2, '0');
   return 'FF' + ts + rnd;
 }
+function serviceAllowed(service) {
+  const list = String(process.env.BUY_SERVICES || 'prime').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean);
+  const svc = String(service || '').toLowerCase();
+  return list.some((x) => svc.includes(x));
+}
 
-// ---- coupon discount (faithful subset of validateCoupon_) ----
 async function couponDiscount(code, phone, baseAmount) {
   const c = String(code || '').trim().toUpperCase();
   if (!c) return { ok: true, discount: 0 };
@@ -49,10 +54,10 @@ async function couponDiscount(code, phone, baseAmount) {
   return { ok: true, discount: Math.round(disc) };
 }
 
-// ---- createOrder ----
 async function createOrder(p) {
   p = p || {};
   const service = String(p.service || '').trim();
+  if (!serviceAllowed(service)) return { __fallback: true };  // not a MySQL service -> Apps Script
   const plan = String(p.plan || '').trim();
   const name = String(p.name || '').trim();
   const email = String(p.email || '').trim();
@@ -68,11 +73,11 @@ async function createOrder(p) {
   if (!email) return { ok: false, message: 'Email is required.' };
 
   const planRows = await db.query('SELECT price, duration_days, is_active, raw_json FROM plans WHERE service = ? AND plan = ? LIMIT 1', [service, plan]);
-  const pr = planRows[0];
-  if (!pr || String(pr.is_active || '').toUpperCase() !== 'TRUE') return { ok: false, message: 'Plan not found or inactive.' };
-  const praw = rawOf(pr.raw_json);
-  const price = asNum(pr.price);
-  const durationDays = Number(pr.duration_days) || asNum(praw.DurationDays);
+  const prow = planRows[0];
+  if (!prow || String(prow.is_active || '').toUpperCase() !== 'TRUE') return { ok: false, message: 'Plan not found or inactive.' };
+  const praw = rawOf(prow.raw_json);
+  const price = asNum(prow.price);
+  const durationDays = Number(prow.duration_days) || asNum(praw.DurationDays);
   const groupJoinRequired = String(praw.RequiresGroupJoin || '').toUpperCase() === 'TRUE';
   const groupJoinLink = String(praw.GroupJoinLink || '').trim();
 
@@ -88,8 +93,8 @@ async function createOrder(p) {
   await db.query(
     `INSERT INTO orders (order_id, created_at_sheet, service, plan, duration_days, name, email, phone, phone_norm,
        coupon_code, discount, price, final_amount, currency, notes, extra_field_key, extra_field_value,
-       status, fulfillment_status, order_type, group_join_required, group_join_link)
-     VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, 'CREATED', 'PENDING', 'NEW', ?, ?)`,
+       status, fulfillment_status, order_type, group_join_required, group_join_link, source)
+     VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, 'CREATED', 'PENDING', 'NEW', ?, ?, 'node')`,
     [orderId, service, plan, durationDays, name, email, p.phone || phone, phone,
       couponCode, discount, price, finalAmount, notes, extraKey, extraVal,
       groupJoinRequired ? 'TRUE' : 'FALSE', groupJoinLink]);
@@ -107,31 +112,29 @@ async function createOrder(p) {
 }
 
 async function _order(orderId) {
-  const rows = await db.query('SELECT order_id, final_amount, status FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
+  const rows = await db.query('SELECT order_id, final_amount, status, source FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
   return rows[0] || null;
 }
 async function _markPaid(orderId, txnRef) {
   await db.query('UPDATE orders SET status = ?, txn_ref = ?, verified_at = NOW() WHERE order_id = ?', ['PAID', txnRef || '', orderId]);
 }
 
-// ---- verifyPayment (auto, by OrderID in note) ----
 async function verifyPayment(orderId) {
   const o = await _order(orderId);
-  if (!o) return { ok: false, message: 'Order not found.' };
+  if (!o || o.source !== 'node') return { __fallback: true };   // not our order -> Apps Script
   if (String(o.status || '').toUpperCase() === 'PAID') return { ok: true, found: true, paid: true, message: '✅ Payment confirmed.' };
   const credit = await pay.findByOrder(orderId, o.final_amount);
   if (credit) { await _markPaid(orderId, credit.upi_ref); return { ok: true, found: true, paid: true }; }
   return { ok: true, found: false, retryAfterSec: 5, needRef: true, message: 'Payment not detected yet. Auto-checking…' };
 }
 
-// ---- verifyPaymentByRef (fallback, customer enters UPI ref) ----
 async function verifyPaymentByRef(orderId, ref) {
   const o = await _order(orderId);
-  if (!o) return { ok: false, message: 'Order not found.' };
+  if (!o || o.source !== 'node') return { __fallback: true };
   if (String(o.status || '').toUpperCase() === 'PAID') return { ok: true, found: true, paid: true, message: '✅ Payment confirmed.' };
   const credit = await pay.findByRef(orderId, ref, o.final_amount);
   if (credit) { await _markPaid(orderId, credit.upi_ref); return { ok: true, found: true, paid: true }; }
   return { ok: true, found: false, message: 'That reference / amount didn\'t match a payment yet. Please double-check and try again.' };
 }
 
-module.exports = { createOrder, verifyPayment, verifyPaymentByRef, _internal: { genOrderId, couponDiscount } };
+module.exports = { createOrder, verifyPayment, verifyPaymentByRef, serviceAllowed, _internal: { genOrderId, couponDiscount } };
