@@ -118,6 +118,18 @@ app.get('/admin/imap-scan', async (req, res) => {
   catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
 });
 
+app.get('/admin/fulfill', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const oid = String(req.query.order || '');
+  try {
+    const [rows] = await db.getPool().query('SELECT order_id, service, plan, status, fulfillment_status, source, extra_field_value, final_amount FROM orders WHERE order_id = ? LIMIT 1', [oid]);
+    let result = null;
+    try { result = fulfill ? await fulfill.fulfillAndGetAccess(oid) : { message: 'no fulfill module' }; }
+    catch (e) { result = { threw: String(e && e.message || e) }; }
+    res.json({ order: rows[0] || null, result });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+});
+
 app.get('/clearcache', (req, res) => {
   if (!requireAdmin(req, res)) return;
   cache.clear();
