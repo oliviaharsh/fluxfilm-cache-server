@@ -64,7 +64,7 @@ async function _existingAccess(orderId) {
   return { subId: s.sub_id, access: { user: s.login_id || '', pass: s.password || '', profileName: s.profile_name || '', profilePin: s.profile_pin || '', profileNumber: s.profile_number || '' } };
 }
 
-async function fulfillAndGetAccess(orderId) {
+async function _fulfill(orderId) {
   const [ords] = await db.getPool().query(
     'SELECT order_id, service, plan, name, email, phone, phone_norm, duration_days, status, fulfillment_status, extra_field_value, source FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
   const o = ords[0];
@@ -115,6 +115,11 @@ async function fulfillAndGetAccess(orderId) {
       subId,
     };
   });
+}
+
+async function fulfillAndGetAccess(orderId) {
+  try { return await _fulfill(orderId); }
+  catch (e) { console.log('[fulfill] error:', e.message); return { ok: false, found: true, orderId, fulfillment: 'ERROR', message: 'Activation hit a snag — please contact support with your order id.', fulfillError: String(e && e.message || e) }; }
 }
 
 module.exports = { fulfillAndGetAccess, allocatePrime, _internal: { genSubId } };
