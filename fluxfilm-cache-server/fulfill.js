@@ -92,7 +92,7 @@ async function _fulfill(orderId) {
     }
     const alloc = await allocatePrime(conn, dt);
     if (!alloc.ok) {
-      await conn.query("UPDATE orders SET fulfillment_status = 'FAILED', error = ? WHERE order_id = ?", [alloc.message || 'No stock', orderId]).catch(() => {});
+      await conn.query("UPDATE orders SET fulfillment_status = 'FAILED' WHERE order_id = ?", [orderId]).catch(() => {});
       return { ok: true, found: true, orderId, fulfillment: 'NO_STOCK', message: '😔 We just ran out of Prime slots as your payment came in. Please contact WhatsApp support — we\'ll sort it instantly.' };
     }
     const subId = genSubId();
@@ -107,7 +107,7 @@ async function _fulfill(orderId) {
       [subId, orderId, o.phone, o.phone_norm, o.email, o.service, o.plan, asNum(o.duration_days) || 30,
         fmtDt(start), fmtDt(expiry), alloc.inventoryRef, alloc.inventoryRef,
         alloc.access.user, alloc.access.pass, dt, fmtDt(release)]);
-    await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW(), inventory_ref = ? WHERE order_id = ?", [alloc.inventoryRef, orderId]);
+    await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [orderId]);
     return {
       ok: true, found: true, orderId, fulfillment: 'FULFILLED',
       message: '✅ Your Prime access is ready!', postPaymentMessage: '',
