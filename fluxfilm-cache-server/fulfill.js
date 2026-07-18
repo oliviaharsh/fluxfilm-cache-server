@@ -16,6 +16,19 @@ const PRIME_MAX_TOTAL = Number(process.env.PRIME_MAX_TOTAL || 4);
 const PRIME_MAX_TV = Number(process.env.PRIME_MAX_TV || 2);
 const COOLDOWN_DAYS = Number(process.env.REUSE_COOLDOWN_DAYS || 10);
 
+// Fire-and-forget: ask Apps Script to award coins + send the credentials email.
+// Never blocks credential delivery; failures are logged only.
+function afterFulfillHook(payload) {
+  const url = process.env.API_PHP_URL || 'https://go.fluxfilm.in/api.php';
+  const key = process.env.API_KEY || '';
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-KEY': key },
+    body: JSON.stringify({ apiKey: key, action: 'nodeAfterFulfill', args: [payload] }),
+  }).then(() => console.log('[afterFulfill] coins+email hook sent for', payload.orderId))
+    .catch((e) => console.log('[afterFulfill] hook failed:', e.message));
+}
+
 async function withLock(name, ttl, fn) {
   const pool = db.getPool();
   const conn = await pool.getConnection();
@@ -66,7 +79,7 @@ async function _existingAccess(orderId) {
 
 async function _fulfill(orderId) {
   const [ords] = await db.getPool().query(
-    'SELECT order_id, service, plan, name, email, phone, phone_norm, duration_days, status, fulfillment_status, extra_field_value, source FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
+    'SELECT order_id, service, plan, name, email, phone, phone_norm, duration_days, status, fulfillment_status, extra_field_value, source, final_amount FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
   const o = ords[0];
   if (!o || o.source !== 'node') return { __fallback: true };
   if (String(o.status || '').toUpperCase() !== 'PAID') return { ok: true, found: false, fulfillment: 'PENDING', retryAfterSec: 3, message: 'Processing your order…' };
@@ -108,6 +121,12 @@ async function _fulfill(orderId) {
         fmtDt(start), fmtDt(expiry), alloc.inventoryRef, alloc.inventoryRef,
         alloc.access.user, alloc.access.pass, dt, fmtDt(release)]);
     await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [orderId]);
+    afterFulfillHook({
+      orderId, phone: o.phone, email: o.email, name: o.name,
+      service: o.service, plan: o.plan, amount: o.final_amount,
+      expiry: fmtDt(expiry), postPaymentMessage: '',
+      access: { user: alloc.access.user, pass: alloc.access.pass, deviceType: dt },
+    });
     return {
       ok: true, found: true, orderId, fulfillment: 'FULFILLED',
       message: '✅ Your Prime access is ready!', postPaymentMessage: '',
