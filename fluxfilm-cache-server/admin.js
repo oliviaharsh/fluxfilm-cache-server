@@ -4,17 +4,17 @@
  */
 
 const TABLES = {
-  orders:        { cols: 'order_id, created_at_sheet, service, plan, phone, name, email, final_amount, discount, status, fulfillment_status, order_type, txn_ref', order: 'created_at_sheet DESC', phone: 'phone_norm', like: ['order_id'] },
-  subscriptions: { cols: 'sub_id, order_id, phone, service, plan, start_date, expiry_date, status, login_id, password, profile_name, profile_pin, inventory_ref', order: 'expiry_date DESC', phone: 'phone_norm', like: ['sub_id'] },
-  customers:     { cols: 'phone, name, email, member_since', order: 'created_at DESC', phone: 'phone_norm', like: ['name', 'email'] },
-  coupons:       { cols: 'code, description, type, value, active, show_in_profile, per_user_limit, expiry', order: 'code ASC', phone: null, like: ['code', 'description'] },
-  wallet:        { cols: 'phone, coins_balance, coins_lifetime, last_event, last_earned_at', order: 'coins_balance DESC', phone: 'phone_norm', like: [] },
-  coupon_usage:  { cols: 'ts, coupon_code, phone, discount, order_id, action', order: 'ts DESC', phone: 'phone_norm', like: ['coupon_code', 'order_id'] },
-  plans:         { cols: 'service, plan, duration_days, price, early_renew_discount, is_active', order: 'service ASC', phone: null, like: ['service', 'plan'] },
-  inventory_accounts: { cols: 'service, account_id, login_id, password, is_active, plan', order: 'service ASC', phone: null, like: ['account_id', 'login_id', 'service'] },
-  inventory_profiles: { cols: 'service, account_id, profile_name, profile_number, status, current_sub_id', order: 'account_id ASC', phone: null, like: ['account_id', 'profile_name', 'current_sub_id'] },
-  inventory_capacity: { cols: 'service, account_id, max_total, max_tv, is_active', order: 'account_id ASC', phone: null, like: ['account_id', 'service'] },
-  bank_credits: { cols: 'received_at, amount, upi_ref, order_ids, consumed_order_id', order: 'received_at DESC', phone: null, like: ['upi_ref', 'order_ids', 'consumed_order_id'] },
+  orders:        { cols: '*', order: 'created_at_sheet DESC', phone: 'phone_norm', like: ['order_id'] },
+  subscriptions: { cols: '*', order: 'expiry_date DESC', phone: 'phone_norm', like: ['sub_id'] },
+  customers:     { cols: '*', order: 'created_at DESC', phone: 'phone_norm', like: ['name', 'email'] },
+  coupons:       { cols: '*', order: 'code ASC', phone: null, like: ['code', 'description'] },
+  wallet:        { cols: '*', order: 'coins_balance DESC', phone: 'phone_norm', like: [] },
+  coupon_usage:  { cols: '*', order: 'ts DESC', phone: 'phone_norm', like: ['coupon_code', 'order_id'] },
+  plans:         { cols: '*', order: 'service ASC', phone: null, like: ['service', 'plan'] },
+  inventory_accounts: { cols: '*', order: 'service ASC', phone: null, like: ['account_id', 'login_id', 'service'] },
+  inventory_profiles: { cols: '*', order: 'account_id ASC', phone: null, like: ['account_id', 'profile_name', 'current_sub_id'] },
+  inventory_capacity: { cols: '*', order: 'account_id ASC', phone: null, like: ['account_id', 'service'] },
+  bank_credits: { cols: '*', order: 'received_at DESC', phone: null, like: ['upi_ref', 'order_ids', 'consumed_order_id'] },
 };
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 
@@ -86,7 +86,9 @@ function mountAdmin(app, deps) {
     try {
       const rows = await db.query('SELECT ' + cfg.cols + ' FROM `' + name + '` ' + where + ' ORDER BY ' + cfg.order + ' LIMIT ? OFFSET ?', [...params, limit, offset]);
       const totalRow = await db.query('SELECT COUNT(*) n FROM `' + name + '` ' + where, params);
-      const columns = rows.length ? Object.keys(rows[0]) : cfg.cols.split(',').map((x) => x.trim());
+      const HIDE = new Set(['raw_json', 'logo_url']);
+      for (const r of rows) for (const k of Object.keys(r)) if (HIDE.has(k)) delete r[k];
+      const columns = rows.length ? Object.keys(rows[0]) : [];
       res.json({ ok: true, table: name, columns, rows, total: +(totalRow[0] || {}).n || 0, limit, offset });
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
