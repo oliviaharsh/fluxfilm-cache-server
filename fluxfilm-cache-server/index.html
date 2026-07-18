@@ -4097,6 +4097,10 @@ function VerifyScreen({
   const [trending, setTrending] = useState([]);
   const [trendIdx, setTrendIdx] = useState(0);
   const [stepIdx, setStepIdx] = useState(0);
+  const [showRef, setShowRef] = useState(false);
+  const [refVal, setRefVal] = useState('');
+  const [refBusy, setRefBusy] = useState(false);
+  const [refMsg, setRefMsg] = useState('');
   const stopped = useRef(false);
   const navDone = useRef(false);
   const startRef = useRef(Date.now());
@@ -4210,6 +4214,7 @@ function VerifyScreen({
           return;
         }
         setMessage(r?.message || 'Payment not detected yet. Auto-checking…');
+        if (Date.now() - startRef.current > 15000) setShowRef(true);
         timerRef.current = setTimeout(poll, 2000);
       }, () => {
         if (!stopped.current) timerRef.current = setTimeout(poll, 3000);
@@ -4227,6 +4232,18 @@ function VerifyScreen({
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [orderId]);
+  function submitRef() {
+    const v = String(refVal || '').replace(/\D/g, '');
+    if (v.length < 6) { setRefMsg('Please enter the full UPI reference number.'); return; }
+    setRefBusy(true); setRefMsg('Checking…');
+    API.verifyPaymentByRef(orderId, v, r => {
+      setRefBusy(false);
+      if (r?.paid === true || r?.found === true) {
+        setRefMsg(''); setPhase('found');
+        setTimeout(() => startFulfillPolling(), 1200);
+      } else { setRefMsg(r?.message || 'Not matched yet — please double-check the number.'); }
+    }, () => { setRefBusy(false); setRefMsg('Network issue, please try again.'); });
+  }
   function manualRetry() {
     stopped.current = false;
     navDone.current = false;
@@ -4523,7 +4540,25 @@ function VerifyScreen({
       color: '#1e40af',
       lineHeight: 1.5
     }
-  }, message), timedOut && React.createElement(React.Fragment, null, React.createElement("div", {
+  }, message), showRef && !timedOut && React.createElement("div", {
+    style: { marginTop: 14, padding: 14, borderRadius: 16, background: '#f8fafc', border: '1px solid #e2e8f0' }
+  }, React.createElement("div", {
+    style: { fontFamily: PJS, fontSize: 13, fontWeight: 900, color: C.text, marginBottom: 4 }
+  }, "Taking longer than usual?"), React.createElement("div", {
+    style: { fontFamily: PJS, fontSize: 12, fontWeight: 650, color: C.muted, marginBottom: 10, lineHeight: 1.45 }
+  }, "If you paid without the order note, enter the UPI Reference Number (12 digits) shown in your payment app."), React.createElement("input", {
+    value: refVal,
+    onChange: e => setRefVal(e.target.value),
+    placeholder: "UPI Reference Number",
+    inputMode: "numeric",
+    style: { width: '100%', padding: '11px 13px', borderRadius: 12, border: '1px solid #cbd5e1', fontFamily: PJS, fontSize: 14, fontWeight: 700, boxSizing: 'border-box' }
+  }), React.createElement("button", {
+    onClick: submitRef,
+    disabled: refBusy,
+    style: { width: '100%', marginTop: 9, padding: 12, borderRadius: 12, border: 0, background: '#16a34a', color: '#fff', fontFamily: PJS, fontSize: 14, fontWeight: 900, cursor: 'pointer', opacity: refBusy ? .6 : 1 }
+  }, refBusy ? 'Checking…' : 'Verify with Reference No.'), refMsg && React.createElement("div", {
+    style: { marginTop: 8, fontFamily: PJS, fontSize: 12, fontWeight: 700, color: '#b45309', textAlign: 'center' }
+  }, refMsg)), timedOut && React.createElement(React.Fragment, null, React.createElement("div", {
     style: {
       marginTop: 10,
       padding: '12px 13px',
@@ -7830,6 +7865,9 @@ const API = {
   },
   verifyPayment(orderId, onSuccess, onFailure) {
     apiCall_('verifyPayment', [orderId], onSuccess, onFailure);
+  },
+  verifyPaymentByRef(orderId, ref, onSuccess, onFailure) {
+    apiCall_('verifyPaymentByRef', [orderId, ref], onSuccess, onFailure);
   },
   fulfillAndGetAccess(orderId, onSuccess, onFailure) {
     apiCall_('fulfillAndGetAccess', [orderId], onSuccess, onFailure);
