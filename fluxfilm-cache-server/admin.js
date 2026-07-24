@@ -19,7 +19,7 @@ const TABLES = {
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 
 function mountAdmin(app, deps) {
-  const { db, ADMIN_KEY } = deps;
+  const { db, ADMIN_KEY, callApiPhp, sync } = deps;
   const auth = (req, res) => {
     if (!ADMIN_KEY || req.query.key !== ADMIN_KEY) { res.status(403).json({ ok: false, message: 'Unauthorized' }); return false; }
     return true;
@@ -108,6 +108,20 @@ function mountAdmin(app, deps) {
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
 
+  app.post('/admin/api/coupon', async (req, res) => {
+    if (!auth(req, res)) return;
+    const p = req.body || {};
+    if (!p.code) return res.status(400).json({ ok: false, message: 'Coupon code required' });
+    if (!callApiPhp) return res.status(500).json({ ok: false, message: 'Apps Script bridge unavailable' });
+    try {
+      const r = await callApiPhp({ action: 'nodeUpsertCoupon', args: [p] });
+      let out = {}; try { out = JSON.parse(r.text); } catch (_) { out = { raw: String(r.text || '').slice(0, 200) }; }
+      if (out && out.ok === false) return res.json({ ok: false, message: out.message || 'Apps Script rejected it' });
+      try { if (sync && sync.runSync) await sync.runSync(['coupons'], { dry: false }); } catch (_) {}
+      res.json({ ok: true, appsScript: out });
+    } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
+  });
+
   app.get('/panel', (_req, res) => res.type('html').send(PAGE));
 }
 
@@ -166,12 +180,12 @@ function nav(v){VIEW=v;route()}
 
 function shell(){$('#app').innerHTML='<header><b>🎬 FluxFilm Admin</b><button class="alt" onclick="logout()">Log out</button></header>'+
  '<div class="wrap"><div class="nav">'+
- [['dashboard','📊 Dashboard'],['data','📄 Data'],['expiring','⏳ Expiring'],['customer','👤 Customer 360']]
+ [['dashboard','📊 Dashboard'],['data','📄 Data'],['expiring','⏳ Expiring'],['coupons','🎟️ Coupons'],['customer','👤 Customer 360']]
  .map(function(x){return '<a id="nav-'+x[0]+'" onclick="nav(\\''+x[0]+'\\')">'+x[1]+'</a>'}).join('')+
  '</div><div id="view"></div></div>'}
 
-function route(){TBLS.forEach(function(){});['dashboard','data','expiring','customer'].forEach(function(v){var e=$('#nav-'+v);if(e)e.className=(v===VIEW?'on':'')});
- if(VIEW==='dashboard')dashboard();else if(VIEW==='data')dataView();else if(VIEW==='expiring')expiring();else customer()}
+function route(){TBLS.forEach(function(){});['dashboard','data','expiring','coupons','customer'].forEach(function(v){var e=$('#nav-'+v);if(e)e.className=(v===VIEW?'on':'')});
+ if(VIEW==='dashboard')dashboard();else if(VIEW==='data')dataView();else if(VIEW==='expiring')expiring();else if(VIEW==='coupons')coupons();else customer()}
 
 function dashboard(){
  $('#view').innerHTML='<div id="kpis" class="kpis"></div><div class="grid2"><div class="card"><h3>💰 Revenue — last 30 days</h3><canvas id="cRev"></canvas></div><div class="card"><h3>📈 Orders by status</h3><canvas id="cStatus"></canvas></div></div><div class="card"><h3>🎥 Top services (paid orders)</h3><canvas id="cSvc"></canvas></div>';
@@ -217,6 +231,42 @@ function loadExp(days){api('/admin/api/expiring',{days:days}).then(function(r){
     return '<tr><td><span class="days'+(dl>3?' ok':'')+'">'+dl+'d</span></td><td>'+(s.service||'')+'</td><td>'+(s.plan||'')+'</td><td>'+String(s.expiry_date).slice(0,10)+'</td><td>'+(s.phone||'')+'</td><td class="muted">'+(s.email||'')+'</td><td><a href="'+waLink(s.phone,msg)+'" target="_blank"><button class="wa">💬 WhatsApp</button></a></td></tr>'}).join('');
   $('#exp').innerHTML='<div class="tblwrap"><table><thead><tr><th>Left</th><th>Service</th><th>Plan</th><th>Expiry</th><th>Phone</th><th>Email</th><th>Reach out</th></tr></thead><tbody>'+rows+'</tbody></table></div>'})}
 
+function coupons(){
+ $('#view').innerHTML='<div class="card"><h3>🎟️ Add / edit coupon</h3><div class="muted" style="font-size:.8rem;margin-bottom:10px">Saves straight into your Google Sheet, then re-syncs — so the live site sees it too.</div><div id="cform"></div></div><div class="card"><h3>All coupons</h3><div id="clist"></div></div>';
+ renderCouponForm({}); loadCoupons();
+}
+function renderCouponForm(c){
+ c=c||{};
+ function esc(v){return v==null?'':String(v).split('"').join('&quot;')}
+ function inp(id,label,val,ph){return '<div style="flex:1;min-width:150px"><div class="muted" style="font-size:.72rem;margin-bottom:3px">'+label+'</div><input id="'+id+'" value="'+esc(val)+'" placeholder="'+(ph||'')+'" style="width:100%"/></div>'}
+ function sel(id,label,val,opts){var o=opts.map(function(x){return '<option'+(String(val==null?'':val).toUpperCase()===x?' selected':'')+'>'+x+'</option>'}).join('');return '<div style="flex:1;min-width:150px"><div class="muted" style="font-size:.72rem;margin-bottom:3px">'+label+'</div><select id="'+id+'" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fff">'+o+'</select></div>'}
+ $('#cform').innerHTML=
+  '<div class="bar">'+inp('c_code','Coupon code',c.code,'SAVE10')+inp('c_desc','Description',c.description,'₹10 off')+'</div>'+
+  '<div class="bar">'+sel('c_type','Type',c.type,['FLAT','PERCENT'])+inp('c_value','Value',c.value,'10')+inp('c_min','Min amount',c.min_amount,'0')+inp('c_max','Max discount',c.max_discount,'0')+'</div>'+
+  '<div class="bar">'+sel('c_active','Active',c.active==null?'TRUE':c.active,['TRUE','FALSE'])+sel('c_show','Show in profile',c.show_in_profile==null?'TRUE':c.show_in_profile,['TRUE','FALSE'])+sel('c_first','First time only',c.first_time_only==null?'FALSE':c.first_time_only,['FALSE','TRUE'])+sel('c_scope','Scope',c.scope==null?'ANY':c.scope,['ANY','NEW','RENEW'])+'</div>'+
+  '<div class="bar">'+inp('c_per','Per-user limit',c.per_user_limit,'1')+inp('c_glob','Global limit',c.global_limit,'0')+inp('c_exp','Expiry (YYYY-MM-DD)',c.expiry?String(c.expiry).slice(0,10):'','2026-12-31')+inp('c_phones','Allowed phones (or ALL)',c.allowed_phones,'ALL')+'</div>'+
+  '<div class="bar"><button onclick="saveCoupon()">💾 Save coupon</button><button class="alt" onclick="renderCouponForm({})">＋ New</button><span id="csave" class="muted" style="align-self:center"></span></div>';
+}
+function saveCoupon(){
+ function v(id){var e=$('#'+id);return e?String(e.value||'').trim():''}
+ var payload={code:v('c_code'),description:v('c_desc'),type:v('c_type'),value:v('c_value'),minAmount:v('c_min'),maxDiscount:v('c_max'),active:v('c_active'),showInProfile:v('c_show'),firstTimeOnly:v('c_first'),scope:v('c_scope'),perUserLimit:v('c_per'),globalLimit:v('c_glob'),expiry:v('c_exp'),allowedPhones:v('c_phones')};
+ if(!payload.code){$('#csave').textContent='Enter a coupon code first';return}
+ $('#csave').textContent='Saving…';
+ fetch(location.origin+'/admin/api/coupon?key='+encodeURIComponent(KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+  .then(function(r){return r.json()})
+  .then(function(r){ $('#csave').textContent = r.ok ? '✅ Saved to Sheet + synced' : ('⚠️ '+(r.message||'failed')); if(r.ok) loadCoupons(); })
+  .catch(function(e){ $('#csave').textContent='⚠️ '+e.message });
+}
+function loadCoupons(){
+ api('/admin/api/table',{name:'coupons',limit:200}).then(function(r){
+  if(!r.ok){$('#clist').innerHTML='<p class="muted">'+(r.message||'error')+'</p>';return}
+  window._coupons=r.rows;
+  var th=r.columns.map(function(c){return '<th>'+c+'</th>'}).join('');
+  var rows=r.rows.map(function(row,i){return '<tr style="cursor:pointer" onclick="editCoupon('+i+')">'+r.columns.map(function(c){return '<td>'+fmt(c,row[c])+'</td>'}).join('')+'</tr>'}).join('');
+  $('#clist').innerHTML='<p class="muted" style="margin-top:0">👆 Click any row to edit it.</p><div class="tblwrap"><table><thead><tr>'+th+'</tr></thead><tbody>'+(rows||'<tr><td class="muted">No coupons</td></tr>')+'</tbody></table></div>';
+ });
+}
+function editCoupon(i){var c=(window._coupons||[])[i]; if(c){renderCouponForm(c); window.scrollTo({top:0,behavior:'smooth'});}}
 function customer(){
  $('#view').innerHTML='<div class="bar"><input id="cp" placeholder="Customer phone number…" style="flex:1;min-width:200px" onkeydown="if(event.key===\\'Enter\\')lookup()"/><button onclick="lookup()">Look up</button></div><div id="c360"></div>'}
 function lookup(){var p=$('#cp').value.trim();if(!p)return;api('/admin/api/customer',{phone:p}).then(function(r){
