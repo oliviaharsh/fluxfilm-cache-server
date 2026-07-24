@@ -179,7 +179,7 @@ app.post('/api', async (req, res) => {
 });
 
 // -- Admin panel (read-only) --
-if (admin) admin.mountAdmin(app, { db, ADMIN_KEY });
+if (admin) admin.mountAdmin(app, { db, ADMIN_KEY, callApiPhp, sync });
 
 // -- Serve the storefront --
 app.get('*', (_req, res) => {
