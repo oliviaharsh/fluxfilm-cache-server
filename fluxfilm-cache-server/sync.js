@@ -82,6 +82,7 @@ const TABLES = {
   },
   coupons: {
     tab: 'COUPONS', pk: 'code',
+    key: (r) => String((r.CouponCode != null ? r.CouponCode : '') || (r.Code != null ? r.Code : '') || '').trim(),
     cols: {
       code: ['CouponCode', s], description: ['Description', s], scope: ['Scope', s], type: ['Type', s],
       value: ['Value', num], min_amount: ['MinAmount', num], max_discount: ['MaxDiscount', num],
@@ -137,6 +138,7 @@ function mapRow(def, srcRow) {
   for (const [col, [header, cast]] of Object.entries(def.cols)) {
     out[col] = cast(srcRow[header]);
   }
+  if (def.key) out[def.pk] = def.key(srcRow);
   if (Object.prototype.hasOwnProperty.call(out, 'phone')) out.phone_norm = normPhone(out.phone);
   out.raw_json = JSON.stringify(srcRow);
   return out;
@@ -162,8 +164,9 @@ async function upsert(table, def, mapped) {
 async function syncOne(table, dry) {
   const def = TABLES[table];
   const rows = await fetchDump(def.tab);
+  const keyOf = def.key || ((r) => r[def.cols[def.pk][0]]);
   const mapped = rows
-    .filter((r) => (r[def.cols[def.pk][0]] != null && String(r[def.cols[def.pk][0]]).trim() !== ''))
+    .filter((r) => { const k = keyOf(r); return k != null && String(k).trim() !== ''; })
     .map((r) => mapRow(def, r));
   if (dry) {
     return { table, sheetRows: rows.length, withKey: mapped.length, dry: true,
