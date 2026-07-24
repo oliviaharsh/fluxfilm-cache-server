@@ -49,7 +49,15 @@ async function allocatePrime(conn, deviceType) {
   const [caps] = await conn.query("SELECT account_id, max_total, max_tv, is_active FROM inventory_capacity WHERE LOWER(service) LIKE '%prime%'");
   const capMap = new Map();
   for (const c of caps) capMap.set(String(c.account_id), { maxTotal: asNum(c.max_total) || PRIME_MAX_TOTAL, maxTV: asNum(c.max_tv) || PRIME_MAX_TV, isActive: String(c.is_active || '').toUpperCase() === 'TRUE' });
-  const [occ] = await conn.query("SELECT inventory_ref, COUNT(*) total, SUM(UPPER(device_type)='TV') tv FROM subscriptions WHERE LOWER(service) LIKE '%prime%' AND UPPER(status)='ACTIVE' AND release_eligible_at > NOW() GROUP BY inventory_ref");
+  // Count ACTIVE logins per account. A sub occupies a slot while it's inside its
+  // cooldown window (release_eligible_at) OR — if that's missing on older/migrated
+  // rows — while it simply hasn't expired. Without this fallback an account full of
+  // legacy subs would look EMPTY and get overloaded (screen-limit hell).
+  const [occ] = await conn.query(
+    "SELECT inventory_ref, COUNT(*) total, SUM(UPPER(device_type)='TV') tv FROM subscriptions " +
+    "WHERE LOWER(service) LIKE '%prime%' AND UPPER(status)='ACTIVE' " +
+    "AND (release_eligible_at > NOW() OR (release_eligible_at IS NULL AND expiry_date > NOW())) " +
+    "GROUP BY inventory_ref");
   const occMap = new Map();
   for (const o of occ) occMap.set(String(o.inventory_ref), { total: asNum(o.total), tv: asNum(o.tv) });
 
@@ -65,6 +73,7 @@ async function allocatePrime(conn, deviceType) {
     candidates.push({ id, login: a.login_id, pass: a.password, total: o.total });
   }
   if (!candidates.length) return { ok: false, noStock: true, message: 'Prime slots are full right now (TV/non-TV capacity).' };
+  // ALWAYS pick the emptiest account first (spreads load, avoids screen limits)
   candidates.sort((x, y) => x.total - y.total);
   const picked = candidates[0];
   return { ok: true, inventoryRef: picked.id, deviceType: dt, access: { user: picked.login, pass: picked.pass } };
