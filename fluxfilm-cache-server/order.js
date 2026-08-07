@@ -81,11 +81,17 @@ async function createOrder(p) {
   const groupJoinRequired = String(praw.RequiresGroupJoin || '').toUpperCase() === 'TRUE';
   const groupJoinLink = String(praw.GroupJoinLink || '').trim();
 
+  const orderType = String(p.action || '').toUpperCase() === 'RENEW' ? 'RENEW' : 'NEW';
+  const renewSubId = String(p.renewSubId || '').trim();
+
   let discount = 0;
   if (couponCode) {
     const cd = await couponDiscount(couponCode, phone, price);
     if (!cd.ok) return cd;
     discount = cd.discount;
+  } else if (asNum(p.discountOverride) > 0) {
+    // early-renew discount (no coupon on this order); never stacks with a coupon
+    discount = Math.min(price, Math.round(asNum(p.discountOverride)));
   }
   const finalAmount = Math.max(0, price - discount);
   const orderId = genOrderId();
@@ -93,11 +99,11 @@ async function createOrder(p) {
   await db.query(
     `INSERT INTO orders (order_id, created_at_sheet, service, plan, duration_days, name, email, phone, phone_norm,
        coupon_code, discount, price, final_amount, currency, notes, extra_field_key, extra_field_value,
-       status, fulfillment_status, order_type, group_join_required, group_join_link, source)
-     VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, 'CREATED', 'PENDING', 'NEW', ?, ?, 'node')`,
+       status, fulfillment_status, order_type, renew_sub_id, group_join_required, group_join_link, source)
+     VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, 'CREATED', 'PENDING', ?, ?, ?, ?, 'node')`,
     [orderId, service, plan, durationDays, name, email, p.phone || phone, phone,
       couponCode, discount, price, finalAmount, notes, extraKey, extraVal,
-      groupJoinRequired ? 'TRUE' : 'FALSE', groupJoinLink]);
+      orderType, renewSubId, groupJoinRequired ? 'TRUE' : 'FALSE', groupJoinLink]);
 
   const upiVpa = process.env.UPI_VPA || 'fluxfilm@upi';
   const payee = process.env.UPI_PAYEE || 'FluxFilm';
@@ -137,4 +143,56 @@ async function verifyPaymentByRef(orderId, ref) {
   return { ok: true, found: false, message: 'That reference / amount didn\'t match a payment yet. Please double-check and try again.' };
 }
 
-module.exports = { createOrder, verifyPayment, verifyPaymentByRef, serviceAllowed, _internal: { genOrderId, couponDiscount } };
+/**
+ * createRenewOrder(subId, planOverride?, couponCode?)
+ * Renews an existing MySQL (node-created) subscription. Reuses createOrder so the
+ * pay screen / verify / fulfill chain is identical to a fresh buy — the only
+ * differences are order_type='RENEW', renew_sub_id, and the early-renew discount.
+ * Sheet-owned subs (not source='node') fall back to Apps Script, which renews them
+ * on the live Sheet — so a renewal is never split across two stores.
+ */
+async function createRenewOrder(subId, planOverride, couponCode) {
+  const sid = String(subId || '').trim();
+  if (!sid) return { ok: false, message: 'Missing subscription id.' };
+  const subs = await db.query(
+    'SELECT sub_id, service, plan, phone, email, expiry_date, source FROM subscriptions WHERE sub_id = ? LIMIT 1', [sid]);
+  const sub = subs[0];
+  if (!sub) return { __fallback: true };                       // unknown to MySQL -> Apps Script
+  if (String(sub.source || '') !== 'node') return { __fallback: true }; // Sheet sub -> Apps Script
+  if (!serviceAllowed(sub.service)) return { __fallback: true };
+
+  // Same backward-compat trick as Apps Script: a 2nd arg that "looks like" a coupon
+  // (no spaces, 3-20 chars) is treated as a coupon, not a plan override.
+  let plan = String(sub.plan || '').trim();
+  let cc = String(couponCode || '').trim().toUpperCase();
+  let po = String(planOverride || '').trim();
+  if (!cc && po && /^[A-Z0-9_-]{3,20}$/.test(po.toUpperCase())) { cc = po.toUpperCase(); po = ''; }
+  if (po) plan = po;
+
+  const planRows = await db.query('SELECT price, raw_json FROM plans WHERE service = ? AND plan = ? LIMIT 1', [sub.service, plan]);
+  const prow = planRows[0];
+  if (!prow) return { ok: false, message: 'Renewal plan not found — please contact support.' };
+  const praw = rawOf(prow.raw_json);
+
+  // days left from current expiry -> tiered early-renew discount
+  let daysLeft = null;
+  if (sub.expiry_date) { const ex = new Date(sub.expiry_date); if (!isNaN(ex.getTime())) daysLeft = Math.ceil((ex.getTime() - Date.now()) / 86400000); }
+  let discountOverride = 0;
+  if (daysLeft != null) {
+    if (daysLeft >= 8) discountOverride = asNum(praw.EarlyRenewDiscount);
+    else if (daysLeft >= 2) discountOverride = asNum(praw.EarlyRenewDiscount_7to2);
+  }
+
+  const cust = await db.query('SELECT name FROM customers WHERE phone_norm = ? LIMIT 1', [norm(sub.phone)]);
+  const name = (cust[0] && cust[0].name) || 'Customer';
+
+  const out = await createOrder({
+    service: sub.service, plan, name, email: sub.email, phone: sub.phone,
+    couponCode: cc, action: 'RENEW', renewSubId: sid, notes: 'RENEW:' + sid,
+    discountOverride,
+  });
+  if (out && out.ok) { out.renew = true; out.renewSubId = sid; }
+  return out;
+}
+
+module.exports = { createOrder, createRenewOrder, verifyPayment, verifyPaymentByRef, serviceAllowed, _internal: { genOrderId, couponDiscount } };
