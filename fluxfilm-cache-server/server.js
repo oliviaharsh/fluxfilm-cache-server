@@ -45,6 +45,7 @@ const READ_FROM_DB = process.env.READ_FROM_DB === '1' || process.env.READ_FROM_D
 const BUY_ON_DB = process.env.BUY_ON_DB === '1' || process.env.BUY_ON_DB === 'true';
 const DB_WRITES = order ? {
   createOrder: (a) => order.createOrder(a[0]),
+  createRenewOrder: (a) => order.createRenewOrder(a[0], a[1], a[2]),
   verifyPayment: (a) => order.verifyPayment(a[0]),
   verifyPaymentByRef: (a) => order.verifyPaymentByRef(a[0], a[1]),
   fulfillAndGetAccess: (a) => (fulfill ? fulfill.fulfillAndGetAccess(a[0]) : Promise.resolve({ __fallback: true })),
