@@ -88,7 +88,7 @@ async function _existingAccess(orderId) {
 
 async function _fulfill(orderId) {
   const [ords] = await db.getPool().query(
-    'SELECT order_id, service, plan, name, email, phone, phone_norm, duration_days, status, fulfillment_status, extra_field_value, source, final_amount FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
+    'SELECT order_id, service, plan, name, email, phone, phone_norm, duration_days, status, fulfillment_status, extra_field_value, source, final_amount, order_type, renew_sub_id FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
   const o = ords[0];
   if (!o || o.source !== 'node') return { __fallback: true };
   if (String(o.status || '').toUpperCase() !== 'PAID') return { ok: true, found: false, fulfillment: 'PENDING', retryAfterSec: 3, message: 'Processing your order…' };
@@ -96,6 +96,11 @@ async function _fulfill(orderId) {
   if (String(o.fulfillment_status || '').toUpperCase() === 'FULFILLED') {
     const ex = await _existingAccess(orderId);
     return { ok: true, found: true, orderId, fulfillment: 'FULFILLED', message: '✅ Showing your credentials.', postPaymentMessage: '', access: (ex && ex.access) || {} };
+  }
+
+  // RENEW: extend the SAME subscription's expiry — never allocate a new account.
+  if (String(o.order_type || '').toUpperCase() === 'RENEW' && o.renew_sub_id) {
+    return await _fulfillRenew(o);
   }
 
   const svc = String(o.service || '').toLowerCase();
@@ -124,8 +129,8 @@ async function _fulfill(orderId) {
     await conn.query(
       `INSERT INTO subscriptions (sub_id, order_id, phone, phone_norm, email, service, plan, duration_days,
          start_date, expiry_date, status, fulfillment_status, order_type, inventory_ref, account_id,
-         login_id, password, device_type, release_eligible_at, fulfilled_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'FULFILLED', 'NEW', ?, ?, ?, ?, ?, ?, NOW())`,
+         login_id, password, device_type, release_eligible_at, fulfilled_at, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'FULFILLED', 'NEW', ?, ?, ?, ?, ?, ?, NOW(), 'node')`,
       [subId, orderId, o.phone, o.phone_norm, o.email, o.service, o.plan, asNum(o.duration_days) || 30,
         fmtDt(start), fmtDt(expiry), alloc.inventoryRef, alloc.inventoryRef,
         alloc.access.user, alloc.access.pass, dt, fmtDt(release)]);
@@ -141,6 +146,58 @@ async function _fulfill(orderId) {
       message: '✅ Your Prime access is ready!', postPaymentMessage: '',
       access: { user: alloc.access.user, pass: alloc.access.pass, profileName: '', profilePin: '', profileNumber: '', deviceType: dt },
       subId,
+    };
+  });
+}
+
+function _accessOf(s) {
+  return { user: s.login_id || '', pass: s.password || '', profileName: s.profile_name || '', profilePin: s.profile_pin || '', profileNumber: s.profile_number || '', deviceType: s.device_type || '' };
+}
+
+// Extend an existing subscription (renewal). Base policy: renewing in advance OR
+// late by <= RENEW_BASE_TODAY_AFTER_DAYS days -> extend from the old expiry (keep
+// continuity); later than that -> extend from today (the gap days are lost).
+async function _fulfillRenew(o) {
+  const sid = String(o.renew_sub_id || '').trim();
+  return withLock('ff_renew', 10, async (conn) => {
+    const [subsRows] = await conn.query(
+      'SELECT sub_id, expiry_date, login_id, password, profile_name, profile_pin, profile_number, service, device_type FROM subscriptions WHERE sub_id = ? LIMIT 1', [sid]);
+    const s = subsRows[0];
+    if (!s) return { ok: false, found: true, orderId: o.order_id, fulfillment: 'ERROR', message: 'Renewal target not found — please contact support.' };
+
+    // idempotent: if this renew order already applied, just show the credentials
+    const [chk] = await conn.query('SELECT fulfillment_status FROM orders WHERE order_id = ? LIMIT 1', [o.order_id]);
+    if (chk[0] && String(chk[0].fulfillment_status || '').toUpperCase() === 'FULFILLED') {
+      return { ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED', message: '✅ Your subscription is renewed.', access: _accessOf(s), subId: sid };
+    }
+
+    const durationDays = asNum(o.duration_days) || 30;
+    const LATE = Number(process.env.RENEW_BASE_TODAY_AFTER_DAYS || 10);
+    const nowDate = new Date();
+    let base = nowDate;
+    const oldExp = s.expiry_date ? new Date(s.expiry_date) : null;
+    if (oldExp && !isNaN(oldExp.getTime())) {
+      const daysLate = Math.ceil((nowDate.getTime() - oldExp.getTime()) / 86400000);
+      base = (daysLate <= LATE) ? oldExp : nowDate;
+    }
+    const newExpiry = addDays(base, durationDays);
+    const release = addDays(newExpiry, COOLDOWN_DAYS);
+
+    await conn.query(
+      "UPDATE subscriptions SET expiry_date = ?, new_expiry = ?, order_id = ?, status = 'ACTIVE', fulfillment_status = 'FULFILLED', release_eligible_at = ?, fulfilled_at = NOW(), source = 'node' WHERE sub_id = ?",
+      [fmtDt(newExpiry), fmtDt(newExpiry), o.order_id, fmtDt(release), sid]);
+    await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
+
+    afterFulfillHook({
+      orderId: o.order_id, phone: o.phone, email: o.email, name: o.name,
+      service: o.service, plan: o.plan, amount: o.final_amount,
+      expiry: fmtDt(newExpiry), postPaymentMessage: '',
+      access: { user: s.login_id, pass: s.password, deviceType: s.device_type },
+    });
+    return {
+      ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED',
+      message: '✅ Renewed! Your subscription has been extended.', postPaymentMessage: '',
+      access: _accessOf(s), subId: sid, newExpiry: fmtDt(newExpiry),
     };
   });
 }
