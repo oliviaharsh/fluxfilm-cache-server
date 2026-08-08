@@ -76,6 +76,9 @@ async function createOrder(p) {
   const prow = planRows[0];
   if (!prow || String(prow.is_active || '').toUpperCase() !== 'TRUE') return { ok: false, message: 'Plan not found or inactive.' };
   const praw = rawOf(prow.raw_json);
+  // OTP-login services need Gmail to read the login OTP → stay fully on Apps Script.
+  // Don't create a node order we can't finish (Apps Script can't see MySQL-only orders).
+  if (String(praw.AllocationPolicy || '').toUpperCase() === 'OTP_ACCOUNT') return { __fallback: true };
   const price = asNum(prow.price);
   const durationDays = Number(prow.duration_days) || asNum(praw.DurationDays);
   const groupJoinRequired = String(praw.RequiresGroupJoin || '').toUpperCase() === 'TRUE';
