@@ -15,6 +15,24 @@ function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + (n || 0)
 const PRIME_MAX_TOTAL = Number(process.env.PRIME_MAX_TOTAL || 4);
 const PRIME_MAX_TV = Number(process.env.PRIME_MAX_TV || 2);
 const COOLDOWN_DAYS = Number(process.env.REUSE_COOLDOWN_DAYS || 10);
+const NETFLIX_SHARING_NO = Number(process.env.NETFLIX_SHARING_PROFILE_NO || 1);
+const NETFLIX_SHARING_MAX = Number(process.env.NETFLIX_SHARING_MAX_TOTAL || 5);
+
+function rawOf(v) { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (_) { return {}; } }
+
+// Live occupancy per inventory_ref for a service, derived ONLY from node
+// subscriptions (never from the inventory tables, which the 5-min sync truncates).
+// A slot is occupied while inside its cooldown window, or (older rows) until expiry.
+async function occupancyMap(conn, serviceLike) {
+  const [occ] = await conn.query(
+    "SELECT inventory_ref, COUNT(*) total FROM subscriptions " +
+    "WHERE LOWER(service) LIKE ? AND UPPER(status)='ACTIVE' " +
+    "AND (release_eligible_at > NOW() OR (release_eligible_at IS NULL AND expiry_date > NOW())) " +
+    "GROUP BY inventory_ref", [serviceLike]);
+  const m = new Map();
+  for (const o of occ) m.set(String(o.inventory_ref), asNum(o.total));
+  return m;
+}
 
 // Fire-and-forget: ask Apps Script to award coins + send the credentials email.
 // Never blocks credential delivery; failures are logged only.
@@ -103,25 +121,135 @@ async function _fulfill(orderId) {
     return await _fulfillRenew(o);
   }
 
-  const svc = String(o.service || '').toLowerCase();
-  if (!svc.includes('prime')) {
-    return { ok: true, found: true, orderId, fulfillment: 'MANUAL_PENDING', message: '✅ Payment received. Activation will be done shortly.', postPaymentMessage: '' };
+  // Manual orders already logged: don't re-insert, just show the pending message.
+  if (String(o.fulfillment_status || '').toUpperCase() === 'MANUAL_PENDING') {
+    return { ok: true, found: true, orderId, fulfillment: 'MANUAL_PENDING', message: '✅ Payment received — activation is in progress.', postPaymentMessage: '' };
   }
-  let dt = String(o.extra_field_value || '').toUpperCase();
-  if (dt !== 'TV' && dt !== 'NON_TV') dt = 'NON_TV'; // default non-TV if not provided
 
-  return withLock('ff_alloc_prime', 10, async (conn) => {
-    // double-check inside the lock (idempotency under concurrency)
-    const [chk] = await conn.query('SELECT fulfillment_status FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
+  // Read the plan's delivery policy (matches the Apps Script router).
+  const [prows] = await db.getPool().query('SELECT raw_json FROM plans WHERE service = ? AND plan = ? LIMIT 1', [o.service, o.plan]);
+  const praw = prows[0] ? rawOf(prows[0].raw_json) : {};
+  const policy = String(praw.AllocationPolicy || '').toUpperCase();
+  const mode = String(praw.FulfillmentMode || '').toUpperCase();
+  const ppm = String(praw.PostPaymentMessage || '');
+
+  // OTP-login accounts stay on Apps Script (Gmail specialist) — this shouldn't be
+  // reached because createOrder falls back for OTP, but guard anyway.
+  if (policy === 'OTP_ACCOUNT') return { __fallback: true };
+
+  // Manual services (YouTube etc.): no auto-allocation.
+  if (mode === 'MANUAL' || policy === 'MANUAL' || policy === 'NONE') return await _fulfillManual(o, ppm);
+
+  // Instant allocation, dispatched by policy (CAPACITY=Prime, PROFILE=Netflix, ACCOUNT=whole-account).
+  if (policy === 'CAPACITY' || policy === 'PROFILE' || policy === 'ACCOUNT') return await _allocateAndFinish(o, policy, ppm);
+
+  // Unknown/blank policy → safest is a manual task (never wrongly hand out an account).
+  return await _fulfillManual(o, ppm);
+}
+
+// Pick a Netflix profile. Sharing plans share the reserved profile (#1) up to
+// capacity; other plans get a private (PRIVATE_ROTATING) profile. Occupancy is
+// derived from node subs, so nothing in the inventory tables is mutated.
+async function allocateNetflix(conn, plan) {
+  const sharing = /sharing|group/i.test(String(plan || ''));
+  const [accs] = await conn.query("SELECT account_id, login_id, password FROM inventory_accounts WHERE LOWER(service) LIKE '%netflix%' AND UPPER(is_active)='TRUE'");
+  if (!accs.length) return { ok: false, message: 'No active Netflix accounts.' };
+  const [profs] = await conn.query("SELECT account_id, profile_number, profile_pin, profile_name, raw_json FROM inventory_profiles WHERE LOWER(service) LIKE '%netflix%'");
+  const [caps] = await conn.query("SELECT account_id, max_total, is_active FROM inventory_capacity WHERE LOWER(service) LIKE '%netflix%'");
+  const capMap = new Map();
+  for (const c of caps) capMap.set(String(c.account_id), { maxTotal: asNum(c.max_total) || NETFLIX_SHARING_MAX, isActive: String(c.is_active || '').toUpperCase() !== 'FALSE' });
+  const occ = await occupancyMap(conn, '%netflix%');
+
+  const byAcc = new Map();
+  for (const p of profs) {
+    const acc = String(p.account_id || '').trim(); if (!acc) continue;
+    const raw = rawOf(p.raw_json);
+    const entry = {
+      pno: asNum(p.profile_number) || asNum(raw.ProfileNumber),
+      type: String(raw.ProfileType || '').toUpperCase(),
+      reserved: String(raw.IsReserved || '').toUpperCase() === 'TRUE',
+      name: String(raw.ProfileDisplayName || raw.ProfileName || p.profile_name || '').trim(),
+      pin: String(p.profile_pin || raw.ProfilePIN || '').trim(),
+    };
+    if (!byAcc.has(acc)) byAcc.set(acc, []);
+    byAcc.get(acc).push(entry);
+  }
+
+  if (sharing) {
+    const cands = [];
+    for (const a of accs) {
+      const acc = String(a.account_id); if (!acc || !a.login_id || !a.password) continue;
+      const cap = capMap.get(acc) || { maxTotal: NETFLIX_SHARING_MAX, isActive: true }; if (!cap.isActive) continue;
+      const list = byAcc.get(acc) || [];
+      const prof = list.find((p) => p.pno === NETFLIX_SHARING_NO) || list.find((p) => p.type.indexOf('SHARING') === 0 || p.reserved);
+      if (!prof || !prof.pno) continue;
+      const ref = acc + '#P' + prof.pno;
+      const used = occ.get(ref) || 0;
+      if (used >= cap.maxTotal) continue;
+      cands.push({ acc, a, prof, ref, used });
+    }
+    if (!cands.length) return { ok: false, noStock: true, message: 'Netflix sharing slots are full right now.' };
+    cands.sort((x, y) => x.used - y.used);
+    const p = cands[0];
+    return { ok: true, inventoryRef: p.ref, accountId: p.acc, access: { user: p.a.login_id, pass: p.a.password, profileNumber: p.prof.pno, profileName: p.prof.name || 'FluxFilm', profilePin: p.prof.pin } };
+  }
+
+  // PRIVATE: a PRIVATE_ROTATING profile (not the sharing one) with no active sub.
+  const cands = [];
+  for (const a of accs) {
+    const acc = String(a.account_id); if (!acc || !a.login_id || !a.password) continue;
+    const list = (byAcc.get(acc) || []).filter((p) => p.pno && p.pno !== NETFLIX_SHARING_NO && p.type === 'PRIVATE_ROTATING');
+    let assigned = 0; let free = null;
+    for (const p of list) { const used = occ.get(acc + '#P' + p.pno) || 0; if (used > 0) assigned++; else if (!free) free = p; }
+    if (free) cands.push({ acc, a, prof: free, ref: acc + '#P' + free.pno, assigned });
+  }
+  if (!cands.length) return { ok: false, noStock: true, message: 'No Netflix private profiles available right now.' };
+  cands.sort((x, y) => x.assigned - y.assigned); // load-balance: emptiest account first
+  const p = cands[0];
+  return { ok: true, inventoryRef: p.ref, accountId: p.acc, access: { user: p.a.login_id, pass: p.a.password, profileNumber: p.prof.pno, profileName: p.prof.name || 'Private', profilePin: p.prof.pin } };
+}
+
+// Whole-account: hand over a full account for the service that no active sub holds.
+async function allocateWholeAccount(conn, service) {
+  const svc = String(service || '').toLowerCase();
+  const [accs] = await conn.query("SELECT account_id, login_id, password FROM inventory_accounts WHERE LOWER(service) LIKE ? AND UPPER(is_active)='TRUE'", ['%' + svc + '%']);
+  if (!accs.length) return { ok: false, message: 'No active accounts for this service.' };
+  const occ = await occupancyMap(conn, '%' + svc + '%');
+  for (const a of accs) {
+    const acc = String(a.account_id); if (!acc || !a.login_id || !a.password) continue;
+    if ((occ.get(acc) || 0) > 0) continue; // already handed out
+    return { ok: true, inventoryRef: acc, accountId: acc, access: { user: a.login_id, pass: a.password } };
+  }
+  return { ok: false, noStock: true, message: 'All accounts for this service are currently in use.' };
+}
+
+// Allocate (under a lock) + write the subscription + finish the order. Shared by
+// Prime/Netflix/whole-account so the record + hook are identical everywhere.
+async function _allocateAndFinish(o, policy, ppm) {
+  return withLock('ff_alloc', 12, async (conn) => {
+    const [chk] = await conn.query('SELECT fulfillment_status FROM orders WHERE order_id = ? LIMIT 1', [o.order_id]);
     if (chk[0] && String(chk[0].fulfillment_status || '').toUpperCase() === 'FULFILLED') {
-      const ex = await _existingAccess(orderId);
-      return { ok: true, found: true, orderId, fulfillment: 'FULFILLED', message: '✅ Showing your credentials.', access: (ex && ex.access) || {} };
+      const ex = await _existingAccess(o.order_id);
+      return { ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED', message: '✅ Showing your credentials.', access: (ex && ex.access) || {} };
     }
-    const alloc = await allocatePrime(conn, dt);
-    if (!alloc.ok) {
-      await conn.query("UPDATE orders SET fulfillment_status = 'FAILED' WHERE order_id = ?", [orderId]).catch(() => {});
-      return { ok: true, found: true, orderId, fulfillment: 'NO_STOCK', message: '😔 We just ran out of Prime slots as your payment came in. Please contact WhatsApp support — we\'ll sort it instantly.' };
+
+    let dt = ''; let alloc;
+    if (policy === 'CAPACITY') {
+      dt = String(o.extra_field_value || '').toUpperCase(); if (dt !== 'TV' && dt !== 'NON_TV') dt = 'NON_TV';
+      alloc = await allocatePrime(conn, dt);
+    } else if (policy === 'PROFILE') {
+      alloc = await allocateNetflix(conn, o.plan);
+    } else {
+      alloc = await allocateWholeAccount(conn, o.service);
     }
+
+    if (!alloc || !alloc.ok) {
+      await conn.query("UPDATE orders SET fulfillment_status = 'FAILED' WHERE order_id = ?", [o.order_id]).catch(() => {});
+      const why = (alloc && alloc.message) ? alloc.message : 'Out of stock momentarily.';
+      return { ok: true, found: true, orderId: o.order_id, fulfillment: 'NO_STOCK', message: '😔 ' + why + " Please contact WhatsApp support — we'll sort it instantly." };
+    }
+
+    const acc = alloc.access || {};
     const subId = genSubId();
     const start = new Date();
     const expiry = addDays(start, asNum(o.duration_days) || 30);
@@ -129,25 +257,46 @@ async function _fulfill(orderId) {
     await conn.query(
       `INSERT INTO subscriptions (sub_id, order_id, phone, phone_norm, email, service, plan, duration_days,
          start_date, expiry_date, status, fulfillment_status, order_type, inventory_ref, account_id,
-         login_id, password, device_type, release_eligible_at, fulfilled_at, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'FULFILLED', 'NEW', ?, ?, ?, ?, ?, ?, NOW(), 'node')`,
-      [subId, orderId, o.phone, o.phone_norm, o.email, o.service, o.plan, asNum(o.duration_days) || 30,
-        fmtDt(start), fmtDt(expiry), alloc.inventoryRef, alloc.inventoryRef,
-        alloc.access.user, alloc.access.pass, dt, fmtDt(release)]);
-    await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [orderId]);
+         login_id, password, profile_number, profile_name, profile_pin, device_type, release_eligible_at, fulfilled_at, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'FULFILLED', 'NEW', ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'node')`,
+      [subId, o.order_id, o.phone, o.phone_norm, o.email, o.service, o.plan, asNum(o.duration_days) || 30,
+        fmtDt(start), fmtDt(expiry), alloc.inventoryRef, alloc.accountId || alloc.inventoryRef,
+        acc.user || '', acc.pass || '', acc.profileNumber || '', acc.profileName || '', acc.profilePin || '', dt, fmtDt(release)]);
+    await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
     afterFulfillHook({
-      orderId, phone: o.phone, email: o.email, name: o.name,
-      service: o.service, plan: o.plan, amount: o.final_amount,
-      expiry: fmtDt(expiry), postPaymentMessage: '',
-      access: { user: alloc.access.user, pass: alloc.access.pass, deviceType: dt },
+      orderId: o.order_id, phone: o.phone, email: o.email, name: o.name,
+      service: o.service, plan: o.plan, amount: o.final_amount, expiry: fmtDt(expiry), postPaymentMessage: ppm || '',
+      access: { user: acc.user, pass: acc.pass, profileName: acc.profileName, profilePin: acc.profilePin, deviceType: dt },
     });
     return {
-      ok: true, found: true, orderId, fulfillment: 'FULFILLED',
-      message: '✅ Your Prime access is ready!', postPaymentMessage: '',
-      access: { user: alloc.access.user, pass: alloc.access.pass, profileName: '', profilePin: '', profileNumber: '', deviceType: dt },
+      ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED',
+      message: '✅ Your access is ready!', postPaymentMessage: ppm || '',
+      access: { user: acc.user || '', pass: acc.pass || '', profileName: acc.profileName || '', profilePin: acc.profilePin || '', profileNumber: acc.profileNumber || '', deviceType: dt },
       subId,
     };
   });
+}
+
+// Manual services: log a MANUAL_PENDING subscription (visible in the admin panel)
+// and tell the customer we'll activate shortly. No credentials to hand out.
+async function _fulfillManual(o, ppm) {
+  const subId = genSubId();
+  const start = new Date();
+  const expiry = addDays(start, asNum(o.duration_days) || 30);
+  await db.getPool().query(
+    `INSERT INTO subscriptions (sub_id, order_id, phone, phone_norm, email, service, plan, duration_days,
+       start_date, expiry_date, status, fulfillment_status, order_type, fulfilled_at, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'MANUAL_PENDING', 'NEW', NOW(), 'node')`,
+    [subId, o.order_id, o.phone, o.phone_norm, o.email, o.service, o.plan, asNum(o.duration_days) || 30, fmtDt(start), fmtDt(expiry)]);
+  await db.getPool().query("UPDATE orders SET fulfillment_status = 'MANUAL_PENDING', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
+  afterFulfillHook({
+    orderId: o.order_id, phone: o.phone, email: o.email, name: o.name,
+    service: o.service, plan: o.plan, amount: o.final_amount, expiry: fmtDt(expiry), manual: true, postPaymentMessage: ppm || '', access: {},
+  });
+  return {
+    ok: true, found: true, orderId: o.order_id, fulfillment: 'MANUAL_PENDING',
+    message: ppm || "✅ Payment received! We'll activate your subscription within a few hours and email you the details.", postPaymentMessage: ppm || '', subId,
+  };
 }
 
 function _accessOf(s) {
@@ -207,4 +356,4 @@ async function fulfillAndGetAccess(orderId) {
   catch (e) { console.log('[fulfill] error:', e.message); return { ok: false, found: true, orderId, fulfillment: 'ERROR', message: 'Activation hit a snag — please contact support with your order id.', fulfillError: String(e && e.message || e) }; }
 }
 
-module.exports = { fulfillAndGetAccess, allocatePrime, _internal: { genSubId } };
+module.exports = { fulfillAndGetAccess, allocatePrime, allocateNetflix, allocateWholeAccount, _internal: { genSubId } };
