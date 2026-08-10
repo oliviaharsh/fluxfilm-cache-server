@@ -3326,6 +3326,45 @@ function GroupJoinScreen({
     })
   }, "✅ I Joined")))));
 }
+function DeviceSelect({ service, planObj, form, setForm }) {
+  var svc = String(service || '').toLowerCase();
+  var isOtp = ['jiohotstar', 'hotstar', 'zee5', 'sonyliv'].some(function (k) { return svc.indexOf(k) > -1; });
+  if (isOtp) return null; // OTP = whole account, no device choice
+  var isPrime = !!(planObj && planObj.extraFieldKey === 'PRIME_DEVICE_TYPE');
+  var MAXD = 4;
+  var dc = form.deviceCount || 1;
+  function setDC(n) { setForm(function (f) { return Object.assign({}, f, { deviceCount: n, tvCount: Math.min(f.tvCount || 0, n), extraVal: n === 1 ? f.extraVal : '' }); }); }
+  function setTV(n) { setForm(function (f) { return Object.assign({}, f, { tvCount: n }); }); }
+  function setPrimeSingle(v) { setForm(function (f) { return Object.assign({}, f, { extraVal: v, tvCount: v === 'TV' ? 1 : 0 }); }); }
+  var lbl = function (t) { return React.createElement("label", { style: { display: 'block', fontFamily: PJS, fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 6, letterSpacing: '.02em' } }, t); };
+  var pill = function (active, label, onClick, key) {
+    return React.createElement("button", { key: key, type: "button", onClick: onClick, style: { padding: '11px 0', flex: '1 1 0', minWidth: 44, borderRadius: R.btn, border: '2px solid ' + (active ? '#6d28d9' : C.border), background: active ? 'rgba(109,40,217,.08)' : '#fafafa', color: active ? '#6d28d9' : C.text, fontFamily: PJS, fontSize: 14, fontWeight: 800, cursor: 'pointer', transition: 'border .12s,background .12s' } }, label);
+  };
+  var kids = [];
+  kids.push(React.createElement("div", { key: 'dcw', style: { marginBottom: 14 } },
+    lbl("📱 How many devices / screens?"),
+    React.createElement("div", { style: { display: 'flex', gap: 8 } },
+      [1, 2, 3, 4].slice(0, MAXD).map(function (n) { return pill(dc === n, String(n), function () { setDC(n); }, 'd' + n); }))
+  ));
+  if (isPrime && dc === 1) {
+    kids.push(React.createElement("div", { key: 'ptv1' },
+      lbl("📺 Will you use it on a TV?"),
+      React.createElement("div", { style: { display: 'flex', gap: 8 } },
+        pill(form.extraVal === 'TV', 'Yes — TV 📺', function () { setPrimeSingle('TV'); }, 'tv'),
+        pill(form.extraVal === 'NON_TV', 'No — Mobile 📱', function () { setPrimeSingle('NON_TV'); }, 'ntv')),
+      React.createElement("div", { style: { fontFamily: PJS, fontSize: 11.5, color: C.muted, fontWeight: 600, marginTop: 6, lineHeight: 1.5 } }, "💡 TV + mobile? Still pick ", React.createElement("b", null, "Yes — TV"), " — TV uses a separate slot.")
+    ));
+  } else if (isPrime) {
+    var opts = []; for (var i = 0; i <= dc; i++) opts.push(i);
+    kids.push(React.createElement("div", { key: 'ptvm' },
+      lbl("📺 How many of your " + dc + " devices are on a TV?"),
+      React.createElement("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+        opts.map(function (n) { return pill((form.tvCount || 0) === n, String(n), function () { setTV(n); }, 't' + n); })),
+      React.createElement("div", { style: { fontFamily: PJS, fontSize: 11.5, color: C.muted, fontWeight: 600, marginTop: 6, lineHeight: 1.5 } }, "💡 TV devices (Smart TV / Fire Stick) use a separate slot — pick how many.")
+    ));
+  }
+  return React.createElement("div", { style: { marginTop: 4 } }, kids);
+}
 function DetailsScreen({
   nav,
   service,
@@ -3341,7 +3380,9 @@ function DetailsScreen({
     phone: normPhone_(phone || profile?.phone || ''),
     coupon: '',
     notes: '',
-    extraVal: ''
+    extraVal: '',
+    deviceCount: 1,
+    tvCount: 0
   });
   const [couponState, setCouponState] = useState({
     applied: false,
@@ -3408,7 +3449,11 @@ function DetailsScreen({
     if (!form.name.trim()) return alert('Full Name is required.');
     if (!form.email.trim()) return alert('Email is required.');
     if (!form.phone.trim()) return alert('Phone is required.');
-    if (planObj?.needsExtraField && !form.extraVal.trim()) return alert(planObj.extraFieldKey === 'PRIME_DEVICE_TYPE' ? 'Please select whether you will use Prime on a TV.' : 'Please fill: ' + (planObj.extraFieldLabel || 'Required field'));
+    if (planObj?.needsExtraField) {
+      var isPrimeDev = planObj.extraFieldKey === 'PRIME_DEVICE_TYPE';
+      if (isPrimeDev && (form.deviceCount || 1) === 1 && !form.extraVal.trim()) return alert('Please select whether you will use Prime on a TV.');
+      if (!isPrimeDev && !form.extraVal.trim()) return alert('Please fill: ' + (planObj.extraFieldLabel || 'Required field'));
+    }
     if (form.coupon.trim() && !couponState.applied) {
       if (!confirm('You entered a coupon but did not apply it.\nContinue without applying?')) return;
     }
@@ -3549,7 +3594,12 @@ function DetailsScreen({
     value: form.phone,
     prefix: "📱",
     onChange: set('phone')
-  })), planObj?.needsExtraField && (planObj.extraFieldKey === 'PRIME_DEVICE_TYPE' ? React.createElement("div", null, React.createElement("label", {
+  })), React.createElement(DeviceSelect, {
+    service: service,
+    planObj: planObj,
+    form: form,
+    setForm: setForm
+  }), (planObj?.needsExtraField && planObj.extraFieldKey !== 'PRIME_DEVICE_TYPE') && (false ? React.createElement("div", null, React.createElement("label", {
     style: {
       display: 'block',
       fontFamily: PJS,
@@ -3820,6 +3870,8 @@ function PayScreen({
       notes: form?.notes || '',
       extraFieldKey: planObj?.extraFieldKey || '',
       extraFieldValue: form?.extraVal || '',
+      deviceCount: (form?.deviceCount || 1),
+      tvCount: (planObj?.extraFieldKey === 'PRIME_DEVICE_TYPE') ? ((form?.deviceCount || 1) === 1 ? ((form?.extraVal === 'TV') ? 1 : 0) : (form?.tvCount || 0)) : null,
       discountOverride: 0,
       groupJoined: !!groupJoined
     }, r => {
