@@ -20,17 +20,30 @@ const NETFLIX_SHARING_MAX = Number(process.env.NETFLIX_SHARING_MAX_TOTAL || 5);
 
 function rawOf(v) { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (_) { return {}; } }
 
-// Live occupancy per inventory_ref for a service, derived ONLY from node
-// subscriptions (never from the inventory tables, which the 5-min sync truncates).
-// A slot is occupied while inside its cooldown window, or (older rows) until expiry.
+const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (release_eligible_at > NOW() OR (release_eligible_at IS NULL AND expiry_date > NOW()))";
+
+// Live DEVICE occupancy per inventory_ref, derived ONLY from node subscriptions
+// (never from the inventory tables, which the 5-min sync truncates). Each sub uses
+// device_count devices (older rows without it count as 1).
 async function occupancyMap(conn, serviceLike) {
   const [occ] = await conn.query(
-    "SELECT inventory_ref, COUNT(*) total FROM subscriptions " +
-    "WHERE LOWER(service) LIKE ? AND UPPER(status)='ACTIVE' " +
-    "AND (release_eligible_at > NOW() OR (release_eligible_at IS NULL AND expiry_date > NOW())) " +
-    "GROUP BY inventory_ref", [serviceLike]);
+    "SELECT inventory_ref, SUM(COALESCE(device_count,1)) total FROM subscriptions " +
+    "WHERE LOWER(service) LIKE ? AND " + OCC_ACTIVE + " GROUP BY inventory_ref", [serviceLike]);
   const m = new Map();
   for (const o of occ) m.set(String(o.inventory_ref), asNum(o.total));
+  return m;
+}
+
+// Prime needs both total devices and how many are TV devices per account.
+// tv_count is authoritative when present; older TV rows (device_type='TV', no
+// tv_count) count their whole device_count as TV.
+async function primeOccupancy(conn) {
+  const [occ] = await conn.query(
+    "SELECT inventory_ref, SUM(COALESCE(device_count,1)) total, " +
+    "SUM(CASE WHEN tv_count IS NOT NULL THEN tv_count WHEN UPPER(device_type)='TV' THEN COALESCE(device_count,1) ELSE 0 END) tv " +
+    "FROM subscriptions WHERE LOWER(service) LIKE '%prime%' AND " + OCC_ACTIVE + " GROUP BY inventory_ref");
+  const m = new Map();
+  for (const o of occ) m.set(String(o.inventory_ref), { total: asNum(o.total), tv: asNum(o.tv) });
   return m;
 }
 
@@ -59,25 +72,17 @@ async function withLock(name, ttl, fn) {
   }
 }
 
-// Pick a Prime account with free capacity (total < MaxTotal, and if TV: tv < MaxTV)
-async function allocatePrime(conn, deviceType) {
-  const dt = String(deviceType || '').toUpperCase();
+// Pick a Prime account that can fit deviceCount more devices (of which tvCount are
+// TV): used_total + deviceCount <= MaxTotal, and used_tv + tvCount <= MaxTV.
+async function allocatePrime(conn, deviceCount, tvCount) {
+  const need = Math.max(1, deviceCount || 1);
+  const needTV = Math.max(0, Math.min(tvCount || 0, need));
   const [accs] = await conn.query("SELECT account_id, login_id, password FROM inventory_accounts WHERE LOWER(service) LIKE '%prime%' AND UPPER(is_active)='TRUE'");
   if (!accs.length) return { ok: false, message: 'No active Prime accounts.' };
   const [caps] = await conn.query("SELECT account_id, max_total, max_tv, is_active FROM inventory_capacity WHERE LOWER(service) LIKE '%prime%'");
   const capMap = new Map();
   for (const c of caps) capMap.set(String(c.account_id), { maxTotal: asNum(c.max_total) || PRIME_MAX_TOTAL, maxTV: asNum(c.max_tv) || PRIME_MAX_TV, isActive: String(c.is_active || '').toUpperCase() === 'TRUE' });
-  // Count ACTIVE logins per account. A sub occupies a slot while it's inside its
-  // cooldown window (release_eligible_at) OR — if that's missing on older/migrated
-  // rows — while it simply hasn't expired. Without this fallback an account full of
-  // legacy subs would look EMPTY and get overloaded (screen-limit hell).
-  const [occ] = await conn.query(
-    "SELECT inventory_ref, COUNT(*) total, SUM(UPPER(device_type)='TV') tv FROM subscriptions " +
-    "WHERE LOWER(service) LIKE '%prime%' AND UPPER(status)='ACTIVE' " +
-    "AND (release_eligible_at > NOW() OR (release_eligible_at IS NULL AND expiry_date > NOW())) " +
-    "GROUP BY inventory_ref");
-  const occMap = new Map();
-  for (const o of occ) occMap.set(String(o.inventory_ref), { total: asNum(o.total), tv: asNum(o.tv) });
+  const occMap = await primeOccupancy(conn);
 
   const candidates = [];
   for (const a of accs) {
@@ -86,14 +91,14 @@ async function allocatePrime(conn, deviceType) {
     const cap = capMap.get(id) || { maxTotal: PRIME_MAX_TOTAL, maxTV: PRIME_MAX_TV, isActive: true };
     if (!cap.isActive) continue;
     const o = occMap.get(id) || { total: 0, tv: 0 };
-    if (o.total >= cap.maxTotal) continue;
-    if (dt === 'TV' && o.tv >= cap.maxTV) continue;
+    if (o.total + need > cap.maxTotal) continue;      // not enough free devices
+    if (o.tv + needTV > cap.maxTV) continue;          // not enough free TV slots
     candidates.push({ id, login: a.login_id, pass: a.password, total: o.total });
   }
   if (!candidates.length) return { ok: false, noStock: true, message: 'Prime slots are full right now (TV/non-TV capacity).' };
-  // ALWAYS pick the emptiest account first (spreads load, avoids screen limits)
-  candidates.sort((x, y) => x.total - y.total);
+  candidates.sort((x, y) => x.total - y.total); // emptiest first (spreads load)
   const picked = candidates[0];
+  const dt = needTV >= need ? 'TV' : (needTV > 0 ? 'MIXED' : 'NON_TV');
   return { ok: true, inventoryRef: picked.id, deviceType: dt, access: { user: picked.login, pass: picked.pass } };
 }
 
@@ -133,15 +138,12 @@ async function _fulfill(orderId) {
   const mode = String(praw.FulfillmentMode || '').toUpperCase();
   const ppm = String(praw.PostPaymentMessage || '');
 
-  // OTP-login accounts stay on Apps Script (Gmail specialist) — this shouldn't be
-  // reached because createOrder falls back for OTP, but guard anyway.
-  if (policy === 'OTP_ACCOUNT') return { __fallback: true };
-
   // Manual services (YouTube etc.): no auto-allocation.
   if (mode === 'MANUAL' || policy === 'MANUAL' || policy === 'NONE') return await _fulfillManual(o, ppm);
 
-  // Instant allocation, dispatched by policy (CAPACITY=Prime, PROFILE=Netflix, ACCOUNT=whole-account).
-  if (policy === 'CAPACITY' || policy === 'PROFILE' || policy === 'ACCOUNT') return await _allocateAndFinish(o, policy, ppm);
+  // Instant allocation, dispatched by policy. OTP allocates the account here; the
+  // login OTP itself is still read by Apps Script on demand (Gmail specialist).
+  if (policy === 'CAPACITY' || policy === 'PROFILE' || policy === 'ACCOUNT' || policy === 'OTP_ACCOUNT') return await _allocateAndFinish(o, policy, ppm);
 
   // Unknown/blank policy → safest is a manual task (never wrongly hand out an account).
   return await _fulfillManual(o, ppm);
@@ -150,7 +152,8 @@ async function _fulfill(orderId) {
 // Pick a Netflix profile. Sharing plans share the reserved profile (#1) up to
 // capacity; other plans get a private (PRIVATE_ROTATING) profile. Occupancy is
 // derived from node subs, so nothing in the inventory tables is mutated.
-async function allocateNetflix(conn, plan) {
+async function allocateNetflix(conn, plan, deviceCount) {
+  const need = Math.max(1, deviceCount || 1);
   const sharing = /sharing|group/i.test(String(plan || ''));
   const [accs] = await conn.query("SELECT account_id, login_id, password FROM inventory_accounts WHERE LOWER(service) LIKE '%netflix%' AND UPPER(is_active)='TRUE'");
   if (!accs.length) return { ok: false, message: 'No active Netflix accounts.' };
@@ -185,7 +188,7 @@ async function allocateNetflix(conn, plan) {
       if (!prof || !prof.pno) continue;
       const ref = acc + '#P' + prof.pno;
       const used = occ.get(ref) || 0;
-      if (used >= cap.maxTotal) continue;
+      if (used + need > cap.maxTotal) continue;   // not enough free device slots
       cands.push({ acc, a, prof, ref, used });
     }
     if (!cands.length) return { ok: false, noStock: true, message: 'Netflix sharing slots are full right now.' };
@@ -209,18 +212,68 @@ async function allocateNetflix(conn, plan) {
   return { ok: true, inventoryRef: p.ref, accountId: p.acc, access: { user: p.a.login_id, pass: p.a.password, profileNumber: p.prof.pno, profileName: p.prof.name || 'Private', profilePin: p.prof.pin } };
 }
 
-// Whole-account: hand over a full account for the service that no active sub holds.
-async function allocateWholeAccount(conn, service) {
+// Whole-account: hand over an account for the service. If the account has a
+// capacity row (MaxTotal) it's shared by device count up to that limit; otherwise
+// it's dedicated (one customer per account). Emptiest account first.
+async function allocateWholeAccount(conn, service, deviceCount) {
+  const need = Math.max(1, deviceCount || 1);
   const svc = String(service || '').toLowerCase();
   const [accs] = await conn.query("SELECT account_id, login_id, password FROM inventory_accounts WHERE LOWER(service) LIKE ? AND UPPER(is_active)='TRUE'", ['%' + svc + '%']);
   if (!accs.length) return { ok: false, message: 'No active accounts for this service.' };
+  const [caps] = await conn.query("SELECT account_id, max_total, is_active FROM inventory_capacity WHERE LOWER(service) LIKE ?", ['%' + svc + '%']);
+  const capMap = new Map();
+  for (const c of caps) capMap.set(String(c.account_id), { maxTotal: asNum(c.max_total) || 1, isActive: String(c.is_active || '').toUpperCase() !== 'FALSE' });
   const occ = await occupancyMap(conn, '%' + svc + '%');
+  const cands = [];
   for (const a of accs) {
     const acc = String(a.account_id); if (!acc || !a.login_id || !a.password) continue;
-    if ((occ.get(acc) || 0) > 0) continue; // already handed out
-    return { ok: true, inventoryRef: acc, accountId: acc, access: { user: a.login_id, pass: a.password } };
+    const cap = capMap.get(acc) || { maxTotal: 1, isActive: true }; if (!cap.isActive) continue;
+    const used = occ.get(acc) || 0;
+    if (used + need > cap.maxTotal) continue; // full
+    cands.push({ acc, a, used });
   }
-  return { ok: false, noStock: true, message: 'All accounts for this service are currently in use.' };
+  if (!cands.length) return { ok: false, noStock: true, message: 'All accounts for this service are currently in use.' };
+  cands.sort((x, y) => x.used - y.used);
+  const p = cands[0];
+  return { ok: true, inventoryRef: p.acc, accountId: p.acc, access: { user: p.a.login_id, pass: p.a.password } };
+}
+
+// OTP accounts: whole account, but the account's Notes list which durations (in
+// months) it can serve, e.g. "1,3,6". Match the plan's duration; respect the
+// account's MaxTotal limit (default 1 = one customer per account). Login-OTP
+// reading stays on Apps Script. No device-count for OTP.
+function monthsFromDays(days) {
+  const d = asNum(days);
+  if (d >= 330) return 12; if (d >= 150) return 6; if (d >= 75) return 3; if (d >= 20) return 1;
+  return Math.max(1, Math.round(d / 30));
+}
+function notesAllowMonths(notes, months) {
+  const nums = String(notes || '').match(/\d+/g);
+  if (!nums || !nums.length) return true; // no restriction listed → any duration ok
+  return nums.map(Number).includes(months);
+}
+async function allocateOtp(conn, service, durationDays) {
+  const svc = String(service || '').toLowerCase();
+  const months = monthsFromDays(durationDays);
+  const [accs] = await conn.query("SELECT account_id, login_id, password, notes, plan FROM inventory_accounts WHERE LOWER(service) LIKE ? AND UPPER(is_active)='TRUE'", ['%' + svc + '%']);
+  if (!accs.length) return { ok: false, message: 'No active accounts for this service.' };
+  const [caps] = await conn.query("SELECT account_id, max_total, is_active FROM inventory_capacity WHERE LOWER(service) LIKE ?", ['%' + svc + '%']);
+  const capMap = new Map();
+  for (const c of caps) capMap.set(String(c.account_id), { maxTotal: asNum(c.max_total) || 1, isActive: String(c.is_active || '').toUpperCase() !== 'FALSE' });
+  const occ = await occupancyMap(conn, '%' + svc + '%');
+  const cands = [];
+  for (const a of accs) {
+    const acc = String(a.account_id); if (!acc || !a.login_id || !a.password) continue;
+    if (!notesAllowMonths(a.notes, months)) continue;   // this account doesn't serve this duration
+    const cap = capMap.get(acc) || { maxTotal: 1, isActive: true }; if (!cap.isActive) continue;
+    const used = occ.get(acc) || 0;
+    if (used + 1 > cap.maxTotal) continue;
+    cands.push({ acc, a, used });
+  }
+  if (!cands.length) return { ok: false, noStock: true, message: 'No account available for this duration right now.' };
+  cands.sort((x, y) => x.used - y.used);
+  const p = cands[0];
+  return { ok: true, inventoryRef: p.acc, accountId: p.acc, access: { user: p.a.login_id, pass: p.a.password } };
 }
 
 // Allocate (under a lock) + write the subscription + finish the order. Shared by
@@ -233,14 +286,22 @@ async function _allocateAndFinish(o, policy, ppm) {
       return { ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED', message: '✅ Showing your credentials.', access: (ex && ex.access) || {} };
     }
 
+    // How many devices this order uses, and (Prime) how many are TV.
+    const deviceCount = Math.max(1, asNum(o.device_count) || 1);
+    let tvCount = (o.tv_count != null) ? asNum(o.tv_count) : null;
+    if (tvCount == null) { const dtOld = String(o.extra_field_value || '').toUpperCase(); tvCount = dtOld === 'TV' ? deviceCount : 0; }
+    tvCount = Math.max(0, Math.min(tvCount, deviceCount));
+
     let dt = ''; let alloc;
     if (policy === 'CAPACITY') {
-      dt = String(o.extra_field_value || '').toUpperCase(); if (dt !== 'TV' && dt !== 'NON_TV') dt = 'NON_TV';
-      alloc = await allocatePrime(conn, dt);
+      alloc = await allocatePrime(conn, deviceCount, tvCount);
+      if (alloc && alloc.ok) dt = alloc.deviceType || (tvCount >= deviceCount ? 'TV' : tvCount > 0 ? 'MIXED' : 'NON_TV');
     } else if (policy === 'PROFILE') {
-      alloc = await allocateNetflix(conn, o.plan);
+      alloc = await allocateNetflix(conn, o.plan, deviceCount);
+    } else if (policy === 'OTP_ACCOUNT') {
+      alloc = await allocateOtp(conn, o.service, o.duration_days);
     } else {
-      alloc = await allocateWholeAccount(conn, o.service);
+      alloc = await allocateWholeAccount(conn, o.service, deviceCount);
     }
 
     if (!alloc || !alloc.ok) {
@@ -257,11 +318,12 @@ async function _allocateAndFinish(o, policy, ppm) {
     await conn.query(
       `INSERT INTO subscriptions (sub_id, order_id, phone, phone_norm, email, service, plan, duration_days,
          start_date, expiry_date, status, fulfillment_status, order_type, inventory_ref, account_id,
-         login_id, password, profile_number, profile_name, profile_pin, device_type, release_eligible_at, fulfilled_at, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'FULFILLED', 'NEW', ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'node')`,
+         login_id, password, profile_number, profile_name, profile_pin, device_type, device_count, tv_count, release_eligible_at, fulfilled_at, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'FULFILLED', 'NEW', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'node')`,
       [subId, o.order_id, o.phone, o.phone_norm, o.email, o.service, o.plan, asNum(o.duration_days) || 30,
         fmtDt(start), fmtDt(expiry), alloc.inventoryRef, alloc.accountId || alloc.inventoryRef,
-        acc.user || '', acc.pass || '', acc.profileNumber || '', acc.profileName || '', acc.profilePin || '', dt, fmtDt(release)]);
+        acc.user || '', acc.pass || '', acc.profileNumber || '', acc.profileName || '', acc.profilePin || '', dt,
+        deviceCount, (policy === 'CAPACITY' ? tvCount : null), fmtDt(release)]);
     await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
     afterFulfillHook({
       orderId: o.order_id, phone: o.phone, email: o.email, name: o.name,
@@ -356,4 +418,4 @@ async function fulfillAndGetAccess(orderId) {
   catch (e) { console.log('[fulfill] error:', e.message); return { ok: false, found: true, orderId, fulfillment: 'ERROR', message: 'Activation hit a snag — please contact support with your order id.', fulfillError: String(e && e.message || e) }; }
 }
 
-module.exports = { fulfillAndGetAccess, allocatePrime, allocateNetflix, allocateWholeAccount, _internal: { genSubId } };
+module.exports = { fulfillAndGetAccess, allocatePrime, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths } };
