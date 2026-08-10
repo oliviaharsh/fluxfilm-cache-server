@@ -24,20 +24,32 @@ function mountAdmin(app, deps) {
     if (!ADMIN_KEY || req.query.key !== ADMIN_KEY) { res.status(403).json({ ok: false, message: 'Unauthorized' }); return false; }
     return true;
   };
+  // Real column list per table (cached), so search can look at every column.
+  const _colsCache = {};
+  async function columnsOf(name) {
+    if (_colsCache[name]) return _colsCache[name];
+    const rows = await db.query("SELECT COLUMN_NAME c FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND COLUMN_NAME NOT IN ('raw_json','logo_url') ORDER BY ORDINAL_POSITION", [name]);
+    _colsCache[name] = rows.map((r) => r.c);
+    return _colsCache[name];
+  }
 
   app.get('/admin/api/summary', async (req, res) => {
     if (!auth(req, res)) return;
     try {
       const one = async (sql, p) => { const r = await db.query(sql, p || []); return r[0] || {}; };
-      const [cust, ord, sub, cpn, wal] = await Promise.all([
+      // "Active" everywhere means status ACTIVE **and not past expiry** (a sub whose
+      // status was never flipped shouldn't count). NULL expiry is treated as active.
+      const LIVE = "status='ACTIVE' AND (expiry_date IS NULL OR expiry_date > NOW())";
+      const [cust, ord, sub, actCust, cpn, wal] = await Promise.all([
         one('SELECT COUNT(*) n FROM customers'),
         one("SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN status='PAID' THEN final_amount END),0) rev, SUM(status='PAID') paid FROM orders"),
-        one("SELECT COUNT(*) n, SUM(status='ACTIVE') active, SUM(status='ACTIVE' AND expiry_date BETWEEN NOW() AND NOW() + INTERVAL 7 DAY) expiring FROM subscriptions"),
+        one("SELECT COUNT(*) n, SUM(" + LIVE + ") active, SUM(status='ACTIVE' AND expiry_date BETWEEN NOW() AND NOW() + INTERVAL 7 DAY) expiring FROM subscriptions"),
+        one('SELECT COUNT(DISTINCT phone_norm) n FROM subscriptions WHERE ' + LIVE),
         one('SELECT COUNT(*) n FROM coupons'),
         one('SELECT COALESCE(SUM(coins_balance),0) coins FROM wallet'),
       ]);
       res.json({ ok: true, kpis: {
-        customers: +cust.n || 0, orders: +ord.n || 0, paidOrders: +ord.paid || 0, revenue: +ord.rev || 0,
+        customers: +cust.n || 0, activeCustomers: +actCust.n || 0, orders: +ord.n || 0, paidOrders: +ord.paid || 0, revenue: +ord.rev || 0,
         subs: +sub.n || 0, activeSubs: +sub.active || 0, expiring7d: +sub.expiring || 0,
         coupons: +cpn.n || 0, coinsOutstanding: +wal.coins || 0,
       } });
@@ -78,10 +90,13 @@ function mountAdmin(app, deps) {
     const q = String(req.query.q || '').trim();
     let where = ''; const params = [];
     if (q) {
-      const clauses = [];
-      if (cfg.phone && /\d/.test(q)) { clauses.push(cfg.phone + ' = ?'); params.push(norm(q)); }
-      for (const c of cfg.like) { clauses.push(c + ' LIKE ?'); params.push('%' + q + '%'); }
-      if (clauses.length) where = 'WHERE ' + clauses.join(' OR ');
+      // Search EVERY column (glued together), so a name, email, service, status,
+      // account id — anything — matches. raw_json/logo_url are excluded.
+      const cols = await columnsOf(name);
+      if (cols.length) {
+        where = 'WHERE CONCAT_WS(0x1f, ' + cols.map((c) => "COALESCE(`" + c + "`,'')").join(', ') + ') LIKE ?';
+        params.push('%' + q + '%');
+      }
     }
     try {
       const rows = await db.query('SELECT ' + cfg.cols + ' FROM `' + name + '` ' + where + ' ORDER BY ' + cfg.order + ' LIMIT ? OFFSET ?', [...params, limit, offset]);
@@ -190,7 +205,7 @@ function route(){TBLS.forEach(function(){});['dashboard','data','expiring','coup
 function dashboard(){
  $('#view').innerHTML='<div id="kpis" class="kpis"></div><div class="grid2"><div class="card"><h3>💰 Revenue — last 30 days</h3><canvas id="cRev"></canvas></div><div class="card"><h3>📈 Orders by status</h3><canvas id="cStatus"></canvas></div></div><div class="card"><h3>🎥 Top services (paid orders)</h3><canvas id="cSvc"></canvas></div>';
  api('/admin/api/summary').then(function(r){if(!r.ok)return;var k=r.kpis;$('#kpis').innerHTML=[
-   ['👥','Customers',k.customers],['🧾','Orders',k.orders],['💰','Paid revenue',money(k.revenue)],
+   ['🟢','Active customers',k.activeCustomers],['👥','Total customers',k.customers],['💰','Paid revenue',money(k.revenue)],
    ['🎬','Active subs',k.activeSubs],['⏳','Expiring ≤7d',k.expiring7d],['🪙','Coins out',k.coinsOutstanding]
  ].map(function(c){return '<div class="kpi"><span class="ic">'+c[0]+'</span><div class="n">'+c[2]+'</div><div class="l">'+c[1]+'</div></div>'}).join('')});
  api('/admin/api/charts').then(function(r){if(!r.ok)return;
