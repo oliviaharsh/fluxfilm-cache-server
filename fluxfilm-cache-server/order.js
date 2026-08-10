@@ -76,9 +76,6 @@ async function createOrder(p) {
   const prow = planRows[0];
   if (!prow || String(prow.is_active || '').toUpperCase() !== 'TRUE') return { ok: false, message: 'Plan not found or inactive.' };
   const praw = rawOf(prow.raw_json);
-  // OTP-login services need Gmail to read the login OTP → stay fully on Apps Script.
-  // Don't create a node order we can't finish (Apps Script can't see MySQL-only orders).
-  if (String(praw.AllocationPolicy || '').toUpperCase() === 'OTP_ACCOUNT') return { __fallback: true };
   const price = asNum(prow.price);
   const durationDays = Number(prow.duration_days) || asNum(praw.DurationDays);
   const groupJoinRequired = String(praw.RequiresGroupJoin || '').toUpperCase() === 'TRUE';
@@ -86,6 +83,17 @@ async function createOrder(p) {
 
   const orderType = String(p.action || '').toUpperCase() === 'RENEW' ? 'RENEW' : 'NEW';
   const renewSubId = String(p.renewSubId || '').trim();
+
+  // How many devices/screens this subscription uses (customer picks at checkout;
+  // defaults to 1 = today's behaviour). tvCount = how many are TV (Prime only).
+  const deviceCount = Math.max(1, Math.floor(asNum(p.deviceCount)) || 1);
+  let tvCount = (p.tvCount != null && p.tvCount !== '') ? Math.max(0, Math.floor(asNum(p.tvCount))) : null;
+  // Back-compat: a single-device Prime order that only sent the old TV/NON_TV flag.
+  if (tvCount == null) {
+    const dt = String(p.extraFieldValue || '').toUpperCase();
+    if (dt === 'TV') tvCount = deviceCount; else if (dt === 'NON_TV') tvCount = 0;
+  }
+  if (tvCount != null) tvCount = Math.min(tvCount, deviceCount);
 
   let discount = 0;
   if (couponCode) {
@@ -102,11 +110,11 @@ async function createOrder(p) {
   await db.query(
     `INSERT INTO orders (order_id, created_at_sheet, service, plan, duration_days, name, email, phone, phone_norm,
        coupon_code, discount, price, final_amount, currency, notes, extra_field_key, extra_field_value,
-       status, fulfillment_status, order_type, renew_sub_id, group_join_required, group_join_link, source)
-     VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, 'CREATED', 'PENDING', ?, ?, ?, ?, 'node')`,
+       status, fulfillment_status, order_type, renew_sub_id, device_count, tv_count, group_join_required, group_join_link, source)
+     VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, 'CREATED', 'PENDING', ?, ?, ?, ?, ?, ?, 'node')`,
     [orderId, service, plan, durationDays, name, email, p.phone || phone, phone,
       couponCode, discount, price, finalAmount, notes, extraKey, extraVal,
-      orderType, renewSubId, groupJoinRequired ? 'TRUE' : 'FALSE', groupJoinLink]);
+      orderType, renewSubId, deviceCount, tvCount, groupJoinRequired ? 'TRUE' : 'FALSE', groupJoinLink]);
 
   const upiVpa = process.env.UPI_VPA || 'fluxfilm@upi';
   const payee = process.env.UPI_PAYEE || 'FluxFilm';
@@ -117,6 +125,7 @@ async function createOrder(p) {
     ok: true, orderId, amount: finalAmount, baseAmount: price, discount,
     couponCode: couponCode || '', currency: 'INR', upiVpa, payee, upiLink,
     paymentNote: orderId, groupJoinRequired, groupJoinLink,
+    deviceCount, tvCount,
   };
 }
 
