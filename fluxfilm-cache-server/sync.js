@@ -69,6 +69,7 @@ const TABLES = {
       profile_pin: ['ProfilePIN', s], profile_number: ['ProfileNumber', s],
       last_access_sent_at: ['LastAccessSentAt', dt], release_eligible_at: ['ReleaseEligibleAt', dt],
       fulfilled_at: ['FulfilledAt', dt], notes: ['Notes', s], device_type: ['DeviceType', s],
+      device_count: ['DeviceConcurrency', int],
     },
   },
   plans: {
