@@ -95,16 +95,21 @@ async function createOrder(p) {
   }
   if (tvCount != null) tvCount = Math.min(tvCount, deviceCount);
 
+  // Per-device pricing: base plan price covers 1 device; each EXTRA device adds a
+  // fixed amount from the PLANS `ExtraDevicePrice` column. OTP has no device count.
+  const extraDevicePrice = asNum(praw.ExtraDevicePrice);
+  const basePrice = Math.round(price + Math.max(0, deviceCount - 1) * extraDevicePrice);
+
   let discount = 0;
   if (couponCode) {
-    const cd = await couponDiscount(couponCode, phone, price);
+    const cd = await couponDiscount(couponCode, phone, basePrice);
     if (!cd.ok) return cd;
     discount = cd.discount;
   } else if (asNum(p.discountOverride) > 0) {
     // early-renew discount (no coupon on this order); never stacks with a coupon
-    discount = Math.min(price, Math.round(asNum(p.discountOverride)));
+    discount = Math.min(basePrice, Math.round(asNum(p.discountOverride)));
   }
-  const finalAmount = Math.max(0, price - discount);
+  const finalAmount = Math.max(0, basePrice - discount);
   const orderId = genOrderId();
 
   await db.query(
@@ -113,7 +118,7 @@ async function createOrder(p) {
        status, fulfillment_status, order_type, renew_sub_id, device_count, tv_count, group_join_required, group_join_link, source)
      VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, 'CREATED', 'PENDING', ?, ?, ?, ?, ?, ?, 'node')`,
     [orderId, service, plan, durationDays, name, email, p.phone || phone, phone,
-      couponCode, discount, price, finalAmount, notes, extraKey, extraVal,
+      couponCode, discount, basePrice, finalAmount, notes, extraKey, extraVal,
       orderType, renewSubId, deviceCount, tvCount, groupJoinRequired ? 'TRUE' : 'FALSE', groupJoinLink]);
 
   const upiVpa = process.env.UPI_VPA || 'fluxfilm@upi';
@@ -122,7 +127,7 @@ async function createOrder(p) {
     '&am=' + encodeURIComponent(finalAmount) + '&cu=INR&tn=' + encodeURIComponent(orderId);
 
   return {
-    ok: true, orderId, amount: finalAmount, baseAmount: price, discount,
+    ok: true, orderId, amount: finalAmount, baseAmount: basePrice, planPrice: price, discount,
     couponCode: couponCode || '', currency: 'INR', upiVpa, payee, upiLink,
     paymentNote: orderId, groupJoinRequired, groupJoinLink,
     deviceCount, tvCount,
