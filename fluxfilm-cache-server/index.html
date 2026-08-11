@@ -2914,6 +2914,59 @@ function OutOfStockModal({
     onClick: onClose
   }, "Maybe Later"))));
 }
+function planMeta_(p) {
+  var name = String((p && p.plan) || ''); var lc = name.toLowerCase(); var m;
+  var type = (p && p.variantType) ? String(p.variantType) : (/private/.test(lc) ? 'Private' : ((/sharing|group/.test(lc)) ? 'Sharing' : ''));
+  var months = 0;
+  if ((m = lc.match(/(\d+)\s*month/))) months = +m[1];
+  else if ((m = lc.match(/(\d+)\s*year/))) months = +m[1] * 12;
+  else if ((m = lc.match(/\b(\d+)\s*m\b/))) months = +m[1];
+  else if ((m = lc.match(/\b(\d+)\s*y\b/))) months = +m[1] * 12;
+  if (!months && p && p.durationDays) months = Math.max(1, Math.round(p.durationDays / 30));
+  var label = (p && p.periodLabel) ? String(p.periodLabel)
+    : (months ? (months % 12 === 0 ? (months / 12) + ' Year' + ((months / 12) > 1 ? 's' : '') : months + ' Month' + (months > 1 ? 's' : '')) : name);
+  return { type: type, months: months, label: label };
+}
+// Variant-style plan picker: type (Netflix Private/Sharing) → duration → info + price → continue.
+function PlanVariantPicker(props) {
+  var service = props.service, plans = props.plans || [], onPick = props.onPick, getStockLevel = props.getStockLevel || function () { return 'OK'; };
+  var metas = plans.map(function (p) { var mm = planMeta_(p); return { p: p, type: mm.type, months: mm.months, label: mm.label }; });
+  var types = []; metas.forEach(function (m) { if (m.type && types.indexOf(m.type) < 0) types.push(m.type); });
+  var hasTypes = types.length > 0;
+  var st = useState(hasTypes ? types[0] : ''); var type = st[0], setType = st[1];
+  var sp = useState(''); var planName = sp[0], setPlanName = sp[1];
+  var inType = metas.filter(function (m) { return !hasTypes || m.type === type; }).sort(function (a, b) { return (a.months || 0) - (b.months || 0); });
+  useEffect(function () {
+    var list = metas.filter(function (m) { return !hasTypes || m.type === type; }).sort(function (a, b) { return (a.months || 0) - (b.months || 0); });
+    if (!list.some(function (m) { return m.p.plan === planName; })) setPlanName(list[0] ? list[0].p.plan : '');
+  }, [type]);
+  var selected = inType.filter(function (m) { return m.p.plan === planName; })[0] || inType[0];
+  var p = selected ? selected.p : null;
+  var sl = p ? getStockLevel(p) : 'OK'; var isOut = sl === 'OUT';
+  var isInstant = p ? String(p.fulfillmentMode || '').toUpperCase() !== 'MANUAL' : true;
+  var lbl = function (t) { return React.createElement("div", { style: { fontFamily: PJS, fontSize: 12, fontWeight: 700, color: C.muted, margin: '14px 0 8px', letterSpacing: '.02em' } }, t); };
+  var chip = function (active, label, sub, onClick, key) {
+    return React.createElement("button", { key: key, type: "button", onClick: onClick, style: { flex: '1 1 90px', minWidth: 80, padding: '10px 8px', borderRadius: R.btn, border: '2px solid ' + (active ? '#7c3aed' : C.border), background: active ? 'rgba(124,58,237,.08)' : '#fff', color: active ? '#7c3aed' : C.text, cursor: 'pointer', textAlign: 'center', transition: 'border .12s,background .12s' } },
+      React.createElement("div", { style: { fontFamily: PJS, fontSize: 13.5, fontWeight: 800 } }, label),
+      sub ? React.createElement("div", { style: { fontFamily: PJS, fontSize: 11, fontWeight: 600, color: active ? '#7c3aed' : C.muted, marginTop: 2 } }, sub) : null);
+  };
+  var kids = [];
+  if (hasTypes) kids.push(React.createElement("div", { key: 'ty' }, lbl("🎞️ Plan type"), React.createElement("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } }, types.map(function (t) { return chip(type === t, t, null, function () { setType(t); }, 'ty' + t); }))));
+  kids.push(React.createElement("div", { key: 'pe' }, lbl("🗓️ Duration"), React.createElement("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } }, inType.map(function (m) { return chip(selected && selected.p.plan === m.p.plan, m.label, '₹' + m.p.price, function () { setPlanName(m.p.plan); }, 'pe' + m.p.plan); }))));
+  if (p) {
+    var benefits = Array.isArray(p.benefits) ? p.benefits : [];
+    kids.push(React.createElement("div", { key: 'info', style: { marginTop: 16, border: '1px solid ' + C.border, borderRadius: R.btn, padding: 16, background: '#fafafa' } },
+      React.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 } },
+        React.createElement("div", null, React.createElement("div", { style: { fontFamily: PJS, fontSize: 16, fontWeight: 800, color: C.text } }, p.plan), React.createElement("div", { style: { fontFamily: PJS, fontSize: 12.5, color: C.muted, fontWeight: 600, marginTop: 2 } }, (p.durationDays || '') + " days")),
+        React.createElement("div", { style: { textAlign: 'right', flexShrink: 0 } }, React.createElement("div", { style: { fontFamily: PJS, fontSize: 26, fontWeight: 800, color: C.text, lineHeight: 1 } }, "₹" + p.price))),
+      benefits.length ? React.createElement("div", { style: { display: 'flex', flexDirection: 'column', gap: 3, marginTop: 10 } }, benefits.map(function (b, bi) { return React.createElement("div", { key: bi, style: { fontFamily: PJS, fontSize: 12.5, color: C.muted, fontWeight: 600, display: 'flex', gap: 5 } }, React.createElement("span", { style: { color: C.green } }, "✓"), React.createElement("span", null, b)); })) : null,
+      React.createElement("div", { style: { display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 } },
+        isOut ? React.createElement(Badge, { tone: "bad" }, "🔴 Out of Stock") : React.createElement(Badge, { tone: isInstant ? 'ok' : 'warn' }, isInstant ? '⚡ Instant' : '🕒 Manual'),
+        p.requiresGroupJoin ? React.createElement(Badge, { tone: "info" }, "👥 Group required") : null)));
+    kids.push(React.createElement("button", { key: 'buy', type: "button", disabled: isOut, onClick: function () { if (!isOut && p) onPick(p); }, style: { marginTop: 16, width: '100%', padding: '14px', borderRadius: R.btn, border: 0, background: isOut ? C.border : 'linear-gradient(135deg,#16a34a,#22c55e)', color: '#fff', fontFamily: PJS, fontSize: 15, fontWeight: 800, cursor: isOut ? 'not-allowed' : 'pointer' } }, isOut ? 'Out of stock' : ('Continue · ₹' + p.price + ' ›')));
+  }
+  return React.createElement("div", { style: { paddingBottom: 8 } }, kids);
+}
 function Buy2Screen({
   nav,
   service,
@@ -3025,7 +3078,7 @@ function Buy2Screen({
       flexDirection: 'column',
       gap: 12
     }
-  }, plans.map((p, i) => {
+  }, [React.createElement(PlanVariantPicker, { key: 'pvp', service: service, plans: plans, logoUrl: logoUrl, onPick: selectPlan, getStockLevel: getStockLevel })], false && plans.map((p, i) => {
     const [pressed, setPress] = useState(false);
     const [hov, setHov] = useState(false);
     const badge = (p.badgeText || '').trim();
