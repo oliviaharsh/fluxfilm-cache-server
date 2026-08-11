@@ -22,6 +22,13 @@ try { admin = require('./admin'); } catch (e) { console.log('[admin] not loaded:
 let order = null; try { order = require('./order'); } catch (e) { console.log('[order] not loaded:', e.message); }
 let payments = null; try { payments = require('./payments'); } catch (e) { console.log('[payments] not loaded:', e.message); }
 let fulfill = null; try { fulfill = require('./fulfill'); } catch (e) { console.log('[fulfill] not loaded:', e.message); }
+let recover = null; try { recover = require('./recover'); } catch (e) { console.log('[recover] not loaded:', e.message); }
+const DB_RECOVER = recover ? {
+  recoverSendOtp: (a) => recover.sendOtp(a[0], a[1]),
+  recoverVerifyOtp: (a) => recover.verifyOtp(a[0], a[1], a[2]),
+  recoverListSubscriptionsSafe: (a) => recover.listSubscriptions(a[0], a[1], a[2]),
+  recoverGetAccess: (a) => recover.getAccess(a[0], a[1], a[2], a[3]),
+} : {};
 const DB_READS = {
   getMySubscriptions: (a) => reads.getMySubscriptions(a[0]),
   getCustomerOrders: (a) => reads.getCustomerOrders(a[0], a[1]),
@@ -150,6 +157,17 @@ app.post('/api', async (req, res) => {
       res.set('X-Source', 'mysql');
       return res.type('application/json').send(JSON.stringify(out));
     } catch (e) { console.log('[reads] fallback to Apps Script:', e.message); }
+  }
+  // Recover on MySQL (self-contained: OTP email + verify + list + access)
+  if (db.ENABLED && recover && DB_RECOVER[action]) {
+    try {
+      const a = Array.isArray(body.args) ? body.args : [];
+      const out = await DB_RECOVER[action](a);
+      if (!out || !out.__fallback) {
+        res.set('X-Source', 'mysql');
+        return res.type('application/json').send(JSON.stringify(out));
+      }
+    } catch (e) { console.log('[recover] error:', e.message); return res.type('application/json').send(JSON.stringify({ ok: false, message: 'Recover hit a snag — please try again.' })); }
   }
   // Wave 2: buy flow on MySQL (flag-gated; any error falls back to Apps Script)
   if (BUY_ON_DB && db.ENABLED && order && DB_WRITES[action]) {
