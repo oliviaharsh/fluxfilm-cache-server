@@ -57,7 +57,10 @@ async function couponDiscount(code, phone, baseAmount) {
 async function createOrder(p) {
   p = p || {};
   const service = String(p.service || '').trim();
-  if (!serviceAllowed(service)) return { __fallback: true };  // not a MySQL service -> Apps Script
+  const isRenew = String(p.action || '').toUpperCase() === 'RENEW';
+  // New buys are gated to BUY_SERVICES; renewals just extend an existing sub, so they
+  // run on MySQL for ANY service (MySQL is master — never fall back to the Sheet).
+  if (!isRenew && !serviceAllowed(service)) return { __fallback: true };
   const plan = String(p.plan || '').trim();
   const name = String(p.name || '').trim();
   const email = String(p.email || '').trim();
@@ -162,11 +165,11 @@ async function verifyPaymentByRef(orderId, ref) {
 
 /**
  * createRenewOrder(subId, planOverride?, couponCode?)
- * Renews an existing MySQL (node-created) subscription. Reuses createOrder so the
- * pay screen / verify / fulfill chain is identical to a fresh buy — the only
- * differences are order_type='RENEW', renew_sub_id, and the early-renew discount.
- * Sheet-owned subs (not source='node') fall back to Apps Script, which renews them
- * on the live Sheet — so a renewal is never split across two stores.
+ * Renews an existing MySQL subscription — ALWAYS on MySQL (MySQL is the master; we
+ * never write to the Sheet). Reuses createOrder so the pay/verify/fulfill chain is
+ * identical to a fresh buy — only order_type='RENEW', renew_sub_id, and the tiered
+ * early-renew discount differ. Fulfillment extends the SAME sub (no new allocation),
+ * so it works for any service regardless of BUY_SERVICES.
  */
 async function createRenewOrder(subId, planOverride, couponCode) {
   const sid = String(subId || '').trim();
@@ -174,9 +177,7 @@ async function createRenewOrder(subId, planOverride, couponCode) {
   const subs = await db.query(
     'SELECT sub_id, service, plan, phone, email, expiry_date, source FROM subscriptions WHERE sub_id = ? LIMIT 1', [sid]);
   const sub = subs[0];
-  if (!sub) return { __fallback: true };                       // unknown to MySQL -> Apps Script
-  if (String(sub.source || '') !== 'node') return { __fallback: true }; // Sheet sub -> Apps Script
-  if (!serviceAllowed(sub.service)) return { __fallback: true };
+  if (!sub) return { ok: false, message: 'Subscription not found.' };  // MySQL is master; no Sheet fallback
 
   // Same backward-compat trick as Apps Script: a 2nd arg that "looks like" a coupon
   // (no spaces, 3-20 chars) is treated as a coupon, not a plan override.
