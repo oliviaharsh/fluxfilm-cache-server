@@ -189,7 +189,10 @@ app.get('*', (_req, res) => {
 });
 
 // -- Auto-sync: keep MySQL fresh from the Sheet --
-const SYNC_INTERVAL_MIN = Number(process.env.SYNC_INTERVAL_MIN || 5);
+// MySQL is the master now — the Sheet must NOT overwrite it. Auto-sync is OFF by
+// default; set SYNC_INTERVAL_MIN>0 only for a deliberate one-off Sheet→MySQL refresh
+// (e.g. a final data pull right before pointing go → the new stack).
+const SYNC_INTERVAL_MIN = Number(process.env.SYNC_INTERVAL_MIN || 0);
 let _syncing = false;
 let _lastSync = null;
 async function autoSync() {
