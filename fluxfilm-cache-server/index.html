@@ -2925,22 +2925,25 @@ function planMeta_(p) {
   if (!months && p && p.durationDays) months = Math.max(1, Math.round(p.durationDays / 30));
   var label = (p && p.periodLabel) ? String(p.periodLabel)
     : (months ? (months % 12 === 0 ? (months / 12) + ' Year' + ((months / 12) > 1 ? 's' : '') : months + ' Month' + (months > 1 ? 's' : '')) : name);
-  return { type: type, months: months, label: label };
+  var devices = 1; var dm = lc.match(/(\d+)\s*device/); if (dm) devices = +dm[1];
+  return { type: type, months: months, label: label, devices: devices };
 }
 // Variant-style plan picker: type (Netflix Private/Sharing) → duration → info + price → continue.
 function PlanVariantPicker(props) {
   var service = props.service, plans = props.plans || [], onPick = props.onPick, getStockLevel = props.getStockLevel || function () { return 'OK'; };
-  var metas = plans.map(function (p) { var mm = planMeta_(p); return { p: p, type: mm.type, months: mm.months, label: mm.label }; });
-  var types = []; metas.forEach(function (m) { if (m.type && types.indexOf(m.type) < 0) types.push(m.type); });
-  var hasTypes = types.length > 0;
-  var st = useState(hasTypes ? types[0] : ''); var type = st[0], setType = st[1];
-  var sp = useState(''); var planName = sp[0], setPlanName = sp[1];
-  var inType = metas.filter(function (m) { return !hasTypes || m.type === type; }).sort(function (a, b) { return (a.months || 0) - (b.months || 0); });
-  useEffect(function () {
-    var list = metas.filter(function (m) { return !hasTypes || m.type === type; }).sort(function (a, b) { return (a.months || 0) - (b.months || 0); });
-    if (!list.some(function (m) { return m.p.plan === planName; })) setPlanName(list[0] ? list[0].p.plan : '');
-  }, [type]);
-  var selected = inType.filter(function (m) { return m.p.plan === planName; })[0] || inType[0];
+  var metas = plans.map(function (p) { var mm = planMeta_(p); return { p: p, type: mm.type, months: mm.months, label: mm.label, devices: mm.devices || 1 }; });
+  var uniq = function (arr) { var o = []; arr.forEach(function (x) { if (o.indexOf(x) < 0) o.push(x); }); return o; };
+  var typeVals = uniq(metas.map(function (m) { return m.type; }).filter(Boolean));
+  var deviceVals = uniq(metas.map(function (m) { return m.devices; })).sort(function (a, b) { return a - b; });
+  var hasTypes = typeVals.length > 1;
+  var hasDevices = deviceVals.length > 1;
+  var stT = useState(typeVals[0] || ''); var type = stT[0], setType = stT[1];
+  var stD = useState(deviceVals[0] || 1); var dev = stD[0], setDev = stD[1];
+  var stP = useState(''); var planName = stP[0], setPlanName = stP[1];
+  var filt = function (t, d) { return metas.filter(function (m) { return (!hasTypes || m.type === t) && (!hasDevices || m.devices === d); }).sort(function (a, b) { return (a.months || 0) - (b.months || 0); }); };
+  var inSel = filt(type, dev);
+  useEffect(function () { var list = filt(type, dev); if (!list.some(function (m) { return m.p.plan === planName; })) setPlanName(list[0] ? list[0].p.plan : ''); }, [type, dev]);
+  var selected = inSel.filter(function (m) { return m.p.plan === planName; })[0] || inSel[0];
   var p = selected ? selected.p : null;
   var sl = p ? getStockLevel(p) : 'OK'; var isOut = sl === 'OUT';
   var isInstant = p ? String(p.fulfillmentMode || '').toUpperCase() !== 'MANUAL' : true;
@@ -2951,8 +2954,9 @@ function PlanVariantPicker(props) {
       sub ? React.createElement("div", { style: { fontFamily: PJS, fontSize: 11, fontWeight: 600, color: active ? '#7c3aed' : C.muted, marginTop: 2 } }, sub) : null);
   };
   var kids = [];
-  if (hasTypes) kids.push(React.createElement("div", { key: 'ty' }, lbl("🎞️ Plan type"), React.createElement("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } }, types.map(function (t) { return chip(type === t, t, null, function () { setType(t); }, 'ty' + t); }))));
-  kids.push(React.createElement("div", { key: 'pe' }, lbl("🗓️ Duration"), React.createElement("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } }, inType.map(function (m) { return chip(selected && selected.p.plan === m.p.plan, m.label, '₹' + m.p.price, function () { setPlanName(m.p.plan); }, 'pe' + m.p.plan); }))));
+  if (hasTypes) kids.push(React.createElement("div", { key: 'ty' }, lbl("🎞️ Plan type"), React.createElement("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } }, typeVals.map(function (t) { return chip(type === t, t, null, function () { setType(t); }, 'ty' + t); }))));
+  if (hasDevices) kids.push(React.createElement("div", { key: 'dv' }, lbl("📱 Devices"), React.createElement("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } }, deviceVals.map(function (d) { return chip(dev === d, d + (d > 1 ? ' Devices' : ' Device'), null, function () { setDev(d); }, 'dv' + d); }))));
+  kids.push(React.createElement("div", { key: 'pe' }, lbl("🗓️ Duration"), React.createElement("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } }, inSel.map(function (m) { return chip(selected && selected.p.plan === m.p.plan, m.label, '₹' + m.p.price, function () { setPlanName(m.p.plan); }, 'pe' + m.p.plan); }))));
   if (p) {
     var benefits = Array.isArray(p.benefits) ? p.benefits : [];
     kids.push(React.createElement("div", { key: 'info', style: { marginTop: 16, border: '1px solid ' + C.border, borderRadius: R.btn, padding: 16, background: '#fafafa' } },
@@ -3384,39 +3388,17 @@ function DeviceSelect({ service, planObj, form, setForm }) {
   var isOtp = ['jiohotstar', 'hotstar', 'zee5', 'sonyliv'].some(function (k) { return svc.indexOf(k) > -1; });
   if (isOtp) return null; // OTP = whole account, no device choice
   var isPrime = !!(planObj && planObj.extraFieldKey === 'PRIME_DEVICE_TYPE');
-  var MAXD = 4;
-  var dc = form.deviceCount || 1;
-  function setDC(n) { setForm(function (f) { return Object.assign({}, f, { deviceCount: n, tvCount: Math.min(f.tvCount || 0, n), extraVal: n === 1 ? f.extraVal : '' }); }); }
-  function setTV(n) { setForm(function (f) { return Object.assign({}, f, { tvCount: n }); }); }
-  function setPrimeSingle(v) { setForm(function (f) { return Object.assign({}, f, { extraVal: v, tvCount: v === 'TV' ? 1 : 0 }); }); }
-  var lbl = function (t) { return React.createElement("label", { style: { display: 'block', fontFamily: PJS, fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 6, letterSpacing: '.02em' } }, t); };
+  if (!isPrime) return null; // device count comes from the plan; only Prime asks TV / non-TV
+  function setPrimeSingle(v) { setForm(function (f) { return Object.assign({}, f, { extraVal: v }); }); }
   var pill = function (active, label, onClick, key) {
     return React.createElement("button", { key: key, type: "button", onClick: onClick, style: { padding: '11px 0', flex: '1 1 0', minWidth: 44, borderRadius: R.btn, border: '2px solid ' + (active ? '#6d28d9' : C.border), background: active ? 'rgba(109,40,217,.08)' : '#fafafa', color: active ? '#6d28d9' : C.text, fontFamily: PJS, fontSize: 14, fontWeight: 800, cursor: 'pointer', transition: 'border .12s,background .12s' } }, label);
   };
-  var kids = [];
-  kids.push(React.createElement("div", { key: 'dcw', style: { marginBottom: 14 } },
-    lbl("📱 How many devices / screens?"),
+  return React.createElement("div", { style: { marginTop: 4 } },
+    React.createElement("label", { style: { display: 'block', fontFamily: PJS, fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 6, letterSpacing: '.02em' } }, "📺 Will you use it on a TV?"),
     React.createElement("div", { style: { display: 'flex', gap: 8 } },
-      [1, 2, 3, 4].slice(0, MAXD).map(function (n) { return pill(dc === n, String(n), function () { setDC(n); }, 'd' + n); }))
-  ));
-  if (isPrime && dc === 1) {
-    kids.push(React.createElement("div", { key: 'ptv1' },
-      lbl("📺 Will you use it on a TV?"),
-      React.createElement("div", { style: { display: 'flex', gap: 8 } },
-        pill(form.extraVal === 'TV', 'Yes — TV 📺', function () { setPrimeSingle('TV'); }, 'tv'),
-        pill(form.extraVal === 'NON_TV', 'No — Mobile 📱', function () { setPrimeSingle('NON_TV'); }, 'ntv')),
-      React.createElement("div", { style: { fontFamily: PJS, fontSize: 11.5, color: C.muted, fontWeight: 600, marginTop: 6, lineHeight: 1.5 } }, "💡 TV + mobile? Still pick ", React.createElement("b", null, "Yes — TV"), " — TV uses a separate slot.")
-    ));
-  } else if (isPrime) {
-    var opts = []; for (var i = 0; i <= dc; i++) opts.push(i);
-    kids.push(React.createElement("div", { key: 'ptvm' },
-      lbl("📺 How many of your " + dc + " devices are on a TV?"),
-      React.createElement("div", { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
-        opts.map(function (n) { return pill((form.tvCount || 0) === n, String(n), function () { setTV(n); }, 't' + n); })),
-      React.createElement("div", { style: { fontFamily: PJS, fontSize: 11.5, color: C.muted, fontWeight: 600, marginTop: 6, lineHeight: 1.5 } }, "💡 TV devices (Smart TV / Fire Stick) use a separate slot — pick how many.")
-    ));
-  }
-  return React.createElement("div", { style: { marginTop: 4 } }, kids);
+      pill(form.extraVal === 'TV', 'Yes — TV 📺', function () { setPrimeSingle('TV'); }, 'tv'),
+      pill(form.extraVal === 'NON_TV', 'No — Mobile 📱', function () { setPrimeSingle('NON_TV'); }, 'ntv')),
+    React.createElement("div", { style: { fontFamily: PJS, fontSize: 11.5, color: C.muted, fontWeight: 600, marginTop: 6, lineHeight: 1.5 } }, "💡 TV + mobile? Still pick ", React.createElement("b", null, "Yes — TV"), " — TV uses a separate slot."));
 }
 function DetailsScreen({
   nav,
@@ -3504,7 +3486,7 @@ function DetailsScreen({
     if (!form.phone.trim()) return alert('Phone is required.');
     if (planObj?.needsExtraField) {
       var isPrimeDev = planObj.extraFieldKey === 'PRIME_DEVICE_TYPE';
-      if (isPrimeDev && (form.deviceCount || 1) === 1 && !form.extraVal.trim()) return alert('Please select whether you will use Prime on a TV.');
+      if (isPrimeDev && !form.extraVal.trim()) return alert('Please select whether you will use Prime on a TV.');
       if (!isPrimeDev && !form.extraVal.trim()) return alert('Please fill: ' + (planObj.extraFieldLabel || 'Required field'));
     }
     if (form.coupon.trim() && !couponState.applied) {
@@ -3923,8 +3905,6 @@ function PayScreen({
       notes: form?.notes || '',
       extraFieldKey: planObj?.extraFieldKey || '',
       extraFieldValue: form?.extraVal || '',
-      deviceCount: (form?.deviceCount || 1),
-      tvCount: (planObj?.extraFieldKey === 'PRIME_DEVICE_TYPE') ? ((form?.deviceCount || 1) === 1 ? ((form?.extraVal === 'TV') ? 1 : 0) : (form?.tvCount || 0)) : null,
       discountOverride: 0,
       groupJoined: !!groupJoined
     }, r => {
