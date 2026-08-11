@@ -212,4 +212,20 @@ async function createRenewOrder(subId, planOverride, couponCode) {
   return out;
 }
 
-module.exports = { createOrder, createRenewOrder, verifyPayment, verifyPaymentByRef, serviceAllowed, _internal: { genOrderId, couponDiscount } };
+/**
+ * validateCoupon(code, ctx) — the checkout "Apply coupon" preview. Checks the coupon
+ * against MySQL (coupons is master now) and returns the discount for the given amount.
+ * ctx = { phone, amount, service, plan, scope }.
+ */
+async function validateCoupon(code, ctx) {
+  ctx = ctx || {};
+  const c = String(code || '').trim();
+  if (!c) return { ok: false, message: 'Enter a coupon code.' };
+  const phone = norm(ctx.phone);
+  const amount = asNum(ctx.amount);
+  const cd = await couponDiscount(c, phone, amount);
+  if (!cd.ok) return { ok: false, message: cd.message || 'Coupon is not valid.' };
+  return { ok: true, code: c.toUpperCase(), discount: cd.discount, finalAmount: Math.max(0, amount - cd.discount), message: 'Coupon applied.' };
+}
+
+module.exports = { createOrder, createRenewOrder, verifyPayment, verifyPaymentByRef, validateCoupon, serviceAllowed, _internal: { genOrderId, couponDiscount } };
