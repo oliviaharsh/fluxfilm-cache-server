@@ -47,17 +47,19 @@ async function primeOccupancy(conn) {
   return m;
 }
 
-// Fire-and-forget: ask Apps Script to award coins + send the credentials email.
-// Never blocks credential delivery; failures are logged only.
+// Fire-and-forget: award loyalty coins (MySQL) + send the email (Node SMTP).
+// No Apps Script, no Sheet. Never blocks credential delivery; failures are logged.
+const coins = require('./coins');
+const mailer = require('./mailer');
 function afterFulfillHook(payload) {
-  const url = process.env.API_PHP_URL || 'https://go.fluxfilm.in/api.php';
-  const key = process.env.API_KEY || '';
-  fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-API-KEY': key },
-    body: JSON.stringify({ apiKey: key, action: 'nodeAfterFulfill', args: [payload] }),
-  }).then(() => console.log('[afterFulfill] coins+email hook sent for', payload.orderId))
-    .catch((e) => console.log('[afterFulfill] hook failed:', e.message));
+  const p = payload || {};
+  const event = p.event || (String(p.orderType || '').toUpperCase() === 'RENEW' ? 'RENEW' : 'NEW_PURCHASE');
+  coins.awardCoins({ event, orderId: p.orderId, phone: p.phone, service: p.service, plan: p.plan, amount: p.amount })
+    .then((r) => console.log('[coins]', p.orderId, JSON.stringify(r)))
+    .catch((e) => console.log('[coins] failed:', e.message));
+  mailer.sendAccessEmail(p)
+    .then(() => console.log('[mail] sent for', p.orderId))
+    .catch((e) => console.log('[mail] failed:', e.message));
 }
 
 async function withLock(name, ttl, fn) {
@@ -326,6 +328,7 @@ async function _allocateAndFinish(o, policy, ppm) {
         deviceCount, (policy === 'CAPACITY' ? tvCount : null), fmtDt(release)]);
     await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
     afterFulfillHook({
+      event: 'NEW_PURCHASE',
       orderId: o.order_id, phone: o.phone, email: o.email, name: o.name,
       service: o.service, plan: o.plan, amount: o.final_amount, expiry: fmtDt(expiry), postPaymentMessage: ppm || '',
       access: { user: acc.user, pass: acc.pass, profileName: acc.profileName, profilePin: acc.profilePin, deviceType: dt },
@@ -352,6 +355,7 @@ async function _fulfillManual(o, ppm) {
     [subId, o.order_id, o.phone, o.phone_norm, o.email, o.service, o.plan, asNum(o.duration_days) || 30, fmtDt(start), fmtDt(expiry)]);
   await db.getPool().query("UPDATE orders SET fulfillment_status = 'MANUAL_PENDING', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
   afterFulfillHook({
+    event: 'NEW_PURCHASE',
     orderId: o.order_id, phone: o.phone, email: o.email, name: o.name,
     service: o.service, plan: o.plan, amount: o.final_amount, expiry: fmtDt(expiry), manual: true, postPaymentMessage: ppm || '', access: {},
   });
@@ -400,6 +404,7 @@ async function _fulfillRenew(o) {
     await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
 
     afterFulfillHook({
+      event: 'RENEW',
       orderId: o.order_id, phone: o.phone, email: o.email, name: o.name,
       service: o.service, plan: o.plan, amount: o.final_amount,
       expiry: fmtDt(newExpiry), postPaymentMessage: '',
