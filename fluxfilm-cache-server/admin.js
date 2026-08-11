@@ -295,7 +295,7 @@ function page(d){OFFSET=Math.max(0,OFFSET+d*50);loadTable()}
 function loadTable(){TBLS.forEach(function(t){var e=$('#t-'+t);if(e)e.className=(t===TAB?'on':'')});
  api('/admin/api/table',{name:TAB,limit:50,offset:OFFSET,q:Q}).then(function(r){
   if(!r.ok){$('#tbl').innerHTML='<p class="muted">'+(r.message||'error')+'</p>';return}
-  window._tbl=r; var ed=r.editable&&r.pk;
+  window._tbl=r; var ed=r.editable&&(r.mysqlKeys&&r.mysqlKeys.length);
   var th=r.columns.map(function(c){return '<th>'+c+'</th>'}).join('');
   var rows=r.rows.map(function(row,i){return '<tr'+(ed?' class="edit" onclick="editRow('+i+')"':'')+'>'+r.columns.map(function(c){return '<td>'+fmt(c,row[c])+'</td>'}).join('')+'</tr>'}).join('');
   var hint=ed?'<div class="muted" style="font-size:.75rem;margin:0 0 8px">✎ Click any row to edit — saves straight to the database (MySQL). 🔑 = key column (identifies the row, read-only).</div>':'<div class="muted" style="font-size:.75rem;margin:0 0 8px">This table is read-only.</div>';
