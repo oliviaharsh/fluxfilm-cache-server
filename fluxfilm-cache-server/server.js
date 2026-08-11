@@ -23,12 +23,20 @@ let order = null; try { order = require('./order'); } catch (e) { console.log('[
 let payments = null; try { payments = require('./payments'); } catch (e) { console.log('[payments] not loaded:', e.message); }
 let fulfill = null; try { fulfill = require('./fulfill'); } catch (e) { console.log('[fulfill] not loaded:', e.message); }
 let recover = null; try { recover = require('./recover'); } catch (e) { console.log('[recover] not loaded:', e.message); }
-const DB_RECOVER = recover ? {
-  recoverSendOtp: (a) => recover.sendOtp(a[0], a[1]),
-  recoverVerifyOtp: (a) => recover.verifyOtp(a[0], a[1], a[2]),
-  recoverListSubscriptionsSafe: (a) => recover.listSubscriptions(a[0], a[1], a[2]),
-  recoverGetAccess: (a) => recover.getAccess(a[0], a[1], a[2], a[3]),
-} : {};
+let otptool = null; try { otptool = require('./otp'); } catch (e) { console.log('[otp] not loaded:', e.message); }
+// Self-contained Node actions (recover + Get-OTP tool) — MySQL/IMAP, no Apps Script.
+const DB_RECOVER = Object.assign(
+  recover ? {
+    recoverSendOtp: (a) => recover.sendOtp(a[0], a[1]),
+    recoverVerifyOtp: (a) => recover.verifyOtp(a[0], a[1], a[2]),
+    recoverListSubscriptionsSafe: (a) => recover.listSubscriptions(a[0], a[1], a[2]),
+    recoverGetAccess: (a) => recover.getAccess(a[0], a[1], a[2], a[3]),
+  } : {},
+  otptool ? {
+    getLatestOtp: (a) => otptool.getLatestOtp(a[0], a[1]),
+    getOtpQuota: (a) => otptool.getOtpQuota(a[0], a[1]),
+  } : {}
+);
 const DB_READS = {
   getMySubscriptions: (a) => reads.getMySubscriptions(a[0]),
   getCustomerOrders: (a) => reads.getCustomerOrders(a[0], a[1]),
@@ -158,8 +166,8 @@ app.post('/api', async (req, res) => {
       return res.type('application/json').send(JSON.stringify(out));
     } catch (e) { console.log('[reads] fallback to Apps Script:', e.message); }
   }
-  // Recover on MySQL (self-contained: OTP email + verify + list + access)
-  if (db.ENABLED && recover && DB_RECOVER[action]) {
+  // Self-contained Node actions: recover (OTP email/verify/list/access) + Get-OTP tool
+  if (db.ENABLED && DB_RECOVER[action]) {
     try {
       const a = Array.isArray(body.args) ? body.args : [];
       const out = await DB_RECOVER[action](a);
