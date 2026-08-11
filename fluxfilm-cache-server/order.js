@@ -87,9 +87,11 @@ async function createOrder(p) {
   const orderType = String(p.action || '').toUpperCase() === 'RENEW' ? 'RENEW' : 'NEW';
   const renewSubId = String(p.renewSubId || '').trim();
 
-  // How many devices/screens this subscription uses (customer picks at checkout;
-  // defaults to 1 = today's behaviour). tvCount = how many are TV (Prime only).
-  const deviceCount = Math.max(1, Math.floor(asNum(p.deviceCount)) || 1);
+  // How many devices/screens this subscription uses. Model A: the device count is
+  // baked into the plan name (e.g. "2 Devices 1M" → 2); a caller may still override
+  // via p.deviceCount. tvCount = how many are TV (Prime only).
+  const planDevices = (String(plan).match(/(\d+)\s*device/i) || [])[1];
+  const deviceCount = Math.max(1, Math.floor(asNum(p.deviceCount)) || Number(planDevices) || 1);
   let tvCount = (p.tvCount != null && p.tvCount !== '') ? Math.max(0, Math.floor(asNum(p.tvCount))) : null;
   // Back-compat: a single-device Prime order that only sent the old TV/NON_TV flag.
   if (tvCount == null) {
