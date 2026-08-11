@@ -191,6 +191,49 @@ function mountAdmin(app, deps) {
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
 
+  // Add a brand-new row straight into MySQL (e.g. a new plan / coupon / account).
+  app.post('/admin/api/row-add', async (req, res) => {
+    if (!auth(req, res)) return;
+    const body = req.body || {};
+    const name = String(body.table || ''); const raw = body.raw || {};
+    const cfg = TABLES[name]; const mkeys = MYSQLKEYS[name];
+    const def = sync && sync.TABLES && sync.TABLES[name];
+    if (!cfg || !mkeys || !def) return res.status(400).json({ ok: false, message: 'Table not editable' });
+    try {
+      const rev = {};
+      for (const [col, spec] of Object.entries(def.cols)) rev[spec[0]] = { col, cast: spec[1] };
+      const cols = []; const vals = []; const seen = new Set();
+      for (const [header, val] of Object.entries(raw)) {
+        const m = rev[header]; if (!m || seen.has(m.col)) continue; seen.add(m.col);
+        cols.push('`' + m.col + '`'); vals.push(m.cast ? m.cast(val) : val);
+      }
+      for (const k of mkeys) { if (!seen.has(k)) return res.json({ ok: false, message: 'Please fill the key field(s): ' + mkeys.join(', ') }); }
+      if (Object.prototype.hasOwnProperty.call(raw, 'Phone')) { cols.push('phone_norm'); vals.push(norm(raw.Phone)); }
+      cols.push('raw_json'); vals.push(JSON.stringify(raw));
+      const sql = 'INSERT INTO `' + name + '` (' + cols.join(', ') + ') VALUES (' + cols.map(() => '?').join(', ') + ')';
+      await db.query(sql, vals);
+      res.json({ ok: true });
+    } catch (e) {
+      const msg = /Duplicate/i.test(String(e && e.message)) ? 'A row with those key values already exists.' : String(e && e.message || e);
+      res.status(500).json({ ok: false, message: msg });
+    }
+  });
+
+  // Delete a row by its key columns.
+  app.post('/admin/api/row-delete', async (req, res) => {
+    if (!auth(req, res)) return;
+    const body = req.body || {};
+    const name = String(body.table || ''); const keyvals = body.keyvals || {};
+    const cfg = TABLES[name]; const mkeys = MYSQLKEYS[name];
+    if (!cfg || !mkeys) return res.status(400).json({ ok: false, message: 'Table not editable' });
+    for (const k of mkeys) { if (keyvals[k] == null || keyvals[k] === '') return res.status(400).json({ ok: false, message: 'Missing key: ' + k }); }
+    try {
+      const where = mkeys.map((k) => '`' + k + '`=?').join(' AND ');
+      const r = await db.query('DELETE FROM `' + name + '` WHERE ' + where + ' LIMIT 1', mkeys.map((k) => keyvals[k]));
+      res.json({ ok: true, deleted: (r && r.affectedRows) || 0 });
+    } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
+  });
+
   app.get('/panel', (_req, res) => res.type('html').send(PAGE));
 }
 
@@ -241,9 +284,10 @@ tr.edit td{cursor:pointer}tr.edit:hover td{background:#eef2ff}
 .edrow label{display:block;font-size:.7rem;color:var(--mut);font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px}
 .edrow input{width:100%}.edrow.key input{background:#f1f5f9;border-style:dashed}
 .edft{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center;position:sticky;bottom:0;background:#fff}
+button.del{background:#ef4444}button.add{background:#7c3aed}
 .x{background:#334155}
 </style></head><body><div id="app"></div>
-<div id="edwrap" class="edwrap"><div class="edbox"><div class="edhd"><b id="edtitle">Edit row</b><button class="x" onclick="closeEd()">✕ Close</button></div><div class="edbody" id="edbody"></div><div class="edft"><button onclick="saveRow()">💾 Save to Sheet</button><span id="edmsg" class="muted"></span></div></div></div>
+<div id="edwrap" class="edwrap"><div class="edbox"><div class="edhd"><b id="edtitle">Edit row</b><button class="x" onclick="closeEd()">✕ Close</button></div><div class="edbody" id="edbody"></div><div class="edft"><button onclick="saveRow()">💾 Save</button><button id="edDel" class="del" onclick="delRow()" style="display:none">🗑️ Delete</button><span id="edmsg" class="muted"></span></div></div></div>
 <script>
 var $=function(s){return document.querySelector(s)};
 var KEY=localStorage.getItem('ff_admin_key')||'';
@@ -252,7 +296,7 @@ var TBLS=['orders','subscriptions','customers','coupons','wallet','coupon_usage'
 function api(path,params){var u=new URL(location.origin+path);u.searchParams.set('key',KEY);params=params||{};Object.keys(params).forEach(function(k){u.searchParams.set(k,params[k])});return fetch(u).then(function(r){return r.json()})}
 function money(n){return '₹'+Number(n||0).toLocaleString('en-IN')}
 function pill(v){return v?'<span class="pill '+String(v).toUpperCase().replace(/[^A-Z]/g,'')+'">'+v+'</span>':''}
-function fmt(k,v){if(v==null||v==='')return '<span class="muted">—</span>';if(/amount|balance|lifetime|price|value|discount/.test(k))return money(v);if(/status|action/.test(k))return pill(v);if((/date|_at|expiry|ts|since/.test(k))&&String(v).length>10)return String(v).slice(0,16).replace('T',' ');return String(v)}
+function fmt(k,v){if(v==null||v==='')return '<span class="muted">—</span>';if(/amount|balance|lifetime|price|discount|final|revenue/.test(k))return money(v);if(/status|action/.test(k))return pill(v);if((/date|_at|expiry|ts|since/.test(k))&&String(v).length>10)return String(v).slice(0,16).replace('T',' ');return String(v)}
 function waLink(phone,text){var p=String(phone||'').replace(/\\D/g,'');if(p.length===10)p='91'+p;return 'https://wa.me/'+p+'?text='+encodeURIComponent(text)}
 
 function login(){$('#app').innerHTML='<div class="login"><h2>🔐 FluxFilm Admin</h2><p class="muted">Enter the admin key.</p><input id="k" type="password" placeholder="admin key" style="width:100%;margin:12px 0"/><button onclick="doLogin()" style="width:100%">Enter</button><div id="err" style="color:#dc2626;margin-top:8px"></div></div>'}
@@ -298,7 +342,7 @@ function loadTable(){TBLS.forEach(function(t){var e=$('#t-'+t);if(e)e.className=
   window._tbl=r; var ed=r.editable&&(r.mysqlKeys&&r.mysqlKeys.length);
   var th=r.columns.map(function(c){return '<th>'+c+'</th>'}).join('');
   var rows=r.rows.map(function(row,i){return '<tr'+(ed?' class="edit" onclick="editRow('+i+')"':'')+'>'+r.columns.map(function(c){return '<td>'+fmt(c,row[c])+'</td>'}).join('')+'</tr>'}).join('');
-  var hint=ed?'<div class="muted" style="font-size:.75rem;margin:0 0 8px">✎ Click any row to edit — saves straight to the database (MySQL). 🔑 = key column (identifies the row, read-only).</div>':'<div class="muted" style="font-size:.75rem;margin:0 0 8px">This table is read-only.</div>';
+  var hint=ed?'<div style="margin:0 0 8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"><button class="add" onclick="addRow()">＋ Add row</button><span class="muted" style="font-size:.75rem">✎ Click any row to edit · saves straight to MySQL · 🔑 = key column</span></div>':'<div class="muted" style="font-size:.75rem;margin:0 0 8px">This table is read-only.</div>';
   var pg='<div class="bar" style="margin-top:12px"><span class="muted">'+r.total+' rows</span>'+(OFFSET>0?'<button class="alt" onclick="page(-1)">‹ Prev</button>':'')+(OFFSET+50<r.total?'<button class="alt" onclick="page(1)">Next ›</button>':'')+'</div>';
   $('#tbl').innerHTML=hint+'<div class="tblwrap"><table><thead><tr>'+th+'</tr></thead><tbody>'+(rows||'<tr><td class="muted">No rows</td></tr>')+'</tbody></table></div>'+pg})}
 function openEd(){$('#edwrap').className='edwrap on'}
@@ -306,16 +350,29 @@ function closeEd(){$('#edwrap').className='edwrap';$('#edmsg').textContent=''}
 function edEsc(v){return String(v==null?'':v).split('"').join('&quot;')}
 function editRow(i){var r=window._tbl;if(!r)return;var rowObj=r.rows[i]||{};var raw=rowObj.__raw||{};var keys=r.keys||[];var mk=r.mysqlKeys||[];
  var hs=Object.keys(raw);
- $('#edtitle').textContent='Edit '+r.table;$('#edmsg').textContent='';openEd();
+ $('#edtitle').textContent='Edit '+r.table;$('#edmsg').textContent='';var dl=$('#edDel');if(dl)dl.style.display='inline-flex';openEd();
  if(!hs.length){$('#edbody').innerHTML='<p class="muted">No editable fields stored for this row.</p>';window._edit=null;return}
  var kv={};mk.forEach(function(k){kv[k]=rowObj[k]});
- window._edit={table:r.table,keyvals:kv};
+ window._edit={table:r.table,keyvals:kv,mode:'edit'};
  $('#edbody').innerHTML=hs.map(function(h){var isk=keys.indexOf(h)>-1;return '<div class="edrow'+(isk?' key':'')+'"><label>'+h+(isk?' 🔑 key':'')+'</label><input data-h="'+edEsc(h)+'" value="'+edEsc(raw[h])+'"'+(isk?' readonly':'')+'/></div>'}).join('')}
+function addRow(){var r=window._tbl;if(!r||!r.editable)return;var keys=r.keys||[];
+ var sample=(r.rows[0]&&r.rows[0].__raw)||{};var hs=Object.keys(sample);
+ if(!hs.length)hs=(r.columns||[]);
+ $('#edtitle').textContent='Add to '+r.table;$('#edmsg').textContent='';var dl=$('#edDel');if(dl)dl.style.display='none';openEd();
+ window._edit={table:r.table,mode:'add'};
+ $('#edbody').innerHTML='<div class="edrow" style="grid-column:1/-1"><span class="muted" style="font-size:.72rem">Prefilled from an existing row as a template. Change the 🔑 key field(s) (e.g. Plan) + Price, tweak the rest, then Save.</span></div>'+hs.map(function(h){var isk=keys.indexOf(h)>-1;var v=isk?'':edEsc(sample[h]);return '<div class="edrow'+(isk?' key':'')+'"><label>'+h+(isk?' 🔑 key':'')+'</label><input data-h="'+edEsc(h)+'" value="'+v+'"'+(isk?' placeholder="required"':'')+'/></div>'}).join('')}
 function saveRow(){var e=window._edit;if(!e)return;var raw={};document.querySelectorAll('#edbody input').forEach(function(inp){raw[inp.getAttribute('data-h')]=inp.value});
+ var url=e.mode==='add'?'/admin/api/row-add':'/admin/api/row';
+ var payload=e.mode==='add'?{table:e.table,raw:raw}:{table:e.table,keyvals:e.keyvals,raw:raw};
  $('#edmsg').textContent='Saving to database…';
- fetch(location.origin+'/admin/api/row?key='+encodeURIComponent(KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table:e.table,keyvals:e.keyvals,raw:raw})}).then(function(x){return x.json()}).then(function(d){
+ fetch(location.origin+url+'?key='+encodeURIComponent(KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(x){return x.json()}).then(function(d){
   $('#edmsg').textContent=d.ok?'✅ Saved to database':'⚠️ '+(d.message||'failed');
   if(d.ok)setTimeout(function(){closeEd();loadTable()},700)}).catch(function(err){$('#edmsg').textContent='⚠️ '+err.message})}
+function delRow(){var e=window._edit;if(!e||e.mode!=='edit')return;if(!confirm('Delete this row permanently? This cannot be undone.'))return;
+ $('#edmsg').textContent='Deleting…';
+ fetch(location.origin+'/admin/api/row-delete?key='+encodeURIComponent(KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table:e.table,keyvals:e.keyvals})}).then(function(x){return x.json()}).then(function(d){
+  $('#edmsg').textContent=d.ok?'✅ Deleted':'⚠️ '+(d.message||'failed');
+  if(d.ok)setTimeout(function(){closeEd();loadTable()},600)}).catch(function(err){$('#edmsg').textContent='⚠️ '+err.message})}
 
 function expiring(){
  $('#view').innerHTML='<div class="card"><h3>⏳ Subscriptions expiring soon</h3><div class="bar"><span class="muted">Window:</span><button class="alt" onclick="loadExp(7)">7 days</button><button class="alt" onclick="loadExp(15)">15 days</button><button class="alt" onclick="loadExp(30)">30 days</button></div><div id="exp"></div></div>';
