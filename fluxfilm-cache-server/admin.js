@@ -18,6 +18,24 @@ const TABLES = {
 };
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 
+// Which tables can be edited, and the SHEET header column(s) that uniquely identify
+// a row (used to find-or-append when writing back to Google Sheets). Editing writes
+// to the Sheet (the master) then re-syncs. bank_credits is MySQL-only → not editable.
+const SHEETKEYS = {
+  orders: ['OrderID'], subscriptions: ['SubID'], customers: ['Phone'], coupons: ['Code'],
+  wallet: ['Phone'], plans: ['Service', 'Plan'], inventory_accounts: ['Service', 'AccountID'],
+  inventory_profiles: ['AccountID', 'ProfileNumber'], inventory_capacity: ['Service', 'AccountID'],
+  coupon_usage: ['OrderID', 'CouponCode'],
+};
+// The MySQL columns that uniquely identify a row (for the UPDATE ... WHERE). Edits
+// write straight to MySQL now — MySQL is the master, nothing goes back to the Sheet.
+const MYSQLKEYS = {
+  orders: ['order_id'], subscriptions: ['sub_id'], customers: ['phone'], coupons: ['code'],
+  wallet: ['phone'], plans: ['service', 'plan'], inventory_accounts: ['service', 'account_id'],
+  inventory_profiles: ['account_id', 'profile_number'], inventory_capacity: ['service', 'account_id'],
+  coupon_usage: ['order_id', 'coupon_code'],
+};
+
 function mountAdmin(app, deps) {
   const { db, ADMIN_KEY, callApiPhp, sync } = deps;
   const auth = (req, res) => {
@@ -101,10 +119,15 @@ function mountAdmin(app, deps) {
     try {
       const rows = await db.query('SELECT ' + cfg.cols + ' FROM `' + name + '` ' + where + ' ORDER BY ' + cfg.order + ' LIMIT ? OFFSET ?', [...params, limit, offset]);
       const totalRow = await db.query('SELECT COUNT(*) n FROM `' + name + '` ' + where, params);
-      const HIDE = new Set(['raw_json', 'logo_url']);
-      for (const r of rows) for (const k of Object.keys(r)) if (HIDE.has(k)) delete r[k];
-      const columns = rows.length ? Object.keys(rows[0]) : [];
-      res.json({ ok: true, table: name, columns, rows, total: +(totalRow[0] || {}).n || 0, limit, offset });
+      const HIDE = new Set(['logo_url']);
+      for (const r of rows) {
+        let raw = {}; try { raw = r.raw_json ? JSON.parse(r.raw_json) : {}; } catch (_) { raw = {}; }
+        delete r.raw_json;
+        for (const k of Object.keys(r)) if (HIDE.has(k)) delete r[k];
+        r.__raw = raw; // exact original Google-Sheet fields for the editor
+      }
+      const columns = rows.length ? Object.keys(rows[0]).filter((c) => c !== '__raw') : [];
+      res.json({ ok: true, table: name, columns, rows, total: +(totalRow[0] || {}).n || 0, limit, offset, editable: !!SHEETKEYS[name], keys: SHEETKEYS[name] || [], mysqlKeys: MYSQLKEYS[name] || [] });
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
 
@@ -134,6 +157,37 @@ function mountAdmin(app, deps) {
       if (out && out.ok === false) return res.json({ ok: false, message: out.message || 'Apps Script rejected it' });
       try { if (sync && sync.runSync) await sync.runSync(['coupons'], { dry: false }); } catch (_) {}
       res.json({ ok: true, appsScript: out });
+    } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
+  });
+
+  // Save a row: write STRAIGHT TO MySQL (MySQL is the master). Updates both the
+  // typed columns and raw_json so reads that use either stay consistent. Nothing is
+  // written back to the Google Sheet.
+  app.post('/admin/api/row', async (req, res) => {
+    if (!auth(req, res)) return;
+    const body = req.body || {};
+    const name = String(body.table || '');
+    const raw = body.raw || {};          // sheet-header keyed (the editor fields)
+    const keyvals = body.keyvals || {};  // MySQL key column → original value
+    const cfg = TABLES[name]; const mkeys = MYSQLKEYS[name];
+    const def = sync && sync.TABLES && sync.TABLES[name];
+    if (!cfg || !mkeys || !def) return res.status(400).json({ ok: false, message: 'Table not editable' });
+    for (const k of mkeys) { if (keyvals[k] == null || keyvals[k] === '') return res.status(400).json({ ok: false, message: 'Missing key: ' + k }); }
+    try {
+      // sheet header -> { col, cast } from the sync mapping
+      const rev = {};
+      for (const [col, spec] of Object.entries(def.cols)) rev[spec[0]] = { col, cast: spec[1] };
+      const sets = []; const params = []; const seen = new Set();
+      for (const [header, val] of Object.entries(raw)) {
+        const m = rev[header]; if (!m || seen.has(m.col)) continue; seen.add(m.col);
+        sets.push('`' + m.col + '`=?'); params.push(m.cast ? m.cast(val) : val);
+      }
+      if (Object.prototype.hasOwnProperty.call(raw, 'Phone')) { sets.push('phone_norm=?'); params.push(norm(raw.Phone)); }
+      sets.push('raw_json=?'); params.push(JSON.stringify(raw));
+      if (!sets.length) return res.json({ ok: false, message: 'Nothing to update' });
+      const where = mkeys.map((k) => '`' + k + '`=?').join(' AND ');
+      const r = await db.query('UPDATE `' + name + '` SET ' + sets.join(', ') + ' WHERE ' + where + ' LIMIT 1', [...params, ...mkeys.map((k) => keyvals[k])]);
+      res.json({ ok: true, changed: (r && r.affectedRows) || 0 });
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
 
@@ -176,7 +230,20 @@ button.alt{background:#334155}button.wa{background:#25d366;padding:6px 12px;font
 .days.ok{background:#fef9c3;color:#854d0e}
 .login{max-width:360px;margin:12vh auto;background:#fff;padding:30px;border-radius:18px;box-shadow:0 12px 50px rgba(15,23,42,.12);text-align:center}
 canvas{max-height:260px}
+tr.edit td{cursor:pointer}tr.edit:hover td{background:#eef2ff}
+.edwrap{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow:auto;padding:20px}
+.edwrap.on{display:flex}
+.edbox{background:#fff;border-radius:18px;max-width:640px;width:100%;box-shadow:0 20px 70px rgba(15,23,42,.3);overflow:hidden}
+.edhd{display:flex;align-items:center;justify-content:space-between;padding:15px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff}
+.edhd b{font-size:1.02rem}
+.edbody{padding:16px 20px;max-height:66vh;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:560px){.edbody{grid-template-columns:1fr}}
+.edrow label{display:block;font-size:.7rem;color:var(--mut);font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px}
+.edrow input{width:100%}.edrow.key input{background:#f1f5f9;border-style:dashed}
+.edft{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center;position:sticky;bottom:0;background:#fff}
+.x{background:#334155}
 </style></head><body><div id="app"></div>
+<div id="edwrap" class="edwrap"><div class="edbox"><div class="edhd"><b id="edtitle">Edit row</b><button class="x" onclick="closeEd()">✕ Close</button></div><div class="edbody" id="edbody"></div><div class="edft"><button onclick="saveRow()">💾 Save to Sheet</button><span id="edmsg" class="muted"></span></div></div></div>
 <script>
 var $=function(s){return document.querySelector(s)};
 var KEY=localStorage.getItem('ff_admin_key')||'';
@@ -228,10 +295,27 @@ function page(d){OFFSET=Math.max(0,OFFSET+d*50);loadTable()}
 function loadTable(){TBLS.forEach(function(t){var e=$('#t-'+t);if(e)e.className=(t===TAB?'on':'')});
  api('/admin/api/table',{name:TAB,limit:50,offset:OFFSET,q:Q}).then(function(r){
   if(!r.ok){$('#tbl').innerHTML='<p class="muted">'+(r.message||'error')+'</p>';return}
+  window._tbl=r; var ed=r.editable&&r.pk;
   var th=r.columns.map(function(c){return '<th>'+c+'</th>'}).join('');
-  var rows=r.rows.map(function(row){return '<tr>'+r.columns.map(function(c){return '<td>'+fmt(c,row[c])+'</td>'}).join('')+'</tr>'}).join('');
+  var rows=r.rows.map(function(row,i){return '<tr'+(ed?' class="edit" onclick="editRow('+i+')"':'')+'>'+r.columns.map(function(c){return '<td>'+fmt(c,row[c])+'</td>'}).join('')+'</tr>'}).join('');
+  var hint=ed?'<div class="muted" style="font-size:.75rem;margin:0 0 8px">✎ Click any row to edit — saves straight to the database (MySQL). 🔑 = key column (identifies the row, read-only).</div>':'<div class="muted" style="font-size:.75rem;margin:0 0 8px">This table is read-only.</div>';
   var pg='<div class="bar" style="margin-top:12px"><span class="muted">'+r.total+' rows</span>'+(OFFSET>0?'<button class="alt" onclick="page(-1)">‹ Prev</button>':'')+(OFFSET+50<r.total?'<button class="alt" onclick="page(1)">Next ›</button>':'')+'</div>';
-  $('#tbl').innerHTML='<div class="tblwrap"><table><thead><tr>'+th+'</tr></thead><tbody>'+(rows||'<tr><td class="muted">No rows</td></tr>')+'</tbody></table></div>'+pg})}
+  $('#tbl').innerHTML=hint+'<div class="tblwrap"><table><thead><tr>'+th+'</tr></thead><tbody>'+(rows||'<tr><td class="muted">No rows</td></tr>')+'</tbody></table></div>'+pg})}
+function openEd(){$('#edwrap').className='edwrap on'}
+function closeEd(){$('#edwrap').className='edwrap';$('#edmsg').textContent=''}
+function edEsc(v){return String(v==null?'':v).split('"').join('&quot;')}
+function editRow(i){var r=window._tbl;if(!r)return;var rowObj=r.rows[i]||{};var raw=rowObj.__raw||{};var keys=r.keys||[];var mk=r.mysqlKeys||[];
+ var hs=Object.keys(raw);
+ $('#edtitle').textContent='Edit '+r.table;$('#edmsg').textContent='';openEd();
+ if(!hs.length){$('#edbody').innerHTML='<p class="muted">No editable fields stored for this row.</p>';window._edit=null;return}
+ var kv={};mk.forEach(function(k){kv[k]=rowObj[k]});
+ window._edit={table:r.table,keyvals:kv};
+ $('#edbody').innerHTML=hs.map(function(h){var isk=keys.indexOf(h)>-1;return '<div class="edrow'+(isk?' key':'')+'"><label>'+h+(isk?' 🔑 key':'')+'</label><input data-h="'+edEsc(h)+'" value="'+edEsc(raw[h])+'"'+(isk?' readonly':'')+'/></div>'}).join('')}
+function saveRow(){var e=window._edit;if(!e)return;var raw={};document.querySelectorAll('#edbody input').forEach(function(inp){raw[inp.getAttribute('data-h')]=inp.value});
+ $('#edmsg').textContent='Saving to database…';
+ fetch(location.origin+'/admin/api/row?key='+encodeURIComponent(KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table:e.table,keyvals:e.keyvals,raw:raw})}).then(function(x){return x.json()}).then(function(d){
+  $('#edmsg').textContent=d.ok?'✅ Saved to database':'⚠️ '+(d.message||'failed');
+  if(d.ok)setTimeout(function(){closeEd();loadTable()},700)}).catch(function(err){$('#edmsg').textContent='⚠️ '+err.message})}
 
 function expiring(){
  $('#view').innerHTML='<div class="card"><h3>⏳ Subscriptions expiring soon</h3><div class="bar"><span class="muted">Window:</span><button class="alt" onclick="loadExp(7)">7 days</button><button class="alt" onclick="loadExp(15)">15 days</button><button class="alt" onclick="loadExp(30)">30 days</button></div><div id="exp"></div></div>';
