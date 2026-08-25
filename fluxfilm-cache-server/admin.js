@@ -18,9 +18,10 @@ const TABLES = {
 };
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 
-// Which tables can be edited, and the SHEET header column(s) that uniquely identify
-// a row (used to find-or-append when writing back to Google Sheets). Editing writes
-// to the Sheet (the master) then re-syncs. bank_credits is MySQL-only → not editable.
+// Which tables can be edited, and the SHEET header column(s) that identify a row.
+// Nothing is written back to Google Sheets any more — these header names survive
+// only because raw_json is still keyed by them, so the editor labels fields the way
+// the data is actually stored. bank_credits is MySQL-only → not editable.
 const SHEETKEYS = {
   orders: ['OrderID'], subscriptions: ['SubID'], customers: ['Phone'], coupons: ['Code'],
   wallet: ['Phone'], plans: ['Service', 'Plan'], inventory_accounts: ['Service', 'AccountID'],
@@ -37,7 +38,10 @@ const MYSQLKEYS = {
 };
 
 function mountAdmin(app, deps) {
-  const { db, ADMIN_KEY, callApiPhp, sync } = deps;
+  // No callApiPhp here any more: every admin write goes straight to MySQL.
+  // `sync` is still used, but only for its TABLES column mapping (sheet header ->
+  // MySQL column), not to talk to the Sheet.
+  const { db, ADMIN_KEY, sync } = deps;
   const auth = (req, res) => {
     if (!ADMIN_KEY || req.query.key !== ADMIN_KEY) { res.status(403).json({ ok: false, message: 'Unauthorized' }); return false; }
     return true;
@@ -146,17 +150,52 @@ function mountAdmin(app, deps) {
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
 
+  // Add / edit a coupon — straight into MySQL (coupons is master; nothing goes
+  // to the Sheet any more).
+  //
+  // IMPORTANT: order.js couponDiscount() validates a coupon by reading ONLY
+  // `raw_json`, so we write raw_json AND the typed columns. A coupon saved with
+  // just the typed columns would show in the admin list but silently never apply
+  // at checkout.
   app.post('/admin/api/coupon', async (req, res) => {
     if (!auth(req, res)) return;
     const p = req.body || {};
-    if (!p.code) return res.status(400).json({ ok: false, message: 'Coupon code required' });
-    if (!callApiPhp) return res.status(500).json({ ok: false, message: 'Apps Script bridge unavailable' });
+    const code = String(p.code || '').trim().toUpperCase();
+    if (!code) return res.status(400).json({ ok: false, message: 'Coupon code required' });
+
+    const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+    const int = (v) => { const n = parseInt(v, 10); return isNaN(n) ? 0 : n; };
+    const str = (v) => String(v == null ? '' : v).trim();
+    const bool = (v, dflt) => { const t = str(v).toUpperCase(); return (t === 'TRUE' || t === 'FALSE') ? t : dflt; };
+    const expiry = str(p.expiry);
+
+    // Sheet-header keyed, exactly as the sync mapping + couponDiscount expect.
+    // Both `Code` and `CouponCode` are written because the Sheet used `Code`
+    // while the sync mapping reads `CouponCode`.
+    const raw = {
+      Code: code, CouponCode: code,
+      Description: str(p.description), Scope: str(p.scope).toUpperCase() || 'ANY',
+      Type: str(p.type).toUpperCase() || 'FLAT', Value: num(p.value),
+      MinAmount: num(p.minAmount), MaxDiscount: num(p.maxDiscount),
+      Expiry: expiry, PerUserLimit: int(p.perUserLimit), GlobalLimit: int(p.globalLimit),
+      Active: bool(p.active, 'TRUE'), ShowInProfile: bool(p.showInProfile, 'TRUE'),
+      AllowedPhones: str(p.allowedPhones) || 'ALL', FirstTimeOnly: bool(p.firstTimeOnly, 'FALSE'),
+    };
+
     try {
-      const r = await callApiPhp({ action: 'nodeUpsertCoupon', args: [p] });
-      let out = {}; try { out = JSON.parse(r.text); } catch (_) { out = { raw: String(r.text || '').slice(0, 200) }; }
-      if (out && out.ok === false) return res.json({ ok: false, message: out.message || 'Apps Script rejected it' });
-      try { if (sync && sync.runSync) await sync.runSync(['coupons'], { dry: false }); } catch (_) {}
-      res.json({ ok: true, appsScript: out });
+      await db.query(
+        'INSERT INTO coupons (code, description, scope, type, value, min_amount, max_discount, expiry,' +
+        ' per_user_limit, global_limit, active, show_in_profile, allowed_phones, first_time_only, raw_json)' +
+        ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)' +
+        ' ON DUPLICATE KEY UPDATE description=VALUES(description), scope=VALUES(scope), type=VALUES(type),' +
+        ' value=VALUES(value), min_amount=VALUES(min_amount), max_discount=VALUES(max_discount),' +
+        ' expiry=VALUES(expiry), per_user_limit=VALUES(per_user_limit), global_limit=VALUES(global_limit),' +
+        ' active=VALUES(active), show_in_profile=VALUES(show_in_profile), allowed_phones=VALUES(allowed_phones),' +
+        ' first_time_only=VALUES(first_time_only), raw_json=VALUES(raw_json)',
+        [code, raw.Description, raw.Scope, raw.Type, raw.Value, raw.MinAmount, raw.MaxDiscount,
+          expiry || null, raw.PerUserLimit, raw.GlobalLimit, raw.Active, raw.ShowInProfile,
+          raw.AllowedPhones, raw.FirstTimeOnly, JSON.stringify(raw)]);
+      res.json({ ok: true, code });
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
 
@@ -388,7 +427,7 @@ function loadExp(days){api('/admin/api/expiring',{days:days}).then(function(r){
   $('#exp').innerHTML='<div class="tblwrap"><table><thead><tr><th>Left</th><th>Service</th><th>Plan</th><th>Expiry</th><th>Phone</th><th>Email</th><th>Reach out</th></tr></thead><tbody>'+rows+'</tbody></table></div>'})}
 
 function coupons(){
- $('#view').innerHTML='<div class="card"><h3>🎟️ Add / edit coupon</h3><div class="muted" style="font-size:.8rem;margin-bottom:10px">Saves straight into your Google Sheet, then re-syncs — so the live site sees it too.</div><div id="cform"></div></div><div class="card"><h3>All coupons</h3><div id="clist"></div></div>';
+ $('#view').innerHTML='<div class="card"><h3>🎟️ Add / edit coupon</h3><div class="muted" style="font-size:.8rem;margin-bottom:10px">Saves straight into MySQL — live on the site immediately.</div><div id="cform"></div></div><div class="card"><h3>All coupons</h3><div id="clist"></div></div>';
  renderCouponForm({}); loadCoupons();
 }
 function renderCouponForm(c){
@@ -410,7 +449,7 @@ function saveCoupon(){
  $('#csave').textContent='Saving…';
  fetch(location.origin+'/admin/api/coupon?key='+encodeURIComponent(KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
   .then(function(r){return r.json()})
-  .then(function(r){ $('#csave').textContent = r.ok ? '✅ Saved to Sheet + synced' : ('⚠️ '+(r.message||'failed')); if(r.ok) loadCoupons(); })
+  .then(function(r){ $('#csave').textContent = r.ok ? '✅ Saved' : ('⚠️ '+(r.message||'failed')); if(r.ok) loadCoupons(); })
   .catch(function(e){ $('#csave').textContent='⚠️ '+e.message });
 }
 function loadCoupons(){
