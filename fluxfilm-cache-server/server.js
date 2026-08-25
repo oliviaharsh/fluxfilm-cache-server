@@ -24,6 +24,8 @@ let payments = null; try { payments = require('./payments'); } catch (e) { conso
 let fulfill = null; try { fulfill = require('./fulfill'); } catch (e) { console.log('[fulfill] not loaded:', e.message); }
 let recover = null; try { recover = require('./recover'); } catch (e) { console.log('[recover] not loaded:', e.message); }
 let otptool = null; try { otptool = require('./otp'); } catch (e) { console.log('[otp] not loaded:', e.message); }
+let catalog = null; try { catalog = require('./catalog'); } catch (e) { console.log('[catalog] not loaded:', e.message); }
+let account = null; try { account = require('./account'); } catch (e) { console.log('[account] not loaded:', e.message); }
 // Self-contained Node actions (recover + Get-OTP tool) — MySQL/IMAP, no Apps Script.
 const DB_RECOVER = Object.assign(
   recover ? {
@@ -44,6 +46,22 @@ const DB_READS = {
   getActiveCouponsForCustomer: (a) => reads.getActiveCouponsForCustomer(a[0]),
   getWalletByPhone: (a) => reads.getWalletByPhone(a[0]),
 };
+// Storefront actions that used to pass through to Apps Script (the Sheet).
+// MySQL is the master, so these now read/write MySQL directly — most importantly
+// getBootstrap, so the plan list the customer SEES comes from the same rows
+// createOrder PRICES from. Any handler may return {__fallback:true} to hand the
+// request back to Apps Script.
+const DB_STOREFRONT = Object.assign(
+  catalog ? { getBootstrap: () => catalog.getBootstrap() } : {},
+  account ? {
+    createOrUpdateCustomerProfile: (a) => account.createOrUpdateCustomerProfile(a[0]),
+    createCustomerProfile: (a) => account.createCustomerProfile(a[0]),
+    updateCustomerProfilePic: (a) => account.updateCustomerProfilePic(a[0], a[1]),
+    getOrderStatus: (a) => account.getOrderStatus(a[0]),
+    getResumePaymentByPhone: (a) => account.getResumePaymentByPhone(a[0]),
+    submitRestockRequest: (a) => account.submitRestockRequest(a[0]),
+  } : {}
+);
 
 const app = express();
 app.use(cors());
@@ -68,11 +86,16 @@ const DB_WRITES = order ? {
 } : {};
 
 // -- Locate index.html wherever the deploy put it --
+// ROOT WINS. index.html lives at the repo root (nested folders don't reliably
+// deploy on Hostinger) — so the root copy is the canonical, current storefront.
+// public/index.html is only kept as a last-resort fallback: the copy there is an
+// old snapshot, and when it was searched first it silently shadowed the real
+// storefront (no variant picker, no device picker) during local testing.
 const CANDIDATES = [
-  path.join(__dirname, 'public', 'index.html'),
   path.join(__dirname, 'index.html'),
-  path.join(process.cwd(), 'public', 'index.html'),
   path.join(process.cwd(), 'index.html'),
+  path.join(__dirname, 'public', 'index.html'),
+  path.join(process.cwd(), 'public', 'index.html'),
 ];
 function rfind(dir, name, depth) {
   if (depth < 0) return null;
@@ -166,6 +189,19 @@ app.post('/api', async (req, res) => {
       return res.type('application/json').send(JSON.stringify(out));
     } catch (e) { console.log('[reads] fallback to Apps Script:', e.message); }
   }
+  // Storefront actions on MySQL (catalog + profile + order status + restock).
+  // Not gated on READ_FROM_DB: these are the master copy now, not a fast mirror.
+  if (db.ENABLED && DB_STOREFRONT[action]) {
+    try {
+      const a = Array.isArray(body.args) ? body.args : [];
+      const out = await DB_STOREFRONT[action](a);
+      if (!out || !out.__fallback) {
+        res.set('X-Source', 'mysql');
+        return res.type('application/json').send(JSON.stringify(out));
+      }
+      console.log('[storefront] falling back to Apps Script:', action);
+    } catch (e) { console.log('[storefront] fallback to Apps Script:', action, e.message); }
+  }
   // Self-contained Node actions: recover (OTP email/verify/list/access) + Get-OTP tool
   if (db.ENABLED && DB_RECOVER[action]) {
     try {
@@ -175,7 +211,7 @@ app.post('/api', async (req, res) => {
         res.set('X-Source', 'mysql');
         return res.type('application/json').send(JSON.stringify(out));
       }
-    } catch (e) { console.log('[recover] error:', e.message); return res.type('application/json').send(JSON.stringify({ ok: false, message: 'Recover hit a snag — please try again.' })); }
+    } catch (e) { console.log('[node-action] error:', action, e.message); return res.type('application/json').send(JSON.stringify({ ok: false, message: 'Something went wrong — please try again in a moment.' })); }
   }
   // Wave 2: buy flow on MySQL (flag-gated; any error falls back to Apps Script)
   if (BUY_ON_DB && db.ENABLED && order && DB_WRITES[action]) {
