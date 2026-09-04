@@ -115,7 +115,8 @@ async function _fulfill(orderId) {
   const [ords] = await db.getPool().query(
     'SELECT order_id, service, plan, name, email, phone, phone_norm, duration_days, status, fulfillment_status, extra_field_value, source, final_amount, order_type, renew_sub_id FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
   const o = ords[0];
-  if (!o || o.source !== 'node') return { __fallback: true };
+  if (!o) return { ok: false, found: false, fulfillment: 'ERROR', message: 'Order not found in the FluxFilm database.' };
+  if (o.source !== 'node') return { ok: false, found: false, fulfillment: 'ERROR', message: 'This legacy order cannot be fulfilled on the new checkout. Please contact support.' };
   if (String(o.status || '').toUpperCase() !== 'PAID') return { ok: true, found: false, fulfillment: 'PENDING', retryAfterSec: 3, message: 'Processing your order…' };
 
   if (String(o.fulfillment_status || '').toUpperCase() === 'FULFILLED') {
@@ -143,8 +144,8 @@ async function _fulfill(orderId) {
   // Manual services (YouTube etc.): no auto-allocation.
   if (mode === 'MANUAL' || policy === 'MANUAL' || policy === 'NONE') return await _fulfillManual(o, ppm);
 
-  // Instant allocation, dispatched by policy. OTP allocates the account here; the
-  // login OTP itself is still read by Apps Script on demand (Gmail specialist).
+  // Instant allocation, dispatched by policy. OTP allocates the account here;
+  // otp.js reads the forwarded login code directly over IMAP when requested.
   if (policy === 'CAPACITY' || policy === 'PROFILE' || policy === 'ACCOUNT' || policy === 'OTP_ACCOUNT') return await _allocateAndFinish(o, policy, ppm);
 
   // Unknown/blank policy → safest is a manual task (never wrongly hand out an account).
@@ -242,8 +243,8 @@ async function allocateWholeAccount(conn, service, deviceCount) {
 
 // OTP accounts: whole account, but the account's Notes list which durations (in
 // months) it can serve, e.g. "1,3,6". Match the plan's duration; respect the
-// account's MaxTotal limit (default 1 = one customer per account). Login-OTP
-// reading stays on Apps Script. No device-count for OTP.
+// account's MaxTotal limit (default 1 = one customer per account). Login-code
+// reading is handled by otp.js. No device-count for OTP.
 function monthsFromDays(days) {
   const d = asNum(days);
   if (d >= 330) return 12; if (d >= 150) return 6; if (d >= 75) return 3; if (d >= 20) return 1;

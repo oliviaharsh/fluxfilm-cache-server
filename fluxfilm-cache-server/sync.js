@@ -118,6 +118,14 @@ const TABLES = {
     tab: 'INVENTORY_CAPACITY', pk: 'account_id', mode: 'replace',
     cols: { service: ['Service', s], account_id: ['AccountID', s], max_total: ['MaxTotal', int], max_tv: ['MaxTV', int], is_active: ['IsActive', s], notes: ['Notes', s] },
   },
+  trending_items: {
+    tab: 'TRENDING', pk: 'item_key', mode: 'replace',
+    key: (r) => String(r.Line || '').trim() || (String(r.Title || '').trim() + '|' + String(r.Platform || '').trim()),
+    cols: {
+      item_key: ['Line', s], active: ['Active', s], title: ['Title', s],
+      platform: ['Platform', s], line: ['Line', s], sort_order: ['SortOrder', int],
+    },
+  },
 };
 
 async function fetchDump(tab) {

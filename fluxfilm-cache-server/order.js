@@ -1,8 +1,8 @@
 /**
- * FluxFilm - buy flow on MySQL (Wave 2): createOrder + verifyPayment.
- * Gated to BUY_SERVICES (default 'prime') so only those services use MySQL;
- * everything else returns {__fallback:true} and the server uses Apps Script.
- * Node-created orders are tagged source='node' so we never touch synced orders.
+ * FluxFilm - MySQL-only buy flow: createOrder + payment verification.
+ * Every new order and renewal stays on MySQL. There is deliberately no Apps
+ * Script/Sheet fallback: an error must be visible instead of silently creating
+ * an order in the legacy system.
  */
 const db = require('./db');
 const pay = require('./payments');
@@ -16,9 +16,9 @@ function genOrderId() {
   return 'FF' + ts + rnd;
 }
 function serviceAllowed(service) {
-  const list = String(process.env.BUY_SERVICES || 'prime').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean);
-  const svc = String(service || '').toLowerCase();
-  return list.some((x) => svc.includes(x));
+  // Kept as an exported compatibility helper for old tests/callers. All plans
+  // present and active in MySQL are now eligible for the database order flow.
+  return !!String(service || '').trim();
 }
 
 async function couponDiscount(code, phone, baseAmount) {
@@ -57,10 +57,6 @@ async function couponDiscount(code, phone, baseAmount) {
 async function createOrder(p) {
   p = p || {};
   const service = String(p.service || '').trim();
-  const isRenew = String(p.action || '').toUpperCase() === 'RENEW';
-  // New buys are gated to BUY_SERVICES; renewals just extend an existing sub, so they
-  // run on MySQL for ANY service (MySQL is master — never fall back to the Sheet).
-  if (!isRenew && !serviceAllowed(service)) return { __fallback: true };
   const plan = String(p.plan || '').trim();
   const name = String(p.name || '').trim();
   const email = String(p.email || '').trim();
@@ -117,14 +113,44 @@ async function createOrder(p) {
   const finalAmount = Math.max(0, basePrice - discount);
   const orderId = genOrderId();
 
+  const orderRaw = {
+    OrderID: orderId, Service: service, Plan: plan, DurationDays: durationDays,
+    Name: name, Email: email, Phone: p.phone || phone, CouponCode: couponCode,
+    Discount: discount, Price: basePrice, FinalAmount: finalAmount, Currency: 'INR',
+    Notes: notes, ExtraFieldKey: extraKey, ExtraFieldValue: extraVal,
+    Status: 'CREATED', FulfillmentStatus: 'PENDING', OrderType: orderType,
+    RenewSubID: renewSubId, DeviceConcurrency: deviceCount, TVCount: tvCount,
+    GroupJoinRequired: groupJoinRequired ? 'TRUE' : 'FALSE', GroupJoinLink: groupJoinLink,
+    Source: 'node',
+  };
+
   await db.query(
     `INSERT INTO orders (order_id, created_at_sheet, service, plan, duration_days, name, email, phone, phone_norm,
        coupon_code, discount, price, final_amount, currency, notes, extra_field_key, extra_field_value,
-       status, fulfillment_status, order_type, renew_sub_id, device_count, tv_count, group_join_required, group_join_link, source)
-     VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, 'CREATED', 'PENDING', ?, ?, ?, ?, ?, ?, 'node')`,
+       status, fulfillment_status, order_type, renew_sub_id, device_count, tv_count, group_join_required, group_join_link, source, raw_json)
+     VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, 'CREATED', 'PENDING', ?, ?, ?, ?, ?, ?, 'node', ?)`,
     [orderId, service, plan, durationDays, name, email, p.phone || phone, phone,
       couponCode, discount, basePrice, finalAmount, notes, extraKey, extraVal,
-      orderType, renewSubId, deviceCount, tvCount, groupJoinRequired ? 'TRUE' : 'FALSE', groupJoinLink]);
+      orderType, renewSubId, deviceCount, tvCount, groupJoinRequired ? 'TRUE' : 'FALSE', groupJoinLink,
+      JSON.stringify(orderRaw)]);
+
+  // HOLD records attempts but does not count against coupon limits. Payment
+  // confirmation adds the USED row below, entirely in MySQL.
+  if (couponCode && discount > 0) {
+    try {
+      await db.query(
+        `INSERT INTO coupon_usage (coupon_code, phone, phone_norm, email, discount, order_id, action, ts, raw_json)
+         VALUES (?, ?, ?, ?, ?, ?, 'HOLD', NOW(), ?)`,
+        [couponCode, p.phone || phone, phone, email, discount, orderId, JSON.stringify({
+          Timestamp: new Date().toISOString(), CouponCode: couponCode, Phone: p.phone || phone,
+          Email: email, Discount: discount, OrderID: orderId, Action: 'HOLD',
+        })]);
+    } catch (e) {
+      // The order is already safely in MySQL; a non-counting audit row must not
+      // make checkout appear to fail and tempt the customer to submit twice.
+      console.log('[coupon] HOLD log failed for', orderId, e.message);
+    }
+  }
 
   const upiVpa = process.env.UPI_VPA || 'fluxfilm@upi';
   const payee = process.env.UPI_PAYEE || 'FluxFilm';
@@ -144,12 +170,40 @@ async function _order(orderId) {
   return rows[0] || null;
 }
 async function _markPaid(orderId, txnRef) {
-  await db.query('UPDATE orders SET status = ?, txn_ref = ?, verified_at = NOW() WHERE order_id = ?', ['PAID', txnRef || '', orderId]);
+  const conn = await db.getPool().getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.query(
+      'SELECT status, coupon_code, phone, phone_norm, email, discount FROM orders WHERE order_id = ? FOR UPDATE', [orderId]);
+    const o = rows[0];
+    if (!o) throw new Error('Order not found.');
+    if (String(o.status || '').toUpperCase() !== 'PAID') {
+      await conn.query('UPDATE orders SET status = ?, txn_ref = ?, verified_at = NOW() WHERE order_id = ?', ['PAID', txnRef || '', orderId]);
+      const code = String(o.coupon_code || '').trim().toUpperCase();
+      if (code && asNum(o.discount) > 0) {
+        await conn.query(
+          `INSERT INTO coupon_usage (coupon_code, phone, phone_norm, email, discount, order_id, action, ts, raw_json)
+           SELECT ?, ?, ?, ?, ?, ?, 'USED', NOW(), ?
+           WHERE NOT EXISTS (
+             SELECT 1 FROM coupon_usage WHERE order_id = ? AND UPPER(coupon_code) = ? AND UPPER(action) = 'USED'
+           )`,
+          [code, o.phone, o.phone_norm, o.email, o.discount, orderId, JSON.stringify({
+            Timestamp: new Date().toISOString(), CouponCode: code, Phone: o.phone,
+            Email: o.email, Discount: o.discount, OrderID: orderId, Action: 'USED',
+          }), orderId, code]);
+      }
+    }
+    await conn.commit();
+  } catch (e) {
+    try { await conn.rollback(); } catch (_) {}
+    throw e;
+  } finally { conn.release(); }
 }
 
 async function verifyPayment(orderId) {
   const o = await _order(orderId);
-  if (!o || o.source !== 'node') return { __fallback: true };   // not our order -> Apps Script
+  if (!o) return { ok: false, found: false, message: 'Order not found in the FluxFilm database.' };
+  if (o.source !== 'node') return { ok: false, found: false, message: 'This legacy order cannot be verified on the new checkout. Please contact support.' };
   if (String(o.status || '').toUpperCase() === 'PAID') return { ok: true, found: true, paid: true, message: '✅ Payment confirmed.' };
   const credit = await pay.findByOrder(orderId, o.final_amount);
   if (credit) { await _markPaid(orderId, credit.upi_ref); return { ok: true, found: true, paid: true }; }
@@ -158,7 +212,8 @@ async function verifyPayment(orderId) {
 
 async function verifyPaymentByRef(orderId, ref) {
   const o = await _order(orderId);
-  if (!o || o.source !== 'node') return { __fallback: true };
+  if (!o) return { ok: false, found: false, message: 'Order not found in the FluxFilm database.' };
+  if (o.source !== 'node') return { ok: false, found: false, message: 'This legacy order cannot be verified on the new checkout. Please contact support.' };
   if (String(o.status || '').toUpperCase() === 'PAID') return { ok: true, found: true, paid: true, message: '✅ Payment confirmed.' };
   const credit = await pay.findByRef(orderId, ref, o.final_amount);
   if (credit) { await _markPaid(orderId, credit.upi_ref); return { ok: true, found: true, paid: true }; }

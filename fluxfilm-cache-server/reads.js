@@ -2,7 +2,8 @@
  * FluxFilm - fast reads from MySQL (Phase 3).
  * Faithful ports of Apps Script getMySubscriptions / getCustomerOrders /
  * getCustomerProfile, producing the SAME response shape so the frontend is
- * unchanged. Behind a flag in server.js; any throw falls back to Apps Script.
+ * unchanged. server.js routes these actions here unconditionally; errors are
+ * returned to the storefront and never fall through to Apps Script.
  */
 const db = require('./db');
 

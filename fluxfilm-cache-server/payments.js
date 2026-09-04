@@ -109,10 +109,39 @@ async function startWatcher() {
         console.log('[imap] connected, watching', FOLDER(), 'for', SENDER());
         const r0 = await scanInbox(client, 6);
         console.log('[imap] initial scan:', JSON.stringify(r0));
-        while (_watching) {
-          await client.idle();
-          const r = await scanInbox(client, 1);
-          if (r.ingested) console.log('[imap] ingested', r.ingested, 'new credit(s)');
+
+        // ImapFlow's manually awaited idle() does not necessarily return when a
+        // new message arrives. That previously delayed ingestion (and therefore
+        // verifyPayment) until IDLE ended. Let ImapFlow auto-idle and react to
+        // mailbox count changes immediately. The timer is a safety net for a
+        // missed provider event, not the primary polling path.
+        let scanning = false;
+        let scanAgain = false;
+        const queueScan = async () => {
+          if (scanning) { scanAgain = true; return; }
+          scanning = true;
+          try {
+            do {
+              scanAgain = false;
+              const r = await scanInbox(client, 1);
+              if (r.ingested) console.log('[imap] ingested', r.ingested, 'new credit(s)');
+            } while (scanAgain && _watching);
+          } catch (e) {
+            console.log('[imap] event scan failed:', e.message);
+          } finally { scanning = false; }
+        };
+        const onExists = () => { queueScan(); };
+        client.on('exists', onExists);
+        const safetyScan = setInterval(() => { if (_watching) queueScan(); }, 60000);
+
+        try {
+          await new Promise((resolve, reject) => {
+            client.once('close', resolve);
+            client.once('error', reject);
+          });
+        } finally {
+          clearInterval(safetyScan);
+          client.off('exists', onExists);
         }
       } catch (e) {
         console.log('[imap] error, reconnecting in 15s:', e.message);

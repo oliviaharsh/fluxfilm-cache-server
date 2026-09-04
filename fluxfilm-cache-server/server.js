@@ -1,7 +1,8 @@
 /**
- * FluxFilm - Node app (frontend + cache + MySQL sync)
- *   browser -> THIS app -> api.php -> Apps Script -> Sheets
- *   plus:    -> MySQL (Phase 2: mirror of the Sheet; admin/analytics)
+ * FluxFilm - Node/MySQL storefront.
+ *   browser -> THIS app -> MySQL
+ * Apps Script is not a storefront fallback. It is used only by the protected,
+ * deliberate /admin/sync import before the eventual go -> shop cutover.
  */
 require('dotenv').config();
 process.env.TZ = process.env.TZ || 'Asia/Kolkata'; // FluxFilm runs on India time
@@ -10,7 +11,7 @@ const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
-// DB + sync are optional: if not configured, the app still runs normally.
+// A missing DB is reported to the storefront; it must never redirect writes to Sheets.
 let db = { ENABLED: false, ping: async () => ({ ok: false, reason: 'db module missing' }) };
 let sync = { runSync: async () => ({ ok: false, error: 'sync module missing' }) };
 try { db = require('./db'); } catch (e) { console.log('[db] not loaded:', e.message); }
@@ -46,13 +47,14 @@ const DB_READS = {
   getActiveCouponsForCustomer: (a) => reads.getActiveCouponsForCustomer(a[0]),
   getWalletByPhone: (a) => reads.getWalletByPhone(a[0]),
 };
-// Storefront actions that used to pass through to Apps Script (the Sheet).
-// MySQL is the master, so these now read/write MySQL directly — most importantly
-// getBootstrap, so the plan list the customer SEES comes from the same rows
-// createOrder PRICES from. Any handler may return {__fallback:true} to hand the
-// request back to Apps Script.
+// Storefront actions backed by MySQL.
 const DB_STOREFRONT = Object.assign(
-  catalog ? { getBootstrap: () => catalog.getBootstrap() } : {},
+  catalog ? {
+    getBootstrap: () => catalog.getBootstrap(),
+    getStockLevels: () => catalog.getStockLevels(),
+    getTrendingItems: () => catalog.getTrendingItems(),
+    getNetflixHouseholdLink: (a) => catalog.getNetflixHouseholdLink(a[0]),
+  } : {},
   account ? {
     createOrUpdateCustomerProfile: (a) => account.createOrUpdateCustomerProfile(a[0]),
     createCustomerProfile: (a) => account.createCustomerProfile(a[0]),
@@ -69,11 +71,7 @@ app.use(express.json({ limit: '1mb' }));
 
 // -- Config --
 const PORT = process.env.PORT || 8080;
-const API_PHP_URL = process.env.API_PHP_URL || 'https://go.fluxfilm.in/api.php';
-const API_KEY = process.env.API_KEY || '';
-const CACHE_TTL = Number(process.env.CACHE_TTL || 60);
 const ADMIN_KEY = process.env.CACHE_CLEAR_KEY || '';
-const CACHEABLE = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems']);
 const READ_FROM_DB = process.env.READ_FROM_DB === '1' || process.env.READ_FROM_DB === 'true';
 const BUY_ON_DB = process.env.BUY_ON_DB === '1' || process.env.BUY_ON_DB === 'true';
 const DB_WRITES = order ? {
@@ -82,8 +80,16 @@ const DB_WRITES = order ? {
   validateCoupon: (a) => order.validateCoupon(a[0], a[1]),
   verifyPayment: (a) => order.verifyPayment(a[0]),
   verifyPaymentByRef: (a) => order.verifyPaymentByRef(a[0], a[1]),
-  fulfillAndGetAccess: (a) => (fulfill ? fulfill.fulfillAndGetAccess(a[0]) : Promise.resolve({ __fallback: true })),
+  fulfillAndGetAccess: (a) => {
+    if (!fulfill) throw new Error('Fulfillment module is unavailable.');
+    return fulfill.fulfillAndGetAccess(a[0]);
+  },
 } : {};
+const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
+const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest']);
+const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota']);
+const DB_WRITE_ACTIONS = new Set(['createOrder', 'createRenewOrder', 'validateCoupon', 'verifyPayment', 'verifyPaymentByRef', 'fulfillAndGetAccess']);
+const DB_NOT_YET_PORTED = new Set(['recoverReassignAccount']);
 
 // -- Locate index.html wherever the deploy put it --
 // ROOT WINS. index.html lives at the repo root (nested folders don't reliably
@@ -114,23 +120,13 @@ console.log('[FluxFilm] index.html =', INDEX || 'NOT FOUND');
 
 // -- API cache --
 const cache = new Map();
-const now = () => Date.now();
-async function callApiPhp(payload) {
-  const res = await fetch(API_PHP_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
-    body: JSON.stringify(payload),
-  });
-  return { status: res.status, text: await res.text() };
-}
-
 function requireAdmin(req, res) {
   if (!ADMIN_KEY || req.query.key !== ADMIN_KEY) { res.status(403).json({ ok: false, message: 'Unauthorized' }); return false; }
   return true;
 }
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'fluxfilm-cache', indexFound: !!INDEX, dbConfigured: !!db.ENABLED, readFromDb: READ_FROM_DB, cachedKeys: [...cache.keys()], lastSync: (typeof _lastSync !== 'undefined' ? _lastSync : null) });
+  res.json({ ok: true, service: 'fluxfilm-cache', storefrontMode: 'mysql-only', appsScriptProxy: false, indexFound: !!INDEX, dbConfigured: !!db.ENABLED, legacyReadFromDbFlag: READ_FROM_DB, legacyBuyOnDbFlag: BUY_ON_DB, cachedKeys: [...cache.keys()], lastSync: (typeof _lastSync !== 'undefined' ? _lastSync : null) });
 });
 
 app.get('/__debug', (_req, res) => {
@@ -180,70 +176,65 @@ app.get('/clearcache', (req, res) => {
 app.post('/api', async (req, res) => {
   const body = req.body || {};
   const action = String(body.action || '');
-  // Phase 3: fast reads from MySQL (flag-gated; any error falls back to Apps Script)
-  if (READ_FROM_DB && db.ENABLED && reads && DB_READS[action]) {
+  const a = Array.isArray(body.args) ? body.args : [];
+  const dbUnavailable = () => res.status(503).json({ ok: false, message: 'The FluxFilm database is temporarily unavailable. No order or update was sent to the old system.' });
+  const dbError = (label, e) => {
+    console.log('[' + label + '] MySQL-only action failed:', action, e.message);
+    return res.status(500).json({ ok: false, message: 'Something went wrong in the FluxFilm database. Nothing was sent to the old system. Please try again.', detail: process.env.NODE_ENV === 'production' ? undefined : e.message });
+  };
+
+  // Customer reads are always MySQL-only. The old READ_FROM_DB flag is retained
+  // only in /health so a stale Hostinger environment cannot re-enable fallback.
+  if (DB_READ_ACTIONS.has(action)) {
+    if (!db.ENABLED || !reads || !DB_READS[action]) return dbUnavailable();
     try {
-      const a = Array.isArray(body.args) ? body.args : [];
       const out = await DB_READS[action](a);
       res.set('X-Source', 'mysql');
       return res.type('application/json').send(JSON.stringify(out));
-    } catch (e) { console.log('[reads] fallback to Apps Script:', e.message); }
+    } catch (e) { return dbError('reads', e); }
   }
-  // Storefront actions on MySQL (catalog + profile + order status + restock).
-  // Not gated on READ_FROM_DB: these are the master copy now, not a fast mirror.
-  if (db.ENABLED && DB_STOREFRONT[action]) {
+
+  if (DB_STOREFRONT_ACTIONS.has(action)) {
+    if (!db.ENABLED || !DB_STOREFRONT[action]) return dbUnavailable();
     try {
-      const a = Array.isArray(body.args) ? body.args : [];
       const out = await DB_STOREFRONT[action](a);
-      if (!out || !out.__fallback) {
-        res.set('X-Source', 'mysql');
-        return res.type('application/json').send(JSON.stringify(out));
-      }
-      console.log('[storefront] falling back to Apps Script:', action);
-    } catch (e) { console.log('[storefront] fallback to Apps Script:', action, e.message); }
+      res.set('X-Source', 'mysql');
+      return res.type('application/json').send(JSON.stringify(out));
+    } catch (e) { return dbError('storefront', e); }
   }
-  // Self-contained Node actions: recover (OTP email/verify/list/access) + Get-OTP tool
-  if (db.ENABLED && DB_RECOVER[action]) {
+
+  if (DB_RECOVER_ACTIONS.has(action)) {
+    if (!db.ENABLED || !DB_RECOVER[action]) return dbUnavailable();
     try {
-      const a = Array.isArray(body.args) ? body.args : [];
       const out = await DB_RECOVER[action](a);
-      if (!out || !out.__fallback) {
-        res.set('X-Source', 'mysql');
-        return res.type('application/json').send(JSON.stringify(out));
-      }
-    } catch (e) { console.log('[node-action] error:', action, e.message); return res.type('application/json').send(JSON.stringify({ ok: false, message: 'Something went wrong — please try again in a moment.' })); }
+      res.set('X-Source', 'mysql');
+      return res.type('application/json').send(JSON.stringify(out));
+    } catch (e) { return dbError('node-action', e); }
   }
-  // Wave 2: buy flow on MySQL (flag-gated; any error falls back to Apps Script)
-  if (BUY_ON_DB && db.ENABLED && order && DB_WRITES[action]) {
+
+  // Checkout, coupon validation, payment verification and fulfillment are
+  // unconditionally MySQL-only. BUY_ON_DB/BUY_SERVICES can no longer divert a
+  // customer to the Sheet-backed legacy checkout.
+  if (DB_WRITE_ACTIONS.has(action)) {
+    if (!db.ENABLED || !order || !DB_WRITES[action]) return dbUnavailable();
     try {
-      const a = Array.isArray(body.args) ? body.args : [];
       const out = await DB_WRITES[action](a);
-      if (!out || !out.__fallback) {
-        res.set('X-Source', 'mysql');
-        return res.type('application/json').send(JSON.stringify(out));
-      }
-    } catch (e) { console.log('[buy] fallback to Apps Script:', e.message); }
+      res.set('X-Source', 'mysql');
+      return res.type('application/json').send(JSON.stringify(out));
+    } catch (e) { return dbError('buy', e); }
   }
-  if (!CACHEABLE.has(action)) {
-    try { const { status, text } = await callApiPhp(body); res.status(status).type('application/json').send(text); }
-    catch (err) { res.status(502).json({ ok: false, message: 'Upstream error', detail: String(err) }); }
-    return;
+
+  if (DB_NOT_YET_PORTED.has(action)) {
+    return res.status(501).json({ ok: false, message: 'Account reassignment is temporarily unavailable while it is moved to the FluxFilm database. Nothing was sent to the old system.' });
   }
-  const hit = cache.get(action);
-  if (hit && hit.expires > now()) { res.set('X-Cache', 'HIT'); return res.type('application/json').send(hit.body); }
-  try {
-    const { text } = await callApiPhp(body);
-    const t = text.trimStart();
-    if (t.startsWith('{') || t.startsWith('[')) cache.set(action, { body: text, expires: now() + CACHE_TTL * 1000 });
-    res.set('X-Cache', 'MISS'); res.type('application/json').send(text);
-  } catch (err) {
-    if (hit) { res.set('X-Cache', 'STALE'); return res.type('application/json').send(hit.body); }
-    res.status(502).json({ ok: false, message: 'Upstream error', detail: String(err) });
-  }
+
+  // Strict deny-by-default: adding a frontend action without a MySQL handler
+  // must be caught during development rather than silently reaching Sheets.
+  return res.status(404).json({ ok: false, message: 'This action is not available in the database-only storefront.' });
 });
 
 // -- Admin panel (read-only) --
-if (admin) admin.mountAdmin(app, { db, ADMIN_KEY, callApiPhp, sync });
+if (admin) admin.mountAdmin(app, { db, ADMIN_KEY, sync });
 
 // -- Serve the storefront --
 app.get('*', (_req, res) => {
@@ -278,4 +269,4 @@ if (db.ENABLED && SYNC_INTERVAL_MIN > 0) {
 
 if (db.ENABLED && payments) { try { payments.startWatcher(); } catch (e) { console.log('[imap] start error', e.message); } }
 
-app.listen(PORT, () => console.log('[FluxFilm] listening on :' + PORT + ' -> ' + API_PHP_URL));
+app.listen(PORT, () => console.log('[FluxFilm] listening on :' + PORT + ' (MySQL-only storefront)'));

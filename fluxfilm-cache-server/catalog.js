@@ -64,13 +64,49 @@ async function getBootstrap() {
     });
   }
 
-  // The Apps Script version threw if PLANS was missing headers. Here an empty
-  // result is far more likely to mean "DB not populated yet" than "no plans",
-  // and silently showing an empty shop is worse than falling back — so let
-  // server.js hand this request to Apps Script instead.
-  if (!plans.length) return { __fallback: true };
+  if (!plans.length) return { ok: false, plans: [], message: 'No active plans are configured in the FluxFilm database.' };
 
   return { ok: true, plans, currency: process.env.CURRENCY || 'INR' };
 }
 
-module.exports = { getBootstrap };
+/** Stock badges are derived from the MySQL PLANS raw_json Stock field. */
+async function getStockLevels() {
+  const rows = await db.query('SELECT service, plan, is_active, raw_json FROM plans', []);
+  const low = Math.max(1, Number(process.env.STOCK_LOW_THRESHOLD || 3) || 3);
+  const levels = {};
+  for (const r of rows) {
+    const raw = rawOf(r.raw_json);
+    const activeRaw = (r.is_active != null && r.is_active !== '') ? r.is_active : raw.IsActive;
+    if (!isTrue(activeRaw)) continue;
+    const service = s(r.service || raw.Service);
+    const plan = s(r.plan || raw.Plan);
+    if (!service || !plan) continue;
+    const stockText = s(raw.Stock);
+    const stock = stockText === '' ? null : Math.max(0, Math.floor(asNum(raw.Stock)));
+    const stockLevel = stock == null ? 'OK' : (stock <= 0 ? 'OUT' : (stock < low ? 'LOW' : 'OK'));
+    levels[service + '|||' + plan] = { stock, stockLevel };
+  }
+  return { ok: true, levels };
+}
+
+/** Trending ticker rows are stored in MySQL and loaded by the final manual sync. */
+async function getTrendingItems() {
+  const rows = await db.query(
+    "SELECT title, platform, line FROM trending_items WHERE UPPER(COALESCE(active, 'TRUE')) = 'TRUE' ORDER BY sort_order ASC, item_key ASC LIMIT 8", []);
+  const items = rows.map((r) => s(r.line) || ('🔥 ' + s(r.title) + (s(r.platform) ? ' on ' + s(r.platform) : '')))
+    .filter((x) => x && x !== '🔥 ');
+  return { ok: true, items };
+}
+
+/** Netflix household links now come from INVENTORY_ACCOUNTS.raw_json in MySQL. */
+async function getNetflixHouseholdLink(email) {
+  const em = s(email).toLowerCase();
+  if (!em || !em.includes('@')) return { ok: false, message: 'Valid email is required.' };
+  const rows = await db.query('SELECT login_id, raw_json FROM inventory_accounts WHERE LOWER(login_id) = ? LIMIT 1', [em]);
+  if (!rows.length) return { ok: false, message: 'No Netflix account found with that email. Enter the account login email, not your personal email.' };
+  const link = s(rawOf(rows[0].raw_json).HouseholdLink);
+  if (!link) return { ok: false, message: 'Household link is not set for this account. Contact support.' };
+  return { ok: true, link };
+}
+
+module.exports = { getBootstrap, getStockLevels, getTrendingItems, getNetflixHouseholdLink };
