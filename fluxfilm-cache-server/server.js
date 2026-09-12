@@ -91,31 +91,15 @@ const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recov
 const DB_WRITE_ACTIONS = new Set(['createOrder', 'createRenewOrder', 'validateCoupon', 'verifyPayment', 'verifyPaymentByRef', 'fulfillAndGetAccess']);
 const DB_NOT_YET_PORTED = new Set(['recoverReassignAccount']);
 
-// -- Locate index.html wherever the deploy put it --
-// ROOT WINS. index.html lives at the repo root (nested folders don't reliably
-// deploy on Hostinger) — so the root copy is the canonical, current storefront.
-// public/index.html is only kept as a last-resort fallback: the copy there is an
-// old snapshot, and when it was searched first it silently shadowed the real
-// storefront (no variant picker, no device picker) during local testing.
+// -- Locate the canonical root index.html --
+// Nested storefront fallbacks are deliberately unsupported: an old public/
+// snapshot previously shadowed the current UI. If the root file is missing,
+// fail visibly instead of serving stale checkout code.
 const CANDIDATES = [
   path.join(__dirname, 'index.html'),
   path.join(process.cwd(), 'index.html'),
-  path.join(__dirname, 'public', 'index.html'),
-  path.join(process.cwd(), 'public', 'index.html'),
 ];
-function rfind(dir, name, depth) {
-  if (depth < 0) return null;
-  let es = [];
-  try { es = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return null; }
-  for (const e of es) { if (e.isFile() && e.name === name) return path.join(dir, e.name); }
-  for (const e of es) {
-    if (!e.isDirectory() || e.name === 'node_modules' || e.name === '.git') continue;
-    const f = rfind(path.join(dir, e.name), name, depth - 1); if (f) return f;
-  }
-  return null;
-}
-const INDEX = CANDIDATES.find((p) => { try { return fs.existsSync(p); } catch (_) { return false; } })
-  || rfind(__dirname, 'index.html', 3);
+const INDEX = CANDIDATES.find((p) => { try { return fs.existsSync(p); } catch (_) { return false; } });
 console.log('[FluxFilm] index.html =', INDEX || 'NOT FOUND');
 
 // -- API cache --
