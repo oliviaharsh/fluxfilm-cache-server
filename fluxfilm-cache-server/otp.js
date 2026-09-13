@@ -50,6 +50,15 @@ async function getLatestOtp(service, phone) {
   const svcKey = svcKeyOf(svc);
   const keywords = (KEYWORDS[svcKey] || [svc.toLowerCase()]).map((k) => k.toLowerCase());
   const ph = norm(phone);
+  if (!ph || ph.length < 10) return { ok: false, message: 'Enter the phone number you bought with.' };
+  // Only customers with a live plan for this service may read its login OTP, and only
+  // within their monthly quota (the storefront showed the quota but never enforced it).
+  const subs = await db.query("SELECT service FROM subscriptions WHERE phone_norm = ? AND UPPER(status) = 'ACTIVE' AND (expiry_date IS NULL OR expiry_date > NOW())", [ph]);
+  if (!subs.some((s) => svcKeyOf(s.service) === svcKey)) {
+    return { ok: true, found: false, message: 'Get OTP works only for an active ' + svc + ' plan bought with this phone number.' };
+  }
+  const quota = await getOtpQuota(ph, svcKey);
+  if (quota.remaining <= 0) return { ok: true, found: false, message: 'You have used all your OTP requests for ' + svc + ' this month.' };
   const since = new Date(Date.now() - 24 * 3600 * 1000);
 
   return withImap(async (client) => {

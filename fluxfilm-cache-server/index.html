@@ -7976,16 +7976,13 @@ function App() {
 }
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App, null));
 const API_URL = '/api';
-const API_KEY = 'FF_GO_2026_SUPER_SECRET_987654';
 function apiCall_(action, args, onSuccess, onFailure) {
   fetch(API_URL, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'X-API-KEY': API_KEY
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      apiKey: API_KEY,
       action,
       args: args || []
     })

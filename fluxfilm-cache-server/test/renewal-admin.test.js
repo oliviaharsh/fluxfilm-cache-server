@@ -46,7 +46,7 @@ Module._load = function (req) {
   await new Promise((r) => server.once('listening', r));
   const base = 'http://127.0.0.1:' + server.address().port;
   const post = async (body, key = 'k') => {
-    const res = await fetch(base + '/admin/api/sub-removed?key=' + key, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetch(base + '/admin/api/sub-removed', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Key': key }, body: JSON.stringify(body) });
     return { status: res.status, body: await res.json() };
   };
   const lastUpdate = () => [...calls].reverse().find((c) => /^UPDATE subscriptions SET removed/.test(c.sql));
@@ -78,7 +78,7 @@ Module._load = function (req) {
   columnsPresent = 2;
 
   section('customer 360');
-  const c = await (await fetch(base + '/admin/api/customer?key=k&phone=9876543210')).json();
+  const c = await (await fetch(base + '/admin/api/customer?phone=9876543210', { headers: { 'X-Admin-Key': 'k' } })).json();
   ok('subscriptions include removed + removed_at, raw_json stripped', c.ok && c.subs[0].removed === 1 && c.subs[0].removed_at === '2026-09-12 09:30:00' && !('raw_json' in c.subs[0]), c.subs);
 
   section('admin panel page still parses');
@@ -92,7 +92,7 @@ Module._load = function (req) {
   ok('grid has resizable columns and a column picker', /class="rz"/.test(html) && /function autofit\(/.test(html) && /function toggleCols\(/.test(html));
 
   section('Sheets grid: sorting + page size');
-  const tableCall = async (qs) => { calls.length = 0; await fetch(base + '/admin/api/table?key=k&name=subscriptions' + qs); return calls.find((x) => /^SELECT \* FROM `subscriptions`/.test(x.sql)); };
+  const tableCall = async (qs) => { calls.length = 0; await fetch(base + '/admin/api/table?name=subscriptions' + qs, { headers: { 'X-Admin-Key': 'k' } }); return calls.find((x) => /^SELECT \* FROM `subscriptions`/.test(x.sql)); };
   let tc = await tableCall('&sort=expiry_date&dir=asc');
   ok('sort by a real column', tc && /ORDER BY `expiry_date` ASC/.test(tc.sql), tc);
   tc = await tableCall('&sort=removed');
@@ -101,7 +101,8 @@ Module._load = function (req) {
   ok('unknown / injected sort column falls back to the default order', tc && /ORDER BY expiry_date DESC/.test(tc.sql) && !/DROP/.test(tc.sql), tc);
   tc = await tableCall('&limit=9999');
   ok('page size is capped at 500', tc && tc.params[tc.params.length - 2] === 500, tc);
-  server.close();
+  if (server.closeAllConnections) server.closeAllConnections();
+  await new Promise((r) => server.close(r));
 
   section('Sheet import maps RemovedFromDevice');
   const cast = sync.TABLES.subscriptions.cols.removed;
@@ -130,5 +131,6 @@ Module._load = function (req) {
   console.log('\n---------------------------------------');
   console.log('PASS ' + pass + '   FAIL ' + fail);
   Module._load = origLoad;
-  process.exit(fail ? 1 : 0);
+  // exitCode, not process.exit(): exiting while sockets close crashes libuv on Windows (exit 127).
+  process.exitCode = fail ? 1 : 0;
 })().catch((e) => { console.error('THREW', e); process.exit(1); });

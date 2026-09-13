@@ -141,16 +141,18 @@ table.sheet{border-collapse:separate;border-spacing:0;table-layout:fixed;font-si
 var $ = function (s, el) { return (el || document).querySelector(s); };
 var $$ = function (s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)); };
 function store(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } }
-var S = { key: store('ff_admin_key2') || '', view: store('ff_view') || 'customer', tab: store('ff_tab') || 'subscriptions', offset: 0, limit: store('ff_limit') || 100, q: '', sort: '', dir: 'desc', data: null, charts: {} };
+var S = { view: store('ff_view') || 'customer', tab: store('ff_tab') || 'subscriptions', offset: 0, limit: store('ff_limit') || 100, q: '', sort: '', dir: 'desc', data: null, charts: {} };
 var TBLS = ['subscriptions', 'orders', 'customers', 'plans', 'coupons', 'wallet', 'coupon_usage', 'inventory_accounts', 'inventory_profiles', 'inventory_capacity', 'bank_credits'];
 var ICONS = { netflix: '🎬', prime: '📦', jiohotstar: '⭐', hotstar: '⭐', youtube: '▶️', zee5: '🟣', sonyliv: '📺', sony: '📺', crunchyroll: '🍥', spotify: '🎵', apple: '🍎', disney: '🏰' };
 
 function esc(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 function money(n) { return '₹' + Number(n || 0).toLocaleString('en-IN'); }
 function toast(t) { var e = $('#toast'); e.textContent = t; e.className = 'toast on'; clearTimeout(toast._t); toast._t = setTimeout(function () { e.className = 'toast'; }, 2200); }
-function qs(params) { var u = new URLSearchParams(); u.set('key', S.key); Object.keys(params || {}).forEach(function (k) { if (params[k] !== '' && params[k] != null) u.set(k, params[k]); }); return u.toString(); }
-function api(path, params) { return fetch(path + '?' + qs(params)).then(function (r) { return r.json(); }).catch(function (e) { return { ok: false, message: e.message }; }); }
-function post(path, body) { return fetch(path + '?' + qs(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) { return r.json(); }).catch(function (e) { return { ok: false, message: e.message }; }); }
+function qs(params) { var u = new URLSearchParams(); Object.keys(params || {}).forEach(function (k) { if (params[k] !== '' && params[k] != null) u.set(k, params[k]); }); return u.toString(); }
+// Signed in = HttpOnly session cookie (sent automatically). A 403 needLogin shows the sign-in screen.
+function handle(r) { return r.json().then(function (d) { if (d && d.needLogin) { loginView('Your session ended — please sign in again.'); } return d; }); }
+function api(path, params) { var q = qs(params); return fetch(path + (q ? '?' + q : ''), { credentials: 'same-origin' }).then(handle).catch(function (e) { return { ok: false, message: e.message }; }); }
+function post(path, body) { return fetch(path, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(handle).catch(function (e) { return { ok: false, message: e.message }; }); }
 function copy(t) { (navigator.clipboard ? navigator.clipboard.writeText(String(t)) : Promise.reject()).then(function () { toast('Copied'); }, function () { toast('Copy failed'); }); }
 // Every date in the database is India time, stored without a zone.
 function istDate(v) { if (!v) return null; var s = String(v); var d = /Z$|[+-]\d\d:?\d\d$/.test(s) ? new Date(s) : new Date(s.replace(' ', 'T') + '+05:30'); return isNaN(d) ? null : d; }
@@ -163,13 +165,13 @@ function waLink(phone, text) { var p = String(phone || '').replace(/\D/g, ''); i
 
 /* ================= login + shell ================= */
 function loginView(msg) {
-  $('#app').innerHTML = '<div class="login"><div class="logo" style="margin:0 auto 14px;width:56px;height:56px;font-size:26px">🎬</div><h2 style="margin:0 0 4px">FluxFilm Admin</h2><p class="muted" style="margin:0 0 18px">Enter the admin key to continue</p>' +
-    '<input id="k" class="inp" type="password" placeholder="Admin key" style="width:100%;margin-bottom:12px"/><button class="btn" style="width:100%;justify-content:center" onclick="doLogin()">Sign in</button><div id="err" style="color:var(--bad);margin-top:10px;font-size:.85rem">' + esc(msg || '') + '</div></div>';
+  $('#app').innerHTML = '<div class="login"><div class="logo" style="margin:0 auto 14px;width:56px;height:56px;font-size:26px">🎬</div><h2 style="margin:0 0 4px">FluxFilm Admin</h2><p class="muted" style="margin:0 0 18px">Sign in with the admin password</p>' +
+    '<input id="k" class="inp" type="password" autocomplete="current-password" placeholder="Admin password" style="width:100%;margin-bottom:12px"/><button class="btn" id="kbtn" style="width:100%;justify-content:center" onclick="doLogin()">Sign in</button><div id="err" style="color:var(--bad);margin-top:10px;font-size:.85rem">' + esc(msg || '') + '</div></div>';
   $('#k').addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
   $('#k').focus();
 }
-function doLogin() { S.key = $('#k').value.trim(); api('/admin/api/summary').then(function (r) { if (r.ok) { store('ff_admin_key2', S.key); shell(); route(); } else $('#err').textContent = 'Wrong key'; }); }
-function logout() { try { localStorage.removeItem('ff_admin_key2'); } catch (e) {} S.key = ''; loginView(); }
+function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textContent = ''; post('/admin/api/login', { password: $('#k').value }).then(function (r) { b.disabled = false; if (r.ok) { S.weak = r.weakPassword; shell(); route(); } else { $('#err').textContent = r.message || 'Sign-in failed'; $('#k').select(); } }); }
+function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['dashboard', '📊', 'Dashboard'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['expiring', '⏳', 'Expiring soon'],
@@ -179,7 +181,7 @@ function shell() {
   $('#app').innerHTML = '<aside class="side" id="side"><div class="brand"><div class="logo">🎬</div><div><b>FluxFilm</b><small>ADMIN PANEL</small></div></div><nav class="menu">' +
     MENU.map(function (m) { return m.length === 1 ? '<h6>' + m[0] + '</h6>' : '<a id="nav-' + m[0] + '" onclick="nav(\'' + m[0] + '\')"><span>' + m[1] + '</span>' + m[2] + '</a>'; }).join('') +
     '</nav><div class="sidefoot"><span class="muted">MySQL · live</span><button class="btn ghost sm" onclick="logout()">Log out</button></div></aside>' +
-    '<div class="main"><div class="top"><button class="btn ghost sm" onclick="$(\'#side\').classList.toggle(\'open\')">☰</button><b>FluxFilm Admin</b></div><div class="page" id="view"></div></div>';
+    '<div class="main">' + (S.weak ? '<div style="background:#fef3c7;color:#92400e;padding:9px 18px;font-size:.8rem;border-bottom:1px solid #fde68a">⚠️ Security: set a strong <b>ADMIN_PASSWORD</b> (12+ characters) in Hostinger → Environment variables. Until then the panel is protected only by the old admin key (or a short password).</div>' : '') + '<div class="top"><button class="btn ghost sm" onclick="$(\'#side\').classList.toggle(\'open\')">☰</button><b>FluxFilm Admin</b></div><div class="page" id="view"></div></div>';
 }
 function nav(v) { S.view = v; store('ff_view', v); var sd = $('#side'); if (sd) sd.classList.remove('open'); route(); }
 function route() {
@@ -517,6 +519,7 @@ function saveCoupon() {
 
 /* ================= boot ================= */
 document.addEventListener('click', function (e) { var b = e.target.closest('[data-copy]'); if (b) copy(b.getAttribute('data-copy')); });
-if (!S.key) { var old = null; try { old = localStorage.getItem('ff_admin_key'); } catch (e) {} if (old) S.key = old; }
-if (S.key) api('/admin/api/summary').then(function (r) { if (r.ok) { store('ff_admin_key2', S.key); shell(); route(); } else loginView(); }); else loginView();
+// Old versions kept the admin key in this browser's storage: wipe it.
+try { localStorage.removeItem('ff_admin_key'); localStorage.removeItem('ff_admin_key2'); } catch (e) {}
+fetch('/admin/api/me', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (r) { S.weak = r.weakPassword; if (r.ok) { shell(); route(); } else loginView(); }).catch(function () { loginView('Could not reach the server.'); });
 </script></body></html>
