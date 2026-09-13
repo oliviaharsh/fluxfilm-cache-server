@@ -86,6 +86,9 @@ function mountAdmin(app, deps) {
     // ip lets the owner check that rate limits see the real visitor address behind Hostinger's proxy.
     res.json(ok ? { ok, weakPassword: weak(), ip: security.clientIp(req), forwardedFor: req.headers['x-forwarded-for'] || '' } : { ok, weakPassword: weak() });
   });
+  // WhatsApp / phone sales: quick new + renew orders, mark paid (quickorders.js).
+  require('./quickorders').mount(app, Object.assign({ db, auth }, deps.quick || {}));
+
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};
   async function columnsOf(name) {

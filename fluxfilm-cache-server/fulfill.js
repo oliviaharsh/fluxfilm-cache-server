@@ -375,7 +375,7 @@ async function _allocateAndFinish(o, policy, ppm) {
       ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED',
       message: '✅ Your access is ready!', postPaymentMessage: ppm || '',
       access: { user: acc.user || '', pass: acc.pass || '', profileName: acc.profileName || '', profilePin: acc.profilePin || '', profileNumber: acc.profileNumber || '', deviceType: dt },
-      subId,
+      subId, expiry: fmtDt(expiry),
     };
   });
 }
@@ -399,7 +399,7 @@ async function _fulfillManual(o, ppm) {
   });
   return {
     ok: true, found: true, orderId: o.order_id, fulfillment: 'MANUAL_PENDING',
-    message: ppm || "✅ Payment received! We'll activate your subscription within a few hours and email you the details.", postPaymentMessage: ppm || '', subId,
+    message: ppm || "✅ Payment received! We'll activate your subscription within a few hours and email you the details.", postPaymentMessage: ppm || '', subId, expiry: fmtDt(expiry),
   };
 }
 

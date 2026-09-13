@@ -93,8 +93,17 @@ async function couponDiscount(code, phone, baseAmount, ctx) {
   return { ok: true, discount: Math.round(disc) };
 }
 
-async function createOrder(p) {
+/**
+ * createOrder(p, opts)
+ *  p    — what the storefront sends (customer-controlled).
+ *  opts — SERVER-ONLY options, never taken from p: { action, renewSubId, discountOverride,
+ *         amountOverride, allowNoEmail, rawExtra }. Used by createRenewOrder and the admin
+ *         quick-order tool. (These used to be read from p, so a customer could post
+ *         discountOverride and pay Rs 1 for any plan.)
+ */
+async function createOrder(p, opts) {
   p = p || {};
+  opts = opts || {};
   const service = String(p.service || '').trim();
   const plan = String(p.plan || '').trim();
   const name = String(p.name || '').trim();
@@ -108,7 +117,7 @@ async function createOrder(p) {
   if (!service || !plan) return { ok: false, message: 'Select service and plan.' };
   if (!phone) return { ok: false, message: 'Phone number is required.' };
   if (!name) return { ok: false, message: 'Full name is required.' };
-  if (!email) return { ok: false, message: 'Email is required.' };
+  if (!email && !opts.allowNoEmail) return { ok: false, message: 'Email is required.' };
 
   const planRows = await db.query('SELECT price, duration_days, is_active, raw_json FROM plans WHERE service = ? AND plan = ? LIMIT 1', [service, plan]);
   const prow = planRows[0];
@@ -119,14 +128,15 @@ async function createOrder(p) {
   const groupJoinRequired = String(praw.RequiresGroupJoin || '').toUpperCase() === 'TRUE';
   const groupJoinLink = String(praw.GroupJoinLink || '').trim();
 
-  const orderType = String(p.action || '').toUpperCase() === 'RENEW' ? 'RENEW' : 'NEW';
-  const renewSubId = String(p.renewSubId || '').trim();
+  const orderType = String(opts.action || '').toUpperCase() === 'RENEW' ? 'RENEW' : 'NEW';
+  const renewSubId = orderType === 'RENEW' ? String(opts.renewSubId || '').trim() : '';
 
   // How many devices/screens this subscription uses. Model A: the device count is
   // baked into the plan name (e.g. "2 Devices 1M" → 2); a caller may still override
   // via p.deviceCount. tvCount = how many are TV (Prime only).
   const planDevices = (String(plan).match(/(\d+)\s*device/i) || [])[1];
-  const deviceCount = Math.max(1, Math.floor(asNum(p.deviceCount)) || Number(planDevices) || 1);
+  // Never fewer devices than the plan name says (a lower count would under-reserve slots).
+  const deviceCount = Math.max(Number(planDevices) || 1, Math.floor(asNum(p.deviceCount)) || 0);
   let tvCount = (p.tvCount != null && p.tvCount !== '') ? Math.max(0, Math.floor(asNum(p.tvCount))) : null;
   // Back-compat: a single-device Prime order that only sent the old TV/NON_TV flag.
   if (tvCount == null) {
@@ -140,23 +150,29 @@ async function createOrder(p) {
   const extraDevicePrice = asNum(praw.ExtraDevicePrice);
   const basePrice = Math.round(price + Math.max(0, deviceCount - 1) * extraDevicePrice);
 
+  const hasAmountOverride = opts.amountOverride != null && opts.amountOverride !== '';
+  const overrideAmount = hasAmountOverride ? Math.max(0, Math.round(asNum(opts.amountOverride))) : 0;
   let discount = 0;
   if (couponCode) {
     const cd = await couponDiscount(couponCode, phone, basePrice, { action: orderType, service, plan });
     if (!cd.ok) return cd;
     discount = cd.discount;
-  } else if (asNum(p.discountOverride) > 0) {
+  } else if (hasAmountOverride) {
+    // Admin quick order: the amount actually agreed with the customer (e.g. on WhatsApp).
+    discount = Math.max(0, basePrice - overrideAmount);
+  } else if (asNum(opts.discountOverride) > 0) {
     // early-renew discount (no coupon on this order); never stacks with a coupon
-    discount = Math.min(basePrice, Math.round(asNum(p.discountOverride)));
+    discount = Math.min(basePrice, Math.round(asNum(opts.discountOverride)));
   }
-  const finalAmount = Math.max(0, basePrice - discount);
+  const listPrice = hasAmountOverride ? Math.max(basePrice, overrideAmount) : basePrice;
+  const finalAmount = Math.max(0, listPrice - discount);
   const orderId = genOrderId();
   const accessToken = newAccessToken();
 
   const orderRaw = {
     OrderID: orderId, Service: service, Plan: plan, DurationDays: durationDays,
     Name: name, Email: email, Phone: p.phone || phone, CouponCode: couponCode,
-    Discount: discount, Price: basePrice, FinalAmount: finalAmount, Currency: 'INR',
+    Discount: discount, Price: listPrice, FinalAmount: finalAmount, Currency: 'INR',
     Notes: notes, ExtraFieldKey: extraKey, ExtraFieldValue: extraVal,
     Status: 'CREATED', FulfillmentStatus: 'PENDING', OrderType: orderType,
     RenewSubID: renewSubId, DeviceConcurrency: deviceCount, TVCount: tvCount,
@@ -164,6 +180,7 @@ async function createOrder(p) {
     Source: 'node',
     AccessTokenHash: hashAccessToken(accessToken),
   };
+  if (opts.rawExtra && typeof opts.rawExtra === 'object') Object.assign(orderRaw, opts.rawExtra);
 
   await db.query(
     `INSERT INTO orders (order_id, created_at_sheet, service, plan, duration_days, name, email, phone, phone_norm,
@@ -171,7 +188,7 @@ async function createOrder(p) {
        status, fulfillment_status, order_type, renew_sub_id, device_count, tv_count, group_join_required, group_join_link, source, raw_json)
      VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, 'CREATED', 'PENDING', ?, ?, ?, ?, ?, ?, 'node', ?)`,
     [orderId, service, plan, durationDays, name, email, p.phone || phone, phone,
-      couponCode, discount, basePrice, finalAmount, notes, extraKey, extraVal,
+      couponCode, discount, listPrice, finalAmount, notes, extraKey, extraVal,
       orderType, renewSubId, deviceCount, tvCount, groupJoinRequired ? 'TRUE' : 'FALSE', groupJoinLink,
       JSON.stringify(orderRaw)]);
 
@@ -199,7 +216,7 @@ async function createOrder(p) {
     '&am=' + encodeURIComponent(finalAmount) + '&cu=INR&tn=' + encodeURIComponent(orderId);
 
   return {
-    ok: true, orderId, amount: finalAmount, baseAmount: basePrice, planPrice: price, discount,
+    ok: true, orderId, amount: finalAmount, baseAmount: listPrice, planPrice: price, discount,
     couponCode: couponCode || '', currency: 'INR', upiVpa, payee, upiLink,
     paymentNote: orderId, groupJoinRequired, groupJoinLink,
     deviceCount, tvCount,
@@ -263,58 +280,73 @@ async function verifyPaymentByRef(orderId, ref) {
 }
 
 /**
- * createRenewOrder(subId, planOverride?, couponCode?)
- * Renews an existing MySQL subscription — ALWAYS on MySQL (MySQL is the master; we
- * never write to the Sheet). Reuses createOrder so the pay/verify/fulfill chain is
- * identical to a fresh buy — only order_type='RENEW', renew_sub_id, and the tiered
- * early-renew discount differ. Fulfillment extends the SAME sub (no new allocation),
- * so it works for any service regardless of BUY_SERVICES.
+ * renewQuote(subId, planOverride?) — everything a renewal will cost and do, without
+ * creating an order: the plan, early-renew discount, and the account decision (R1).
+ * Shared by createRenewOrder and the admin quick-order preview.
  */
-async function createRenewOrder(subId, planOverride, couponCode) {
+async function renewQuote(subId, planOverride) {
   const sid = String(subId || '').trim();
   if (!sid) return { ok: false, message: 'Missing subscription id.' };
   const subs = await db.query(
     'SELECT sub_id, service, plan, phone, email, expiry_date, source FROM subscriptions WHERE sub_id = ? LIMIT 1', [sid]);
   const sub = subs[0];
   if (!sub) return { ok: false, message: 'Subscription not found.' };  // MySQL is master; no Sheet fallback
-
-  // Same backward-compat trick as Apps Script: a 2nd arg that "looks like" a coupon
-  // (no spaces, 3-20 chars) is treated as a coupon, not a plan override.
-  let plan = String(sub.plan || '').trim();
-  let cc = String(couponCode || '').trim().toUpperCase();
-  let po = String(planOverride || '').trim();
-  if (!cc && po && /^[A-Z0-9_-]{3,20}$/.test(po.toUpperCase())) { cc = po.toUpperCase(); po = ''; }
-  if (po) plan = po;
+  const plan = String(planOverride || '').trim() || String(sub.plan || '').trim();
 
   const planRows = await db.query('SELECT price, raw_json FROM plans WHERE service = ? AND plan = ? LIMIT 1', [sub.service, plan]);
   const prow = planRows[0];
   if (!prow) return { ok: false, message: 'Renewal plan not found — please contact support.' };
-
-  // R1: check the account can still serve this customer BEFORE they pay. If it
-  // can't and nothing else is free, no order is created and no money is taken.
-  const renewal = await require('./fulfill').planRenewal(sid, plan);
-  if (renewal.mode === 'NONE') return { ok: false, renewBlocked: true, message: renewal.message };
   const praw = rawOf(prow.raw_json);
+
+  // R1: check the account can still serve this customer BEFORE they pay.
+  const renewal = await require('./fulfill').planRenewal(sid, plan);
 
   // days left from current expiry -> tiered early-renew discount
   let daysLeft = null;
   if (sub.expiry_date) { const ex = new Date(sub.expiry_date); if (!isNaN(ex.getTime())) daysLeft = Math.ceil((ex.getTime() - Date.now()) / 86400000); }
-  let discountOverride = 0;
+  let earlyDiscount = 0;
   if (daysLeft != null) {
-    if (daysLeft >= 8) discountOverride = asNum(praw.EarlyRenewDiscount);
-    else if (daysLeft >= 2) discountOverride = asNum(praw.EarlyRenewDiscount_7to2);
+    if (daysLeft >= 8) earlyDiscount = asNum(praw.EarlyRenewDiscount);
+    else if (daysLeft >= 2) earlyDiscount = asNum(praw.EarlyRenewDiscount_7to2);
   }
+  const price = asNum(prow.price);
+  return { ok: true, sub, plan, price, daysLeft, earlyDiscount, amount: Math.max(0, price - earlyDiscount), renewal };
+}
+
+/**
+ * createRenewOrder(subId, planOverride?, couponCode?, opts?)
+ * Renews an existing MySQL subscription — ALWAYS on MySQL (MySQL is the master; we
+ * never write to the Sheet). Reuses createOrder so the pay/verify/fulfill chain is
+ * identical to a fresh buy — only order_type='RENEW', renew_sub_id, and the tiered
+ * early-renew discount differ. Fulfillment extends the SAME sub.
+ * opts (server-only, e.g. admin quick orders): { amountOverride, notes, rawExtra }.
+ */
+async function createRenewOrder(subId, planOverride, couponCode, opts) {
+  opts = opts || {};
+  // Same backward-compat trick as Apps Script: a 2nd arg that "looks like" a coupon
+  // (no spaces, 3-20 chars) is treated as a coupon, not a plan override.
+  let cc = String(couponCode || '').trim().toUpperCase();
+  let po = String(planOverride || '').trim();
+  if (!cc && po && /^[A-Z0-9_-]{3,20}$/.test(po.toUpperCase())) { cc = po.toUpperCase(); po = ''; }
+
+  const q = await renewQuote(subId, po);
+  if (!q.ok) return q;
+  const { sub, plan, renewal } = q;
+  // Nothing can serve this customer: no order is created and no money is taken.
+  if (renewal.mode === 'NONE') return { ok: false, renewBlocked: true, message: renewal.message };
 
   const cust = await db.query('SELECT name FROM customers WHERE phone_norm = ? LIMIT 1', [norm(sub.phone)]);
   const name = (cust[0] && cust[0].name) || 'Customer';
 
   const out = await createOrder({
     service: sub.service, plan, name, email: sub.email, phone: sub.phone,
-    couponCode: cc, action: 'RENEW', renewSubId: sid, notes: 'RENEW:' + sid,
-    discountOverride,
+    couponCode: cc, notes: opts.notes || ('RENEW:' + sub.sub_id),
+  }, {
+    action: 'RENEW', renewSubId: sub.sub_id, discountOverride: q.earlyDiscount,
+    amountOverride: opts.amountOverride, allowNoEmail: true, rawExtra: opts.rawExtra,
   });
   if (out && out.ok) {
-    out.renew = true; out.renewSubId = sid;
+    out.renew = true; out.renewSubId = sub.sub_id;
     if (renewal.mode === 'MOVE') { out.accountChange = true; out.renewNotice = renewal.message; }
     if (renewal.preview) out.renewPreview = renewal.preview;
   }
@@ -339,4 +371,13 @@ async function validateCoupon(code, ctx) {
   return { ok: true, code: c.toUpperCase(), discount: cd.discount, finalAmount: Math.max(0, amount - cd.discount), message: 'Coupon applied.' };
 }
 
-module.exports = { createOrder, createRenewOrder, verifyPayment, verifyPaymentByRef, validateCoupon, serviceAllowed, hashAccessToken, _internal: { genOrderId, couponDiscount } };
+/** Admin only: mark an order paid (cash / UPI seen on WhatsApp). Same bookkeeping as a matched bank credit. */
+async function adminMarkPaid(orderId, txnRef) {
+  const o = await _order(orderId);
+  if (!o) return { ok: false, message: 'Order not found.' };
+  if (o.source !== 'node') return { ok: false, message: 'Legacy (Sheet) orders cannot be marked paid here.' };
+  await _markPaid(orderId, txnRef);
+  return { ok: true };
+}
+
+module.exports = { createOrder, createRenewOrder, renewQuote, adminMarkPaid, verifyPayment, verifyPaymentByRef, validateCoupon, serviceAllowed, hashAccessToken, _internal: { genOrderId, couponDiscount } };
