@@ -37,7 +37,8 @@ function makeFixture(r) {
   const accounts = [], caps = [], profiles = [], occ = [];
   const add = (service, id, extra) => {
     const creds = r() > 0.1;
-    accounts.push({ service, account_id: id, login_id: creds ? id + '@x' : '', password: creds ? 'pw' : '', notes: (extra && extra.notes) || '', plan: (extra && extra.plan) || '', is_active: r() > 0.1 ? 'TRUE' : 'FALSE' });
+    const login = !creds ? '' : ((extra && extra.shareable && r() > 0.5) ? service.toLowerCase().replace(/\W/g, '') + '-shared@x' : id + '@x');
+    accounts.push({ service, account_id: id, login_id: login, password: creds ? 'pw' : '', notes: (extra && extra.notes) || '', plan: (extra && extra.plan) || '', is_active: r() > 0.1 ? 'TRUE' : 'FALSE' });
   };
   // Prime (CAPACITY)
   for (let i = 0; i < 3; i++) {
@@ -59,7 +60,7 @@ function makeFixture(r) {
   // Zee5 (OTP_ACCOUNT) + Crunchyroll (ACCOUNT)
   for (const [svc, pre] of [['Zee5 Premium', 'Z5'], ['Crunchyroll', 'CR']]) {
     for (let i = 0; i < 3; i++) {
-      const id = pre + '-' + i; add(svc, id, { notes: pick(['', 'Our account', '1,3', '6', '12']), plan: svc === 'Zee5 Premium' ? pick(['', '1 Month', '6 Months', '1 Year']) : '' });
+      const id = pre + '-' + i; add(svc, id, { shareable: true, notes: pick(['', 'Our account', '1,3', '6', '12']), plan: svc === 'Zee5 Premium' ? pick(['', '1 Month', '6 Months', '1 Year']) : '' });
       if (r() > 0.4) caps.push({ service: svc, account_id: id, max_total: pick([0, 1, 2, 3]), max_tv: 0, is_active: pick(['TRUE', 'FALSE', '']) });
       if (r() > 0.4) occ.push({ svc: svc.toLowerCase(), inventory_ref: id, total: Math.floor(r() * 4), tv: 0 });
       if (svc === 'Crunchyroll') {
@@ -82,7 +83,7 @@ function allocConn(fx) {
       sql = sql.replace(/\s+/g, ' ');
       const needle = needleOf(sql, params || []);
       const has = (s) => String(s || '').toLowerCase().includes(needle);
-      if (/FROM inventory_accounts/.test(sql)) return [fx.accounts.filter((a) => has(a.service) && a.is_active.toUpperCase() === 'TRUE')];
+      if (/FROM inventory_accounts/.test(sql)) return [fx.accounts.filter((a) => has(a.service) && (!/UPPER\(is_active\)='TRUE'/.test(sql) || a.is_active.toUpperCase() === 'TRUE'))];
       if (/FROM inventory_capacity/.test(sql)) return [fx.caps.filter((c) => has(c.service))];
       if (/FROM inventory_profiles/.test(sql)) return [fx.profiles.filter((p) => has(p.service))];
       if (/FROM subscriptions/.test(sql)) {
@@ -98,6 +99,7 @@ function snapOf(fx) {
   return {
     accounts: fx.accounts.filter((a) => a.is_active.toUpperCase() === 'TRUE').map((a) => ({ service: a.service, account_id: a.account_id, notes: a.notes, plan: a.plan, has_creds: (a.login_id && a.password) ? 1 : 0 })),
     caps: fx.caps, profiles: fx.profiles, occ: fx.occ,
+    accountRows: fx.accounts.map((a) => ({ service: a.service, account_id: a.account_id, login_key: String(a.login_id || '').trim().toLowerCase(), has_login: String(a.login_id || '').trim() ? 1 : 0 })),
   };
 }
 
@@ -268,6 +270,72 @@ function snapOf(fx) {
     ok('one Zee5 account listed per duration shares ONE capacity (7 - 6 = 1 for each plan)', stock.unitsForPlan(snapJ, z('1 Month', 30)) === 1 && stock.unitsForPlan(snapJ, z('6 Months', 180)) === 1);
     const rowPlanBlank = await fulfill.allocateOtp(allocConn({ ...fx, accounts: [{ ...acct('JH-X', ''), notes: '1,3' }], caps: [], occ: [] }), 'JioHotstar', 90, '3 Months');
     ok('rows with no Plan still use the Notes months rule', rowPlanBlank.ok && rowPlanBlank.inventoryRef === 'JH-X', rowPlanBlank);
+  }
+
+  section('one login listed under several AccountIDs shares one capacity (F3)');
+  {
+    const L = 'jiohotstar-main@x';
+    const row = (id, login, plan) => ({ service: 'JioHotstar', account_id: id, login_id: login, password: 'pw', notes: 'Our account', plan, is_active: 'TRUE' });
+    const fx = {
+      accounts: [row('JH-3M-02', L, '3 Months'), row('JH-6M-02', L, '6 Months'), row('JH-1Y-02', L, '1 Year'), row('JH-1M-01', 'other@x', '1 Month')],
+      caps: [{ service: 'JioHotstar', account_id: 'JH-3M-02', max_total: 9, is_active: 'true' }, { service: 'JioHotstar', account_id: 'JH-6M-02', max_total: 9, is_active: 'true' },
+        { service: 'JioHotstar', account_id: 'JH-1M-01', max_total: 8, is_active: 'true' }],
+      profiles: [],
+      occ: [{ svc: 'jiohotstar', inventory_ref: 'JH-3M-02', total: 5, tv: 0 }, { svc: 'jiohotstar', inventory_ref: 'JH-1Y-02', total: 1, tv: 0 }, { svc: 'jiohotstar', inventory_ref: 'JH-1M-01', total: 7, tv: 0 }],
+    };
+    const plan = (p, d) => ({ service: 'JioHotstar', plan: p, duration_days: d, raw_json: JSON.stringify({ AllocationPolicy: 'OTP_ACCOUNT' }) });
+    const snap = snapOf(fx);
+    const u = [['3 Months', 90], ['6 Months', 180], ['1 Year', 365], ['1 Month', 30]].map(([p, d]) => stock.unitsForPlan(snap, plan(p, d)));
+    ok('shared login (9 places, 6 used) shows 3 left on EVERY duration it serves; 1 Month account separate', JSON.stringify(u) === JSON.stringify([3, 3, 3, 1]), u);
+    const a = await fulfill.allocateOtp(allocConn(fx), 'JioHotstar', 180, '6 Months');
+    ok('6 Months sells while the shared login has room', a.ok && a.inventoryRef === 'JH-6M-02', a);
+    fx.occ.push({ svc: 'jiohotstar', inventory_ref: 'JH-6M-02', total: 3, tv: 0 });
+    const b = await fulfill.allocateOtp(allocConn(fx), 'JioHotstar', 365, '1 Year');
+    ok('once the login is full (9/9), no duration can sell it', b.ok === false, b);
+    ok('stock agrees: 0 on all three durations', [['3 Months', 90], ['6 Months', 180], ['1 Year', 365]].every(([p, d]) => stock.unitsForPlan(snapOf(fx), plan(p, d)) === 0));
+    fx.caps.push({ service: 'JioHotstar', account_id: 'JH-1Y-02', max_total: 12, is_active: 'true' });
+    fx.occ.pop();
+    ok('different capacity rows on one login: the lowest wins (9, not 12)', stock.unitsForPlan(snapOf(fx), plan('1 Year', 365)) === 3);
+    fx.caps.push({ service: 'JioHotstar', account_id: 'JH-3M-02', max_total: 9, is_active: 'FALSE' });
+    const c = await fulfill.allocateOtp(allocConn(fx), 'JioHotstar', 180, '6 Months');
+    ok('a capacity row marked inactive on any ID pauses the whole login', c.ok === false && stock.unitsForPlan(snapOf(fx), plan('6 Months', 180)) === 0, c);
+    const inact = { ...fx, caps: fx.caps.slice(0, 3), accounts: fx.accounts.map((x) => (x.account_id === 'JH-1Y-02' ? { ...x, is_active: 'FALSE' } : x)) };
+    ok('usage on an inactive row still counts against its login', stock.unitsForPlan(snapOf(inact), plan('6 Months', 180)) === 3);
+  }
+
+  {
+    const dup = {
+      accounts: [
+        { service: 'Crunchyroll', account_id: 'CR-A', login_id: 'same@x', password: 'pw', notes: '', plan: '', is_active: 'TRUE' },
+        { service: 'Crunchyroll', account_id: 'CR-B', login_id: 'SAME@x ', password: 'pw', notes: '', plan: '', is_active: 'TRUE' },
+      ],
+      caps: [{ service: 'Crunchyroll', account_id: 'CR-A', max_total: 5, is_active: 'true' }],
+      profiles: [],
+      occ: [{ svc: 'crunchyroll', inventory_ref: 'CR-B', total: 2, tv: 0 }],
+    };
+    const units = stock.unitsForPlan(snapOf(dup), { service: 'Crunchyroll', plan: 'Private 1M', duration_days: 30, raw_json: JSON.stringify({ AllocationPolicy: 'ACCOUNT' }) });
+    ok('one login on two rows serving the same plan is counted once (5 places - 2 used = 3, not 6)', units === 3, units);
+    const g = await fulfill.allocateWholeAccount(allocConn(dup), 'Crunchyroll', 1);
+    ok('login matching ignores case and surrounding spaces', g.ok && ['CR-A', 'CR-B'].includes(g.inventoryRef), g);
+  }
+
+  section('database session time zone');
+  {
+    const realLoad = Module._load;
+    let setSql = null, zoneArg = null;
+    const handlers = {};
+    Module._load = function (req) {
+      if (req === 'mysql2/promise') return { createPool: () => ({ on: (ev, fn) => { handlers[ev] = fn; }, execute: async () => [[]] }) };
+      return realLoad.apply(this, arguments);
+    };
+    process.env.DB_HOST = 'h'; process.env.DB_USER = 'u'; process.env.DB_NAME = 'n';
+    const dbPath = require.resolve('../db');
+    delete require.cache[dbPath];
+    const realDb = require('../db');
+    realDb.getPool();
+    handlers.connection && handlers.connection({ query: (sql, params, cb) => { setSql = sql; zoneArg = params[0]; cb && cb(null); } });
+    Module._load = realLoad;
+    ok('every new DB connection is set to India time (+05:30)', setSql === 'SET time_zone = ?' && zoneArg === '+05:30', { setSql, zoneArg });
   }
 
   section('occupancy rule');
