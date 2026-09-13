@@ -273,7 +273,16 @@ function notesAllowMonths(notes, months) {
   if (!nums || !nums.length) return true; // no restriction listed → any duration ok
   return nums.map(Number).includes(months);
 }
-async function allocateOtp(conn, service, durationDays) {
+// Which plan an OTP account row serves. INVENTORY_ACCOUNTS lists an account once per
+// duration it is sold for (Plan = "1 Month", "6 Months"…), exactly as the Apps
+// Script otp_pickAccount_ required — e.g. JH-6M-02 serves only "6 Months", while
+// Z5-01 has four rows, one per duration. Rows with no Plan fall back to Notes.
+function otpRowServes(row, plan, months) {
+  const rowPlan = String(row.plan || '').trim().toLowerCase();
+  if (rowPlan) return !!plan && rowPlan === String(plan).trim().toLowerCase();
+  return notesAllowMonths(row.notes, months);
+}
+async function allocateOtp(conn, service, durationDays, plan) {
   const svc = String(service || '').toLowerCase();
   const months = monthsFromDays(durationDays);
   const [accs] = await conn.query("SELECT account_id, login_id, password, notes, plan FROM inventory_accounts WHERE LOWER(service) LIKE ? AND UPPER(is_active)='TRUE'", ['%' + svc + '%']);
@@ -285,7 +294,7 @@ async function allocateOtp(conn, service, durationDays) {
   const cands = [];
   for (const a of accs) {
     const acc = String(a.account_id); if (!acc || !a.login_id || !a.password) continue;
-    if (!notesAllowMonths(a.notes, months)) continue;   // this account doesn't serve this duration
+    if (!otpRowServes(a, plan, months)) continue;   // this account row isn't sold for this plan
     const cap = capMap.get(acc) || { maxTotal: 1, isActive: true }; if (!cap.isActive) continue;
     const used = occ.get(acc) || 0;
     if (used + 1 > cap.maxTotal) continue;
@@ -320,7 +329,7 @@ async function _allocateAndFinish(o, policy, ppm) {
     } else if (policy === 'PROFILE') {
       alloc = await allocateProfile(conn, o.service, o.plan, deviceCount);
     } else if (policy === 'OTP_ACCOUNT') {
-      alloc = await allocateOtp(conn, o.service, o.duration_days);
+      alloc = await allocateOtp(conn, o.service, o.duration_days, o.plan);
     } else {
       alloc = await allocateWholeAccount(conn, o.service, deviceCount);
     }
@@ -483,4 +492,4 @@ async function fulfillAndGetAccess(orderId, proof) {
 /** Admin endpoint only (key-protected): full result including credentials. */
 async function fulfillForAdmin(orderId) { return _fulfillSafe(orderId); }
 
-module.exports = { fulfillAndGetAccess, fulfillForAdmin, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths, OCC_ACTIVE } };
+module.exports = { fulfillAndGetAccess, fulfillForAdmin, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE } };
