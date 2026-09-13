@@ -3973,7 +3973,8 @@ function PayScreen({
     orderId,
     upiLink,
     amount,
-    accessToken
+    accessToken,
+    renewNotice
   } = orderData;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=8&data=${encodeURIComponent(upiLink || '')}`;
   function copyText(text, setter) {
@@ -4003,7 +4004,20 @@ function PayScreen({
     style: {
       paddingBottom: 90
     }
-  }, React.createElement("div", {
+  }, renewNotice ? React.createElement("div", {
+    style: {
+      margin: '16px 0 0',
+      padding: '12px 14px',
+      borderRadius: 14,
+      background: '#fff7ed',
+      border: '1px solid #fdba74',
+      color: '#9a3412',
+      fontFamily: PJS,
+      fontSize: 13.5,
+      fontWeight: 600,
+      lineHeight: 1.45
+    }
+  }, "🔄 ", renewNotice) : null, React.createElement("div", {
     style: {
       margin: '16px 0 14px',
       padding: 20,
@@ -4808,7 +4822,8 @@ function RenewStartScreen({
         upiLink: r.upiLink || '-',
         amount: Number(r.amount || r.finalAmount || 0),
         currency: r.currency || 'INR',
-        accessToken: r.accessToken || ''
+        accessToken: r.accessToken || '',
+        renewNotice: r.renewNotice || ''
       };
       setOrderData(oi);
       try {
@@ -5386,7 +5401,7 @@ function DoneScreen({
     }
   } : {};
   const title = !r.found ? '❌ Verify Error' : isNoStock ? '⚠️ Accounts Temporarily Unavailable' : isManual ? '✅ Payment Received' : '✅ Access Granted 🎉';
-  const msg = !r.found ? 'Please try verifying again.' : isNoStock ? r.message || 'Please contact support.' : isManual ? r.message || 'Activation will be done manually soon.' : r.accessWithheld ? r.message || 'Your login details were emailed to you. You can also view them using Recover.' : 'Your details are shown below. We also sent confirmation to your email.';
+  const msg = !r.found ? 'Please try verifying again.' : isNoStock ? r.message || 'Please contact support.' : isManual ? r.message || 'Activation will be done manually soon.' : r.accessWithheld ? r.message || 'Your login details were emailed to you. You can also view them using Recover.' : r.accountChanged ? r.message || 'Your login has changed — your new details are below.' : 'Your details are shown below. We also sent confirmation to your email.';
   return React.createElement(Slide, null, React.createElement("div", {
     style: {
       paddingBottom: 90

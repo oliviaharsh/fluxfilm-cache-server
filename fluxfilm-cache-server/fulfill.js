@@ -308,6 +308,23 @@ async function allocateOtp(conn, service, durationDays, plan) {
   return { ok: true, inventoryRef: p.acc, accountId: p.acc, access: { user: p.a.login_id, pass: p.a.password } };
 }
 
+// Pick an account/profile for a sale or a renewal move, dispatched by policy.
+// Read-only: it only chooses; the caller writes the subscription.
+async function pickAllocation(conn, policy, a) {
+  let dt = ''; let alloc;
+  if (policy === 'CAPACITY') {
+    alloc = await allocatePrime(conn, a.deviceCount, a.tvCount);
+    if (alloc && alloc.ok) dt = alloc.deviceType || (a.tvCount >= a.deviceCount ? 'TV' : a.tvCount > 0 ? 'MIXED' : 'NON_TV');
+  } else if (policy === 'PROFILE') {
+    alloc = await allocateProfile(conn, a.service, a.plan, a.deviceCount);
+  } else if (policy === 'OTP_ACCOUNT') {
+    alloc = await allocateOtp(conn, a.service, a.durationDays, a.plan);
+  } else {
+    alloc = await allocateWholeAccount(conn, a.service, a.deviceCount);
+  }
+  return { alloc, dt };
+}
+
 // Allocate (under a lock) + write the subscription + finish the order. Shared by
 // Prime/Netflix/whole-account so the record + hook are identical everywhere.
 async function _allocateAndFinish(o, policy, ppm) {
@@ -324,17 +341,7 @@ async function _allocateAndFinish(o, policy, ppm) {
     if (tvCount == null) { const dtOld = String(o.extra_field_value || '').toUpperCase(); tvCount = dtOld === 'TV' ? deviceCount : 0; }
     tvCount = Math.max(0, Math.min(tvCount, deviceCount));
 
-    let dt = ''; let alloc;
-    if (policy === 'CAPACITY') {
-      alloc = await allocatePrime(conn, deviceCount, tvCount);
-      if (alloc && alloc.ok) dt = alloc.deviceType || (tvCount >= deviceCount ? 'TV' : tvCount > 0 ? 'MIXED' : 'NON_TV');
-    } else if (policy === 'PROFILE') {
-      alloc = await allocateProfile(conn, o.service, o.plan, deviceCount);
-    } else if (policy === 'OTP_ACCOUNT') {
-      alloc = await allocateOtp(conn, o.service, o.duration_days, o.plan);
-    } else {
-      alloc = await allocateWholeAccount(conn, o.service, deviceCount);
-    }
+    const { alloc, dt } = await pickAllocation(conn, policy, { service: o.service, plan: o.plan, durationDays: o.duration_days, deviceCount, tvCount });
 
     if (!alloc || !alloc.ok) {
       await conn.query("UPDATE orders SET fulfillment_status = 'FAILED' WHERE order_id = ?", [o.order_id]).catch(() => {});
@@ -399,21 +406,162 @@ function _accessOf(s) {
   return { user: s.login_id || '', pass: s.password || '', profileName: s.profile_name || '', profilePin: s.profile_pin || '', profileNumber: s.profile_number || '', deviceType: s.device_type || '' };
 }
 
+// ---------------------------------------------------------------------------
+// Renewal account check (R1). A renewal used to extend the subscription on its old
+// account without looking at it — a customer renewing onto a retired or full
+// account paid and received login details that no longer worked. Now, before
+// payment AND again at fulfilment, the renewal decides:
+//   SAME — keep the current login (account active, still has room for them)
+//   MOVE — the old account can't serve them; allocate a new login on renewal
+//   NONE — nothing free: block before payment (never take money first)
+// Manual services (no inventory) always renew in place.
+// ---------------------------------------------------------------------------
+const INVENTORY_POLICIES = ['CAPACITY', 'PROFILE', 'ACCOUNT', 'OTP_ACCOUNT'];
+
+async function _renewalPlanInfo(conn, service, plan) {
+  const [rows] = await conn.query('SELECT raw_json, duration_days FROM plans WHERE service = ? AND plan = ? LIMIT 1', [service, plan]);
+  const raw = rows[0] ? rawOf(rows[0].raw_json) : {};
+  const policy = String(raw.AllocationPolicy || '').toUpperCase();
+  const mode = String(raw.FulfillmentMode || '').toUpperCase();
+  return {
+    policy: (mode === 'MANUAL' || !INVENTORY_POLICIES.includes(policy)) ? 'MANUAL' : policy,
+    durationDays: asNum(rows[0] && rows[0].duration_days) || asNum(raw.DurationDays) || 30,
+  };
+}
+
+async function _renewalSub(conn, subId) {
+  const [rows] = await conn.query(
+    'SELECT sub_id, service, plan, expiry_date, inventory_ref, account_id, login_id, password, profile_name, profile_pin, profile_number, ' +
+    'device_type, device_count, tv_count, (' + OCC_ACTIVE + ') AS occupying FROM subscriptions WHERE sub_id = ? LIMIT 1', [subId]);
+  return rows[0] || null;
+}
+
+// Devices this subscription holds — counted exactly as the occupancy queries do.
+function _heldDevices(s) {
+  const dev = Math.max(1, asNum(s.device_count) || 1);
+  const tv = (s.tv_count != null && s.tv_count !== '') ? asNum(s.tv_count) : (String(s.device_type || '').toUpperCase() === 'TV' ? dev : 0);
+  return { dev, tv };
+}
+
+// Can this subscription stay on its current account? Its own slot is excluded
+// while it is still occupied, so a customer never blocks their own renewal.
+async function _canKeepAccount(conn, policy, s, plan) {
+  const ref = String(s.inventory_ref || '').trim();
+  if (!ref) return { keep: false, reason: 'NO_ACCOUNT' };
+  const cut = ref.indexOf('#P');
+  const acc = cut >= 0 ? ref.slice(0, cut) : ref;
+  const pno = cut >= 0 ? asNum(ref.slice(cut + 2)) : 0;
+  const { dev, tv } = _heldDevices(s);
+  const mine = Number(s.occupying) === 1;
+  const selfDev = mine ? dev : 0;
+  const selfTv = mine ? tv : 0;
+  const svc = String(s.service || '').trim().toLowerCase();
+  const like = policy === 'CAPACITY' ? '%prime%' : (policy === 'PROFILE' && /netflix/i.test(svc)) ? '%netflix%' : '%' + svc + '%';
+
+  const [rows] = await conn.query("SELECT login_id, password FROM inventory_accounts WHERE account_id = ? AND LOWER(service) LIKE ? AND UPPER(is_active)='TRUE'", [acc, like]);
+  if (!rows.some((r) => r.login_id && r.password)) return { keep: false, reason: 'INACTIVE' };
+
+  if (policy === 'CAPACITY') {
+    const [caps] = await conn.query('SELECT max_total, max_tv, is_active FROM inventory_capacity WHERE account_id = ? AND LOWER(service) LIKE ?', [acc, like]);
+    let cap = { maxTotal: PRIME_MAX_TOTAL, maxTV: PRIME_MAX_TV, isActive: true };
+    for (const c of caps) cap = { maxTotal: asNum(c.max_total) || PRIME_MAX_TOTAL, maxTV: asNum(c.max_tv) || PRIME_MAX_TV, isActive: String(c.is_active || '').toUpperCase() === 'TRUE' };
+    if (!cap.isActive) return { keep: false, reason: 'INACTIVE' };
+    const o = (await primeOccupancy(conn)).get(acc) || { total: 0, tv: 0 };
+    if (o.total - selfDev + dev > cap.maxTotal || o.tv - selfTv + Math.min(tv, dev) > cap.maxTV) return { keep: false, reason: 'FULL' };
+    return { keep: true };
+  }
+
+  if (policy === 'PROFILE') {
+    if (!pno) return { keep: false, reason: 'NO_PROFILE' };
+    const [profs] = await conn.query('SELECT profile_number, raw_json FROM inventory_profiles WHERE account_id = ? AND LOWER(service) LIKE ?', [acc, like]);
+    if (!profs.some((p) => (asNum(p.profile_number) || asNum(rawOf(p.raw_json).ProfileNumber)) === pno)) return { keep: false, reason: 'PROFILE_GONE' };
+    const used = (await occupancyMap(conn, like)).get(ref) || 0;
+    if (/sharing|group/i.test(String(plan || s.plan || ''))) {
+      const [caps] = await conn.query('SELECT max_total, is_active FROM inventory_capacity WHERE account_id = ? AND LOWER(service) LIKE ?', [acc, like]);
+      let cap = { maxTotal: NETFLIX_SHARING_MAX, isActive: true };
+      for (const c of caps) cap = { maxTotal: asNum(c.max_total) || NETFLIX_SHARING_MAX, isActive: String(c.is_active || '').toUpperCase() !== 'FALSE' };
+      if (!cap.isActive) return { keep: false, reason: 'INACTIVE' };
+      if (used - selfDev + dev > cap.maxTotal) return { keep: false, reason: 'FULL' };
+    } else if (used - selfDev > 0) {
+      return { keep: false, reason: 'FULL' }; // someone else now has this private profile
+    }
+    return { keep: true };
+  }
+
+  // ACCOUNT / OTP_ACCOUNT: capacity belongs to the login (see logins.js).
+  const g = (await loginGroups(conn, like)).forId(acc);
+  if (!g.isActive) return { keep: false, reason: 'INACTIVE' };
+  const need = policy === 'OTP_ACCOUNT' ? 1 : dev;
+  if (g.used - selfDev + need > g.maxTotal) return { keep: false, reason: 'FULL' };
+  return { keep: true };
+}
+
+const RENEW_MOVE_MESSAGE = {
+  FULL: 'Your previous place on this account has been taken since your plan ended, so you will get a new login right after renewal.',
+  DEFAULT: 'Your old account is no longer available, so you will get a new login right after renewal.',
+};
+const RENEW_NONE_MESSAGE = "Sorry — your old account is no longer available and no other account is free right now, so this renewal can't be paid for yet. Please message us on WhatsApp and we'll sort it out.";
+
+async function _renewalDecision(conn, s, plan) {
+  const targetPlan = plan || s.plan;
+  const info = await _renewalPlanInfo(conn, s.service, targetPlan);
+  if (info.policy === 'MANUAL') return { mode: 'SAME', policy: info.policy };
+  const keep = await _canKeepAccount(conn, info.policy, s, targetPlan);
+  if (keep.keep) return { mode: 'SAME', policy: info.policy };
+  const { dev, tv } = _heldDevices(s);
+  const { alloc, dt } = await pickAllocation(conn, info.policy, {
+    service: s.service, plan: targetPlan, durationDays: info.durationDays, deviceCount: dev, tvCount: Math.min(tv, dev),
+  });
+  if (alloc && alloc.ok) return { mode: 'MOVE', policy: info.policy, reason: keep.reason, alloc, dt };
+  return { mode: 'NONE', policy: info.policy, reason: keep.reason };
+}
+
+/** Before payment: what will happen to this renewal? Used by createRenewOrder. */
+async function planRenewal(subId, plan) {
+  const conn = await db.getPool().getConnection();
+  try {
+    const s = await _renewalSub(conn, subId);
+    if (!s) return { mode: 'NONE', message: 'Subscription not found.' };
+    const d = await _renewalDecision(conn, s, plan);
+    const message = d.mode === 'MOVE' ? (RENEW_MOVE_MESSAGE[d.reason] || RENEW_MOVE_MESSAGE.DEFAULT)
+      : d.mode === 'NONE' ? RENEW_NONE_MESSAGE : '';
+    return { mode: d.mode, reason: d.reason || '', message };
+  } finally { conn.release(); }
+}
+
 // Extend an existing subscription (renewal). Base policy: renewing in advance OR
 // late by <= RENEW_BASE_TODAY_AFTER_DAYS days -> extend from the old expiry (keep
 // continuity); later than that -> extend from today (the gap days are lost).
+// Runs under the same lock as new sales, so moving a customer to another account
+// can never race a purchase for the last free slot.
 async function _fulfillRenew(o) {
   const sid = String(o.renew_sub_id || '').trim();
-  return withLock('ff_renew', 10, async (conn) => {
-    const [subsRows] = await conn.query(
-      'SELECT sub_id, expiry_date, login_id, password, profile_name, profile_pin, profile_number, service, device_type FROM subscriptions WHERE sub_id = ? LIMIT 1', [sid]);
-    const s = subsRows[0];
+  return withLock('ff_alloc', 12, async (conn) => {
+    const s = await _renewalSub(conn, sid);
     if (!s) return { ok: false, found: true, orderId: o.order_id, fulfillment: 'ERROR', message: 'Renewal target not found — please contact support.' };
 
-    // idempotent: if this renew order already applied, just show the credentials
+    // idempotent: if this renew order already applied, just show the (possibly new) credentials
     const [chk] = await conn.query('SELECT fulfillment_status FROM orders WHERE order_id = ? LIMIT 1', [o.order_id]);
     if (chk[0] && String(chk[0].fulfillment_status || '').toUpperCase() === 'FULFILLED') {
       return { ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED', message: '✅ Your subscription is renewed.', access: _accessOf(s), subId: sid };
+    }
+
+    // Re-check the account now: stock can change between order and payment.
+    const d = await _renewalDecision(conn, s, o.plan);
+    if (d.mode === 'NONE') {
+      await conn.query("UPDATE orders SET fulfillment_status = 'FAILED' WHERE order_id = ?", [o.order_id]).catch(() => {});
+      return { ok: true, found: true, orderId: o.order_id, fulfillment: 'NO_STOCK', message: "😔 Your payment is received, but your old account is no longer available and no other account is free right now. Please contact WhatsApp support — we'll sort it instantly." };
+    }
+
+    let access = _accessOf(s);
+    const moved = d.mode === 'MOVE';
+    if (moved) {
+      const na = d.alloc.access || {};
+      await conn.query(
+        "UPDATE subscriptions SET inventory_ref = ?, account_id = ?, login_id = ?, password = ?, profile_number = ?, profile_name = ?, profile_pin = ?, device_type = COALESCE(NULLIF(?, ''), device_type) WHERE sub_id = ?",
+        [d.alloc.inventoryRef, d.alloc.accountId || d.alloc.inventoryRef, na.user || '', na.pass || '', na.profileNumber || '', na.profileName || '', na.profilePin || '', d.dt || '', sid]);
+      access = { user: na.user || '', pass: na.pass || '', profileName: na.profileName || '', profilePin: na.profilePin || '', profileNumber: na.profileNumber || '', deviceType: d.dt || s.device_type || '' };
+      console.log('[renew] moved', sid, 'from', s.inventory_ref, 'to', d.alloc.inventoryRef, '(' + d.reason + ')');
     }
 
     const durationDays = asNum(o.duration_days) || 30;
@@ -438,12 +586,12 @@ async function _fulfillRenew(o) {
       orderId: o.order_id, phone: o.phone, email: o.email, name: o.name,
       service: o.service, plan: o.plan, amount: o.final_amount,
       expiry: fmtDt(newExpiry), postPaymentMessage: '',
-      access: { user: s.login_id, pass: s.password, deviceType: s.device_type },
+      access: { user: access.user, pass: access.pass, profileName: access.profileName, profilePin: access.profilePin, deviceType: access.deviceType },
     });
     return {
       ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED',
-      message: '✅ Renewed! Your subscription has been extended.', postPaymentMessage: '',
-      access: _accessOf(s), subId: sid, newExpiry: fmtDt(newExpiry),
+      message: moved ? '✅ Renewed! Your old account was no longer available, so here is your new login.' : '✅ Renewed! Your subscription has been extended.',
+      postPaymentMessage: '', access, subId: sid, newExpiry: fmtDt(newExpiry), accountChanged: moved,
     };
   });
 }
@@ -494,4 +642,4 @@ async function fulfillAndGetAccess(orderId, proof) {
 /** Admin endpoint only (key-protected): full result including credentials. */
 async function fulfillForAdmin(orderId) { return _fulfillSafe(orderId); }
 
-module.exports = { fulfillAndGetAccess, fulfillForAdmin, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE } };
+module.exports = { fulfillAndGetAccess, fulfillForAdmin, planRenewal, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE } };

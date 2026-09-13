@@ -289,6 +289,11 @@ async function createRenewOrder(subId, planOverride, couponCode) {
   const planRows = await db.query('SELECT price, raw_json FROM plans WHERE service = ? AND plan = ? LIMIT 1', [sub.service, plan]);
   const prow = planRows[0];
   if (!prow) return { ok: false, message: 'Renewal plan not found — please contact support.' };
+
+  // R1: check the account can still serve this customer BEFORE they pay. If it
+  // can't and nothing else is free, no order is created and no money is taken.
+  const renewal = await require('./fulfill').planRenewal(sid, plan);
+  if (renewal.mode === 'NONE') return { ok: false, renewBlocked: true, message: renewal.message };
   const praw = rawOf(prow.raw_json);
 
   // days left from current expiry -> tiered early-renew discount
@@ -308,7 +313,10 @@ async function createRenewOrder(subId, planOverride, couponCode) {
     couponCode: cc, action: 'RENEW', renewSubId: sid, notes: 'RENEW:' + sid,
     discountOverride,
   });
-  if (out && out.ok) { out.renew = true; out.renewSubId = sid; }
+  if (out && out.ok) {
+    out.renew = true; out.renewSubId = sid;
+    if (renewal.mode === 'MOVE') { out.accountChange = true; out.renewNotice = renewal.message; }
+  }
   return out;
 }
 
