@@ -80,6 +80,7 @@ const lookupDeps = {
   c = lastSql(/FROM orders WHERE/);
   ok('"paid, not delivered" view', /UPPER\(status\) = 'PAID' AND UPPER\(COALESCE\(fulfillment_status, ''\)\) NOT IN \('FULFILLED', 'MANUAL_PENDING'\)/.test(c.sql), c.sql);
   ok('  ...skips old orders that did get a subscription', /NOT EXISTS \(SELECT 1 FROM subscriptions s WHERE s\.order_id = orders\.order_id\)/.test(c.sql), c.sql);
+  ok('  ...and old-site renewals whose renewed subscription exists (website renewals stay visible)', /NOT \(COALESCE\(orders\.source, ''\) <> 'node' AND COALESCE\(orders\.renew_sub_id, ''\) <> '' AND EXISTS \(SELECT 1 FROM subscriptions r WHERE r\.sub_id = orders\.renew_sub_id\)\)/.test(c.sql), c.sql);
 
   section('extra OTP services from settings');
   const otpInternal = () => { delete require.cache[require.resolve('../otp')]; return require('../otp')._internal; };
