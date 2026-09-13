@@ -37,7 +37,7 @@ function makeFixture(r) {
   const accounts = [], caps = [], profiles = [], occ = [];
   const add = (service, id, extra) => {
     const creds = r() > 0.1;
-    accounts.push({ service, account_id: id, login_id: creds ? id + '@x' : '', password: creds ? 'pw' : '', notes: (extra && extra.notes) || '', is_active: r() > 0.1 ? 'TRUE' : 'FALSE' });
+    accounts.push({ service, account_id: id, login_id: creds ? id + '@x' : '', password: creds ? 'pw' : '', notes: (extra && extra.notes) || '', plan: (extra && extra.plan) || '', is_active: r() > 0.1 ? 'TRUE' : 'FALSE' });
   };
   // Prime (CAPACITY)
   for (let i = 0; i < 3; i++) {
@@ -59,7 +59,7 @@ function makeFixture(r) {
   // Zee5 (OTP_ACCOUNT) + Crunchyroll (ACCOUNT)
   for (const [svc, pre] of [['Zee5 Premium', 'Z5'], ['Crunchyroll', 'CR']]) {
     for (let i = 0; i < 3; i++) {
-      const id = pre + '-' + i; add(svc, id, { notes: pick(['', 'Our account', '1,3', '6', '12']) });
+      const id = pre + '-' + i; add(svc, id, { notes: pick(['', 'Our account', '1,3', '6', '12']), plan: svc === 'Zee5 Premium' ? pick(['', '1 Month', '6 Months', '1 Year']) : '' });
       if (r() > 0.4) caps.push({ service: svc, account_id: id, max_total: pick([0, 1, 2, 3]), max_tv: 0, is_active: pick(['TRUE', 'FALSE', '']) });
       if (r() > 0.4) occ.push({ svc: svc.toLowerCase(), inventory_ref: id, total: Math.floor(r() * 4), tv: 0 });
       if (svc === 'Crunchyroll') {
@@ -96,7 +96,7 @@ function allocConn(fx) {
 }
 function snapOf(fx) {
   return {
-    accounts: fx.accounts.filter((a) => a.is_active.toUpperCase() === 'TRUE').map((a) => ({ service: a.service, account_id: a.account_id, notes: a.notes, has_creds: (a.login_id && a.password) ? 1 : 0 })),
+    accounts: fx.accounts.filter((a) => a.is_active.toUpperCase() === 'TRUE').map((a) => ({ service: a.service, account_id: a.account_id, notes: a.notes, plan: a.plan, has_creds: (a.login_id && a.password) ? 1 : 0 })),
     caps: fx.caps, profiles: fx.profiles, occ: fx.occ,
   };
 }
@@ -109,8 +109,8 @@ function snapOf(fx) {
     { service: 'Netflix', plan: 'Sharing 1M', duration_days: 30, raw_json: { AllocationPolicy: 'PROFILE' }, alloc: (c) => fulfill.allocateNetflix(c, 'Sharing 1M', 1) },
     { service: 'Netflix (Group Offer)', plan: 'Sharing 3M', duration_days: 90, raw_json: { AllocationPolicy: 'PROFILE' }, alloc: (c) => fulfill.allocateNetflix(c, 'Sharing 3M', 1) },
     { service: 'Netflix', plan: 'Private 1M', duration_days: 30, raw_json: { AllocationPolicy: 'PROFILE' }, alloc: (c) => fulfill.allocateNetflix(c, 'Private 1M', 1) },
-    { service: 'Zee5 Premium', plan: '1 Month', duration_days: 30, raw_json: { AllocationPolicy: 'OTP_ACCOUNT' }, alloc: (c) => fulfill.allocateOtp(c, 'Zee5 Premium', 30) },
-    { service: 'Zee5 Premium', plan: '6 Months', duration_days: 180, raw_json: { AllocationPolicy: 'OTP_ACCOUNT' }, alloc: (c) => fulfill.allocateOtp(c, 'Zee5 Premium', 180) },
+    { service: 'Zee5 Premium', plan: '1 Month', duration_days: 30, raw_json: { AllocationPolicy: 'OTP_ACCOUNT' }, alloc: (c) => fulfill.allocateOtp(c, 'Zee5 Premium', 30, '1 Month') },
+    { service: 'Zee5 Premium', plan: '6 Months', duration_days: 180, raw_json: { AllocationPolicy: 'OTP_ACCOUNT' }, alloc: (c) => fulfill.allocateOtp(c, 'Zee5 Premium', 180, '6 Months') },
     { service: 'Crunchyroll', plan: 'Private 1M', duration_days: 30, raw_json: { AllocationPolicy: 'ACCOUNT' }, alloc: (c) => fulfill.allocateWholeAccount(c, 'Crunchyroll', 1) },
     { service: 'Crunchyroll', plan: 'Private 3M', duration_days: 90, raw_json: { AllocationPolicy: 'PROFILE' }, alloc: (c) => fulfill.allocateProfile(c, 'Crunchyroll', 'Private 3M', 1) },
     { service: 'Crunchyroll', plan: 'Sharing 1M', duration_days: 30, raw_json: { AllocationPolicy: 'PROFILE' }, alloc: (c) => fulfill.allocateProfile(c, 'Crunchyroll', 'Sharing 1M', 1) },
@@ -195,6 +195,84 @@ function snapOf(fx) {
     ok('Crunchyroll sold out after 5 customers, with a Crunchyroll-worded message', full.ok === false && /Crunchyroll/.test(full.message) && !/Netflix/.test(full.message), full);
     ok('stock agrees: 0 left', stock.unitsForPlan(snapOf(fx), { service: 'Crunchyroll', plan: 'Private 1M', duration_days: 30, raw_json: JSON.stringify({ AllocationPolicy: 'PROFILE' }) }) === 0);
   }
+
+  // ============ 1c. fulfilment reads device counts from the real order row ============
+  section('fulfilment uses the order device/TV count (SQL column projection)');
+  {
+    // Emulate MySQL: a SELECT returns ONLY the columns it names. This is what the
+    // earlier mocks hid — they returned the whole order object, so a query that
+    // forgot device_count still "worked" in tests and allocated 1 device live.
+    const project = (sql, row) => {
+      const m = sql.match(/^SELECT (.+?) FROM /i);
+      if (!m || m[1].trim() === '*') return row;
+      const out = {};
+      for (const c of m[1].split(',').map((x) => x.trim())) if (c in row) out[c] = row[c];
+      return out;
+    };
+    const orderRow = { order_id: 'FF2D', service: 'Prime Video', plan: '2 Devices 1M', name: 'T', email: 't@x', phone: '9876543210', phone_norm: '9876543210', duration_days: 30, status: 'PAID', fulfillment_status: 'PENDING', extra_field_value: 'NON_TV', device_count: 2, tv_count: 1, source: 'node', final_amount: 59, order_type: 'NEW', renew_sub_id: '' };
+    let inserted = null;
+    const accounts = [
+      { service: 'Prime', account_id: 'PR-A', login_id: 'a@x', password: 'pw', is_active: 'TRUE' }, // 1 free device
+      { service: 'Prime', account_id: 'PR-B', login_id: 'b@x', password: 'pw', is_active: 'TRUE' }, // 2 free, 1 free TV
+    ];
+    const caps = [
+      { service: 'Prime', account_id: 'PR-A', max_total: 3, max_tv: 2, is_active: 'TRUE' },
+      { service: 'Prime', account_id: 'PR-B', max_total: 4, max_tv: 2, is_active: 'TRUE' },
+    ];
+    const occ = [{ inventory_ref: 'PR-A', total: 2, tv: 0 }, { inventory_ref: 'PR-B', total: 2, tv: 1 }];
+    const q = async (sql, params) => {
+      sql = sql.replace(/\s+/g, ' ').trim();
+      if (/FROM orders WHERE order_id/.test(sql) && /^SELECT order_id/.test(sql)) return [[project(sql, orderRow)]];
+      if (/SELECT raw_json FROM plans/.test(sql)) return [[{ raw_json: JSON.stringify({ AllocationPolicy: 'CAPACITY' }) }]];
+      if (/GET_LOCK|RELEASE_LOCK/.test(sql)) return [[{ l: 1 }]];
+      if (/SELECT fulfillment_status FROM orders/.test(sql)) return [[{ fulfillment_status: 'PENDING' }]];
+      if (/FROM inventory_accounts/.test(sql)) return [accounts];
+      if (/FROM inventory_capacity/.test(sql)) return [caps];
+      if (/FROM subscriptions WHERE LOWER\(service\) LIKE '%prime%'/.test(sql)) return [occ];
+      if (/^INSERT INTO subscriptions/.test(sql)) { inserted = params; return [{ affectedRows: 1 }]; }
+      if (/^UPDATE orders SET fulfillment_status/.test(sql)) return [{ affectedRows: 1 }];
+      throw new Error('unexpected SQL ' + sql.slice(0, 90));
+    };
+    mock.pool = { query: q, getConnection: async () => ({ query: q, release() {} }) };
+    const res = await fulfill.fulfillForAdmin('FF2D');
+    const REF = 10, DEV = 18, TV = 19; // positions in the subscriptions INSERT params
+    ok('2-device order allocated where 2 devices fit (PR-B, not PR-A)', res.ok && res.access && inserted && inserted[REF] === 'PR-B', { res: res.message, ref: inserted && inserted[REF] });
+    ok('subscription records 2 devices', inserted && Number(inserted[DEV]) === 2, inserted && inserted[DEV]);
+    ok('subscription records the TV count from the order (1), not the old flag', inserted && Number(inserted[TV]) === 1, inserted && inserted[TV]);
+    ok('order SELECT names device_count and tv_count', /device_count/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'fulfill.js'), 'utf8').match(/SELECT order_id, service, plan, name[^']*/)[0]));
+  }
+
+  section('OTP accounts serve only their own plan (as in the original Sheet)');
+  {
+    const acct = (id, plan) => ({ service: 'JioHotstar', account_id: id, login_id: id + '@x', password: 'pw', notes: 'Our account', plan, is_active: 'TRUE' });
+    const fx = {
+      accounts: [acct('JH-1M-01', '1 Month'), acct('JH-6M-02', '6 Months'), acct('JH-1Y-02', '1 Year'),
+        { service: 'Zee5 Premium', account_id: 'Z5-01', login_id: 'z@x', password: 'pw', notes: 'Our account', plan: '1 Month', is_active: 'TRUE' },
+        { service: 'Zee5 Premium', account_id: 'Z5-01', login_id: 'z@x', password: 'pw', notes: 'Our account', plan: '6 Months', is_active: 'TRUE' }],
+      caps: [{ service: 'JioHotstar', account_id: 'JH-1M-01', max_total: 8, is_active: 'TRUE' }, { service: 'JioHotstar', account_id: 'JH-6M-02', max_total: 9, is_active: 'TRUE' },
+        { service: 'Zee5 Premium', account_id: 'Z5-01', max_total: 7, is_active: 'TRUE' }],
+      profiles: [],
+      occ: [{ svc: 'jiohotstar', inventory_ref: 'JH-1M-01', total: 7, tv: 0 }, { svc: 'zee5 premium', inventory_ref: 'Z5-01', total: 6, tv: 0 }],
+    };
+    const a1 = await fulfill.allocateOtp(allocConn(fx), 'JioHotstar', 30, '1 Month');
+    ok('1 Month order gets the 1 Month account, not the emptier 6 Months one', a1.ok && a1.inventoryRef === 'JH-1M-01', a1);
+    const a6 = await fulfill.allocateOtp(allocConn(fx), 'JioHotstar', 180, '6 Months');
+    ok('6 Months order gets the 6 Months account', a6.ok && a6.inventoryRef === 'JH-6M-02', a6);
+    const a3 = await fulfill.allocateOtp(allocConn(fx), 'JioHotstar', 90, '3 Months');
+    ok('plan with no account of its own is out of stock (never borrows another duration)', a3.ok === false, a3);
+    const pl = (plan, days) => ({ service: 'JioHotstar', plan, duration_days: days, raw_json: JSON.stringify({ AllocationPolicy: 'OTP_ACCOUNT' }) });
+    const snapJ = snapOf(fx);
+    ok('stock agrees: 1 Month = 1 left, 6 Months = 9, 3 Months = 0', stock.unitsForPlan(snapJ, pl('1 Month', 30)) === 1 && stock.unitsForPlan(snapJ, pl('6 Months', 180)) === 9 && stock.unitsForPlan(snapJ, pl('3 Months', 90)) === 0,
+      [stock.unitsForPlan(snapJ, pl('1 Month', 30)), stock.unitsForPlan(snapJ, pl('6 Months', 180)), stock.unitsForPlan(snapJ, pl('3 Months', 90))]);
+    const z = (plan, days) => ({ service: 'Zee5 Premium', plan, duration_days: days, raw_json: JSON.stringify({ AllocationPolicy: 'OTP_ACCOUNT' }) });
+    ok('one Zee5 account listed per duration shares ONE capacity (7 - 6 = 1 for each plan)', stock.unitsForPlan(snapJ, z('1 Month', 30)) === 1 && stock.unitsForPlan(snapJ, z('6 Months', 180)) === 1);
+    const rowPlanBlank = await fulfill.allocateOtp(allocConn({ ...fx, accounts: [{ ...acct('JH-X', ''), notes: '1,3' }], caps: [], occ: [] }), 'JioHotstar', 90, '3 Months');
+    ok('rows with no Plan still use the Notes months rule', rowPlanBlank.ok && rowPlanBlank.inventoryRef === 'JH-X', rowPlanBlank);
+  }
+
+  section('occupancy rule');
+  ok('fulfill.js and stock.js share one occupancy rule', fulfill._internal.OCC_ACTIVE === stock.OCC_ACTIVE, [fulfill._internal.OCC_ACTIVE, stock.OCC_ACTIVE]);
+  ok('paid-up sub with a stale release date still occupies', /expiry_date > NOW\(\) OR release_eligible_at > NOW\(\)/.test(stock.OCC_ACTIVE), stock.OCC_ACTIVE);
 
   // ============ 2. coupon rules ============
   section('coupon rules');

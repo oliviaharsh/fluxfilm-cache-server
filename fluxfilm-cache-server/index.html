@@ -1844,31 +1844,41 @@ function DashboardScreen({
   useEffect(() => {
     setDashData(data || {});
   }, [data]);
+  // Show the saved copy instantly, then refresh once from the server. Returning the
+  // saved copy alone left a just-renewed subscription showing "Expired" with its
+  // old order ID until the customer tapped refresh.
+  const subsRefreshedFor = useRef('');
   useEffect(() => {
     const ph = normPhone_(phone || getFFSession().phone || '');
     if (!ph) return;
     const cnt = (dashData?.actionable || []).length + (dashData?.history || []).length;
-    if (cnt > 0 || dashData?._checked) return;
+    const showing = cnt > 0 || !!dashData?._checked;
     const saved = getFFSession().manageResp;
-    if (saved?._checked) {
+    if (!showing && saved?._checked) {
       setDashData(saved);
       onManageLoaded && onManageLoaded(ph, saved);
-      return;
     }
+    if (subsRefreshedFor.current === ph) return;
+    subsRefreshedFor.current = ph;
     API.getMySubscriptions(ph, r => {
+      if (!r || r.ok === false) return;
       const m = ffNormalizeManage_(r);
       setDashData(m);
       onManageLoaded && onManageLoaded(ph, m);
     }, () => {
+      if (showing || saved?._checked) return;
       const m = ffEmptyManage_();
       setDashData(m);
       onManageLoaded && onManageLoaded(ph, m);
     });
   }, [phone, dashData?._checked]);
+  const ordersRefreshedFor = useRef('');
   useEffect(() => {
     const ph = normPhone_(phone || getFFSession().phone || '');
-    if (!ph || ordersPhone === ph) return;
-    setOrdersLoading(true);
+    if (!ph || ordersRefreshedFor.current === ph) return;
+    ordersRefreshedFor.current = ph;
+    // Saved orders (if any) stay on screen while a fresh list loads.
+    setOrdersLoading(!(ordersPhone === ph && orders.length));
     setOrdersPhone(ph);
     API.getCustomerOrders(ph, 15, r => {
       const list = ffNormalizeOrders_(r);

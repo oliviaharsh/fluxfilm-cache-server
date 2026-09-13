@@ -32,13 +32,13 @@ const cfg = () => ({
   low: Math.max(1, Number(process.env.STOCK_LOW_THRESHOLD || 3) || 3),
 });
 
-// Same occupancy rule as fulfill.js OCC_ACTIVE.
-const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (release_eligible_at > NOW() OR (release_eligible_at IS NULL AND expiry_date > NOW()))";
+// Same occupancy rule as fulfill.js OCC_ACTIVE (tests assert they are identical).
+const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR release_eligible_at > NOW())";
 
 /** One round-trip per table; no credentials leave the database. */
 async function loadSnapshot() {
   const [accounts, caps, profiles, occ] = await Promise.all([
-    db.query("SELECT service, account_id, notes, (COALESCE(login_id,'') <> '' AND COALESCE(password,'') <> '') AS has_creds FROM inventory_accounts WHERE UPPER(is_active)='TRUE'", []),
+    db.query("SELECT service, account_id, notes, plan, (COALESCE(login_id,'') <> '' AND COALESCE(password,'') <> '') AS has_creds FROM inventory_accounts WHERE UPPER(is_active)='TRUE'", []),
     db.query('SELECT service, account_id, max_total, max_tv, is_active FROM inventory_capacity', []),
     db.query('SELECT service, account_id, profile_number, raw_json FROM inventory_profiles', []),
     db.query(
@@ -73,6 +73,12 @@ function notesAllowMonths(notes, months) {
   const nums = String(notes || '').match(/\d+/g);
   if (!nums || !nums.length) return true;
   return nums.map(Number).includes(months);
+}
+// Mirror of fulfill.js otpRowServes: an OTP account row serves only its Plan.
+function otpRowServes(row, plan, months) {
+  const rowPlan = String(row.plan || '').trim().toLowerCase();
+  if (rowPlan) return !!plan && rowPlan === String(plan).trim().toLowerCase();
+  return notesAllowMonths(row.notes, months);
 }
 
 /** Devices a plan uses — same derivation as order.js createOrder ("2 Devices 1M" → 2). */
@@ -165,7 +171,7 @@ function unitsForPlan(snap, p) {
   const needle = service.toLowerCase();
   const isOtp = policy === 'OTP_ACCOUNT';
   const months = monthsFromDays(p.duration_days != null ? p.duration_days : raw.DurationDays);
-  const accs = snap.accounts.filter((a) => likeSvc(a.service, needle) && Number(a.has_creds) && (!isOtp || notesAllowMonths(a.notes, months)));
+  const accs = snap.accounts.filter((a) => likeSvc(a.service, needle) && Number(a.has_creds) && (!isOtp || otpRowServes(a, plan, months)));
   const capMap = new Map();
   for (const x of snap.caps) {
     if (!likeSvc(x.service, needle)) continue;
@@ -211,4 +217,4 @@ async function computeStockLevels(planRows) {
   return levels;
 }
 
-module.exports = { computeStockLevels, unitsForPlan, loadSnapshot, levelFor, devicesForPlan };
+module.exports = { computeStockLevels, unitsForPlan, loadSnapshot, levelFor, devicesForPlan, OCC_ACTIVE };

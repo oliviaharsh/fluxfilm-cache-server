@@ -20,7 +20,11 @@ const NETFLIX_SHARING_MAX = Number(process.env.NETFLIX_SHARING_MAX_TOTAL || 5);
 
 function rawOf(v) { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (_) { return {}; } }
 
-const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (release_eligible_at > NOW() OR (release_eligible_at IS NULL AND expiry_date > NOW()))";
+// A subscription holds its slot while EITHER date is in the future. Normally the
+// release date (expiry + cooldown) is the later one, but legacy renewals made in
+// the Sheet extended ExpiryDate without moving ReleaseEligibleAt — such a paying
+// customer must still count, or their slot gets sold a second time.
+const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR release_eligible_at > NOW())";
 
 // Live DEVICE occupancy per inventory_ref, derived ONLY from node subscriptions
 // (never from the inventory tables, which the 5-min sync truncates). Each sub uses
@@ -113,7 +117,9 @@ async function _existingAccess(orderId) {
 
 async function _fulfill(orderId) {
   const [ords] = await db.getPool().query(
-    'SELECT order_id, service, plan, name, email, phone, phone_norm, duration_days, status, fulfillment_status, extra_field_value, source, final_amount, order_type, renew_sub_id FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
+    // device_count/tv_count must be selected: allocation reserves that many devices.
+    // (Omitting them silently treated every multi-device order as 1 device.)
+    'SELECT order_id, service, plan, name, email, phone, phone_norm, duration_days, status, fulfillment_status, extra_field_value, device_count, tv_count, source, final_amount, order_type, renew_sub_id FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
   const o = ords[0];
   if (!o) return { ok: false, found: false, fulfillment: 'ERROR', message: 'Order not found in the FluxFilm database.' };
   if (o.source !== 'node') return { ok: false, found: false, fulfillment: 'ERROR', message: 'This legacy order cannot be fulfilled on the new checkout. Please contact support.' };
@@ -267,7 +273,16 @@ function notesAllowMonths(notes, months) {
   if (!nums || !nums.length) return true; // no restriction listed → any duration ok
   return nums.map(Number).includes(months);
 }
-async function allocateOtp(conn, service, durationDays) {
+// Which plan an OTP account row serves. INVENTORY_ACCOUNTS lists an account once per
+// duration it is sold for (Plan = "1 Month", "6 Months"…), exactly as the Apps
+// Script otp_pickAccount_ required — e.g. JH-6M-02 serves only "6 Months", while
+// Z5-01 has four rows, one per duration. Rows with no Plan fall back to Notes.
+function otpRowServes(row, plan, months) {
+  const rowPlan = String(row.plan || '').trim().toLowerCase();
+  if (rowPlan) return !!plan && rowPlan === String(plan).trim().toLowerCase();
+  return notesAllowMonths(row.notes, months);
+}
+async function allocateOtp(conn, service, durationDays, plan) {
   const svc = String(service || '').toLowerCase();
   const months = monthsFromDays(durationDays);
   const [accs] = await conn.query("SELECT account_id, login_id, password, notes, plan FROM inventory_accounts WHERE LOWER(service) LIKE ? AND UPPER(is_active)='TRUE'", ['%' + svc + '%']);
@@ -279,7 +294,7 @@ async function allocateOtp(conn, service, durationDays) {
   const cands = [];
   for (const a of accs) {
     const acc = String(a.account_id); if (!acc || !a.login_id || !a.password) continue;
-    if (!notesAllowMonths(a.notes, months)) continue;   // this account doesn't serve this duration
+    if (!otpRowServes(a, plan, months)) continue;   // this account row isn't sold for this plan
     const cap = capMap.get(acc) || { maxTotal: 1, isActive: true }; if (!cap.isActive) continue;
     const used = occ.get(acc) || 0;
     if (used + 1 > cap.maxTotal) continue;
@@ -314,7 +329,7 @@ async function _allocateAndFinish(o, policy, ppm) {
     } else if (policy === 'PROFILE') {
       alloc = await allocateProfile(conn, o.service, o.plan, deviceCount);
     } else if (policy === 'OTP_ACCOUNT') {
-      alloc = await allocateOtp(conn, o.service, o.duration_days);
+      alloc = await allocateOtp(conn, o.service, o.duration_days, o.plan);
     } else {
       alloc = await allocateWholeAccount(conn, o.service, deviceCount);
     }
@@ -477,4 +492,4 @@ async function fulfillAndGetAccess(orderId, proof) {
 /** Admin endpoint only (key-protected): full result including credentials. */
 async function fulfillForAdmin(orderId) { return _fulfillSafe(orderId); }
 
-module.exports = { fulfillAndGetAccess, fulfillForAdmin, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths } };
+module.exports = { fulfillAndGetAccess, fulfillForAdmin, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE } };
