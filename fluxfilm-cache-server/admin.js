@@ -17,6 +17,49 @@ const TABLES = {
   bank_credits: { cols: '*', order: 'received_at DESC', phone: null, like: ['upi_ref', 'order_ids', 'consumed_order_id'] },
 };
 const security = require('./security');
+
+/**
+ * Sheets filters: ?f=[{"col":"status","op":"eq","value":"ACTIVE"}, ...] (all must match).
+ * Only real columns are accepted and every value is a bound parameter.
+ * Returns an error message, or '' when the filters were added.
+ */
+const FILTER_OPS = ['contains', 'not_contains', 'eq', 'neq', 'empty', 'not_empty', 'gt', 'gte', 'lt', 'lte', 'before_now', 'after_now', 'next_days', 'last_days'];
+function addFilters(raw, cols, parts, params) {
+  if (raw == null || raw === '') return '';
+  let list;
+  try { list = JSON.parse(String(raw)); } catch (_) { return 'Filters could not be read.'; }
+  if (!Array.isArray(list)) return 'Filters could not be read.';
+  if (list.length > 12) return 'Too many filters (max 12).';
+  for (const f of list) {
+    const c = String((f && f.col) || '');
+    const op = String((f && f.op) || '');
+    if (!cols.includes(c)) return 'Unknown column: ' + c;
+    if (!FILTER_OPS.includes(op)) return 'Unknown filter: ' + op;
+    const col = '`' + c + '`';
+    const text = 'COALESCE(CAST(' + col + ' AS CHAR), \'\')';
+    const v = f.value == null ? '' : String(f.value).trim();
+    const num = /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v;
+    const days = Math.max(0, Math.min(3650, parseInt(v, 10) || 0));
+    switch (op) {
+      case 'contains': parts.push(text + ' LIKE ?'); params.push('%' + v + '%'); break;
+      case 'not_contains': parts.push(text + ' NOT LIKE ?'); params.push('%' + v + '%'); break;
+      case 'eq': parts.push('LOWER(' + text + ') = LOWER(?)'); params.push(v); break;
+      case 'neq': parts.push('LOWER(' + text + ') <> LOWER(?)'); params.push(v); break;
+      case 'empty': parts.push(text + " = ''"); break;
+      case 'not_empty': parts.push(text + " <> ''"); break;
+      case 'gt': parts.push(col + ' > ?'); params.push(num); break;
+      case 'gte': parts.push(col + ' >= ?'); params.push(num); break;
+      case 'lt': parts.push(col + ' < ?'); params.push(num); break;
+      case 'lte': parts.push(col + ' <= ?'); params.push(num); break;
+      case 'before_now': parts.push(col + ' < NOW()'); break;
+      case 'after_now': parts.push(col + ' > NOW()'); break;
+      case 'next_days': parts.push(col + ' BETWEEN NOW() AND NOW() + INTERVAL ? DAY'); params.push(days); break;
+      case 'last_days': parts.push(col + ' BETWEEN NOW() - INTERVAL ? DAY AND NOW()'); params.push(days); break;
+      default: break;
+    }
+  }
+  return '';
+}
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 
 // Which tables can be edited, and the SHEET header column(s) that identify a row.
@@ -153,22 +196,23 @@ function mountAdmin(app, deps) {
     const limit = Math.min(500, Math.max(1, parseInt(req.query.limit, 10) || 50));
     const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
     const q = String(req.query.q || '').trim();
-    let where = ''; const params = [];
-    if (q) {
+    const parts = []; const params = [];
+    let allCols;
+    try { allCols = await columnsOf(name); } catch (e) { return res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
+    if (q && allCols.length) {
       // Search EVERY column (glued together), so a name, email, service, status,
       // account id — anything — matches. raw_json/logo_url are excluded.
-      const cols = await columnsOf(name);
-      if (cols.length) {
-        where = 'WHERE CONCAT_WS(0x1f, ' + cols.map((c) => "COALESCE(`" + c + "`,'')").join(', ') + ') LIKE ?';
-        params.push('%' + q + '%');
-      }
+      parts.push('CONCAT_WS(0x1f, ' + allCols.map((c) => "COALESCE(`" + c + "`,'')").join(', ') + ') LIKE ?');
+      params.push('%' + q + '%');
     }
+    const bad = addFilters(req.query.f, allCols, parts, params);
+    if (bad) return res.status(400).json({ ok: false, message: bad });
+    const where = parts.length ? 'WHERE ' + parts.join(' AND ') : '';
     // Sort by any real column (click a header in the panel); falls back to the table default.
     let order = cfg.order;
     const sort = String(req.query.sort || '');
     if (sort) {
-      const cols = await columnsOf(name);
-      if (cols.includes(sort)) order = '`' + sort + '` ' + (String(req.query.dir).toLowerCase() === 'asc' ? 'ASC' : 'DESC');
+      if (allCols.includes(sort)) order = '`' + sort + '` ' + (String(req.query.dir).toLowerCase() === 'asc' ? 'ASC' : 'DESC');
     }
     try {
       const rows = await db.query('SELECT ' + cfg.cols + ' FROM `' + name + '` ' + where + ' ORDER BY ' + order + ' LIMIT ? OFFSET ?', [...params, limit, offset]);
@@ -180,7 +224,8 @@ function mountAdmin(app, deps) {
         for (const k of Object.keys(r)) if (HIDE.has(k)) delete r[k];
         r.__raw = raw; // exact original Google-Sheet fields for the editor
       }
-      const columns = rows.length ? Object.keys(rows[0]).filter((c) => c !== '__raw') : [];
+      // No rows (e.g. a filter matched nothing): still send the column list so filters can be edited.
+      const columns = rows.length ? Object.keys(rows[0]).filter((c) => c !== '__raw') : allCols.slice();
       res.json({ ok: true, table: name, columns, rows, total: +(totalRow[0] || {}).n || 0, limit, offset, editable: !!SHEETKEYS[name], keys: SHEETKEYS[name] || [], mysqlKeys: MYSQLKEYS[name] || [] });
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
