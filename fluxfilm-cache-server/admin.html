@@ -171,6 +171,20 @@ table.sheet{border-collapse:separate;border-spacing:0;table-layout:fixed;font-si
 .qsum .qline:not(.total),.qsum [data-act="reset"],.qsum>.muted,.qsum>div:nth-child(2){display:none}.qsum .qline.total{padding-top:0}.qsum .qnote{margin-top:4px;padding:6px 10px}.qsum .qgo{margin-top:8px;padding:13px}}
 .qresult.good{border-color:#86efac}.qresult.bad{border-color:#fca5a5}
 textarea.inp{resize:vertical}
+/* ---------- orders + stock ---------- */
+.search .qsearch{flex:1;min-width:0}
+.orow{cursor:pointer}.orow:hover{background:#f8fafc}
+.osteps{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.osteps span{flex:1;min-width:110px;padding:8px 10px;border-radius:10px;background:#f1f5f9;color:var(--mut);font-size:.8rem;font-weight:600}
+.osteps span.on{background:var(--okbg);color:#166534}.osteps span.bad{background:var(--badbg);color:#991b1b}
+.osteps small{display:block;font-weight:400;font-size:.7rem}
+.okvs{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px}@media(max-width:600px){.okvs{grid-template-columns:1fr}}
+.okv{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:.82rem}.okv span{color:var(--mut)}.okv b{text-align:right;font-weight:600}
+.kgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.kcard.out{border-color:#fca5a5}.kcard.low{border-color:#fcd34d}
+.kline{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:.84rem;border-bottom:1px dashed #eef2f7}.kline:last-child{border-bottom:0}
+.ksvc{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;border:0;background:#fff;padding:12px 14px;cursor:pointer;font-size:.9rem;text-align:left;flex-wrap:wrap}
+.ksvc:hover{background:#f8fafc}
 .login{max-width:380px;margin:14vh auto;background:#fff;padding:34px;border-radius:20px;box-shadow:0 20px 60px rgba(15,23,42,.12);text-align:center}
 </style></head><body>
 <div id="app"></div>
@@ -213,7 +227,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['stock', '📦', 'Stock'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['expiring', '⏳', 'Expiring soon'],
   ['DATA'], ['data', '📋', 'Sheets'], ['coupons', '🎟️', 'Coupons'],
 ];
@@ -226,7 +240,7 @@ function shell() {
 function nav(v) { S.view = v; store('ff_view', v); var sd = $('#side'); if (sd) sd.classList.remove('open'); route(); }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
-  ({ dashboard: dashboard, quick: quickView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || customerView)();
+  ({ dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || customerView)();
 }
 
 /* ================= dashboard ================= */
@@ -252,9 +266,13 @@ function dashboard() {
 
 /* ================= customer 360 ================= */
 function customerView(phone) {
-  $('#view').innerHTML = '<div class="ph"><div><h1>🔍 Customer 360</h1><p>Enter a 10-digit mobile number</p></div></div>' +
-    '<div class="search"><input id="cp" class="inp" placeholder="Mobile number…" inputmode="numeric"/><button class="btn" onclick="lookup()">Search</button></div><div id="c360"></div>';
-  $('#cp').addEventListener('keydown', function (e) { if (e.key === 'Enter') lookup(); });
+  $('#view').innerHTML = '<div class="ph"><div><h1>🔍 Customer 360</h1><p>Search by name, phone, email or customer ID</p></div></div>' +
+    '<div class="search"><input id="cp" class="inp" placeholder="Name, phone, email or customer ID…"/><button class="btn" onclick="lookup()">Search</button></div><div id="c360"></div>';
+  attachCustomerSearch($('#cp'), function (c) { $('#cp').value = c.phone; lookup(); }, function (v, results) {
+    // Enter: a phone number looks up directly; a name opens the only match, else keeps the list.
+    if (v.replace(/\D/g, '').length >= 10) return lookup();
+    if (results && results.length === 1) { $('#cp').value = results[0].phone; lookup(); }
+  });
   var last = typeof phone === 'string' ? phone : store('ff_last_phone');
   if (last) { $('#cp').value = last; lookup(); } else $('#cp').focus();
 }
@@ -999,6 +1017,178 @@ function qRenderUnpaid() {
     };
   };
   load();
+}
+
+/* ================= customer search (name / email / phone / id) ================= */
+// Attaches a pick list to an input; onPick(customer) runs when one is chosen.
+function attachCustomerSearch(input, onPick, onEnter) {
+  var wrap = document.createElement('div'); wrap.className = 'qsearch'; input.parentNode.insertBefore(wrap, input); wrap.appendChild(input);
+  var drop = document.createElement('div'); drop.className = 'qdrop'; drop.hidden = true; wrap.appendChild(drop);
+  var tmr, results = [], last = '';
+  input.setAttribute('autocomplete', 'off');
+  input.addEventListener('input', function () {
+    clearTimeout(tmr);
+    var q = input.value.trim();
+    if (q.length < 2) { drop.hidden = true; return; }
+    tmr = setTimeout(function () {
+      last = q;
+      api('/admin/api/quick/customers', { q: q }).then(function (r) {
+        if (input.value.trim() !== last) return;
+        results = (r && r.results) || [];
+        drop.innerHTML = results.length ? results.map(function (c, i) {
+          return '<button class="qopt" data-i="' + i + '"><b>' + esc(c.name || '(no name)') + '</b>' + (c.activeSubs ? ' <span class="pill p-ok">' + c.activeSubs + ' active</span>' : '') + '<small>' + esc(c.phone) + (c.email ? ' · ' + esc(c.email) : '') + (c.customerId ? ' · ' + esc(c.customerId) : '') + '</small></button>';
+        }).join('') : '<div class="muted" style="padding:10px 12px;font-size:.85rem">No customer matches “' + esc(q) + '”.</div>';
+        drop.hidden = false;
+      });
+    }, 250);
+  });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { drop.hidden = true; onEnter && onEnter(input.value.trim(), results); }
+    if (e.key === 'Escape') drop.hidden = true;
+  });
+  drop.addEventListener('click', function (e) { var b = e.target.closest('.qopt'); if (!b) return; var c = results[+b.getAttribute('data-i')]; drop.hidden = true; onPick(c); });
+  document.addEventListener('click', function (e) { if (!wrap.contains(e.target)) drop.hidden = true; });
+}
+
+/* ================= orders lookup ================= */
+var O = { q: '', view: 'all', rows: null, detail: null };
+function ordersView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🧾 Orders</h1><p>Find any order by order ID, name, phone, email or UTR</p></div></div>' +
+    '<div class="search"><input id="oq" class="inp" placeholder="Order ID, name, phone, email or UTR…" value="' + esc(O.q) + '"/><button class="btn" id="ogo">Search</button></div>' +
+    '<div class="row" id="oviews" style="margin:-4px 0 14px">' + [['all', 'All'], ['unpaid', '🧾 Unpaid'], ['undelivered', '⚠️ Paid, not delivered'], ['manual', '🛠 Manual to activate'], ['today', '📅 Today'], ['week', '🗓 Last 7 days']].map(function (v) { return '<button class="chip' + (O.view === v[0] ? ' on' : '') + '" data-v="' + v[0] + '">' + v[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="card list" id="olist" style="padding:6px 16px"><p class="muted">Loading…</p></div>';
+  var t;
+  $('#oq').addEventListener('input', function () { O.q = $('#oq').value.trim(); clearTimeout(t); t = setTimeout(loadOrders, 350); });
+  $('#oq').addEventListener('keydown', function (e) { if (e.key === 'Enter') { O.q = $('#oq').value.trim(); loadOrders(); } });
+  $('#ogo').onclick = function () { O.q = $('#oq').value.trim(); loadOrders(); };
+  $('#oviews').onclick = function (e) { var b = e.target.closest('[data-v]'); if (!b) return; O.view = b.getAttribute('data-v'); $$('#oviews .chip').forEach(function (c) { c.classList.toggle('on', c === b); }); loadOrders(); };
+  $('#olist').onclick = function (e) { var r = e.target.closest('[data-oid]'); if (r) openOrder(r.getAttribute('data-oid')); };
+  loadOrders();
+}
+function loadOrders() {
+  var q = O.q, view = O.view;
+  api('/admin/api/orders/search', { q: q, view: view }).then(function (r) {
+    if (O.q !== q || O.view !== view || !$('#olist')) return;
+    if (!r.ok) { $('#olist').innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
+    O.rows = r.orders;
+    // An exact order ID opens straight away.
+    if (/^FF\d{5,}$/i.test(q) && r.orders.length === 1 && r.orders[0].order_id.toUpperCase() === q.toUpperCase()) openOrder(r.orders[0].order_id);
+    $('#olist').innerHTML = r.orders.length ? r.orders.map(function (o) {
+      return '<div class="li orow" data-oid="' + esc(o.order_id) + '"><span style="font-size:1.1rem">' + svcIcon(o.service) + '</span><div class="grow"><b>' + esc(o.name || '—') + '</b> <span class="muted">· ' + esc(o.phone_norm || '') + '</span>' +
+        '<div class="muted" style="font-size:.72rem">' + esc(o.order_id) + ' · ' + esc(o.service) + ' · ' + esc(o.plan) + (String(o.order_type).toUpperCase() === 'RENEW' ? ' · renew' : '') + ' · ' + prettyDate(o.created_at_sheet, true) + (o.source !== 'node' ? ' · old site' : '') + '</div></div>' +
+        '<b>' + money(o.final_amount) + '</b>' + statusPill(o.status) + (o.fulfillment_status ? statusPill(o.fulfillment_status) : '') + '</div>';
+    }).join('') + (r.orders.length >= 60 ? '<p class="muted" style="font-size:.75rem">Showing the newest 60 — search to narrow down.</p>' : '') : '<p class="muted">No orders' + (q ? ' matching “' + esc(q) + '”' : '') + '.</p>';
+  });
+}
+function openOrder(id) {
+  modal('Order ' + esc(id), '<p class="muted">Loading…</p>', '', '');
+  api('/admin/api/orders/detail', { id: id }).then(function (r) {
+    if (!$('#modal')) return;
+    if (!r.ok) { $('#modal .mbody').innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
+    O.detail = r;
+    var o = r.order, m = r.meta || {};
+    var kv = function (k, v) { return v == null || v === '' ? '' : '<div class="okv"><span>' + k + '</span><b>' + v + '</b></div>'; };
+    var paid = String(o.status).toUpperCase() === 'PAID';
+    var delivered = /FULFILLED|MANUAL_PENDING/i.test(o.fulfillment_status || '');
+    var steps = '<div class="osteps"><span class="' + 'on">🧾 Created<small>' + prettyDate(o.created_at_sheet, true) + '</small></span><span class="' + (paid ? 'on' : '') + '">💳 Paid<small>' + (paid ? prettyDate(o.verified_at, true) || '✓' : 'not yet') + '</small></span><span class="' + (delivered ? 'on' : paid ? 'bad' : '') + '">📦 Delivered<small>' + (delivered ? (/MANUAL/i.test(o.fulfillment_status) ? 'manual' : prettyDate(o.fulfilled_at, true) || '✓') : paid ? 'not yet ⚠️' : '—') + '</small></span></div>';
+    var subs = (r.subs || []).map(function (s) {
+      var cred = function (label, v) { return v ? '<div class="cr"><span>' + label + '</span><code>' + esc(v) + '</code><button class="copy" data-copy="' + esc(v) + '">Copy</button></div>' : ''; };
+      return '<div class="card" style="padding:12px;margin-top:10px"><div class="row" style="justify-content:space-between"><b>' + svcIcon(s.service) + ' ' + esc(s.service) + ' · ' + esc(s.plan) + '</b>' + statusPill(s.status) + '</div>' +
+        '<div class="muted" style="font-size:.75rem;margin:4px 0 8px">' + esc(s.sub_id) + ' · ' + esc(s.inventory_ref || 'no account') + ' · ends ' + prettyDate(s.expiry_date, true) + (s.device_type ? ' · ' + esc(s.device_type) : '') + '</div>' +
+        '<div class="creds">' + cred('Login', s.login_id) + cred('Password', s.password) + cred('Profile', [s.profile_name, s.profile_number ? '#' + s.profile_number : ''].filter(Boolean).join(' ')) + cred('PIN', s.profile_pin) + '</div></div>';
+    }).join('');
+    var body = steps +
+      '<div class="okvs">' + kv('Customer', esc(o.name || '') + (r.customer && r.customer.customer_id ? ' · ' + esc(r.customer.customer_id) : '')) + kv('Phone', esc(o.phone_norm || o.phone)) + kv('Email', esc(o.email || '')) +
+      kv('Service', esc(o.service) + ' · ' + esc(o.plan)) + kv('Type', esc(o.order_type || 'NEW') + (o.renew_sub_id ? ' of ' + esc(o.renew_sub_id) : '')) +
+      kv('Amount', money(o.final_amount) + (asNumber(o.discount) > 0 ? ' <span class="muted">(list ' + money(o.price) + ', −' + money(o.discount) + (o.coupon_code ? ' ' + esc(o.coupon_code) : '') + ')</span>' : '')) +
+      kv('Created via', esc(m.createdVia === 'ADMIN' ? '⚡ Admin quick order' : m.createdVia === 'WEBSITE' ? '🌐 Website' : '📄 Old Sheet site')) + kv('Paid by', esc(m.paymentMethod || '')) + kv('UTR / ref', esc(o.txn_ref || '')) +
+      kv('Bank credit', (r.bankCredits || []).map(function (b) { return money(b.amount) + ' · ' + esc(b.upi_ref) + ' · ' + prettyDate(b.received_at, true); }).join('<br>')) +
+      kv('Coupon', (r.couponUsage || []).map(function (c) { return esc(c.coupon_code) + ' −' + money(c.discount) + ' (' + esc(c.action) + ')'; }).join(', ')) +
+      kv('Devices', o.device_count ? esc(o.device_count) + (o.tv_count != null ? ' (' + esc(o.tv_count) + ' TV)' : '') : '') + kv('Note', esc(m.adminNote || o.notes || '')) + '</div>' +
+      (subs ? '<h4 style="margin:14px 0 0">Subscription</h4>' + subs : (paid ? '<div class="qnote bad" style="margin-top:12px">No subscription was created for this paid order.</div>' : ''));
+    var foot = '';
+    if (!paid && o.source === 'node') foot += '<button class="btn green" id="od_paid">✅ Mark paid</button>';
+    if (paid && !delivered && o.source === 'node') foot += '<button class="btn" id="od_retry">🔁 Try delivering again</button>';
+    foot += '<button class="btn ghost" id="od_c360">👤 Customer 360</button><a class="btn wa" target="_blank" href="' + waLink(o.phone_norm || o.phone, 'Hi ' + (o.name || '') + ', about your FluxFilm order ' + o.order_id + ': ') + '">💬 WhatsApp</a><span id="od_msg" class="muted"></span>';
+    $('#modal .mbody').innerHTML = body;
+    $('#modal .mft').innerHTML = foot;
+    $('#od_c360').onclick = function () { closeModal(); store('ff_last_phone', o.phone_norm); nav('customer'); };
+    var mp = $('#od_paid'); if (mp) mp.onclick = function () {
+      var method = prompt('Paid by? (UPI, CASH, BANK or OTHER)', 'UPI'); if (method == null) return;
+      var ref = prompt('UTR / reference (optional)', '') || '';
+      mp.disabled = true; $('#od_msg').textContent = 'Working…';
+      post('/admin/api/quick/mark-paid', { orderId: o.order_id, payMethod: method, txnRef: ref }).then(function (x) { $('#od_msg').textContent = x.ok ? '✅ ' + ((x.fulfillment && x.fulfillment.message) || 'Paid') : '⚠️ ' + (x.message || 'failed'); if (x.ok) { openOrder(o.order_id); loadOrders(); } else mp.disabled = false; });
+    };
+    var rt = $('#od_retry'); if (rt) rt.onclick = function () {
+      rt.disabled = true; $('#od_msg').textContent = 'Working…';
+      post('/admin/api/orders/retry-fulfil', { orderId: o.order_id }).then(function (x) { var f = x.fulfillment || {}; $('#od_msg').textContent = x.ok ? (f.message || f.fulfillment || 'done') : '⚠️ ' + (x.message || 'failed'); if (x.ok && /FULFILLED|MANUAL/.test(f.fulfillment || '')) { openOrder(o.order_id); loadOrders(); } else rt.disabled = false; });
+    };
+  });
+}
+function asNumber(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+
+/* ================= stock levels ================= */
+var K = { data: null, filter: 'all', q: '', open: {} };
+function stockView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>📦 Stock</h1><p>Free slots per plan (the same numbers customers see) and how full every account is</p></div><button class="btn ghost" id="kref">⟳ Refresh</button></div><div id="kbody"><p class="muted">Loading…</p></div>';
+  $('#kref').onclick = function () { K.data = null; stockView(); };
+  if (K.data) return renderStock();
+  api('/admin/api/stock').then(function (r) { if (!r.ok) { $('#kbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; } K.data = r; renderStock(); });
+}
+function renderStock() {
+  var d = K.data, byService = {};
+  d.plans.forEach(function (p) { (byService[p.service] = byService[p.service] || []).push(p); });
+  var services = Object.keys(byService).sort();
+  var worst = function (list) { return list.some(function (p) { return p.stockLevel === 'OUT'; }) ? 'OUT' : list.some(function (p) { return p.stockLevel === 'LOW'; }) ? 'LOW' : 'OK'; };
+  var lvPill = function (lv, stock, source) { if (source === 'manual' && stock == null) return '<span class="pill p-grey">manual</span>'; return '<span class="pill ' + (lv === 'OUT' ? 'p-bad' : lv === 'LOW' ? 'p-warn' : 'p-ok') + '">' + (stock == null ? lv : stock + ' free') + '</span>'; };
+  var counts = { OUT: 0, LOW: 0 }; d.plans.forEach(function (p) { if (counts[p.stockLevel] != null) counts[p.stockLevel]++; });
+  var accs = d.accounts;
+  var nFull = accs.filter(function (a) { return a.status === 'FULL' || a.status === 'TV_FULL'; }).length, nIn = accs.filter(function (a) { return a.status === 'INACTIVE'; }).length, nExp = accs.filter(function (a) { return a.expiredOnAccount > 0; }).length;
+  var h = '<div class="kpis"><div class="kpi"><div class="ic">🔴</div><div><div class="n">' + counts.OUT + '</div><div class="l">Plans out of stock</div></div></div><div class="kpi"><div class="ic">🟡</div><div><div class="n">' + counts.LOW + '</div><div class="l">Plans running low</div></div></div>' +
+    '<div class="kpi"><div class="ic">🧱</div><div><div class="n">' + nFull + '</div><div class="l">Accounts full</div></div></div><div class="kpi"><div class="ic">🚪</div><div><div class="n">' + nExp + '</div><div class="l">Accounts with expired customers</div></div></div></div>';
+  h += '<div class="subhead"><h3>Plans</h3></div><div class="kgrid">' + services.map(function (sv) {
+    var list = byService[sv].slice().sort(function (a, b) { return (a.durationDays || 0) - (b.durationDays || 0); });
+    return '<div class="card kcard ' + worst(list).toLowerCase() + '"><div class="row" style="justify-content:space-between;margin-bottom:8px"><b>' + svcIcon(sv) + ' ' + esc(sv) + '</b></div>' +
+      list.map(function (p) { return '<div class="kline"><span>' + esc(p.plan) + ' <small class="muted">' + money(p.price) + '</small></span>' + lvPill(p.stockLevel, p.stock, p.source) + '</div>'; }).join('') + '</div>';
+  }).join('') + '</div>';
+  h += '<div class="subhead"><h3>Accounts (' + accs.length + ')</h3><div class="row"><input class="inp" id="kq" placeholder="Search account or login…" value="' + esc(K.q) + '" style="padding:7px 11px;font-size:.82rem"/>' +
+    [['all', 'All'], ['full', '🧱 Full (' + nFull + ')'], ['expired', '🚪 Expired customers (' + nExp + ')'], ['inactive', '⚪ Inactive (' + nIn + ')']].map(function (f) { return '<button class="chip' + (K.filter === f[0] ? ' on' : '') + '" data-kf="' + f[0] + '">' + f[1] + '</button>'; }).join('') + '</div></div><div id="kaccs"></div>';
+  $('#kbody').innerHTML = h;
+  renderAccounts();
+  var t; $('#kq').addEventListener('input', function () { K.q = $('#kq').value.trim().toLowerCase(); clearTimeout(t); t = setTimeout(renderAccounts, 200); });
+  $('#kbody').onclick = function (e) {
+    var f = e.target.closest('[data-kf]'); if (f) { K.filter = f.getAttribute('data-kf'); $$('#kbody [data-kf]').forEach(function (c) { c.classList.toggle('on', c === f); }); renderAccounts(); return; }
+    var sv = e.target.closest('[data-ksvc]'); if (sv) { var k = sv.getAttribute('data-ksvc'); K.open[k] = !K.open[k]; renderAccounts(); return; }
+    var see = e.target.closest('[data-see]'); if (see) { store('ff_f_subscriptions', [{ col: 'inventory_ref', op: 'contains', value: see.getAttribute('data-see') }].concat(see.getAttribute('data-exp') ? [{ col: 'expiry_date', op: 'before_now' }, { col: 'removed', op: 'eq', value: '0' }] : [{ col: 'status', op: 'eq', value: 'ACTIVE' }, { col: 'expiry_date', op: 'after_now' }])); store('ff_tab', 'subscriptions'); S.tab = 'subscriptions'; S.offset = 0; S.q = ''; nav('data'); }
+  };
+}
+function renderAccounts() {
+  var el = $('#kaccs'); if (!el) return;
+  var list = K.data.accounts.filter(function (a) {
+    if (K.filter === 'full' && !(a.status === 'FULL' || a.status === 'TV_FULL')) return false;
+    if (K.filter === 'expired' && !(a.expiredOnAccount > 0)) return false;
+    if (K.filter === 'inactive' && a.status !== 'INACTIVE') return false;
+    if (K.q && (a.accountId + ' ' + a.login + ' ' + a.service + ' ' + a.plan).toLowerCase().indexOf(K.q) < 0) return false;
+    return true;
+  });
+  var groups = {}; list.forEach(function (a) { (groups[a.service] = groups[a.service] || []).push(a); });
+  var names = Object.keys(groups).sort();
+  var expandAll = !!(K.q || K.filter !== 'all');
+  el.innerHTML = names.length ? names.map(function (sv) {
+    var rows = groups[sv], open = expandAll || K.open[sv];
+    var used = rows.reduce(function (n, a) { return n + (a.used || 0); }, 0), cap = rows.reduce(function (n, a) { return n + (a.isActive && a.cap ? a.cap : 0); }, 0);
+    return '<div class="card" style="padding:0;margin-bottom:10px;overflow:hidden"><button class="ksvc" data-ksvc="' + esc(sv) + '"><span>' + (open ? '▾' : '▸') + ' ' + svcIcon(sv) + ' <b>' + esc(sv) + '</b> <span class="muted">· ' + rows.length + ' accounts' + (cap ? ' · ' + used + ' / ' + cap + ' ' + esc(rows[0].unit || '') + ' used' : '') + '</span></span>' +
+      '<span>' + (rows.some(function (a) { return a.status === 'FULL' || a.status === 'TV_FULL'; }) ? '<span class="pill p-warn">has full</span> ' : '') + (rows.some(function (a) { return a.expiredOnAccount > 0; }) ? '<span class="pill p-bad">' + rows.reduce(function (n, a) { return n + a.expiredOnAccount; }, 0) + ' expired on accounts</span>' : '') + '</span></button>' +
+      (open ? '<div class="list" style="padding:0 14px 8px">' + rows.map(accountRow).join('') + '</div>' : '') + '</div>';
+  }).join('') : '<div class="card muted">No accounts match.</div>';
+}
+function accountRow(a) {
+  var pct = a.cap ? Math.min(100, Math.round((a.used / a.cap) * 100)) : 0;
+  var pill = a.status === 'INACTIVE' ? '<span class="pill p-grey">inactive</span>' : a.status === 'FULL' ? '<span class="pill p-bad">full</span>' : a.status === 'TV_FULL' ? '<span class="pill p-warn">TV slots full</span>' : a.status === 'MANUAL' ? '<span class="pill p-grey">manual</span>' : '<span class="pill p-ok">' + a.free + ' free</span>';
+  return '<div class="li"><div class="grow"><b style="font-family:Consolas,monospace">' + esc(a.accountId) + '</b> ' + pill + (a.plan ? ' <span class="pill p-blue">' + esc(a.plan) + '</span>' : '') +
+    '<div class="muted" style="font-size:.72rem">' + esc(a.login || '(no login)') + (a.notes ? ' · ' + esc(a.notes) : '') + '</div>' +
+    (a.cap ? '<div class="bar' + (pct >= 100 ? ' b' : pct >= 75 ? ' w' : '') + '" style="margin-top:6px;max-width:320px"><i style="width:' + pct + '%"></i></div><div class="muted" style="font-size:.7rem;margin-top:3px">' + a.used + ' / ' + a.cap + ' ' + esc(a.unit) + (a.tvCap != null ? ' · TV ' + a.tvUsed + ' / ' + a.tvCap : '') + '</div>' : '') + '</div>' +
+    '<div class="row" style="gap:6px"><button class="chip" data-see="' + esc(a.accountId) + '">👥 ' + a.activeSubs + ' active</button>' + (a.expiredOnAccount ? '<button class="chip clear" data-see="' + esc(a.accountId) + '" data-exp="1">🚪 ' + a.expiredOnAccount + ' expired, not removed</button>' : '') + '</div></div>';
 }
 
 /* ================= boot ================= */
