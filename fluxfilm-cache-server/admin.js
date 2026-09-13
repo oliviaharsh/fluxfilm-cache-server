@@ -131,6 +131,8 @@ function mountAdmin(app, deps) {
   });
   // WhatsApp / phone sales: quick new + renew orders, mark paid (quickorders.js).
   require('./quickorders').mount(app, Object.assign({ db, auth }, deps.quick || {}));
+  // Order lookup + stock levels (adminlookup.js).
+  require('./adminlookup').mount(app, Object.assign({ db, auth }, deps.lookup || {}));
 
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};
