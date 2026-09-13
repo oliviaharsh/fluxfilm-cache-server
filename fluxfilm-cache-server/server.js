@@ -65,9 +65,54 @@ const DB_STOREFRONT = Object.assign(
   } : {}
 );
 
+const security = require('./security');
+
 const app = express();
-app.use(cors());
+// Hostinger terminates HTTPS in front of the app: trust one proxy hop for req.ip / req.secure.
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use(security.securityHeaders);
+// Only FluxFilm's own sites may call the API from a browser (was: any website).
+app.use(cors(security.corsOptions()));
 app.use(express.json({ limit: '1mb' }));
+
+// Per-IP limits on the storefront actions worth abusing. Generous: many Indian mobile
+// customers share one carrier IP, and payment screens poll every 2-4 seconds.
+const TEN_MIN = 10 * 60e3;
+const LIMITS = {
+  recoverSendOtp: security.rateLimiter(10, 60 * 60e3),
+  recoverVerifyOtp: security.rateLimiter(30, 15 * 60e3),
+  getLatestOtp: security.rateLimiter(40, TEN_MIN),
+  validateCoupon: security.rateLimiter(60, TEN_MIN),
+  verifyPaymentByRef: security.rateLimiter(20, TEN_MIN),
+  createOrder: security.rateLimiter(30, TEN_MIN),
+  createRenewOrder: security.rateLimiter(30, TEN_MIN),
+  fulfillAndGetAccess: security.rateLimiter(90, TEN_MIN),
+  profileWrite: security.rateLimiter(30, TEN_MIN),
+  any: security.rateLimiter(3000, TEN_MIN),
+};
+const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'submitRestockRequest']);
+// Per-phone limits (independent of IP) for actions that email or reveal codes.
+const PHONE_LIMITS = {
+  recoverSendOtp: security.rateLimiter(3, 15 * 60e3),
+  getLatestOtp: security.rateLimiter(15, TEN_MIN),
+};
+function rateLimited(req, action, args) {
+  const ip = security.clientIp(req);
+  const checks = [[LIMITS.any, 'any'], [LIMITS[action] || (PROFILE_WRITES.has(action) && LIMITS.profileWrite), action]];
+  const phoneArg = action === 'getLatestOtp' ? args[1] : args[0];
+  const ph = String(phoneArg == null ? '' : phoneArg).replace(/\D/g, '').slice(-10);
+  for (const [lim, name] of checks) {
+    if (!lim) continue;
+    const r = lim.hit(name + '|' + ip);
+    if (!r.ok) return r;
+  }
+  if (PHONE_LIMITS[action] && ph) {
+    const r = PHONE_LIMITS[action].hit(ph);
+    if (!r.ok) return r;
+  }
+  return null;
+}
 
 // -- Config --
 const PORT = process.env.PORT || 8080;
@@ -105,8 +150,14 @@ console.log('[FluxFilm] index.html =', INDEX || 'NOT FOUND');
 
 // -- API cache --
 const cache = new Map();
+// Admin = signed in at /panel (session cookie), or a script sending the key in the
+// X-Admin-Key header. The key is no longer accepted in the URL (?key=), where it
+// leaked into browser history, screenshots and logs.
 function requireAdmin(req, res) {
-  if (!ADMIN_KEY || req.query.key !== ADMIN_KEY) { res.status(403).json({ ok: false, message: 'Unauthorized' }); return false; }
+  if (!security.isAdmin(req)) {
+    res.status(403).json({ ok: false, message: req.query.key ? 'Keys in the URL are no longer accepted. Sign in at /panel first, then open this link again.' : 'Unauthorized — sign in at /panel first.' });
+    return false;
+  }
   return true;
 }
 
@@ -114,7 +165,8 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'fluxfilm-cache', storefrontMode: 'mysql-only', appsScriptProxy: false, indexFound: !!INDEX, dbConfigured: !!db.ENABLED, legacyReadFromDbFlag: READ_FROM_DB, legacyBuyOnDbFlag: BUY_ON_DB, cachedKeys: [...cache.keys()], lastSync: (typeof _lastSync !== 'undefined' ? _lastSync : null) });
 });
 
-app.get('/__debug', (_req, res) => {
+app.get('/__debug', (req, res) => {
+  if (!requireAdmin(req, res)) return; // lists server folders: admins only
   const info = { __dirname, cwd: process.cwd(), index: INDEX, dbConfigured: !!db.ENABLED, listings: {} };
   for (const d of [__dirname, process.cwd()]) { try { info.listings[d] = fs.readdirSync(d); } catch (e) { info.listings[d] = 'ERR ' + e.message; } }
   res.type('application/json').send(JSON.stringify(info, null, 2));
@@ -162,6 +214,11 @@ app.post('/api', async (req, res) => {
   const body = req.body || {};
   const action = String(body.action || '');
   const a = Array.isArray(body.args) ? body.args : [];
+  const limited = rateLimited(req, action, a);
+  if (limited) {
+    res.set('Retry-After', String(limited.retryAfterSec));
+    return res.status(429).json({ ok: false, rateLimited: true, message: 'Too many requests — please wait ' + Math.ceil(limited.retryAfterSec / 60) + ' min and try again.' });
+  }
   const dbUnavailable = () => res.status(503).json({ ok: false, message: 'The FluxFilm database is temporarily unavailable. No order or update was sent to the old system.' });
   const dbError = (label, e) => {
     console.log('[' + label + '] MySQL-only action failed:', action, e.message);

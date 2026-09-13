@@ -16,6 +16,7 @@ const TABLES = {
   inventory_capacity: { cols: '*', order: 'account_id ASC', phone: null, like: ['account_id', 'service'] },
   bank_credits: { cols: '*', order: 'received_at DESC', phone: null, like: ['upi_ref', 'order_ids', 'consumed_order_id'] },
 };
+const security = require('./security');
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 
 // Which tables can be edited, and the SHEET header column(s) that identify a row.
@@ -42,10 +43,49 @@ function mountAdmin(app, deps) {
   // `sync` is still used, but only for its TABLES column mapping (sheet header ->
   // MySQL column), not to talk to the Sheet.
   const { db, ADMIN_KEY, sync } = deps;
+  // deps.env lets tests set ADMIN_PASSWORD; ADMIN_KEY (CACHE_CLEAR_KEY) still works for scripts via X-Admin-Key.
+  const env = Object.assign({}, process.env, ADMIN_KEY ? { CACHE_CLEAR_KEY: ADMIN_KEY } : {}, deps.env || {});
   const auth = (req, res) => {
-    if (!ADMIN_KEY || req.query.key !== ADMIN_KEY) { res.status(403).json({ ok: false, message: 'Unauthorized' }); return false; }
+    if (!security.isAdmin(req, env)) { res.status(403).json({ ok: false, needLogin: true, message: 'Please sign in again.' }); return false; }
+    // Cross-site writes: the cookie is SameSite=Strict, and a foreign Origin is refused too.
+    const origin = req.headers.origin;
+    if (req.method === 'POST' && origin && origin.replace(/^https?:\/\//, '') !== String(req.headers.host || '')) {
+      res.status(403).json({ ok: false, message: 'Cross-site request refused.' }); return false;
+    }
     return true;
   };
+
+  // ---- Sign-in ----
+  // At most 5 wrong passwords per IP per 15 min, and 40 site-wide per hour.
+  const failsByIp = security.rateLimiter(5, 15 * 60e3);
+  const failsAll = security.rateLimiter(40, 60 * 60e3);
+  const weak = () => security.usingFallbackPassword(env) || security.adminPassword(env).length < 12;
+  app.post('/admin/api/login', (req, res) => {
+    const ip = security.clientIp(req);
+    const pw = security.adminPassword(env);
+    if (!pw) return res.status(503).json({ ok: false, message: 'ADMIN_PASSWORD is not set on the server.' });
+    if (failsByIp.count(ip) >= 5 || failsAll.count('all') >= 40) {
+      return res.status(429).json({ ok: false, message: 'Too many wrong attempts. Try again in 15 minutes.' });
+    }
+    const given = String((req.body || {}).password || '');
+    if (!given || !security.safeEqual(given, pw)) {
+      failsByIp.hit(ip); failsAll.hit('all');
+      console.log('[admin] failed sign-in from', ip);
+      return res.status(401).json({ ok: false, message: 'Wrong password.' });
+    }
+    failsByIp.reset(ip);
+    res.set('Set-Cookie', security.sessionCookie(req, security.makeSession(Date.now(), env), security.SESSION_HOURS * 3600));
+    res.json({ ok: true, weakPassword: weak() });
+  });
+  app.post('/admin/api/logout', (req, res) => {
+    res.set('Set-Cookie', security.sessionCookie(req, '', 0));
+    res.json({ ok: true });
+  });
+  app.get('/admin/api/me', (req, res) => {
+    const ok = security.isAdmin(req, env);
+    // ip lets the owner check that rate limits see the real visitor address behind Hostinger's proxy.
+    res.json(ok ? { ok, weakPassword: weak(), ip: security.clientIp(req), forwardedFor: req.headers['x-forwarded-for'] || '' } : { ok, weakPassword: weak() });
+  });
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};
   async function columnsOf(name) {
