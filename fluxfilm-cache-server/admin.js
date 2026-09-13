@@ -142,6 +142,8 @@ function mountAdmin(app, deps) {
   require('./adminhome').mount(app, Object.assign({ db, auth, audit }, deps.home || {}));
   // Password change (F5) + renewal reminders (accounttools.js).
   require('./accounttools').mount(app, Object.assign({ db, auth, audit }, deps.tools || {}));
+  // Profit view + extend subscription days (profit.js).
+  require('./profit').mount(app, Object.assign({ db, auth, audit }, deps.profit || {}));
 
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};

@@ -251,7 +251,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'],
   ['DATA'], ['data', '📋', 'Sheets'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
@@ -271,7 +271,7 @@ function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
   $$('.bnav a').forEach(function (a) { a.className = a.id === 'bnav-' + S.view ? 'on' : ''; });
   window.scrollTo(0, 0);
-  ({ today: todayView, audit: auditView, password: passwordView, reminders: remindersView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
+  ({ today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
 }
 
 /* ================= dashboard ================= */
@@ -362,7 +362,7 @@ function subCard(s) {
     '<div class="bar' + (d != null && d <= 0 ? ' b' : d != null && d <= 7 ? ' w' : '') + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
     (creds ? '<div class="creds">' + creds + '</div>' : '') + rmUi +
     '<div class="row" style="justify-content:space-between"><div class="meta"><span class="pill p-grey">' + id + '</span>' + (s.inventory_ref ? '<span class="pill p-blue">' + esc(s.inventory_ref) + '</span>' : '') + statusPill(s.status) + (s.source ? '<span class="pill p-grey">' + esc(s.source) + '</span>' : '') + '</div>' +
-    '<a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a></div></div>';
+    '<span class="row" style="gap:6px"><button class="btn ghost sm" onclick="extendDialog(\'' + id + '\')">⏱ Extend</button><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a></span></div></div>';
 }
 function saveRemoved(id) {
   var cb = document.getElementById('rm_' + id), at = document.getElementById('rmat_' + id), msg = document.getElementById('rmmsg_' + id);
@@ -1320,11 +1320,11 @@ function wireGlobalSearch() {
 
 /* ================= change log ================= */
 var AUD = { q: '', action: '' };
-var AUD_LABELS = { 'login.ok': '🔐 Signed in', 'login.failed': '🚫 Wrong password', 'sub.removed': '🚪 Removed tick', 'sub.unremoved': '↩️ Removed tick cleared', 'coupon.save': '🎟️ Coupon saved', 'row.edit': '✏️ Row edited', 'row.add': '➕ Row added', 'row.delete': '🗑️ Row deleted', 'quick.new': '⚡ Quick order', 'quick.renew': '🔁 Quick renew', 'order.markPaid': '✅ Marked paid', 'order.retryDelivery': '📦 Delivery retried', 'todo.add': '📝 To-do added', 'todo.done': '☑️ To-do done', 'todo.reopen': '📝 To-do reopened', 'todo.delete': '🗑️ To-do deleted', 'account.passwordChange': '🔑 Password changed', 'reminders.email': '✉️ Reminder emails' };
+var AUD_LABELS = { 'login.ok': '🔐 Signed in', 'login.failed': '🚫 Wrong password', 'sub.removed': '🚪 Removed tick', 'sub.unremoved': '↩️ Removed tick cleared', 'coupon.save': '🎟️ Coupon saved', 'row.edit': '✏️ Row edited', 'row.add': '➕ Row added', 'row.delete': '🗑️ Row deleted', 'quick.new': '⚡ Quick order', 'quick.renew': '🔁 Quick renew', 'order.markPaid': '✅ Marked paid', 'order.retryDelivery': '📦 Delivery retried', 'todo.add': '📝 To-do added', 'todo.done': '☑️ To-do done', 'todo.reopen': '📝 To-do reopened', 'todo.delete': '🗑️ To-do deleted', 'account.passwordChange': '🔑 Password changed', 'reminders.email': '✉️ Reminder emails', 'sub.extend': '⏱ Days added', 'sub.shorten': '⏱ Days taken off', 'cost.save': '💰 Account cost', 'cost.clear': '💰 Account cost cleared' };
 function auditView() {
   $('#view').innerHTML = '<div class="ph"><div><h1>🕘 Change log</h1><p>Every change made from the admin panel — newest first. Deleted rows are kept here (passwords hidden).</p></div></div>' +
     '<div class="search"><input class="inp" id="aq" placeholder="Search order ID, subscription, coupon, table…" value="' + esc(AUD.q) + '"/></div>' +
-    '<div class="row" id="achips" style="margin:-4px 0 14px">' + [['', 'All'], ['quick', '⚡ Quick orders'], ['order', '🧾 Orders'], ['sub', '🚪 Subscriptions'], ['row', '📋 Sheets edits'], ['coupon', '🎟️ Coupons'], ['account', '🔑 Passwords'], ['reminders', '✉️ Reminders'], ['todo', '📝 To-dos'], ['login', '🔐 Sign-ins']].map(function (c) { return '<button class="chip' + (AUD.action === c[0] ? ' on' : '') + '" data-a="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="row" id="achips" style="margin:-4px 0 14px">' + [['', 'All'], ['quick', '⚡ Quick orders'], ['order', '🧾 Orders'], ['sub', '🚪 Subscriptions'], ['row', '📋 Sheets edits'], ['coupon', '🎟️ Coupons'], ['account', '🔑 Passwords'], ['reminders', '✉️ Reminders'], ['sub.extend', '⏱ Extensions'], ['cost', '💰 Costs'], ['todo', '📝 To-dos'], ['login', '🔐 Sign-ins']].map(function (c) { return '<button class="chip' + (AUD.action === c[0] ? ' on' : '') + '" data-a="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div>' +
     '<div class="card list" id="alist" style="padding:6px 16px"><p class="muted">Loading…</p></div>';
   var t; $('#aq').addEventListener('input', function () { AUD.q = $('#aq').value.trim(); clearTimeout(t); t = setTimeout(loadAudit, 300); });
   $('#achips').onclick = function (e) { var b = e.target.closest('[data-a]'); if (!b) return; AUD.action = b.getAttribute('data-a'); $$('#achips .chip').forEach(function (c) { c.classList.toggle('on', c === b); }); loadAudit(); };
@@ -1485,6 +1485,101 @@ function renderRmBar() {
       if (!r.ok) { toast('⚠️ ' + (r.message || 'failed')); renderRmBar(); return; }
       toast('✉️ ' + r.sent + ' sent' + (r.alreadyReminded ? ' · ' + r.alreadyReminded + ' already reminded' : '') + (r.hasNewer ? ' · ' + r.hasNewer + ' already renewed' : '') + (r.failed.length ? ' · ' + r.failed.length + ' failed' : ''));
       loadReminders();
+    });
+  };
+}
+
+/* ================= profit ================= */
+var PF = { period: 'this_month', data: null, filter: 'all' };
+function profitView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>💰 Profit</h1><p>Paid orders minus what your accounts cost. Enter each account\'s monthly cost once — it\'s remembered.</p></div></div>' +
+    '<div class="row" id="pfper" style="margin-bottom:14px">' + [['this_month', 'This month'], ['last_month', 'Last month'], ['30d', '30 days'], ['90d', '90 days'], ['365d', '12 months']].map(function (p) { return '<button class="chip' + (PF.period === p[0] ? ' on' : '') + '" data-p="' + p[0] + '">' + p[1] + '</button>'; }).join('') + '</div><div id="pfbody"><p class="muted">Loading…</p></div>';
+  $('#pfper').onclick = function (e) { var b = e.target.closest('[data-p]'); if (!b) return; PF.period = b.getAttribute('data-p'); $$('#pfper .chip').forEach(function (c) { c.classList.toggle('on', c === b); }); loadProfit(); };
+  loadProfit();
+}
+function loadProfit() {
+  var per = PF.period;
+  api('/admin/api/profit', { period: per }).then(function (r) {
+    if (PF.period !== per || !$('#pfbody')) return;
+    if (!r.ok) { $('#pfbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
+    PF.data = r; renderProfit();
+  });
+}
+function renderProfit() {
+  var d = PF.data, t = d.totals;
+  var tone = function (n) { return n > 0 ? 'color:var(--ok)' : n < 0 ? 'color:var(--bad)' : ''; };
+  var h = (d.costsReady ? '' : '<div class="qnote warn" style="margin-bottom:12px">Run <b>db/schema-v14.sql</b> to save account costs. Revenue below is already correct.</div>') +
+    '<div class="kpis"><div class="kpi"><div class="ic">💵</div><div><div class="n">' + money(t.revenue) + '</div><div class="l">Revenue · ' + t.orders + ' paid orders (' + t.renewals + ' renewals)</div></div></div>' +
+    '<div class="kpi"><div class="ic">🧾</div><div><div class="n">' + money(t.cost) + '</div><div class="l">Account costs' + (t.accountsWithoutCost ? ' · <b style="color:#b45309">' + t.accountsWithoutCost + ' accounts have no cost yet</b>' : '') + '</div></div></div>' +
+    '<div class="kpi"><div class="ic">📈</div><div><div class="n" style="' + tone(t.profit) + '">' + money(t.profit) + '</div><div class="l">Profit' + (t.margin != null ? ' · ' + t.margin + '% margin' : '') + '</div></div></div>' +
+    '<div class="kpi"><div class="ic">🔁</div><div><div class="n">' + (t.orders ? Math.round((t.renewals / t.orders) * 100) : 0) + '%</div><div class="l">of orders were renewals</div></div></div></div>' +
+    '<div class="muted" style="font-size:.75rem;margin:-6px 0 12px">' + esc(d.range.label) + ': ' + prettyDate(d.range.from) + ' – ' + prettyDate(d.range.to) + ' (costs counted for ' + Math.round(d.range.months * 10) / 10 + ' month' + (d.range.months >= 1.05 || d.range.months < 0.95 ? 's' : '') + ')</div>';
+  h += '<div class="g2"><div class="card"><h3>By service</h3><div class="list">' + d.services.map(function (x) {
+    return '<div class="li"><span style="font-size:1.1rem">' + svcIcon(x.family) + '</span><div class="grow"><b>' + esc(x.services.join(' / ') || x.family) + '</b><div class="muted" style="font-size:.72rem">' + x.orders + ' orders · ' + x.renewals + ' renewals · ' + x.accounts + ' accounts' + (x.accountsWithoutCost ? ' · <span style="color:#b45309">' + x.accountsWithoutCost + ' without cost</span>' : '') + '</div></div>' +
+      '<div style="text-align:right;font-size:.8rem"><div>' + money(x.revenue) + ' <span class="muted">− ' + money(x.cost) + '</span></div><b style="' + tone(x.profit) + '">' + money(x.profit) + '</b></div></div>';
+  }).join('') + (d.noAccount.orders ? '<div class="li"><span>📭</span><div class="grow"><b>No account</b><div class="muted" style="font-size:.72rem">' + d.noAccount.orders + ' orders on manual plans or not delivered</div></div><b>' + money(d.noAccount.revenue) + '</b></div>' : '') + '</div></div>' +
+    '<div class="card"><h3>Revenue, last 6 months</h3><div class="chart" style="height:230px"><canvas id="pfchart"></canvas></div></div></div>';
+  var accs = d.accounts.filter(function (a) { return PF.filter === 'all' || (PF.filter === 'nocost' ? a.isActive && a.monthlyCost == null : PF.filter === 'loss' ? a.profit < 0 : a.isActive); });
+  h += '<div class="subhead"><h3>Accounts</h3><div class="row" id="pfacf">' + [['all', 'All'], ['active', 'Active'], ['nocost', '✏️ No cost yet'], ['loss', '🔻 Losing money']].map(function (f) { return '<button class="chip' + (PF.filter === f[0] ? ' on' : '') + '" data-af="' + f[0] + '">' + f[1] + '</button>'; }).join('') + '</div></div>' +
+    '<div class="card list" id="pfaccs" style="padding:4px 16px">' + (accs.length ? accs.map(function (a) {
+      return '<div class="li"><span style="font-size:1.05rem">' + svcIcon(a.service) + '</span><div class="grow" style="min-width:180px"><b style="font-family:Consolas,monospace">' + esc(a.accountId) + '</b> <span class="muted">· ' + esc(a.service) + '</span>' + (a.isActive ? '' : ' <span class="pill p-grey">inactive</span>') +
+        '<div class="muted" style="font-size:.72rem">' + a.activeCustomers + ' active customers · ' + a.orders + ' orders ' + money(a.revenue) + '</div></div>' +
+        '<div class="row" style="gap:4px;flex-wrap:nowrap"><span class="muted" style="font-size:.72rem">₹/month</span><input class="inp" data-cost="' + esc(a.service) + '|' + esc(a.accountId) + '" value="' + (a.monthlyCost == null ? '' : a.monthlyCost) + '" placeholder="cost" inputmode="decimal" style="width:84px;padding:5px 8px;font-size:.82rem"/></div>' +
+        '<div style="text-align:right;min-width:90px;font-size:.8rem"><div class="muted">− ' + money(a.cost) + '</div><b style="' + tone(a.profit) + '">' + money(a.profit) + '</b></div></div>';
+    }).join('') : '<p class="muted">No accounts for this filter.</p>') + '</div>';
+  $('#pfbody').innerHTML = h;
+  $('#pfacf').onclick = function (e) { var b = e.target.closest('[data-af]'); if (!b) return; PF.filter = b.getAttribute('data-af'); renderProfit(); };
+  // Save a cost when the field loses focus or Enter is pressed.
+  $$('#pfaccs input[data-cost]').forEach(function (inp) {
+    var save = function () {
+      var parts = inp.getAttribute('data-cost').split('|'), v = inp.value.trim(), old = inp.getAttribute('data-old');
+      if (v === (old == null ? inp.defaultValue : old)) return;
+      inp.setAttribute('data-old', v); inp.style.borderColor = '#94a3b8';
+      post('/admin/api/profit/cost', { service: parts[0], accountId: parts.slice(1).join('|'), monthlyCost: v }).then(function (r) {
+        inp.style.borderColor = r.ok ? 'var(--ok)' : 'var(--bad)';
+        if (!r.ok) { toast('⚠️ ' + (r.message || 'failed')); return; }
+        toast(v === '' ? 'Cost cleared' : 'Saved ₹' + v + '/month'); clearTimeout(PF._t); PF._t = setTimeout(loadProfit, 900);
+      });
+    };
+    inp.addEventListener('blur', save);
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') inp.blur(); });
+  });
+  if (window.Chart && $('#pfchart')) {
+    try { if (PF.chart) PF.chart.destroy(); } catch (e) {}
+    PF.chart = new Chart($('#pfchart'), { type: 'bar', data: { labels: d.trend.map(function (x) { var m = x.month.split('-'); return MON[+m[1] - 1] + ' ' + m[0].slice(2); }), datasets: [{ label: 'Revenue', data: d.trend.map(function (x) { return x.revenue; }), backgroundColor: '#fb7185', borderRadius: 6 }] }, options: { maintainAspectRatio: false, plugins: { legend: { display: false } } } });
+  }
+}
+
+/* ================= extend a subscription ================= */
+function extendDialog(subId) {
+  var sub = ((S.cust && S.cust.subs) || []).find(function (x) { return x.sub_id === subId; }) || { sub_id: subId };
+  var preview = function (days) {
+    var e = istDate(sub.expiry_date); if (!e || !days) return '';
+    var n = new Date(e.getTime() + days * 86400000), p = new Date(n.getTime() + 5.5 * 3600e3);
+    return 'New expiry: <b>' + p.getUTCDate() + ' ' + MON[p.getUTCMonth()] + ' ' + p.getUTCFullYear() + '</b>';
+  };
+  modal('⏱ Extend ' + esc(sub.service || subId),
+    '<p class="muted" style="margin-top:0;font-size:.82rem">' + esc(sub.plan || '') + ' · ' + esc(subId) + ' · ends ' + prettyDate(sub.expiry_date, true) + '</p>' +
+    '<div class="fld"><label>Days (use a minus to take days off)</label><div class="row"><input class="inp" id="exd" type="number" value="2" style="width:100px"/>' + [1, 2, 3, 7, 30].map(function (n) { return '<button class="chip" data-d="' + n + '">+' + n + '</button>'; }).join('') + '</div></div>' +
+    '<div class="qnote" id="exprev">' + preview(2) + '</div>' +
+    '<div class="fld" style="margin-top:12px"><label>Reason (saved in the change log)</label><input class="inp" id="exr" placeholder="e.g. Netflix not working 12–14 Sep"/><div class="row" style="margin-top:6px">' + ['Service not working', 'Goodwill', 'Late delivery', 'Wrong login given'].map(function (x) { return '<button class="chip" data-r="' + esc(x) + '">' + esc(x) + '</button>'; }).join('') + '</div></div>',
+    '<button class="btn green" id="exgo">⏱ Save</button><span id="exmsg" class="muted"></span>', 'small');
+  var box = $('#modal');
+  box.addEventListener('click', function (e) {
+    var dd = e.target.closest('[data-d]'), rr = e.target.closest('[data-r]');
+    if (dd) { $('#exd').value = dd.getAttribute('data-d'); $('#exprev').innerHTML = preview(+$('#exd').value); }
+    if (rr) $('#exr').value = rr.getAttribute('data-r');
+  });
+  $('#exd').addEventListener('input', function () { $('#exprev').innerHTML = preview(parseInt($('#exd').value, 10) || 0); });
+  $('#exgo').onclick = function () {
+    var days = parseInt($('#exd').value, 10), reason = $('#exr').value.trim();
+    if (!days) { $('#exmsg').textContent = 'Enter the number of days.'; return; }
+    if (!reason) { $('#exmsg').textContent = 'Add a short reason.'; $('#exr').focus(); return; }
+    $('#exgo').disabled = true; $('#exmsg').textContent = 'Saving…';
+    post('/admin/api/subs/extend', { subId: subId, days: days, reason: reason }).then(function (r) {
+      if (!r.ok) { $('#exgo').disabled = false; $('#exmsg').textContent = '⚠️ ' + (r.message || 'failed'); return; }
+      closeModal(); toast('⏱ ' + (days > 0 ? '+' : '') + days + ' day(s) · now ends ' + prettyDate(r.after.expiry));
+      if (typeof lookup === 'function' && $('#cp')) lookup();
     });
   };
 }
