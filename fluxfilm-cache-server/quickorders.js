@@ -73,6 +73,7 @@ function checkFields(plan, body) {
 
 function mount(app, deps) {
   const { db, auth } = deps;
+  const audit = deps.audit || { record: () => {} };
   // Loaded on first use (keeps admin-panel start-up and tests light).
   const lazy = (name) => ({ get: () => deps[name] || require('./' + name) });
   const M = { order: lazy('order'), fulfill: lazy('fulfill'), catalog: lazy('catalog') };
@@ -241,6 +242,7 @@ function mount(app, deps) {
       }
       if (!out || !out.ok) return res.status(400).json(out || { ok: false, message: 'Order could not be created.' });
 
+      audit.record(req, { action: 'quick.' + mode.toLowerCase(), entity: 'order', id: out.orderId, summary: (mode === 'RENEW' ? 'Renew ' + s(b.subId) : s(b.service) + ' · ' + s(b.plan)) + ' · ₹' + out.amount + ' · ' + phone + (b.markPaid ? ' · marked paid (' + method + ')' : ' · unpaid') });
       const result = { ok: true, mode, orderId: out.orderId, amount: out.amount, status: 'CREATED', upiLink: out.upiLink, customerCreated: !!out.customerCreated, renewNotice: out.renewNotice || '', renewPreview: out.renewPreview || null };
       if (b.markPaid) {
         const p = await markPaidAndFulfil(out.orderId, method, b.txnRef);
@@ -260,6 +262,7 @@ function mount(app, deps) {
     try {
       const p = await markPaidAndFulfil(orderId, b.payMethod, b.txnRef);
       if (!p.ok) return res.status(400).json(p);
+      audit.record(req, { action: 'order.markPaid', entity: 'order', id: orderId, summary: 'Marked paid (' + (s(b.payMethod).toUpperCase() || 'UPI') + ') → ' + ((p.fulfillment && p.fulfillment.fulfillment) || '') });
       res.json({ ok: true, orderId, status: 'PAID', fulfillment: p.fulfillment });
     } catch (e) { fail(res, e); }
   });

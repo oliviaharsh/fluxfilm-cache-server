@@ -185,6 +185,29 @@ textarea.inp{resize:vertical}
 .kline{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:.84rem;border-bottom:1px dashed #eef2f7}.kline:last-child{border-bottom:0}
 .ksvc{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;border:0;background:#fff;padding:12px 14px;cursor:pointer;font-size:.9rem;text-align:left;flex-wrap:wrap}
 .ksvc:hover{background:#f8fafc}
+/* ---------- today, search bar, bottom nav, change log ---------- */
+.gbar{position:sticky;top:0;z-index:22;display:flex;gap:10px;align-items:center;padding:10px 26px;background:rgba(243,245,249,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.gbar .gmenu{display:none}.gwrap{position:relative;flex:1;max-width:620px}.gwrap .inp{width:100%;padding:10px 14px}
+.gsec{font-size:.68rem;letter-spacing:.8px;color:#94a3b8;font-weight:700;padding:8px 12px 2px;text-transform:uppercase}
+.bnav{display:none}
+@media(max-width:900px){.gbar{padding:8px 12px}.gbar .gmenu{display:inline-flex}
+.bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30;background:#fff;border-top:1px solid var(--line);box-shadow:0 -6px 20px rgba(15,23,42,.08);padding:4px 4px calc(4px + env(safe-area-inset-bottom))}
+.bnav a{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;font-size:.66rem;color:var(--mut);padding:5px 0;border-radius:10px;cursor:pointer}
+.bnav a span{font-size:1.15rem}.bnav a.on{color:var(--brand);background:var(--brandbg);font-weight:600}
+.page{padding-bottom:80px}.qsum{bottom:58px !important}#qbody{padding-bottom:210px !important}}
+.tgrid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,1fr);gap:16px;align-items:start}@media(max-width:1000px){.tgrid{grid-template-columns:1fr}}
+.tcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.tcard{display:flex;gap:12px;align-items:flex-start;text-align:left;border:1px solid var(--line);background:#fff;border-radius:14px;padding:14px;cursor:pointer;font-size:.88rem;color:var(--ink)}
+.tcard:hover{box-shadow:0 6px 18px rgba(15,23,42,.08)}
+.tcard .tic{font-size:1.4rem}.tcard .tbody{flex:1;min-width:0}.tcard .tcount{font-size:1.5rem;font-weight:800}
+.tcard.bad{border-color:#fca5a5;background:#fff5f5}.tcard.bad .tcount{color:var(--bad)}
+.tcard.warn{border-color:#fcd34d;background:#fffbeb}.tcard.warn .tcount{color:#b45309}
+.tcard.info{border-color:#bfdbfe;background:#f5f9ff}.tcard.info .tcount{color:#1d4ed8}
+.tcard.clear{opacity:.6}.tcard.clear .tcount{color:var(--ok);font-size:1.1rem}
+.tnames{font-size:.72rem;color:var(--mut);margin-top:4px;line-height:1.5}
+.tadd{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.tadd .inp{padding:8px 11px}.tadd #tt{flex:1;min-width:180px}
+.todo input[type=checkbox]{width:18px;height:18px;accent-color:var(--ok)}.todo.done .ttitle{text-decoration:line-through;color:var(--mut)}
+.adet{width:100%;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:10px;font-size:.72rem;overflow:auto;max-height:260px;margin:6px 0 0}
 .login{max-width:380px;margin:14vh auto;background:#fff;padding:34px;border-radius:20px;box-shadow:0 20px 60px rgba(15,23,42,.12);text-align:center}
 </style></head><body>
 <div id="app"></div>
@@ -194,8 +217,8 @@ textarea.inp{resize:vertical}
 var $ = function (s, el) { return (el || document).querySelector(s); };
 var $$ = function (s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)); };
 function store(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } }
-var S = { view: store('ff_view') || 'customer', tab: store('ff_tab') || 'subscriptions', offset: 0, limit: store('ff_limit') || 100, q: '', sort: '', dir: 'desc', data: null, charts: {} };
-var TBLS = ['subscriptions', 'orders', 'customers', 'plans', 'coupons', 'wallet', 'coupon_usage', 'inventory_accounts', 'inventory_profiles', 'inventory_capacity', 'bank_credits'];
+var S = { view: store('ff_view') || 'today', tab: store('ff_tab') || 'subscriptions', offset: 0, limit: store('ff_limit') || 100, q: '', sort: '', dir: 'desc', data: null, charts: {} };
+var TBLS = ['subscriptions', 'orders', 'customers', 'plans', 'coupons', 'wallet', 'coupon_usage', 'inventory_accounts', 'inventory_profiles', 'inventory_capacity', 'bank_credits', 'restock_requests'];
 var ICONS = { netflix: '🎬', prime: '📦', jiohotstar: '⭐', hotstar: '⭐', youtube: '▶️', zee5: '🟣', sonyliv: '📺', sony: '📺', crunchyroll: '🍥', spotify: '🎵', apple: '🍎', disney: '🏰' };
 
 function esc(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
@@ -226,21 +249,28 @@ function loginView(msg) {
 function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textContent = ''; post('/admin/api/login', { password: $('#k').value }).then(function (r) { b.disabled = false; if (r.ok) { S.weak = r.weakPassword; shell(); route(); } else { $('#err').textContent = r.message || 'Sign-in failed'; $('#k').select(); } }); }
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
-  ['OVERVIEW'], ['dashboard', '📊', 'Dashboard'],
+  ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
   ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['stock', '📦', 'Stock'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['expiring', '⏳', 'Expiring soon'],
-  ['DATA'], ['data', '📋', 'Sheets'], ['coupons', '🎟️', 'Coupons'],
+  ['DATA'], ['data', '📋', 'Sheets'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
 function shell() {
   $('#app').innerHTML = '<aside class="side" id="side"><div class="brand"><div class="logo">🎬</div><div><b>FluxFilm</b><small>ADMIN PANEL</small></div></div><nav class="menu">' +
     MENU.map(function (m) { return m.length === 1 ? '<h6>' + m[0] + '</h6>' : '<a id="nav-' + m[0] + '" onclick="nav(\'' + m[0] + '\')"><span>' + m[1] + '</span>' + m[2] + '</a>'; }).join('') +
     '</nav><div class="sidefoot"><span class="muted">MySQL · live</span><button class="btn ghost sm" onclick="logout()">Log out</button></div></aside>' +
-    '<div class="main">' + (S.weak ? '<div style="background:#fef3c7;color:#92400e;padding:9px 18px;font-size:.8rem;border-bottom:1px solid #fde68a">⚠️ Security: set a strong <b>ADMIN_PASSWORD</b> (12+ characters) in Hostinger → Environment variables. Until then the panel is protected only by the old admin key (or a short password).</div>' : '') + '<div class="top"><button class="btn ghost sm" onclick="$(\'#side\').classList.toggle(\'open\')">☰</button><b>FluxFilm Admin</b></div><div class="page" id="view"></div></div>';
+    '<div class="main">' + (S.weak ? '<div style="background:#fef3c7;color:#92400e;padding:9px 18px;font-size:.8rem;border-bottom:1px solid #fde68a">⚠️ Security: set a strong <b>ADMIN_PASSWORD</b> (12+ characters) in Hostinger → Environment variables. Until then the panel is protected only by the old admin key (or a short password).</div>' : '') + '<div class="gbar"><button class="btn ghost sm gmenu" onclick="$(\'#side\').classList.toggle(\'open\')">☰</button>' +
+    '<div class="gwrap"><input id="gsearch" class="inp" placeholder="🔎 Search customers, orders, subscriptions…  ( / )" autocomplete="off"/><div class="qdrop" id="gdrop" hidden></div></div></div>' +
+    '<div class="page" id="view"></div></div>' +
+    // Phone: the most used screens one thumb away.
+    '<nav class="bnav">' + [['today', '✅', 'Today'], ['quick', '⚡', 'Order'], ['customer', '👤', 'Customers'], ['orders', '🧾', 'Orders'], ['stock', '📦', 'Stock']].map(function (b) { return '<a id="bnav-' + b[0] + '" onclick="nav(\'' + b[0] + '\')"><span>' + b[1] + '</span>' + b[2] + '</a>'; }).join('') + '</nav>';
+  wireGlobalSearch();
 }
 function nav(v) { S.view = v; store('ff_view', v); var sd = $('#side'); if (sd) sd.classList.remove('open'); route(); }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
-  ({ dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || customerView)();
+  $$('.bnav a').forEach(function (a) { a.className = a.id === 'bnav-' + S.view ? 'on' : ''; });
+  window.scrollTo(0, 0);
+  ({ today: todayView, audit: auditView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
 }
 
 /* ================= dashboard ================= */
@@ -1189,6 +1219,127 @@ function accountRow(a) {
     '<div class="muted" style="font-size:.72rem">' + esc(a.login || '(no login)') + (a.notes ? ' · ' + esc(a.notes) : '') + '</div>' +
     (a.cap ? '<div class="bar' + (pct >= 100 ? ' b' : pct >= 75 ? ' w' : '') + '" style="margin-top:6px;max-width:320px"><i style="width:' + pct + '%"></i></div><div class="muted" style="font-size:.7rem;margin-top:3px">' + a.used + ' / ' + a.cap + ' ' + esc(a.unit) + (a.tvCap != null ? ' · TV ' + a.tvUsed + ' / ' + a.tvCap : '') + '</div>' : '') + '</div>' +
     '<div class="row" style="gap:6px"><button class="chip" data-see="' + esc(a.accountId) + '">👥 ' + a.activeSubs + ' active</button>' + (a.expiredOnAccount ? '<button class="chip clear" data-see="' + esc(a.accountId) + '" data-exp="1">🚪 ' + a.expiredOnAccount + ' expired, not removed</button>' : '') + '</div></div>';
+}
+
+/* ================= Today (action list + to-dos) ================= */
+var T = { data: null, showDone: false, done: null };
+function todayView() {
+  var d = new Date();
+  var hello = d.getHours() < 12 ? 'Good morning' : d.getHours() < 17 ? 'Good afternoon' : 'Good evening';
+  $('#view').innerHTML = '<div class="ph"><div><h1>✅ Today</h1><p>' + hello + '! Here is what needs attention right now.</p></div><button class="btn ghost" id="tref">⟳ Refresh</button></div>' +
+    '<div class="tgrid"><div id="titems"><p class="muted">Loading…</p></div><div id="ttodos"></div></div>';
+  $('#tref').onclick = loadToday;
+  loadToday();
+}
+function loadToday() {
+  api('/admin/api/today').then(function (r) {
+    if (!$('#titems')) return;
+    if (!r.ok) { $('#titems').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
+    T.data = r; renderTodayItems(); renderTodos();
+  });
+}
+function renderTodayItems() {
+  var items = T.data.items.slice().sort(function (a, b) { return (b.count > 0) - (a.count > 0); });
+  var pending = items.filter(function (i) { return i.count > 0; }).length;
+  $('#titems').innerHTML = '<div class="subhead" style="margin-top:0"><h3>' + (pending ? '📋 ' + pending + ' things to look at' : '🎉 All clear') + '</h3></div><div class="tcards">' +
+    items.map(function (it, i) {
+      var extra = '';
+      if (it.names && it.names.length) extra = '<div class="tnames">' + it.names.slice(0, 4).map(esc).join('<br>') + (it.names.length > 4 ? '<br>+' + (it.names.length - 4) + ' more' : '') + '</div>';
+      if (it.list && it.list.length) extra = '<div class="tnames">' + it.list.map(function (s) { return svcIcon(s.service) + ' ' + esc(s.service) + ' · ' + esc(s.phone_norm) + ' · ' + prettyDate(s.expiry_date, true); }).join('<br>') + '</div>';
+      return '<button class="tcard ' + (it.count > 0 ? it.tone : 'clear') + '" data-i="' + i + '"><span class="tic">' + it.icon + '</span><span class="tbody"><b>' + esc(it.title) + '</b>' + extra + '</span><span class="tcount">' + (it.count > 0 ? it.count : '✓') + '</span></button>';
+    }).join('') + '</div>';
+  $('#titems').onclick = function (e) { var b = e.target.closest('.tcard'); if (b) todayGo(items[+b.getAttribute('data-i')].go); };
+}
+function todayGo(go) {
+  if (!go) return;
+  if (go.view === 'orders') { O.view = go.orders || 'all'; O.q = ''; }
+  if (go.view === 'data' && go.table) { S.tab = go.table; store('ff_tab', go.table); S.offset = 0; S.q = ''; }
+  nav(go.view);
+}
+function renderTodos() {
+  var el = $('#ttodos'); if (!el) return;
+  if (T.data.todos === null) { el.innerHTML = '<div class="card"><h3>📝 My to-dos</h3><div class="qnote warn">Run <b>db/schema-v14.sql</b> in phpMyAdmin to switch on to-dos and the change log.</div></div>'; return; }
+  var list = T.showDone && T.done ? T.done : T.data.todos;
+  var today = new Date(); var iso = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+  el.innerHTML = '<div class="card"><div class="row" style="justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">📝 My to-dos</h3><button class="chip' + (T.showDone ? ' on' : '') + '" id="tshow">' + (T.showDone ? 'Hide done' : 'Show done') + '</button></div>' +
+    '<div class="tadd"><input class="inp" id="tt" placeholder="Add a to-do… e.g. change Netflix NF-03 password"/><input class="inp" id="td" type="date" title="Due date (optional)"/><button class="btn" id="tbtn">Add</button></div>' +
+    '<div class="list" id="tlist">' + (list.length ? list.map(function (t) {
+      var due = t.due_date ? String(t.due_date).slice(0, 10) : '';
+      var duePill = !due ? '' : Number(t.done) ? '' : due < iso ? '<span class="pill p-bad">overdue · ' + prettyDate(due) + '</span>' : due === iso ? '<span class="pill p-warn">today</span>' : '<span class="pill p-grey">' + prettyDate(due) + '</span>';
+      return '<div class="li todo' + (Number(t.done) ? ' done' : '') + '"><input type="checkbox" data-done="' + t.id + '"' + (Number(t.done) ? ' checked' : '') + '/><div class="grow"><span class="ttitle">' + esc(t.title) + '</span> ' + duePill + (t.note ? '<div class="muted" style="font-size:.75rem">' + esc(t.note) + '</div>' : '') + '</div><button class="copy" data-del="' + t.id + '" title="Delete">✕</button></div>';
+    }).join('') : '<p class="muted" style="font-size:.85rem">' + (T.showDone ? 'Nothing done yet.' : 'Nothing on your list. Add something above.') + '</p>') + '</div></div>';
+  var add = function () {
+    var title = $('#tt').value.trim(); if (!title) { $('#tt').focus(); return; }
+    $('#tbtn').disabled = true;
+    post('/admin/api/todos', { title: title, due_date: $('#td').value }).then(function (r) { if (!r.ok) { toast('⚠️ ' + (r.message || 'failed')); $('#tbtn').disabled = false; return; } toast('Added'); loadToday(); });
+  };
+  $('#tbtn').onclick = add;
+  $('#tt').addEventListener('keydown', function (e) { if (e.key === 'Enter') add(); });
+  $('#tshow').onclick = function () { T.showDone = !T.showDone; if (T.showDone) api('/admin/api/todos', { all: 1 }).then(function (r) { T.done = (r.todos || []); renderTodos(); }); else renderTodos(); };
+  $('#tlist').onclick = function (e) {
+    var d = e.target.closest('[data-done]'), x = e.target.closest('[data-del]');
+    if (d) post('/admin/api/todos/update', { id: +d.getAttribute('data-done'), done: d.checked }).then(function (r) { if (!r.ok) { toast('⚠️ ' + (r.message || 'failed')); return; } toast(d.checked ? 'Done ✓' : 'Reopened'); if (T.showDone) api('/admin/api/todos', { all: 1 }).then(function (r2) { T.done = r2.todos || []; loadToday(); }); else loadToday(); });
+    if (x && confirm('Delete this to-do?')) post('/admin/api/todos/delete', { id: +x.getAttribute('data-del') }).then(function () { T.done = null; T.showDone = false; loadToday(); });
+  };
+}
+
+/* ================= global search (top bar) ================= */
+function wireGlobalSearch() {
+  var input = $('#gsearch'); if (!input) return;
+  var drop = $('#gdrop'), tmr, data = null;
+  input.addEventListener('input', function () {
+    clearTimeout(tmr);
+    var q = input.value.trim();
+    if (q.length < 2) { drop.hidden = true; return; }
+    tmr = setTimeout(function () {
+      api('/admin/api/search', { q: q }).then(function (r) {
+        if (input.value.trim() !== q) return;
+        data = r;
+        var sec = function (title, rows, fn) { return rows && rows.length ? '<div class="gsec">' + title + '</div>' + rows.map(fn).join('') : ''; };
+        var html = sec('👤 Customers', r.customers, function (c, i) { return '<button class="qopt" data-k="c" data-i="' + i + '"><b>' + esc(c.name || '(no name)') + '</b><small>' + esc(c.phone_norm || '') + (c.email ? ' · ' + esc(c.email) : '') + (c.customer_id ? ' · ' + esc(c.customer_id) : '') + '</small></button>'; }) +
+          sec('🧾 Orders', r.orders, function (o, i) { return '<button class="qopt" data-k="o" data-i="' + i + '"><b>' + esc(o.order_id) + '</b> ' + statusPill(o.status) + '<small>' + esc(o.name || '') + ' · ' + esc(o.service) + ' · ' + esc(o.plan) + ' · ' + money(o.final_amount) + '</small></button>'; }) +
+          sec('🎬 Subscriptions', r.subs, function (s, i) { return '<button class="qopt" data-k="s" data-i="' + i + '"><b>' + esc(s.sub_id) + '</b> ' + statusPill(s.status) + '<small>' + esc(s.service) + ' · ' + esc(s.plan) + ' · ' + esc(s.phone_norm || '') + ' · ends ' + prettyDate(s.expiry_date) + '</small></button>'; });
+        drop.innerHTML = html || '<div class="muted" style="padding:10px 12px;font-size:.85rem">Nothing found for “' + esc(q) + '”.</div>';
+        drop.hidden = false;
+      });
+    }, 250);
+  });
+  input.addEventListener('keydown', function (e) { if (e.key === 'Escape') { drop.hidden = true; input.blur(); } });
+  drop.onclick = function (e) {
+    var b = e.target.closest('.qopt'); if (!b || !data) return;
+    var k = b.getAttribute('data-k'), i = +b.getAttribute('data-i');
+    drop.hidden = true; input.value = '';
+    if (k === 'c') { store('ff_last_phone', data.customers[i].phone_norm); nav('customer'); }
+    if (k === 's') { store('ff_last_phone', data.subs[i].phone_norm); nav('customer'); }
+    if (k === 'o') { var id = data.orders[i].order_id; O.q = id; nav('orders'); setTimeout(function () { openOrder(id); }, 50); }
+  };
+  document.addEventListener('click', function (e) { if (!e.target.closest('.gbar')) drop.hidden = true; });
+  document.addEventListener('keydown', function (e) { if (e.key === '/' && document.activeElement && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); input.focus(); } });
+}
+
+/* ================= change log ================= */
+var AUD = { q: '', action: '' };
+var AUD_LABELS = { 'login.ok': '🔐 Signed in', 'login.failed': '🚫 Wrong password', 'sub.removed': '🚪 Removed tick', 'sub.unremoved': '↩️ Removed tick cleared', 'coupon.save': '🎟️ Coupon saved', 'row.edit': '✏️ Row edited', 'row.add': '➕ Row added', 'row.delete': '🗑️ Row deleted', 'quick.new': '⚡ Quick order', 'quick.renew': '🔁 Quick renew', 'order.markPaid': '✅ Marked paid', 'order.retryDelivery': '📦 Delivery retried', 'todo.add': '📝 To-do added', 'todo.done': '☑️ To-do done', 'todo.reopen': '📝 To-do reopened', 'todo.delete': '🗑️ To-do deleted' };
+function auditView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🕘 Change log</h1><p>Every change made from the admin panel — newest first. Deleted rows are kept here (passwords hidden).</p></div></div>' +
+    '<div class="search"><input class="inp" id="aq" placeholder="Search order ID, subscription, coupon, table…" value="' + esc(AUD.q) + '"/></div>' +
+    '<div class="row" id="achips" style="margin:-4px 0 14px">' + [['', 'All'], ['quick', '⚡ Quick orders'], ['order', '🧾 Orders'], ['sub', '🚪 Subscriptions'], ['row', '📋 Sheets edits'], ['coupon', '🎟️ Coupons'], ['todo', '📝 To-dos'], ['login', '🔐 Sign-ins']].map(function (c) { return '<button class="chip' + (AUD.action === c[0] ? ' on' : '') + '" data-a="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="card list" id="alist" style="padding:6px 16px"><p class="muted">Loading…</p></div>';
+  var t; $('#aq').addEventListener('input', function () { AUD.q = $('#aq').value.trim(); clearTimeout(t); t = setTimeout(loadAudit, 300); });
+  $('#achips').onclick = function (e) { var b = e.target.closest('[data-a]'); if (!b) return; AUD.action = b.getAttribute('data-a'); $$('#achips .chip').forEach(function (c) { c.classList.toggle('on', c === b); }); loadAudit(); };
+  $('#alist').onclick = function (e) { var r = e.target.closest('[data-det]'); if (r) { var d = r.nextElementSibling; if (d) d.hidden = !d.hidden; } };
+  loadAudit();
+}
+function loadAudit() {
+  api('/admin/api/audit', { q: AUD.q, action: AUD.action }).then(function (r) {
+    var el = $('#alist'); if (!el) return;
+    if (!r.ok) { el.innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
+    el.innerHTML = r.rows.length ? r.rows.map(function (a) {
+      var det = ''; try { det = a.details ? JSON.stringify(JSON.parse(a.details), null, 2) : ''; } catch (e) { det = a.details || ''; }
+      return '<div class="li" style="flex-wrap:wrap"><span class="muted" style="font-size:.72rem;min-width:118px">' + prettyDate(a.ts, true) + '</span><div class="grow"><b>' + esc(AUD_LABELS[a.action] || a.action) + '</b>' + (a.entity_id ? ' <code style="font-size:.78rem">' + esc(a.entity_id) + '</code>' : '') + (a.entity ? ' <span class="muted" style="font-size:.72rem">' + esc(a.entity) + '</span>' : '') +
+        (a.summary ? '<div class="muted" style="font-size:.78rem">' + esc(a.summary) + '</div>' : '') + '</div>' + (det ? '<button class="chip" data-det="1">Details</button><pre class="adet" hidden>' + esc(det) + '</pre>' : '') + '</div>';
+    }).join('') : '<p class="muted">Nothing logged yet' + (AUD.q || AUD.action ? ' for this filter' : '') + '.</p>';
+  });
 }
 
 /* ================= boot ================= */

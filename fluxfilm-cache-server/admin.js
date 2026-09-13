@@ -15,6 +15,7 @@ const TABLES = {
   inventory_profiles: { cols: '*', order: 'account_id ASC', phone: null, like: ['account_id', 'profile_name', 'current_sub_id'] },
   inventory_capacity: { cols: '*', order: 'account_id ASC', phone: null, like: ['account_id', 'service'] },
   bank_credits: { cols: '*', order: 'received_at DESC', phone: null, like: ['upi_ref', 'order_ids', 'consumed_order_id'] },
+  restock_requests: { cols: '*', order: 'ts DESC', phone: 'phone_norm', like: ['service', 'plan'] },
 };
 const security = require('./security');
 
@@ -86,6 +87,8 @@ function mountAdmin(app, deps) {
   // `sync` is still used, but only for its TABLES column mapping (sheet header ->
   // MySQL column), not to talk to the Sheet.
   const { db, ADMIN_KEY, sync } = deps;
+  // Change log (audit_log, schema-v14). Never blocks or fails an admin action.
+  const audit = deps.audit || require('./audit').makeAudit(db);
   // deps.env lets tests set ADMIN_PASSWORD; ADMIN_KEY (CACHE_CLEAR_KEY) still works for scripts via X-Admin-Key.
   const env = Object.assign({}, process.env, ADMIN_KEY ? { CACHE_CLEAR_KEY: ADMIN_KEY } : {}, deps.env || {});
   const auth = (req, res) => {
@@ -114,9 +117,11 @@ function mountAdmin(app, deps) {
     if (!given || !security.safeEqual(given, pw)) {
       failsByIp.hit(ip); failsAll.hit('all');
       console.log('[admin] failed sign-in from', ip);
+      audit.record(req, { action: 'login.failed', summary: 'Wrong admin password' });
       return res.status(401).json({ ok: false, message: 'Wrong password.' });
     }
     failsByIp.reset(ip);
+    audit.record(req, { action: 'login.ok', summary: 'Signed in to the admin panel' });
     res.set('Set-Cookie', security.sessionCookie(req, security.makeSession(Date.now(), env), security.SESSION_HOURS * 3600));
     res.json({ ok: true, weakPassword: weak() });
   });
@@ -130,9 +135,11 @@ function mountAdmin(app, deps) {
     res.json(ok ? { ok, weakPassword: weak(), ip: security.clientIp(req), forwardedFor: req.headers['x-forwarded-for'] || '' } : { ok, weakPassword: weak() });
   });
   // WhatsApp / phone sales: quick new + renew orders, mark paid (quickorders.js).
-  require('./quickorders').mount(app, Object.assign({ db, auth }, deps.quick || {}));
+  require('./quickorders').mount(app, Object.assign({ db, auth, audit }, deps.quick || {}));
   // Order lookup + stock levels (adminlookup.js).
-  require('./adminlookup').mount(app, Object.assign({ db, auth }, deps.lookup || {}));
+  require('./adminlookup').mount(app, Object.assign({ db, auth, audit }, deps.lookup || {}));
+  // Today screen, to-dos, global search, change log viewer (adminhome.js).
+  require('./adminhome').mount(app, Object.assign({ db, auth, audit }, deps.home || {}));
 
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};
@@ -279,6 +286,7 @@ function mountAdmin(app, deps) {
         : await db.query("UPDATE subscriptions SET removed = 0, removed_at = NULL, raw_json = IF(raw_json IS NULL, NULL, JSON_SET(raw_json, '$.RemovedFromDevice', ?)) WHERE sub_id = ? LIMIT 1", [flag, sid]);
       if (!r || !r.affectedRows) return res.status(404).json({ ok: false, message: 'Subscription not found' });
       const row = await db.query('SELECT sub_id, removed, removed_at FROM subscriptions WHERE sub_id = ? LIMIT 1', [sid]);
+      audit.record(req, { action: removed ? 'sub.removed' : 'sub.unremoved', entity: 'subscription', id: sid, summary: removed ? 'Ticked removed from account' + (at ? ' at ' + at : '') : 'Cleared removed tick' });
       res.json({ ok: true, sub: row[0] || null });
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
@@ -321,6 +329,7 @@ function mountAdmin(app, deps) {
         [code, raw.Description, raw.Scope, raw.Type, raw.Value, raw.MinAmount, raw.MaxDiscount,
           expiry || null, raw.PerUserLimit, raw.GlobalLimit, raw.Active, raw.ShowInProfile,
           raw.AllowedPhones, raw.FirstTimeOnly, JSON.stringify(raw)]);
+      audit.record(req, { action: 'coupon.save', entity: 'coupon', id: code, summary: raw.Type + ' ' + raw.Value + ' · active ' + raw.Active, details: raw });
       res.json({ ok: true, code });
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
@@ -352,6 +361,7 @@ function mountAdmin(app, deps) {
       if (!sets.length) return res.json({ ok: false, message: 'Nothing to update' });
       const where = mkeys.map((k) => '`' + k + '`=?').join(' AND ');
       const r = await db.query('UPDATE `' + name + '` SET ' + sets.join(', ') + ' WHERE ' + where + ' LIMIT 1', [...params, ...mkeys.map((k) => keyvals[k])]);
+      audit.record(req, { action: 'row.edit', entity: name, id: mkeys.map((k) => keyvals[k]).join(' / '), summary: 'Edited in Sheets', details: raw });
       res.json({ ok: true, changed: (r && r.affectedRows) || 0 });
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
@@ -377,6 +387,7 @@ function mountAdmin(app, deps) {
       cols.push('raw_json'); vals.push(JSON.stringify(raw));
       const sql = 'INSERT INTO `' + name + '` (' + cols.join(', ') + ') VALUES (' + cols.map(() => '?').join(', ') + ')';
       await db.query(sql, vals);
+      audit.record(req, { action: 'row.add', entity: name, id: mkeys.map((k) => raw[Object.keys(rev).find((h) => rev[h].col === k)] || '').join(' / '), summary: 'Added in Sheets', details: raw });
       res.json({ ok: true });
     } catch (e) {
       const msg = /Duplicate/i.test(String(e && e.message)) ? 'A row with those key values already exists.' : String(e && e.message || e);
@@ -394,7 +405,13 @@ function mountAdmin(app, deps) {
     for (const k of mkeys) { if (keyvals[k] == null || keyvals[k] === '') return res.status(400).json({ ok: false, message: 'Missing key: ' + k }); }
     try {
       const where = mkeys.map((k) => '`' + k + '`=?').join(' AND ');
+      // Keep a copy of the deleted row in the change log (passwords/PINs masked) so it can be recovered.
+      const before = await db.query('SELECT * FROM `' + name + '` WHERE ' + where + ' LIMIT 1', mkeys.map((k) => keyvals[k])).catch(() => []);
       const r = await db.query('DELETE FROM `' + name + '` WHERE ' + where + ' LIMIT 1', mkeys.map((k) => keyvals[k]));
+      if (r && r.affectedRows) {
+        const copy = Object.assign({}, before[0] || {}); delete copy.raw_json;
+        audit.record(req, { action: 'row.delete', entity: name, id: mkeys.map((k) => keyvals[k]).join(' / '), summary: 'Deleted in Sheets', details: copy });
+      }
       res.json({ ok: true, deleted: (r && r.affectedRows) || 0 });
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
