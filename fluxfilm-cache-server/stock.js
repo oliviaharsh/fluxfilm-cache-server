@@ -17,6 +17,7 @@
  * keep honouring the PLANS `Stock` column — that is how you pause one by hand.
  */
 const db = require('./db');
+const { buildLoginGroups } = require('./logins');
 
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 function rawOf(v) { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (_) { return {}; } }
@@ -37,7 +38,7 @@ const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR release_e
 
 /** One round-trip per table; no credentials leave the database. */
 async function loadSnapshot() {
-  const [accounts, caps, profiles, occ] = await Promise.all([
+  const [accounts, caps, profiles, occ, accountRows] = await Promise.all([
     db.query("SELECT service, account_id, notes, plan, (COALESCE(login_id,'') <> '' AND COALESCE(password,'') <> '') AS has_creds FROM inventory_accounts WHERE UPPER(is_active)='TRUE'", []),
     db.query('SELECT service, account_id, max_total, max_tv, is_active FROM inventory_capacity', []),
     db.query('SELECT service, account_id, profile_number, raw_json FROM inventory_profiles', []),
@@ -45,8 +46,10 @@ async function loadSnapshot() {
       'SELECT LOWER(service) svc, inventory_ref, SUM(COALESCE(device_count,1)) total, ' +
       "SUM(CASE WHEN tv_count IS NOT NULL THEN tv_count WHEN UPPER(device_type)='TV' THEN COALESCE(device_count,1) ELSE 0 END) tv " +
       'FROM subscriptions WHERE ' + OCC_ACTIVE + ' GROUP BY LOWER(service), inventory_ref', []),
+    // Every row (active or not) with a hashed login, to group rows that share one login.
+    db.query("SELECT service, account_id, SHA2(LOWER(TRIM(COALESCE(login_id,''))), 256) AS login_key, (TRIM(COALESCE(login_id,'')) <> '') AS has_login FROM inventory_accounts", []),
   ]);
-  return { accounts, caps, profiles, occ };
+  return { accounts, caps, profiles, occ, accountRows };
 }
 
 // `LOWER(service) LIKE '%x%'` in JS.
@@ -172,18 +175,21 @@ function unitsForPlan(snap, p) {
   const isOtp = policy === 'OTP_ACCOUNT';
   const months = monthsFromDays(p.duration_days != null ? p.duration_days : raw.DurationDays);
   const accs = snap.accounts.filter((a) => likeSvc(a.service, needle) && Number(a.has_creds) && (!isOtp || otpRowServes(a, plan, months)));
-  const capMap = new Map();
-  for (const x of snap.caps) {
-    if (!likeSvc(x.service, needle)) continue;
-    capMap.set(String(x.account_id), { maxTotal: asNum(x.max_total) || 1, isActive: up(x.is_active) !== 'FALSE' });
-  }
   const occ = occupancy(snap, needle);
+  const groups = buildLoginGroups(
+    (snap.accountRows || []).filter((r) => likeSvc(r.service, needle))
+      .map((r) => ({ account_id: r.account_id, key: Number(r.has_login) ? String(r.login_key) : '' })),
+    snap.caps.filter((x) => likeSvc(x.service, needle)),
+    (id) => (occ.get(id) || {}).total || 0);
   const perSale = isOtp ? 1 : need; // OTP has no device count
+  const counted = new Set(); // one login listed on several rows is counted once
   let units = 0;
   for (const a of accs) {
     const acc = String(a.account_id); if (!acc) continue;
-    const cap = capMap.get(acc) || { maxTotal: 1, isActive: true }; if (!cap.isActive) continue;
-    const free = cap.maxTotal - ((occ.get(acc) || {}).total || 0);
+    const g = groups.forId(acc);
+    if (!g.isActive || counted.has(g.key)) continue;
+    counted.add(g.key);
+    const free = g.maxTotal - g.used;
     if (free >= perSale) units += Math.floor(free / perSale);
   }
   return units;

@@ -5,6 +5,7 @@
  * same credentials instead of allocating again.
  */
 const db = require('./db');
+const { loginKey, buildLoginGroups } = require('./logins');
 
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
@@ -233,6 +234,15 @@ async function allocateProfile(conn, service, plan, deviceCount) {
 /** Back-compat name: the Netflix case of allocateProfile. */
 function allocateNetflix(conn, plan, deviceCount) { return allocateProfile(conn, 'Netflix', plan, deviceCount); }
 
+// Capacity + usage per real login (see logins.js): every AccountID row that shares
+// a login — any duration, active or not — counts against one limit.
+async function loginGroups(conn, like) {
+  const [rows] = await conn.query('SELECT account_id, login_id FROM inventory_accounts WHERE LOWER(service) LIKE ?', [like]);
+  const [caps] = await conn.query('SELECT account_id, max_total, is_active FROM inventory_capacity WHERE LOWER(service) LIKE ?', [like]);
+  const occ = await occupancyMap(conn, like);
+  return buildLoginGroups(rows.map((r) => ({ account_id: r.account_id, key: loginKey(r.login_id) })), caps, (id) => occ.get(id) || 0);
+}
+
 // Whole-account: hand over an account for the service. If the account has a
 // capacity row (MaxTotal) it's shared by device count up to that limit; otherwise
 // it's dedicated (one customer per account). Emptiest account first.
@@ -241,17 +251,13 @@ async function allocateWholeAccount(conn, service, deviceCount) {
   const svc = String(service || '').toLowerCase();
   const [accs] = await conn.query("SELECT account_id, login_id, password FROM inventory_accounts WHERE LOWER(service) LIKE ? AND UPPER(is_active)='TRUE'", ['%' + svc + '%']);
   if (!accs.length) return { ok: false, message: 'No active accounts for this service.' };
-  const [caps] = await conn.query("SELECT account_id, max_total, is_active FROM inventory_capacity WHERE LOWER(service) LIKE ?", ['%' + svc + '%']);
-  const capMap = new Map();
-  for (const c of caps) capMap.set(String(c.account_id), { maxTotal: asNum(c.max_total) || 1, isActive: String(c.is_active || '').toUpperCase() !== 'FALSE' });
-  const occ = await occupancyMap(conn, '%' + svc + '%');
+  const groups = await loginGroups(conn, '%' + svc + '%');
   const cands = [];
   for (const a of accs) {
     const acc = String(a.account_id); if (!acc || !a.login_id || !a.password) continue;
-    const cap = capMap.get(acc) || { maxTotal: 1, isActive: true }; if (!cap.isActive) continue;
-    const used = occ.get(acc) || 0;
-    if (used + need > cap.maxTotal) continue; // full
-    cands.push({ acc, a, used });
+    const g = groups.forId(acc); if (!g.isActive) continue;
+    if (g.used + need > g.maxTotal) continue; // full, counted across every row sharing this login
+    cands.push({ acc, a, used: g.used });
   }
   if (!cands.length) return { ok: false, noStock: true, message: 'All accounts for this service are currently in use.' };
   cands.sort((x, y) => x.used - y.used);
@@ -287,18 +293,14 @@ async function allocateOtp(conn, service, durationDays, plan) {
   const months = monthsFromDays(durationDays);
   const [accs] = await conn.query("SELECT account_id, login_id, password, notes, plan FROM inventory_accounts WHERE LOWER(service) LIKE ? AND UPPER(is_active)='TRUE'", ['%' + svc + '%']);
   if (!accs.length) return { ok: false, message: 'No active accounts for this service.' };
-  const [caps] = await conn.query("SELECT account_id, max_total, is_active FROM inventory_capacity WHERE LOWER(service) LIKE ?", ['%' + svc + '%']);
-  const capMap = new Map();
-  for (const c of caps) capMap.set(String(c.account_id), { maxTotal: asNum(c.max_total) || 1, isActive: String(c.is_active || '').toUpperCase() !== 'FALSE' });
-  const occ = await occupancyMap(conn, '%' + svc + '%');
+  const groups = await loginGroups(conn, '%' + svc + '%');
   const cands = [];
   for (const a of accs) {
     const acc = String(a.account_id); if (!acc || !a.login_id || !a.password) continue;
     if (!otpRowServes(a, plan, months)) continue;   // this account row isn't sold for this plan
-    const cap = capMap.get(acc) || { maxTotal: 1, isActive: true }; if (!cap.isActive) continue;
-    const used = occ.get(acc) || 0;
-    if (used + 1 > cap.maxTotal) continue;
-    cands.push({ acc, a, used });
+    const g = groups.forId(acc); if (!g.isActive) continue;
+    if (g.used + 1 > g.maxTotal) continue;   // one login's capacity is shared by all its durations
+    cands.push({ acc, a, used: g.used });
   }
   if (!cands.length) return { ok: false, noStock: true, message: 'No account available for this duration right now.' };
   cands.sort((x, y) => x.used - y.used);

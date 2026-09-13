@@ -27,6 +27,14 @@ function getPool() {
       // keep numbers/dates predictable
       dateStrings: true,
     });
+    // Every date the app writes is India time (JS runs with TZ=Asia/Kolkata and the
+    // Sheet import converts to local time), but MySQL's NOW() defaulted to UTC — so
+    // order timestamps were 5.5 h behind and "is this subscription still active?"
+    // checks were off by 5.5 h. Pin each session to the app's zone.
+    const zone = process.env.DB_TIME_ZONE || '+05:30';
+    pool.on('connection', (conn) => {
+      conn.query('SET time_zone = ?', [zone], (err) => { if (err) console.log('[db] SET time_zone failed:', err.message); });
+    });
   }
   return pool;
 }
