@@ -16,10 +16,30 @@ const KEYWORDS = {
   Zee5: ['zee5', 'zeeott', 'vm-zeeott', 'va-zeeott'],
   SonyLIV: ['sonyliv', 'sony liv', 'livotp', 'vm-livotp'],
 };
+/**
+ * Adding another OTP service (e.g. Amazon login OTP for the "Prime Video + Shopping"
+ * account PRIME-1) needs no code change here: set the Hostinger env var
+ *   OTP_EXTRA_KEYWORDS={"Prime Video + Shopping":["amazon","amzn"]}
+ * Key = text found in the service name; value = words that identify its SMS. Longer
+ * keys win, so "Prime Video + Shopping" is not confused with another Prime service.
+ * The storefront's Get-OTP button list is still hardcoded — see STATUS.md §14 F6.
+ */
+function keywordMap() {
+  const map = Object.assign({}, KEYWORDS);
+  try {
+    const extra = JSON.parse(process.env.OTP_EXTRA_KEYWORDS || '{}');
+    for (const [k, v] of Object.entries(extra || {})) {
+      const words = (Array.isArray(v) ? v : [v]).map((x) => String(x).trim().toLowerCase()).filter(Boolean);
+      if (String(k).trim() && words.length) map[String(k).trim()] = words;
+    }
+  } catch (e) { console.log('[otp] OTP_EXTRA_KEYWORDS is not valid JSON — ignored'); }
+  return map;
+}
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 function svcKeyOf(service) {
   const s = String(service || '').toLowerCase();
-  return Object.keys(KEYWORDS).find((k) => s.indexOf(k.toLowerCase()) !== -1) || String(service || '');
+  const keys = Object.keys(keywordMap()).sort((a, b) => b.length - a.length);
+  return keys.find((k) => s.indexOf(k.toLowerCase()) !== -1) || String(service || '');
 }
 function extractOtp(body) {
   if (!body) return '';
@@ -48,7 +68,7 @@ async function getLatestOtp(service, phone) {
   const svc = String(service || '').trim();
   if (!svc) return { ok: false, message: 'Service is required.' };
   const svcKey = svcKeyOf(svc);
-  const keywords = (KEYWORDS[svcKey] || [svc.toLowerCase()]).map((k) => k.toLowerCase());
+  const keywords = (keywordMap()[svcKey] || [svc.toLowerCase()]).map((k) => k.toLowerCase());
   const ph = norm(phone);
   if (!ph || ph.length < 10) return { ok: false, message: 'Enter the phone number you bought with.' };
   // Only customers with a live plan for this service may read its login OTP, and only

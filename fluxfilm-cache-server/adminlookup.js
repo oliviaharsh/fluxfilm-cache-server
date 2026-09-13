@@ -17,7 +17,9 @@ const ORDER_COLS = 'order_id, created_at_sheet, name, email, phone, phone_norm, 
 const VIEWS = {
   all: '',
   unpaid: "UPPER(status) = 'CREATED'",
-  undelivered: "UPPER(status) = 'PAID' AND UPPER(COALESCE(fulfillment_status, '')) NOT IN ('FULFILLED', 'MANUAL_PENDING')",
+  // Old-site orders often got their subscription but were never marked delivered:
+  // only list paid orders with no subscription attached — the real problems.
+  undelivered: "UPPER(status) = 'PAID' AND UPPER(COALESCE(fulfillment_status, '')) NOT IN ('FULFILLED', 'MANUAL_PENDING') AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.order_id = orders.order_id)",
   manual: "UPPER(COALESCE(fulfillment_status, '')) = 'MANUAL_PENDING'",
   today: 'created_at_sheet >= CURDATE()',
   week: 'created_at_sheet >= CURDATE() - INTERVAL 6 DAY',
