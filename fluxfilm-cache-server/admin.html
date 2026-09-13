@@ -208,6 +208,7 @@ textarea.inp{resize:vertical}
 .tadd{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.tadd .inp{padding:8px 11px}.tadd #tt{flex:1;min-width:180px}
 .todo input[type=checkbox]{width:18px;height:18px;accent-color:var(--ok)}.todo.done .ttitle{text-decoration:line-through;color:var(--mut)}
 .adet{width:100%;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:10px;font-size:.72rem;overflow:auto;max-height:260px;margin:6px 0 0}
+.rmbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;margin-bottom:10px;position:sticky;top:62px;z-index:15}
 .login{max-width:380px;margin:14vh auto;background:#fff;padding:34px;border-radius:20px;box-shadow:0 20px 60px rgba(15,23,42,.12);text-align:center}
 </style></head><body>
 <div id="app"></div>
@@ -250,8 +251,8 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['stock', '📦', 'Stock'],
-  ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['expiring', '⏳', 'Expiring soon'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'],
+  ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'],
   ['DATA'], ['data', '📋', 'Sheets'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
 function shell() {
@@ -270,7 +271,7 @@ function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
   $$('.bnav a').forEach(function (a) { a.className = a.id === 'bnav-' + S.view ? 'on' : ''; });
   window.scrollTo(0, 0);
-  ({ today: todayView, audit: auditView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
+  ({ today: todayView, audit: auditView, password: passwordView, reminders: remindersView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
 }
 
 /* ================= dashboard ================= */
@@ -1319,11 +1320,11 @@ function wireGlobalSearch() {
 
 /* ================= change log ================= */
 var AUD = { q: '', action: '' };
-var AUD_LABELS = { 'login.ok': '🔐 Signed in', 'login.failed': '🚫 Wrong password', 'sub.removed': '🚪 Removed tick', 'sub.unremoved': '↩️ Removed tick cleared', 'coupon.save': '🎟️ Coupon saved', 'row.edit': '✏️ Row edited', 'row.add': '➕ Row added', 'row.delete': '🗑️ Row deleted', 'quick.new': '⚡ Quick order', 'quick.renew': '🔁 Quick renew', 'order.markPaid': '✅ Marked paid', 'order.retryDelivery': '📦 Delivery retried', 'todo.add': '📝 To-do added', 'todo.done': '☑️ To-do done', 'todo.reopen': '📝 To-do reopened', 'todo.delete': '🗑️ To-do deleted' };
+var AUD_LABELS = { 'login.ok': '🔐 Signed in', 'login.failed': '🚫 Wrong password', 'sub.removed': '🚪 Removed tick', 'sub.unremoved': '↩️ Removed tick cleared', 'coupon.save': '🎟️ Coupon saved', 'row.edit': '✏️ Row edited', 'row.add': '➕ Row added', 'row.delete': '🗑️ Row deleted', 'quick.new': '⚡ Quick order', 'quick.renew': '🔁 Quick renew', 'order.markPaid': '✅ Marked paid', 'order.retryDelivery': '📦 Delivery retried', 'todo.add': '📝 To-do added', 'todo.done': '☑️ To-do done', 'todo.reopen': '📝 To-do reopened', 'todo.delete': '🗑️ To-do deleted', 'account.passwordChange': '🔑 Password changed', 'reminders.email': '✉️ Reminder emails' };
 function auditView() {
   $('#view').innerHTML = '<div class="ph"><div><h1>🕘 Change log</h1><p>Every change made from the admin panel — newest first. Deleted rows are kept here (passwords hidden).</p></div></div>' +
     '<div class="search"><input class="inp" id="aq" placeholder="Search order ID, subscription, coupon, table…" value="' + esc(AUD.q) + '"/></div>' +
-    '<div class="row" id="achips" style="margin:-4px 0 14px">' + [['', 'All'], ['quick', '⚡ Quick orders'], ['order', '🧾 Orders'], ['sub', '🚪 Subscriptions'], ['row', '📋 Sheets edits'], ['coupon', '🎟️ Coupons'], ['todo', '📝 To-dos'], ['login', '🔐 Sign-ins']].map(function (c) { return '<button class="chip' + (AUD.action === c[0] ? ' on' : '') + '" data-a="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="row" id="achips" style="margin:-4px 0 14px">' + [['', 'All'], ['quick', '⚡ Quick orders'], ['order', '🧾 Orders'], ['sub', '🚪 Subscriptions'], ['row', '📋 Sheets edits'], ['coupon', '🎟️ Coupons'], ['account', '🔑 Passwords'], ['reminders', '✉️ Reminders'], ['todo', '📝 To-dos'], ['login', '🔐 Sign-ins']].map(function (c) { return '<button class="chip' + (AUD.action === c[0] ? ' on' : '') + '" data-a="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div>' +
     '<div class="card list" id="alist" style="padding:6px 16px"><p class="muted">Loading…</p></div>';
   var t; $('#aq').addEventListener('input', function () { AUD.q = $('#aq').value.trim(); clearTimeout(t); t = setTimeout(loadAudit, 300); });
   $('#achips').onclick = function (e) { var b = e.target.closest('[data-a]'); if (!b) return; AUD.action = b.getAttribute('data-a'); $$('#achips .chip').forEach(function (c) { c.classList.toggle('on', c === b); }); loadAudit(); };
@@ -1340,6 +1341,152 @@ function loadAudit() {
         (a.summary ? '<div class="muted" style="font-size:.78rem">' + esc(a.summary) + '</div>' : '') + '</div>' + (det ? '<button class="chip" data-det="1">Details</button><pre class="adet" hidden>' + esc(det) + '</pre>' : '') + '</div>';
     }).join('') : '<p class="muted">Nothing logged yet' + (AUD.q || AUD.action ? ' for this filter' : '') + '.</p>';
   });
+}
+
+/* ================= password change (F5) ================= */
+var PW = { q: '', accounts: null, pick: null, impact: null, result: null, showAll: {} };
+function passwordView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🔑 Password change</h1><p>Change an account\'s password: expired customers are ticked as removed and active customers get the new password saved</p></div></div><div id="pwbody"></div>';
+  renderPassword();
+}
+function renderPassword() {
+  var el = $('#pwbody'); if (!el) return;
+  if (PW.result) return renderPwResult();
+  if (!PW.pick) {
+    el.innerHTML = '<div class="card"><h3>1 · Pick the account</h3><div class="search"><input class="inp" id="pwq" placeholder="Account ID, login email/phone or service…" value="' + esc(PW.q) + '"/></div><div class="list" id="pwlist"><p class="muted">Loading…</p></div></div>';
+    var t; $('#pwq').addEventListener('input', function () { PW.q = $('#pwq').value.trim(); clearTimeout(t); t = setTimeout(loadPwAccounts, 250); });
+    $('#pwq').focus();
+    $('#pwlist').onclick = function (e) { var b = e.target.closest('[data-i]'); if (!b) return; var a = PW.accounts[+b.getAttribute('data-i')]; PW.pick = { service: a.service, accountId: a.account_id }; PW.impact = null; renderPassword(); loadImpact(); };
+    loadPwAccounts();
+    return;
+  }
+  var im = PW.impact;
+  if (!im) { el.innerHTML = '<div class="card muted">Checking who uses ' + esc(PW.pick.accountId) + '…</div>'; return; }
+  if (!im.ok) { el.innerHTML = '<div class="card"><div class="qnote bad">' + esc(im.message || 'error') + '</div><button class="btn ghost" data-back="1" style="margin-top:10px">← Pick another account</button></div>'; el.querySelector('[data-back]').onclick = function () { PW.pick = null; renderPassword(); }; return; }
+  var withEmail = im.active.filter(function (x) { return x.email; }).length;
+  var peopleList = function (key, rows, tone) {
+    if (!rows.length) return '<p class="muted" style="font-size:.82rem">None</p>';
+    var show = PW.showAll[key] ? rows : rows.slice(0, 5);
+    return '<div class="list">' + show.map(function (x) { return '<div class="li" style="padding:7px 0"><div class="grow"><b>' + esc(x.name || '—') + '</b> <span class="muted">· ' + esc(x.phone) + '</span><div class="muted" style="font-size:.72rem">' + esc(x.service) + ' · ' + esc(x.plan) + ' · ' + (tone === 'bad' ? 'ended ' : 'ends ') + prettyDate(x.expiry) + ' · ' + esc(x.inventoryRef || '') + (x.email ? '' : ' · no email') + '</div></div></div>'; }).join('') + '</div>' +
+      (rows.length > 5 ? '<button class="chip" data-more="' + key + '">' + (PW.showAll[key] ? '▴ Show less' : '▾ Show all ' + rows.length) + '</button>' : '');
+  };
+  el.innerHTML = '<div class="qgrid"><div>' +
+    '<div class="card qsec"><div class="row" style="justify-content:space-between"><h3 style="margin:0">' + svcIcon(im.account.service) + ' ' + esc(im.account.accountId) + ' <span class="muted" style="font-weight:400">· ' + esc(im.account.service) + '</span></h3><button class="btn ghost sm" data-back="1">Change</button></div>' +
+    '<div class="creds" style="margin-top:10px"><div class="cr"><span>Login</span><code>' + esc(im.account.login) + '</code><button class="copy" data-copy="' + esc(im.account.login) + '">Copy</button></div>' +
+    '<div class="cr"><span>Current</span><code id="pwcur" data-p="' + esc(im.account.password) + '">••••••••</code><button class="copy" id="pwreveal">Show</button></div></div>' +
+    (im.sameLogin.length > 1 ? '<div class="qnote">This login is listed on ' + im.sameLogin.length + ' account rows (' + im.sameLogin.map(function (r) { return esc(r.account_id); }).join(', ') + ') — all of them get the new password.</div>' : '') + '</div>' +
+    '<div class="card qsec"><h3>🟢 Active customers (' + im.active.length + ') <span class="muted" style="font-weight:400;font-size:.8rem">— new password saved for them</span></h3>' + peopleList('active', im.active) + '</div>' +
+    '<div class="card qsec"><h3>🚪 Expired, not removed (' + im.expired.length + ') <span class="muted" style="font-weight:400;font-size:.8rem">— will be ticked removed</span></h3>' + peopleList('expired', im.expired, 'bad') + '</div>' +
+    '</div><div><div class="card qsum" style="position:sticky;top:70px"><div class="muted" style="font-size:.72rem;letter-spacing:.5px">NEW PASSWORD</div>' +
+    '<div class="row" style="margin:8px 0 12px;flex-wrap:nowrap"><input class="inp" id="pwnew" type="password" autocomplete="new-password" placeholder="New password" style="flex:1"/><button class="btn ghost sm" id="pwshow">👁</button></div>' +
+    '<label class="qtoggle" style="margin-top:0"><input type="checkbox" id="pwtick" checked/> <span><b>Tick ' + im.expired.length + ' expired as removed</b><small>Removal time = now (renewal rules use it)</small></span></label>' +
+    '<label class="qtoggle" style="background:#eff6ff;border-color:#bfdbfe"><input type="checkbox" id="pwmail"/> <span><b>Email the new login to active customers</b><small>' + withEmail + ' of ' + im.active.length + ' have an email</small></span></label>' +
+    '<button class="btn qgo" id="pwgo">🔑 Change password</button><div id="pwmsg" class="muted" style="margin-top:8px;font-size:.8rem"></div></div></div></div>';
+  el.querySelector('[data-back]').onclick = function () { PW.pick = null; PW.impact = null; renderPassword(); };
+  $('#pwreveal').onclick = function () { var c = $('#pwcur'); var shown = c.textContent !== '••••••••'; c.textContent = shown ? '••••••••' : c.getAttribute('data-p'); this.textContent = shown ? 'Show' : 'Hide'; };
+  $('#pwshow').onclick = function () { var i = $('#pwnew'); i.type = i.type === 'password' ? 'text' : 'password'; };
+  el.onclick = function (e) { var m = e.target.closest('[data-more]'); if (m) { var k = m.getAttribute('data-more'); PW.showAll[k] = !PW.showAll[k]; var keep = $('#pwnew') && $('#pwnew').value; renderPassword(); if (keep) $('#pwnew').value = keep; } };
+  $('#pwgo').onclick = function () {
+    var pw = $('#pwnew').value.trim();
+    if (!pw) { $('#pwmsg').textContent = 'Enter the new password first.'; $('#pwnew').focus(); return; }
+    var tick = $('#pwtick').checked, mail = $('#pwmail').checked;
+    if (!confirm('Change the password of ' + im.account.accountId + '?\n\n• ' + im.active.length + ' active customers get the new password saved' + (tick ? '\n• ' + im.expired.length + ' expired customers ticked as removed' : '') + (mail ? '\n• ' + withEmail + ' customers emailed' : '') + '\n\nChange it on ' + im.account.service + ' itself too.')) return;
+    $('#pwgo').disabled = true; $('#pwmsg').textContent = mail ? 'Saving and sending emails…' : 'Saving…';
+    post('/admin/api/accounts/password-change', { service: im.account.service, accountId: im.account.accountId, password: pw, tickExpired: tick, emailActive: mail }).then(function (r) {
+      if (!r.ok) { $('#pwgo').disabled = false; $('#pwmsg').textContent = '⚠️ ' + (r.message || 'failed'); return; }
+      PW.result = Object.assign({ password: pw, account: im.account }, r); renderPassword();
+    });
+  };
+}
+function loadPwAccounts() {
+  var q = PW.q;
+  api('/admin/api/accounts/search', { q: q }).then(function (r) {
+    if (PW.q !== q || !$('#pwlist')) return;
+    PW.accounts = (r && r.accounts) || [];
+    $('#pwlist').innerHTML = PW.accounts.length ? PW.accounts.map(function (a, i) {
+      return '<button class="li qopt" data-i="' + i + '" style="display:flex;border-radius:0"><span style="font-size:1.1rem">' + svcIcon(a.service) + '</span><span class="grow" style="text-align:left"><b style="font-family:Consolas,monospace">' + esc(a.account_id) + '</b> <span class="muted">· ' + esc(a.service) + '</span><small style="display:block;color:var(--mut)">' + esc(a.login_id || '(no login)') + '</small></span>' + (String(a.is_active).toUpperCase() === 'TRUE' ? '' : '<span class="pill p-grey">inactive</span>') + '</button>';
+    }).join('') : '<p class="muted">No account matches.</p>';
+  });
+}
+function loadImpact() {
+  var p = PW.pick;
+  api('/admin/api/accounts/impact', { service: p.service, account_id: p.accountId }).then(function (r) { if (PW.pick !== p) return; PW.impact = r; renderPassword(); });
+}
+function renderPwResult() {
+  var r = PW.result, a = r.account;
+  var lines = ['Password changed for ' + a.service + ' ' + a.accountId + ' (login ' + a.login + ')', 'New password: ' + r.password, '', 'Send the new login to these active customers (' + r.active.length + '):'].concat(r.active.map(function (x) { return (x.name || '—') + ' - ' + x.phone + ' - ' + x.service + ' ' + x.plan + ' - ends ' + prettyDate(x.expiry); }));
+  var m = r.email;
+  $('#pwbody').innerHTML = '<div class="card qresult good"><h2 style="margin:0 0 6px">✅ Password changed</h2><div class="muted">' + esc(r.summary) + '</div>' +
+    '<div class="qnote warn">Remember to change it on ' + esc(a.service) + ' itself if you haven\'t yet.</div>' +
+    (m ? '<div class="qnote' + (m.failed.length ? ' bad' : '') + '">✉️ ' + m.sent + ' emailed · ' + m.noEmail + ' without email' + (m.failed.length ? ' · ' + m.failed.length + ' failed' : '') + '</div>' : '') +
+    '<div class="fld" style="margin-top:14px"><label>For your AI agent (WhatsApp)</label><textarea class="inp" id="pwcopy" rows="10" style="width:100%;font-family:inherit">' + esc(lines.join('\n')) + '</textarea></div>' +
+    '<div class="row" style="margin-top:10px"><button class="btn green" id="pwcp">📋 Copy</button><button class="btn ghost" id="pwagain">🔑 Another account</button></div></div>';
+  $('#pwcp').onclick = function () { copy($('#pwcopy').value); };
+  $('#pwagain').onclick = function () { PW = { q: '', accounts: null, pick: null, impact: null, result: null, showAll: {} }; renderPassword(); };
+}
+
+/* ================= renewal reminders ================= */
+var RM = { past: 7, next: 7, rows: null, sel: {}, filter: 'all' };
+function remindersView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🔔 Reminders</h1><p>Plans that ended recently or end soon — copy them for your AI agent, or email everyone in one tap</p></div></div>' +
+    '<div class="card" style="padding:12px 16px;margin-bottom:12px"><div class="row"><span class="muted" style="font-size:.8rem">Ended in the last</span><input class="inp" id="rmp" type="number" min="0" max="60" value="' + RM.past + '" style="width:70px;padding:6px 8px"/><span class="muted" style="font-size:.8rem">days · ending in the next</span><input class="inp" id="rmn" type="number" min="0" max="60" value="' + RM.next + '" style="width:70px;padding:6px 8px"/><span class="muted" style="font-size:.8rem">days</span><button class="btn ghost sm" id="rmgo">Show</button></div>' +
+    '<div class="row" id="rmchips" style="margin-top:10px">' + [['all', 'All'], ['soon', '⏳ Ending soon'], ['ended', '🔴 Ended'], ['todo', '📭 Not reminded yet'], ['email', '✉️ Has email']].map(function (c) { return '<button class="chip' + (RM.filter === c[0] ? ' on' : '') + '" data-f="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div></div>' +
+    '<div class="rmbar card" id="rmbar"></div><div class="card list" id="rmlist" style="padding:4px 16px"><p class="muted">Loading…</p></div>';
+  $('#rmgo').onclick = function () { RM.past = +$('#rmp').value || 0; RM.next = +$('#rmn').value || 0; RM.sel = {}; loadReminders(); };
+  $('#rmchips').onclick = function (e) { var b = e.target.closest('[data-f]'); if (!b) return; RM.filter = b.getAttribute('data-f'); $$('#rmchips .chip').forEach(function (c) { c.classList.toggle('on', c === b); }); renderReminders(); };
+  $('#rmlist').onclick = function (e) { var c = e.target.closest('input[data-s]'); if (c) { RM.sel[c.getAttribute('data-s')] = c.checked; renderRmBar(); } };
+  loadReminders();
+}
+function loadReminders() {
+  api('/admin/api/reminders', { past: RM.past, next: RM.next }).then(function (r) {
+    if (!$('#rmlist')) return;
+    if (!r.ok) { $('#rmlist').innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
+    RM.rows = r.rows;
+    // Pre-select who still needs a nudge: not reminded for this expiry, not already renewed.
+    RM.sel = {}; r.rows.forEach(function (x) { if (!x.lastReminded && !x.hasNewer) RM.sel[x.subId] = true; });
+    renderReminders();
+  });
+}
+function rmVisible() {
+  return (RM.rows || []).filter(function (x) {
+    if (RM.filter === 'soon') return x.daysLeft != null && x.daysLeft >= 0;
+    if (RM.filter === 'ended') return x.daysLeft != null && x.daysLeft < 0;
+    if (RM.filter === 'todo') return !x.lastReminded && !x.hasNewer;
+    if (RM.filter === 'email') return !!x.email;
+    return true;
+  });
+}
+function renderReminders() {
+  var list = rmVisible();
+  $('#rmlist').innerHTML = list.length ? list.map(function (x) {
+    var d = x.daysLeft;
+    var pill = d == null ? '' : d < 0 ? '<span class="pill p-bad">ended ' + (-d) + 'd ago</span>' : d === 0 ? '<span class="pill p-bad">ends today</span>' : '<span class="pill ' + (d <= 3 ? 'p-warn' : 'p-grey') + '">' + d + 'd left</span>';
+    return '<label class="li" style="cursor:pointer"><input type="checkbox" data-s="' + esc(x.subId) + '"' + (RM.sel[x.subId] ? ' checked' : '') + ' style="width:18px;height:18px;accent-color:var(--brand)"/><span style="font-size:1.1rem">' + svcIcon(x.service) + '</span><div class="grow"><b>' + esc(x.name || '—') + '</b> <span class="muted">· ' + esc(x.phone) + '</span>' +
+      '<div class="muted" style="font-size:.74rem">' + esc(x.service) + ' · ' + esc(x.plan) + ' · ' + (d != null && d < 0 ? 'ended ' : 'ends ') + esc(x.expiryText) + '</div>' +
+      '<div class="meta" style="margin-top:3px">' + (x.lastReminded ? '<span class="pill p-blue">✉️ reminded ' + prettyDate(x.lastReminded) + '</span>' : '') + (x.hasNewer ? '<span class="pill p-ok">already has a newer plan</span>' : '') + (x.removed ? '<span class="pill p-grey">removed</span>' : '') + (x.email ? '' : '<span class="pill p-grey">no email</span>') + '</div></div>' + pill + '</label>';
+  }).join('') : '<p class="muted">Nobody in this range' + (RM.filter !== 'all' ? ' for this filter' : '') + '.</p>';
+  renderRmBar();
+}
+function rmSelected() { return rmVisible().filter(function (x) { return RM.sel[x.subId]; }); }
+function renderRmBar() {
+  var bar = $('#rmbar'); if (!bar) return;
+  var vis = rmVisible(), sel = rmSelected(), withMail = sel.filter(function (x) { return x.email; }).length;
+  bar.innerHTML = '<label class="row" style="gap:6px;cursor:pointer"><input type="checkbox" id="rmall"' + (vis.length && sel.length === vis.length ? ' checked' : '') + ' style="width:18px;height:18px;accent-color:var(--brand)"/> <b>' + sel.length + '</b> of ' + vis.length + ' selected</label>' +
+    '<span class="grow"></span><button class="btn green sm" id="rmcopy"' + (sel.length ? '' : ' disabled') + '>📋 Copy for AI</button><button class="btn sm" id="rmmail"' + (withMail ? '' : ' disabled') + '>✉️ Email ' + withMail + '</button>';
+  $('#rmall').onchange = function () { var on = this.checked; vis.forEach(function (x) { RM.sel[x.subId] = on; }); renderReminders(); };
+  $('#rmcopy').onclick = function () {
+    var text = ['Renewal reminders (' + sel.length + ')'].concat(sel.map(function (x) { return (x.name || '—') + ' - ' + x.phone + ' - ' + x.service + ' ' + x.plan + ' - ' + (x.daysLeft != null && x.daysLeft < 0 ? 'ended ' : 'ends ') + x.expiryText; })).join('\n');
+    copy(text);
+  };
+  $('#rmmail').onclick = function () {
+    if (!confirm('Send a renewal reminder email to ' + withMail + ' customer(s)?')) return;
+    var btn = $('#rmmail'); btn.disabled = true; btn.textContent = 'Sending…';
+    post('/admin/api/reminders/email', { subIds: sel.filter(function (x) { return x.email; }).map(function (x) { return x.subId; }) }).then(function (r) {
+      if (!r.ok) { toast('⚠️ ' + (r.message || 'failed')); renderRmBar(); return; }
+      toast('✉️ ' + r.sent + ' sent' + (r.alreadyReminded ? ' · ' + r.alreadyReminded + ' already reminded' : '') + (r.hasNewer ? ' · ' + r.hasNewer + ' already renewed' : '') + (r.failed.length ? ' · ' + r.failed.length + ' failed' : ''));
+      loadReminders();
+    });
+  };
 }
 
 /* ================= boot ================= */

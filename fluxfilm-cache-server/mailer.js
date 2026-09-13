@@ -61,4 +61,48 @@ async function sendAccessEmail(payload) {
   return { ok: true };
 }
 
-module.exports = { sendAccessEmail };
+const escHtml = (v) => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const SITE = () => process.env.SITE_URL || 'https://shop.fluxfilm.in';
+const wrap = (inner) => '<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:520px;margin:auto">' + inner +
+  '<p style="color:#94a3b8;font-size:12px;margin-top:18px">Need help? Just reply to this email or message us on WhatsApp. 💚</p></div>';
+
+async function send(to, subject, html) {
+  const addr = String(to || '').trim();
+  if (!addr || addr.indexOf('@') < 0) return { ok: false, skipped: 'no email' };
+  const user = process.env.IMAP_USER;
+  if (!user) return { ok: false, skipped: 'smtp not configured' };
+  await transport().sendMail({ from: '"FluxFilm" <' + user + '>', to: addr, subject, html });
+  return { ok: true };
+}
+
+// payload: { email, name, service, plan, expiryText, daysLeft }  (daysLeft < 0 = already ended)
+async function sendRenewalReminder(p) {
+  p = p || {};
+  const ended = Number(p.daysLeft) < 0;
+  const when = ended ? 'ended on ' + p.expiryText : (Number(p.daysLeft) === 0 ? 'ends today' : 'ends on ' + p.expiryText + (p.daysLeft != null ? ' (' + p.daysLeft + ' day' + (Number(p.daysLeft) === 1 ? '' : 's') + ' left)' : ''));
+  const subject = (ended ? '⏰ Your FluxFilm ' : '⏳ Your FluxFilm ') + (p.service || '') + ' ' + (ended ? 'has ended — renew now' : 'is ending soon');
+  const html = wrap(
+    '<h2 style="color:' + (ended ? '#dc2626' : '#b45309') + ';margin-bottom:4px">' + (ended ? '⏰ Your plan has ended' : '⏳ Your plan is ending soon') + '</h2>' +
+    '<p style="color:#475569;margin-top:0">Hi ' + escHtml(p.name || 'there') + ',</p>' +
+    '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin:14px 0;font-size:14px">' +
+    '<b>' + escHtml(p.service) + '</b> — ' + escHtml(p.plan) + '<br>' + escHtml(when) + '</div>' +
+    '<p style="color:#475569;font-size:14px">' + (ended ? 'Renew in a minute to get back to watching — ' : 'Renew early and keep watching without a break — ') +
+    'open FluxFilm, enter your phone number and tap <b>Renew</b>.</p>' +
+    '<p><a href="' + escHtml(SITE()) + '" style="display:inline-block;background:#e11d48;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700">Renew now</a></p>');
+  return send(p.email, subject, html);
+}
+
+// payload: { email, name, service, plan, login, password, profileName, profilePin }
+async function sendPasswordChanged(p) {
+  p = p || {};
+  const rows = row('Service', escHtml(p.service)) + row('Plan', escHtml(p.plan)) + row('Login / Email', escHtml(p.login)) + row('New password', escHtml(p.password)) +
+    row('Profile', escHtml(p.profileName)) + row('Profile PIN', escHtml(p.profilePin));
+  const html = wrap(
+    '<h2 style="color:#1d4ed8;margin-bottom:4px">🔑 Your login details changed</h2>' +
+    '<p style="color:#475569;margin-top:0">Hi ' + escHtml(p.name || 'there') + ', we updated the password of your FluxFilm ' + escHtml(p.service) + ' account. Please log in again with:</p>' +
+    '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:8px 4px;margin:14px 0"><table style="width:100%;border-collapse:collapse">' + rows + '</table></div>' +
+    '<p style="color:#475569;font-size:13px">Your plan and expiry date are unchanged.</p>');
+  return send(p.email, '🔑 New password for your FluxFilm ' + (p.service || '') + ' account', html);
+}
+
+module.exports = { sendAccessEmail, sendRenewalReminder, sendPasswordChanged };
