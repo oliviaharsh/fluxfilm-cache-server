@@ -79,6 +79,18 @@ const lookupDeps = {
   await get('/admin/api/orders/search?view=undelivered');
   c = lastSql(/FROM orders WHERE/);
   ok('"paid, not delivered" view', /UPPER\(status\) = 'PAID' AND UPPER\(COALESCE\(fulfillment_status, ''\)\) NOT IN \('FULFILLED', 'MANUAL_PENDING'\)/.test(c.sql), c.sql);
+  ok('  ...skips old orders that did get a subscription', /NOT EXISTS \(SELECT 1 FROM subscriptions s WHERE s\.order_id = orders\.order_id\)/.test(c.sql), c.sql);
+
+  section('extra OTP services from settings');
+  const otpInternal = () => { delete require.cache[require.resolve('../otp')]; return require('../otp')._internal; };
+  delete process.env.OTP_EXTRA_KEYWORDS;
+  ok('without the setting, Prime Video + Shopping is not an OTP service', otpInternal().svcKeyOf('Prime Video + Shopping') === 'Prime Video + Shopping' && otpInternal().svcKeyOf('Zee5 Premium') === 'Zee5');
+  process.env.OTP_EXTRA_KEYWORDS = JSON.stringify({ 'Prime Video + Shopping': ['Amazon', 'AMZN'], Prime: ['prime'] });
+  ok('OTP_EXTRA_KEYWORDS adds it; the longer name wins over "Prime"', otpInternal().svcKeyOf('Prime Video + Shopping') === 'Prime Video + Shopping' && otpInternal().svcKeyOf('Prime Video') === 'Prime');
+  ok('built-in services still resolve', otpInternal().svcKeyOf('JioHotstar') === 'JioHotstar');
+  process.env.OTP_EXTRA_KEYWORDS = '{not json';
+  ok('broken setting is ignored, nothing crashes', otpInternal().svcKeyOf('Zee5 Premium') === 'Zee5');
+  delete process.env.OTP_EXTRA_KEYWORDS;
   await get('/admin/api/orders/search?view=' + encodeURIComponent("all' OR 1=1"));
   c = lastSql(/FROM orders/);
   ok('unknown view falls back to all (no SQL from the URL)', !/OR 1=1/.test(c.sql) && !/ WHERE /.test(c.sql), c.sql);
