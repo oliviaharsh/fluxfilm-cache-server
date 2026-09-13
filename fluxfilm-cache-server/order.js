@@ -4,6 +4,7 @@
  * Script/Sheet fallback: an error must be visible instead of silently creating
  * an order in the legacy system.
  */
+const crypto = require('crypto');
 const db = require('./db');
 const pay = require('./payments');
 
@@ -15,13 +16,27 @@ function genOrderId() {
   const rnd = String(Math.floor(Math.random() * 100)).padStart(2, '0');
   return 'FF' + ts + rnd;
 }
+// Per-order secret handed only to the browser that created the order. Only its
+// SHA-256 is stored, so the raw token never sits in MySQL or the admin panel.
+// fulfill.js checks it before returning login credentials.
+function newAccessToken() { return crypto.randomBytes(18).toString('hex'); }
+function hashAccessToken(t) { return crypto.createHash('sha256').update(String(t || '')).digest('hex'); }
+
 function serviceAllowed(service) {
   // Kept as an exported compatibility helper for old tests/callers. All plans
   // present and active in MySQL are now eligible for the database order flow.
   return !!String(service || '').trim();
 }
 
-async function couponDiscount(code, phone, baseAmount) {
+/**
+ * couponDiscount(code, phone, baseAmount, ctx) — every rule the Apps Script
+ * validateCoupon_ enforced. ctx = { action: 'NEW'|'RENEW', service, plan }.
+ * The first MySQL port only checked Active/Expiry/AllowedPhones/MinAmount/
+ * PerUserLimit, so GlobalLimit, FirstTimeOnly, Scope and the Services/Plans
+ * allow-lists were silently ignored.
+ */
+async function couponDiscount(code, phone, baseAmount, ctx) {
+  ctx = ctx || {};
   const c = String(code || '').trim().toUpperCase();
   if (!c) return { ok: true, discount: 0 };
   const rows = await db.query('SELECT raw_json FROM coupons', []);
@@ -41,10 +56,34 @@ async function couponDiscount(code, phone, baseAmount) {
   }
   const minA = asNum(raw.MinAmount);
   if (baseAmount < minA) return { ok: false, message: 'Minimum order ₹' + minA + ' for this coupon.' };
+
+  // Scope: a NEW-only coupon must not discount a renewal and vice versa. Blank = ANY.
+  const scope = String(raw.Scope || 'ANY').trim().toUpperCase() || 'ANY';
+  const action = String(ctx.action || 'ANY').trim().toUpperCase();
+  if (scope !== 'ANY' && scope !== action) return { ok: false, message: 'Coupon not valid for this ' + (action === 'RENEW' ? 'renewal' : 'purchase') + '.' };
+
+  // Optional comma-separated allow-lists (exact names, as in the Sheet).
+  const listOf = (v) => String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const svcAllow = listOf(raw.Services);
+  if (svcAllow.length && !svcAllow.includes(String(ctx.service || '').trim())) return { ok: false, message: 'Coupon not valid for this service.' };
+  const planAllow = listOf(raw.Plans);
+  if (planAllow.length && !planAllow.includes(String(ctx.plan || '').trim())) return { ok: false, message: 'Coupon not valid for this plan.' };
+
+  // First-time only: this phone has never paid for an order.
+  if (String(raw.FirstTimeOnly || '').trim().toUpperCase() === 'TRUE') {
+    const paid = await db.query("SELECT 1 FROM orders WHERE phone_norm = ? AND UPPER(status) = 'PAID' LIMIT 1", [norm(phone)]);
+    if (paid.length) return { ok: false, message: 'Coupon only for first-time customers.' };
+  }
+
+  // Limits count only paid (USED) redemptions; HOLD rows are abandoned checkouts.
   const perLimit = Number(raw.PerUserLimit || 0);
-  if (perLimit > 0) {
-    const u = await db.query("SELECT COUNT(*) n FROM coupon_usage WHERE phone_norm = ? AND UPPER(action)='USED' AND UPPER(coupon_code)=?", [norm(phone), c]);
-    if ((+(u[0] || {}).n || 0) >= perLimit) return { ok: false, message: 'Coupon usage limit reached.' };
+  const globalLimit = Number(raw.GlobalLimit || 0);
+  if (perLimit > 0 || globalLimit > 0) {
+    const u = await db.query(
+      "SELECT COUNT(*) n, SUM(phone_norm = ?) mine FROM coupon_usage WHERE UPPER(action)='USED' AND UPPER(coupon_code)=?", [norm(phone), c]);
+    const all = +(u[0] || {}).n || 0; const mine = +(u[0] || {}).mine || 0;
+    if (perLimit > 0 && mine >= perLimit) return { ok: false, message: 'Coupon usage limit reached.' };
+    if (globalLimit > 0 && all >= globalLimit) return { ok: false, message: 'This coupon has been fully redeemed.' };
   }
   const type = String(raw.Type || '').toUpperCase();
   const val = asNum(raw.Value); const maxD = asNum(raw.MaxDiscount);
@@ -103,7 +142,7 @@ async function createOrder(p) {
 
   let discount = 0;
   if (couponCode) {
-    const cd = await couponDiscount(couponCode, phone, basePrice);
+    const cd = await couponDiscount(couponCode, phone, basePrice, { action: orderType, service, plan });
     if (!cd.ok) return cd;
     discount = cd.discount;
   } else if (asNum(p.discountOverride) > 0) {
@@ -112,6 +151,7 @@ async function createOrder(p) {
   }
   const finalAmount = Math.max(0, basePrice - discount);
   const orderId = genOrderId();
+  const accessToken = newAccessToken();
 
   const orderRaw = {
     OrderID: orderId, Service: service, Plan: plan, DurationDays: durationDays,
@@ -122,6 +162,7 @@ async function createOrder(p) {
     RenewSubID: renewSubId, DeviceConcurrency: deviceCount, TVCount: tvCount,
     GroupJoinRequired: groupJoinRequired ? 'TRUE' : 'FALSE', GroupJoinLink: groupJoinLink,
     Source: 'node',
+    AccessTokenHash: hashAccessToken(accessToken),
   };
 
   await db.query(
@@ -162,6 +203,7 @@ async function createOrder(p) {
     couponCode: couponCode || '', currency: 'INR', upiVpa, payee, upiLink,
     paymentNote: orderId, groupJoinRequired, groupJoinLink,
     deviceCount, tvCount,
+    accessToken,
   };
 }
 
@@ -281,9 +323,11 @@ async function validateCoupon(code, ctx) {
   if (!c) return { ok: false, message: 'Enter a coupon code.' };
   const phone = norm(ctx.phone);
   const amount = asNum(ctx.amount);
-  const cd = await couponDiscount(c, phone, amount);
+  const cd = await couponDiscount(c, phone, amount, {
+    action: String(ctx.scope || ctx.action || 'ANY').toUpperCase(), service: ctx.service, plan: ctx.plan,
+  });
   if (!cd.ok) return { ok: false, message: cd.message || 'Coupon is not valid.' };
   return { ok: true, code: c.toUpperCase(), discount: cd.discount, finalAmount: Math.max(0, amount - cd.discount), message: 'Coupon applied.' };
 }
 
-module.exports = { createOrder, createRenewOrder, verifyPayment, verifyPaymentByRef, validateCoupon, serviceAllowed, _internal: { genOrderId, couponDiscount } };
+module.exports = { createOrder, createRenewOrder, verifyPayment, verifyPaymentByRef, validateCoupon, serviceAllowed, hashAccessToken, _internal: { genOrderId, couponDiscount } };
