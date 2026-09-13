@@ -40,7 +40,7 @@ async function loadSnapshot() {
   const [accounts, caps, profiles, occ] = await Promise.all([
     db.query("SELECT service, account_id, notes, (COALESCE(login_id,'') <> '' AND COALESCE(password,'') <> '') AS has_creds FROM inventory_accounts WHERE UPPER(is_active)='TRUE'", []),
     db.query('SELECT service, account_id, max_total, max_tv, is_active FROM inventory_capacity', []),
-    db.query("SELECT service, account_id, profile_number, raw_json FROM inventory_profiles WHERE LOWER(service) LIKE '%netflix%'", []),
+    db.query('SELECT service, account_id, profile_number, raw_json FROM inventory_profiles', []),
     db.query(
       'SELECT LOWER(service) svc, inventory_ref, SUM(COALESCE(device_count,1)) total, ' +
       "SUM(CASE WHEN tv_count IS NOT NULL THEN tv_count WHEN UPPER(device_type)='TV' THEN COALESCE(device_count,1) ELSE 0 END) tv " +
@@ -118,15 +118,22 @@ function unitsForPlan(snap, p) {
   }
 
   if (policy === 'PROFILE') {
-    const accs = snap.accounts.filter((a) => likeSvc(a.service, 'netflix') && Number(a.has_creds));
+    // Mirrors fulfill.js allocateProfile: Netflix draws from all Netflix accounts
+    // and never sells shared profile #sharingNo privately; other services draw
+    // from their own accounts and every PRIVATE_ROTATING profile is sellable.
+    const isNetflix = /netflix/i.test(service);
+    const needle = isNetflix ? 'netflix' : service.toLowerCase();
+    const reservedNo = isNetflix ? c.sharingNo : null;
+    const accs = snap.accounts.filter((x) => likeSvc(x.service, needle) && Number(x.has_creds));
     const capMap = new Map();
     for (const x of snap.caps) {
-      if (!likeSvc(x.service, 'netflix')) continue;
+      if (!likeSvc(x.service, needle)) continue;
       capMap.set(String(x.account_id), { maxTotal: asNum(x.max_total) || c.sharingMax, isActive: up(x.is_active) !== 'FALSE' });
     }
-    const occ = occupancy(snap, 'netflix');
+    const occ = occupancy(snap, needle);
     const byAcc = new Map();
     for (const pr of snap.profiles) {
+      if (!likeSvc(pr.service, needle)) continue;
       const acc = s(pr.account_id); if (!acc) continue;
       const r = rawOf(pr.raw_json);
       const entry = { pno: asNum(pr.profile_number) || asNum(r.ProfileNumber), type: up(r.ProfileType), reserved: up(r.IsReserved) === 'TRUE' };
@@ -135,18 +142,18 @@ function unitsForPlan(snap, p) {
     }
     const sharing = /sharing|group/i.test(plan);
     let units = 0;
-    for (const a of accs) {
-      const acc = String(a.account_id); if (!acc) continue;
+    for (const acct of accs) {
+      const acc = String(acct.account_id); if (!acc) continue;
       const list = byAcc.get(acc) || [];
       if (sharing) {
         const cap = capMap.get(acc) || { maxTotal: c.sharingMax, isActive: true }; if (!cap.isActive) continue;
-        const prof = list.find((x) => x.pno === c.sharingNo) || list.find((x) => x.type.indexOf('SHARING') === 0 || x.reserved);
+        const prof = (reservedNo != null && list.find((x) => x.pno === reservedNo)) || list.find((x) => x.type.indexOf('SHARING') === 0 || x.reserved);
         if (!prof || !prof.pno) continue;
         const free = cap.maxTotal - ((occ.get(acc + '#P' + prof.pno) || {}).total || 0);
         if (free >= need) units += Math.floor(free / need);
       } else {
         for (const x of list) {
-          if (!x.pno || x.pno === c.sharingNo || x.type !== 'PRIVATE_ROTATING') continue;
+          if (!x.pno || x.pno === reservedNo || x.type !== 'PRIVATE_ROTATING') continue;
           if (!((occ.get(acc + '#P' + x.pno) || {}).total > 0)) units += 1;
         }
       }

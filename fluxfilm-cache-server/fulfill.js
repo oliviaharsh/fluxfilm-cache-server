@@ -155,16 +155,25 @@ async function _fulfill(orderId) {
 // Pick a Netflix profile. Sharing plans share the reserved profile (#1) up to
 // capacity; other plans get a private (PRIVATE_ROTATING) profile. Occupancy is
 // derived from node subs, so nothing in the inventory tables is mutated.
-async function allocateNetflix(conn, plan, deviceCount) {
+// PROFILE policy: hand out one profile of a shared account. Netflix keeps its
+// historical behaviour exactly (any "Netflix..." service draws from every Netflix
+// account; profile #NETFLIX_SHARING_NO is the shared profile and is never sold
+// privately). Other services (e.g. Crunchyroll) draw only from accounts of their
+// own service, and every PRIVATE_ROTATING profile is sellable, including #1.
+async function allocateProfile(conn, service, plan, deviceCount) {
   const need = Math.max(1, deviceCount || 1);
   const sharing = /sharing|group/i.test(String(plan || ''));
-  const [accs] = await conn.query("SELECT account_id, login_id, password FROM inventory_accounts WHERE LOWER(service) LIKE '%netflix%' AND UPPER(is_active)='TRUE'");
-  if (!accs.length) return { ok: false, message: 'No active Netflix accounts.' };
-  const [profs] = await conn.query("SELECT account_id, profile_number, profile_pin, profile_name, raw_json FROM inventory_profiles WHERE LOWER(service) LIKE '%netflix%'");
-  const [caps] = await conn.query("SELECT account_id, max_total, is_active FROM inventory_capacity WHERE LOWER(service) LIKE '%netflix%'");
+  const isNetflix = /netflix/i.test(String(service || ''));
+  const like = isNetflix ? '%netflix%' : '%' + String(service || '').trim().toLowerCase() + '%';
+  const reservedNo = isNetflix ? NETFLIX_SHARING_NO : null;
+  const label = isNetflix ? 'Netflix' : String(service || 'this service').trim();
+  const [accs] = await conn.query("SELECT account_id, login_id, password FROM inventory_accounts WHERE LOWER(service) LIKE ? AND UPPER(is_active)='TRUE'", [like]);
+  if (!accs.length) return { ok: false, message: 'No active ' + label + ' accounts.' };
+  const [profs] = await conn.query('SELECT account_id, profile_number, profile_pin, profile_name, raw_json FROM inventory_profiles WHERE LOWER(service) LIKE ?', [like]);
+  const [caps] = await conn.query('SELECT account_id, max_total, is_active FROM inventory_capacity WHERE LOWER(service) LIKE ?', [like]);
   const capMap = new Map();
   for (const c of caps) capMap.set(String(c.account_id), { maxTotal: asNum(c.max_total) || NETFLIX_SHARING_MAX, isActive: String(c.is_active || '').toUpperCase() !== 'FALSE' });
-  const occ = await occupancyMap(conn, '%netflix%');
+  const occ = await occupancyMap(conn, like);
 
   const byAcc = new Map();
   for (const p of profs) {
@@ -187,14 +196,14 @@ async function allocateNetflix(conn, plan, deviceCount) {
       const acc = String(a.account_id); if (!acc || !a.login_id || !a.password) continue;
       const cap = capMap.get(acc) || { maxTotal: NETFLIX_SHARING_MAX, isActive: true }; if (!cap.isActive) continue;
       const list = byAcc.get(acc) || [];
-      const prof = list.find((p) => p.pno === NETFLIX_SHARING_NO) || list.find((p) => p.type.indexOf('SHARING') === 0 || p.reserved);
+      const prof = (reservedNo != null && list.find((p) => p.pno === reservedNo)) || list.find((p) => p.type.indexOf('SHARING') === 0 || p.reserved);
       if (!prof || !prof.pno) continue;
       const ref = acc + '#P' + prof.pno;
       const used = occ.get(ref) || 0;
       if (used + need > cap.maxTotal) continue;   // not enough free device slots
       cands.push({ acc, a, prof, ref, used });
     }
-    if (!cands.length) return { ok: false, noStock: true, message: 'Netflix sharing slots are full right now.' };
+    if (!cands.length) return { ok: false, noStock: true, message: label + ' sharing slots are full right now.' };
     cands.sort((x, y) => x.used - y.used);
     const p = cands[0];
     return { ok: true, inventoryRef: p.ref, accountId: p.acc, access: { user: p.a.login_id, pass: p.a.password, profileNumber: p.prof.pno, profileName: p.prof.name || 'FluxFilm', profilePin: p.prof.pin } };
@@ -204,16 +213,19 @@ async function allocateNetflix(conn, plan, deviceCount) {
   const cands = [];
   for (const a of accs) {
     const acc = String(a.account_id); if (!acc || !a.login_id || !a.password) continue;
-    const list = (byAcc.get(acc) || []).filter((p) => p.pno && p.pno !== NETFLIX_SHARING_NO && p.type === 'PRIVATE_ROTATING');
+    const list = (byAcc.get(acc) || []).filter((p) => p.pno && p.pno !== reservedNo && p.type === 'PRIVATE_ROTATING');
     let assigned = 0; let free = null;
     for (const p of list) { const used = occ.get(acc + '#P' + p.pno) || 0; if (used > 0) assigned++; else if (!free) free = p; }
     if (free) cands.push({ acc, a, prof: free, ref: acc + '#P' + free.pno, assigned });
   }
-  if (!cands.length) return { ok: false, noStock: true, message: 'No Netflix private profiles available right now.' };
+  if (!cands.length) return { ok: false, noStock: true, message: 'No ' + label + ' private profiles available right now.' };
   cands.sort((x, y) => x.assigned - y.assigned); // load-balance: emptiest account first
   const p = cands[0];
   return { ok: true, inventoryRef: p.ref, accountId: p.acc, access: { user: p.a.login_id, pass: p.a.password, profileNumber: p.prof.pno, profileName: p.prof.name || 'Private', profilePin: p.prof.pin } };
 }
+
+/** Back-compat name: the Netflix case of allocateProfile. */
+function allocateNetflix(conn, plan, deviceCount) { return allocateProfile(conn, 'Netflix', plan, deviceCount); }
 
 // Whole-account: hand over an account for the service. If the account has a
 // capacity row (MaxTotal) it's shared by device count up to that limit; otherwise
@@ -300,7 +312,7 @@ async function _allocateAndFinish(o, policy, ppm) {
       alloc = await allocatePrime(conn, deviceCount, tvCount);
       if (alloc && alloc.ok) dt = alloc.deviceType || (tvCount >= deviceCount ? 'TV' : tvCount > 0 ? 'MIXED' : 'NON_TV');
     } else if (policy === 'PROFILE') {
-      alloc = await allocateNetflix(conn, o.plan, deviceCount);
+      alloc = await allocateProfile(conn, o.service, o.plan, deviceCount);
     } else if (policy === 'OTP_ACCOUNT') {
       alloc = await allocateOtp(conn, o.service, o.duration_days);
     } else {
@@ -465,4 +477,4 @@ async function fulfillAndGetAccess(orderId, proof) {
 /** Admin endpoint only (key-protected): full result including credentials. */
 async function fulfillForAdmin(orderId) { return _fulfillSafe(orderId); }
 
-module.exports = { fulfillAndGetAccess, fulfillForAdmin, allocatePrime, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths } };
+module.exports = { fulfillAndGetAccess, fulfillForAdmin, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths } };
