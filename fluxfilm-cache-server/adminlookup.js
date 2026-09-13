@@ -29,6 +29,7 @@ const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR release_e
 
 function mount(app, deps) {
   const { db, auth } = deps;
+  const audit = deps.audit || { record: () => {} };
   const lazy = (name) => () => deps[name] || require('./' + name);
   const M = { fulfill: lazy('fulfill'), catalog: lazy('catalog'), stock: lazy('stock') };
   const fail = (res, e) => res.status(500).json({ ok: false, message: String((e && e.message) || e) });
@@ -92,6 +93,7 @@ function mount(app, deps) {
       // FAILED means an earlier attempt found no stock; clear it so fulfilment runs again.
       await db.query("UPDATE orders SET fulfillment_status = 'PENDING' WHERE order_id = ? AND UPPER(COALESCE(fulfillment_status, '')) IN ('FAILED', 'ERROR', '')", [id]);
       const f = await M.fulfill().fulfillForAdmin(id);
+      audit.record(req, { action: 'order.retryDelivery', entity: 'order', id, summary: 'Tried delivering again → ' + ((f && f.fulfillment) || '') });
       res.json({ ok: true, orderId: id, fulfillment: f });
     } catch (e) { fail(res, e); }
   });
