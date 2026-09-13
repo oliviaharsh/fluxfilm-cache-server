@@ -132,6 +132,40 @@ table.sheet{border-collapse:separate;border-spacing:0;table-layout:fixed;font-si
 .list{display:flex;flex-direction:column}
 .li{display:flex;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid #f1f4f8;font-size:.84rem;flex-wrap:wrap}.li:last-child{border-bottom:0}
 .li .grow{flex:1;min-width:160px}
+/* ---------- quick orders ---------- */
+.qtabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.qtabs button{border:1px solid var(--line);background:#fff;border-radius:12px;padding:10px 16px;font-weight:600;cursor:pointer;color:var(--ink2)}
+.qtabs button.on{background:#1e293b;color:#fff;border-color:#1e293b}
+.qgrid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,1fr);gap:16px;align-items:start}
+@media(max-width:900px){.qgrid{grid-template-columns:1fr}}
+.qsec{margin-bottom:14px}
+.qsearch{position:relative}.qsearch .inp{width:100%;padding:13px 16px;font-size:1rem}
+.qdrop{position:absolute;left:0;right:0;top:calc(100% + 6px);background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 40px rgba(15,23,42,.16);z-index:30;max-height:360px;overflow:auto;padding:6px}
+.qopt{display:block;width:100%;text-align:left;border:0;background:transparent;padding:10px 12px;border-radius:10px;cursor:pointer;font-size:.9rem}
+.qopt:hover{background:#f5f7fa}.qopt small{display:block;color:var(--mut);font-size:.75rem;margin-top:2px}
+.qopt.new{border-top:1px dashed var(--line);border-radius:0 0 10px 10px;color:var(--brand);font-weight:600}
+.qcust{display:flex;align-items:center;gap:12px}
+.avatar.sm{width:42px;height:42px;font-size:.95rem}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.seg button{flex:1 1 0;min-width:56px;padding:11px 10px;border:2px solid var(--line);background:#fafafa;border-radius:11px;font-weight:600;cursor:pointer;color:var(--ink2)}
+.seg button.on{border-color:var(--brand);background:var(--brandbg);color:var(--brand)}
+.qnote{margin-top:10px;padding:9px 12px;border-radius:10px;background:#f1f5f9;font-size:.8rem;color:var(--ink2)}
+.qnote.warn{background:#fef3c7;color:#92400e}.qnote.bad{background:#fee2e2;color:#991b1b}
+.qsubs{display:flex;flex-direction:column;gap:8px}
+.qsub{display:flex;align-items:center;gap:10px;border:2px solid var(--line);background:#fff;border-radius:12px;padding:10px 12px;cursor:pointer;font-size:.88rem}
+.qsub small{display:block;color:var(--mut);font-size:.72rem}.qsub.on{border-color:var(--brand);background:var(--brandbg)}
+.qtoggle{display:flex;gap:12px;align-items:flex-start;margin-top:14px;padding:12px;border-radius:12px;background:#f0fdf4;border:1px solid #bbf7d0;cursor:pointer}
+.qtoggle input{width:20px;height:20px;accent-color:#16a34a;margin-top:2px}.qtoggle small{display:block;color:var(--mut);font-size:.75rem}
+.qsum{position:sticky;top:16px}
+.qline{display:flex;justify-content:space-between;padding:6px 0;font-size:.88rem;border-bottom:1px dashed var(--line)}
+.qline.total{border-bottom:0;font-size:1.05rem;padding-top:10px}
+.qgo{width:100%;justify-content:center;margin-top:14px;padding:14px;font-size:1rem}
+.qgo:disabled{background:#cbd5e1;cursor:not-allowed}
+/* phone: the total + Create button stay pinned to the bottom of the screen */
+@media(max-width:900px){#qbody{padding-bottom:150px}.qsum{position:fixed;left:0;right:0;bottom:0;top:auto;margin:0;border-radius:18px 18px 0 0;box-shadow:0 -10px 30px rgba(15,23,42,.16);z-index:25;padding:12px 16px 14px}
+.qsum .qline:not(.total),.qsum [data-act="reset"],.qsum>.muted,.qsum>div:nth-child(2){display:none}.qsum .qline.total{padding-top:0}.qsum .qnote{margin-top:4px;padding:6px 10px}.qsum .qgo{margin-top:8px;padding:13px}}
+.qresult.good{border-color:#86efac}.qresult.bad{border-color:#fca5a5}
+textarea.inp{resize:vertical}
 .login{max-width:380px;margin:14vh auto;background:#fff;padding:34px;border-radius:20px;box-shadow:0 20px 60px rgba(15,23,42,.12);text-align:center}
 </style></head><body>
 <div id="app"></div>
@@ -174,6 +208,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['dashboard', '📊', 'Dashboard'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['expiring', '⏳', 'Expiring soon'],
   ['DATA'], ['data', '📋', 'Sheets'], ['coupons', '🎟️', 'Coupons'],
 ];
@@ -186,7 +221,7 @@ function shell() {
 function nav(v) { S.view = v; store('ff_view', v); var sd = $('#side'); if (sd) sd.classList.remove('open'); route(); }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
-  ({ dashboard: dashboard, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || customerView)();
+  ({ dashboard: dashboard, quick: quickView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || customerView)();
 }
 
 /* ================= dashboard ================= */
@@ -515,6 +550,311 @@ function saveCoupon() {
   if (!p.code) { $('#csave').textContent = 'Enter a coupon code first'; return; }
   $('#csave').textContent = 'Saving…';
   post('/admin/api/coupon', p).then(function (r) { if (r.ok) { closeModal(); toast('Coupon saved'); couponsView(); } else $('#csave').textContent = '⚠️ ' + (r.message || 'failed'); });
+}
+
+/* ================= quick orders (WhatsApp / phone sales) ================= */
+var Q = null;
+function qReset(tab) {
+  Q = { tab: tab || (Q && Q.tab) || 'new', cat: Q && Q.cat, cust: null, search: '', results: [], newCust: null, service: '', plan: '', tv: '', extra: '', amount: '', method: 'UPI', ref: '', notes: '', markPaid: true, subs: null, subId: '', rplan: '', quote: null, busy: false, result: null, unpaid: null, uq: '' };
+}
+function quickView() {
+  if (!Q) qReset('new');
+  $('#view').innerHTML = '<div class="ph"><div><h1>⚡ Quick order</h1><p>Sales on WhatsApp or phone — create, mark paid and send the login in a few taps</p></div></div>' +
+    '<div class="qtabs" id="qtabs">' + [['new', '🆕 New order'], ['renew', '🔁 Renew'], ['paid', '✅ Mark paid']].map(function (t) { return '<button data-t="' + t[0] + '" class="' + (Q.tab === t[0] ? 'on' : '') + '">' + t[1] + '</button>'; }).join('') + '</div><div id="qbody"></div>';
+  $('#qtabs').onclick = function (e) { var b = e.target.closest('button[data-t]'); if (!b) return; var keep = Q.cust; qReset(b.getAttribute('data-t')); if (Q.tab !== 'paid') Q.cust = keep; quickView(); };
+  if (!Q.cat) { $('#qbody').innerHTML = '<p class="muted">Loading plans…</p>'; api('/admin/api/quick/catalog').then(function (r) { if (!r.ok) { $('#qbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; } Q.cat = r; qRender(); }); }
+  else qRender();
+}
+function qRender() {
+  if (Q.result) return qRenderResult();
+  if (Q.tab === 'paid') return qRenderUnpaid();
+  var isNew = Q.tab === 'new';
+  var planObj = qPlan();
+  var html = '<div class="qgrid"><div>';
+  html += '<div class="card qsec"><h3>1 · Customer</h3>' + qCustomerHtml() + '</div>';
+  if (isNew) {
+    html += '<div class="card qsec"><h3>2 · Service & plan</h3>' + qPlanHtml(planObj) + '</div>';
+  } else {
+    html += '<div class="card qsec"><h3>2 · Subscription to renew</h3>' + qRenewHtml() + '</div>';
+  }
+  html += '<div class="card qsec"><h3>3 · Payment</h3>' + qPayHtml() + '</div>';
+  html += '</div><div>' + qSummaryHtml(planObj) + '</div></div>';
+  $('#qbody').innerHTML = html;
+  qWire();
+}
+function qPlan() { if (!Q.cat) return null; return Q.cat.plans.find(function (p) { return p.service === Q.service && p.plan === Q.plan; }) || null; }
+function qStockTxt(p) { if (p.kind === 'MANUAL') return 'manual'; if (p.stock == null) return ''; return p.stock <= 0 ? '❌ out of stock' : (p.stockLevel === 'LOW' ? '⚠️ ' : '✅ ') + p.stock + ' left'; }
+
+function qCustomerHtml() {
+  if (Q.cust) {
+    var c = Q.cust, isNewCust = !!c.isNew;
+    return '<div class="qcust"><div class="avatar sm">' + esc(((c.name || '?').split(/\s+/).map(function (w) { return w[0]; }).join('').slice(0, 2) || '?').toUpperCase()) + '</div><div style="flex:1;min-width:0"><b>' + esc(c.name || 'New customer') + '</b>' + (isNewCust ? ' <span class="pill p-blue">NEW</span>' : (c.activeSubs ? ' <span class="pill p-ok">' + c.activeSubs + ' active</span>' : '')) +
+      '<div class="muted" style="font-size:.78rem">' + esc(c.phone || '') + (c.customerId ? ' · ' + esc(c.customerId) : '') + '</div></div><button class="btn ghost sm" data-act="changecust">Change</button></div>' +
+      '<div class="fields" style="margin-top:12px"><div class="fld"><label>Mobile</label><input class="inp" id="q_phone" inputmode="numeric" maxlength="14" value="' + esc(c.phone || '') + '"' + (isNewCust ? '' : ' readonly') + '/></div>' +
+      '<div class="fld"><label>Name</label><input class="inp" id="q_name" value="' + esc(c.name || '') + '"/></div>' +
+      '<div class="fld" style="grid-column:1/-1"><label>Email ' + (c.email ? '' : '<span style="text-transform:none;color:#b45309">(optional — needed for the credentials email and Recover)</span>') + '</label><input class="inp" id="q_email" type="email" value="' + esc(c.email || '') + '"/></div></div>';
+  }
+  return '<div class="qsearch"><input class="inp" id="q_search" placeholder="Type name, phone, email or customer ID…" autocomplete="off" value="' + esc(Q.search) + '"/><div class="qdrop" id="q_drop" hidden></div></div>' +
+    '<p class="muted" style="font-size:.75rem;margin:8px 0 0">Not found? Type their number and pick <b>➕ New customer</b>.</p>';
+}
+function qDropHtml() {
+  var rows = (Q.results || []).map(function (c, i) {
+    return '<button class="qopt" data-i="' + i + '"><b>' + esc(c.name || '(no name)') + '</b>' + (c.activeSubs ? ' <span class="pill p-ok">' + c.activeSubs + ' active</span>' : '') + '<small>' + esc(c.phone) + (c.email ? ' · ' + esc(c.email) : '') + (c.customerId ? ' · ' + esc(c.customerId) : '') + '</small></button>';
+  }).join('');
+  var digits = Q.search.replace(/\D/g, '');
+  rows += '<button class="qopt new" data-new="1">➕ New customer' + (Q.search ? ' “' + esc(Q.search) + '”' : '') + '<small>' + (digits.length >= 10 ? 'Mobile ' + esc(digits.slice(-10)) : 'Enter their details next') + '</small></button>';
+  return rows;
+}
+
+function qPlanHtml(p) {
+  var services = [];
+  Q.cat.plans.forEach(function (x) { if (services.indexOf(x.service) < 0) services.push(x.service); });
+  services.sort();
+  var plans = Q.cat.plans.filter(function (x) { return x.service === Q.service; });
+  var h = '<div class="fields"><div class="fld"><label>Service</label><select class="inp" id="q_service"><option value="">Choose a service…</option>' + services.map(function (sv) { return '<option' + (sv === Q.service ? ' selected' : '') + '>' + esc(sv) + '</option>'; }).join('') + '</select></div>' +
+    '<div class="fld"><label>Plan</label><select class="inp" id="q_plan"' + (Q.service ? '' : ' disabled') + '><option value="">' + (Q.service ? 'Choose a plan…' : 'Pick a service first') + '</option>' +
+    plans.map(function (x) { return '<option value="' + esc(x.plan) + '"' + (x.plan === Q.plan ? ' selected' : '') + '>' + esc(x.plan) + ' · ' + money(x.price) + ' · ' + x.durationDays + 'd ' + esc(qStockTxt(x)) + '</option>'; }).join('') + '</select></div></div>';
+  if (p) h += qFieldsHtml(p);
+  return h;
+}
+function qFieldsHtml(p) {
+  var h = '';
+  p.fields.forEach(function (f) {
+    if (f.type === 'tv') {
+      h += '<div class="fld" style="margin-top:14px"><label>' + esc(f.label) + ' <span style="color:var(--bad)">*</span></label><div class="seg" id="q_tv">' +
+        '<button data-v="1" class="' + (Q.tv === '1' ? 'on' : '') + '">📺 TV</button><button data-v="0" class="' + (Q.tv === '0' ? 'on' : '') + '">📱 Mobile / laptop</button></div><div class="muted" style="font-size:.72rem;margin-top:5px">TV + mobile? Pick TV — a TV uses a separate slot.</div></div>';
+    } else if (f.type === 'count') {
+      var opts = ''; for (var n = 0; n <= f.max; n++) opts += '<button data-v="' + n + '" class="' + (Q.tv === String(n) ? 'on' : '') + '">' + n + '</button>';
+      h += '<div class="fld" style="margin-top:14px"><label>' + esc(f.label) + ' <span style="color:var(--bad)">*</span></label><div class="seg" id="q_tv">' + opts + '</div></div>';
+    } else {
+      h += '<div class="fld" style="margin-top:14px"><label>' + esc(f.label) + ' <span style="color:var(--bad)">*</span></label><input class="inp" id="q_extra" value="' + esc(Q.extra) + '"/></div>';
+    }
+  });
+  (p.notes || []).forEach(function (n) { h += '<div class="qnote">ℹ️ ' + esc(n) + '</div>'; });
+  if (p.stock != null && p.stock <= 0 && p.kind !== 'MANUAL') h += '<div class="qnote bad">❌ No free slot for this plan right now — marking it paid will fail until you add stock.</div>';
+  return h;
+}
+
+function qRenewHtml() {
+  if (!Q.cust || Q.cust.isNew) return '<p class="muted">Pick an existing customer first.</p>';
+  if (!Q.subs) return '<p class="muted">Loading subscriptions…</p>';
+  if (!Q.subs.length) return '<p class="muted">This customer has no subscriptions to renew. Use New order.</p>';
+  var h = '<div class="qsubs">' + Q.subs.map(function (s) {
+    var d = daysLeft(s.expiry_date);
+    var pill = d == null ? '' : d > 7 ? '<span class="pill p-ok">' + d + 'd left</span>' : d > 0 ? '<span class="pill p-warn">' + d + 'd left</span>' : '<span class="pill p-bad">ended ' + (-d) + 'd ago</span>';
+    return '<button class="qsub' + (Q.subId === s.sub_id ? ' on' : '') + '" data-sub="' + esc(s.sub_id) + '"><span style="font-size:1.2rem">' + svcIcon(s.service) + '</span><span style="flex:1;min-width:0;text-align:left"><b>' + esc(s.service) + '</b> · ' + esc(s.plan) + '<small>Ends ' + prettyDate(s.expiry_date, true) + ' · ' + esc(s.sub_id) + '</small></span>' + pill + '</button>';
+  }).join('') + '</div>';
+  if (Q.subId) {
+    var qt = Q.quote;
+    if (!qt) h += '<p class="muted">Checking the account…</p>';
+    else if (!qt.ok) h += '<div class="qnote bad">' + esc(qt.message || 'error') + '</div>';
+    else {
+      h += '<div class="fld" style="margin-top:14px"><label>Renew with plan</label><select class="inp" id="q_rplan">' + qt.plans.map(function (x) { return '<option value="' + esc(x.plan) + '"' + (x.plan === qt.plan ? ' selected' : '') + '>' + esc(x.plan) + ' · ' + money(x.price) + ' · ' + x.durationDays + 'd' + (x.plan === qt.currentPlan ? ' (current)' : '') + '</option>'; }).join('') + '</select></div>';
+      if (qt.mode === 'NONE') h += '<div class="qnote bad">❌ ' + esc(qt.message || 'No account can serve this renewal right now.') + '</div>';
+      else if (qt.mode === 'MOVE') h += '<div class="qnote warn">🔀 ' + esc(qt.message || 'They will be moved to a new account.') + '</div>';
+      else h += '<div class="qnote">✅ Stays on the same account.</div>';
+      if (qt.preview) h += '<div class="qnote">📅 New expiry: <b>' + esc(qt.preview.newExpiryText || '') + '</b>' + (qt.preview.message ? '<br>' + esc(qt.preview.message) : '') + '</div>';
+      if (qt.earlyDiscount) h += '<div class="qnote">🎁 Early-renew discount ' + money(qt.earlyDiscount) + ' applied to the suggested amount.</div>';
+    }
+  }
+  return h;
+}
+
+function qPayHtml() {
+  var methods = (Q.cat && Q.cat.payMethods) || ['UPI', 'CASH', 'BANK', 'OTHER'];
+  return '<div class="fields"><div class="fld"><label>Amount received (₹)</label><input class="inp" id="q_amount" inputmode="numeric" value="' + esc(Q.amount) + '"/></div>' +
+    '<div class="fld"><label>Paid by</label><div class="seg" id="q_method">' + methods.map(function (m) { return '<button data-v="' + m + '" class="' + (Q.method === m ? 'on' : '') + '">' + (m === 'UPI' ? 'UPI' : m[0] + m.slice(1).toLowerCase()) + '</button>'; }).join('') + '</div></div>' +
+    '<div class="fld"><label>UTR / reference (optional)</label><input class="inp" id="q_ref" value="' + esc(Q.ref) + '"/></div>' +
+    '<div class="fld"><label>Note (optional)</label><input class="inp" id="q_notes" value="' + esc(Q.notes) + '" placeholder="e.g. paid on WhatsApp"/></div></div>' +
+    '<label class="qtoggle"><input type="checkbox" id="q_markpaid"' + (Q.markPaid ? ' checked' : '') + '/> <span><b>Payment received — mark as paid now</b><small>Hands out the account and emails the login straight away</small></span></label>';
+}
+
+function qSummaryHtml(p) {
+  var isNew = Q.tab === 'new', qt = Q.quote;
+  var title = isNew ? (p ? p.service + ' · ' + p.plan : 'Pick a plan') : (qt && qt.ok ? qt.service + ' · ' + qt.plan : 'Pick a subscription');
+  var list = isNew ? (p ? p.price : null) : (qt && qt.ok ? qt.price : null);
+  var amt = Q.amount === '' ? null : Number(Q.amount);
+  var missing = qMissing();
+  var h = '<div class="card qsum"><div class="muted" style="font-size:.72rem;letter-spacing:.5px">SUMMARY</div><div style="font-weight:700;margin:4px 0 10px">' + esc(title) + '</div>' +
+    '<div class="qline"><span>Customer</span><b>' + esc(Q.cust ? (Q.cust.name || Q.cust.phone || 'New') : '—') + '</b></div>' +
+    (list != null ? '<div class="qline"><span>List price</span><span>' + money(list) + '</span></div>' : '') +
+    (list != null && amt != null && amt < list ? '<div class="qline"><span>Discount</span><span style="color:var(--ok)">− ' + money(list - amt) + '</span></div>' : '') +
+    '<div class="qline total"><span>Total</span><b>' + (amt != null ? money(amt) : '—') + '</b></div>' +
+    (missing ? '<div class="qnote" style="margin-top:10px">👉 ' + esc(missing) + '</div>' : '') +
+    '<button class="btn qgo" id="q_go"' + (missing || Q.busy ? ' disabled' : '') + '>' + (Q.busy ? 'Working…' : (Q.markPaid ? '✅ Create & mark paid' : '🧾 Create unpaid order')) + '</button>' +
+    '<button class="btn ghost sm" style="width:100%;justify-content:center;margin-top:8px" data-act="reset">Clear</button></div>';
+  return h;
+}
+function qMissing() {
+  if (!Q.cust) return 'Pick or add the customer.';
+  if (Q.tab === 'new') {
+    var p = qPlan(); if (!p) return 'Choose the service and plan.';
+    for (var i = 0; i < p.fields.length; i++) { var f = p.fields[i]; if (f.key === 'tvCount' && Q.tv === '') return f.type === 'tv' ? 'Choose TV or Mobile.' : 'Choose how many are TVs.'; if (f.key === 'extraFieldValue' && !Q.extra.trim()) return 'Fill in ' + f.label + '.'; }
+  } else {
+    if (!Q.subId) return 'Pick the subscription to renew.';
+    if (!Q.quote || !Q.quote.ok) return 'Waiting for the renewal check.';
+    if (Q.quote.mode === 'NONE') return 'No account is free for this renewal.';
+  }
+  if (Q.amount === '' || isNaN(Number(Q.amount))) return 'Enter the amount received.';
+  return '';
+}
+function qCollect() {
+  var g = function (id) { var e = $('#' + id); return e ? e.value : null; };
+  if (g('q_phone') != null && Q.cust) { Q.cust.phone = g('q_phone').replace(/\D/g, '').slice(-10); Q.cust.name = g('q_name'); Q.cust.email = g('q_email'); }
+  if (g('q_extra') != null) Q.extra = g('q_extra');
+  if (g('q_amount') != null) Q.amount = g('q_amount').replace(/[^\d.]/g, '');
+  if (g('q_ref') != null) Q.ref = g('q_ref');
+  if (g('q_notes') != null) Q.notes = g('q_notes');
+  var mp = $('#q_markpaid'); if (mp) Q.markPaid = mp.checked;
+}
+function qRefreshSummary() { qCollect(); var el = $('.qsum'); if (el) { el.outerHTML = qSummaryHtml(qPlan()); var go = $('#q_go'); if (go) go.onclick = qSubmit; var rs = $('[data-act="reset"]'); if (rs) rs.onclick = function () { var t = Q.tab; qReset(t); quickView(); }; } }
+function qWire() {
+  var body = $('#qbody');
+  var srch = $('#q_search');
+  if (srch) {
+    var tmr;
+    srch.addEventListener('input', function () {
+      Q.search = srch.value; clearTimeout(tmr);
+      tmr = setTimeout(function () {
+        var q = Q.search.trim(), drop = $('#q_drop');
+        if (q.length < 2) { drop.hidden = true; return; }
+        api('/admin/api/quick/customers', { q: q }).then(function (r) { if (Q.search.trim() !== q) return; Q.results = (r && r.results) || []; drop.innerHTML = qDropHtml(); drop.hidden = false; });
+      }, 250);
+    });
+    srch.focus();
+    $('#q_drop').onclick = function (e) {
+      var b = e.target.closest('.qopt'); if (!b) return;
+      if (b.getAttribute('data-new')) { var digits = Q.search.replace(/\D/g, ''); Q.cust = { isNew: true, phone: digits.length >= 10 ? digits.slice(-10) : '', name: digits.length >= 10 ? '' : Q.search.trim(), email: /@/.test(Q.search) ? Q.search.trim() : '' }; }
+      else Q.cust = Q.results[+b.getAttribute('data-i')];
+      Q.subs = null; Q.subId = ''; Q.quote = null;
+      qAfterCustomer();
+    };
+  }
+  body.querySelectorAll('[data-act="changecust"]').forEach(function (b) { b.onclick = function () { Q.cust = null; Q.subs = null; Q.subId = ''; Q.quote = null; qRender(); }; });
+  var sv = $('#q_service'); if (sv) sv.onchange = function () { qCollect(); Q.service = sv.value; Q.plan = ''; Q.tv = ''; Q.extra = ''; Q.amount = ''; qRender(); };
+  var pl = $('#q_plan'); if (pl) pl.onchange = function () { qCollect(); Q.plan = pl.value; Q.tv = ''; Q.extra = ''; var p = qPlan(); Q.amount = p ? String(p.price) : ''; qRender(); };
+  var tv = $('#q_tv'); if (tv) tv.onclick = function (e) { var b = e.target.closest('button'); if (!b) return; qCollect(); Q.tv = b.getAttribute('data-v'); qRender(); };
+  var me = $('#q_method'); if (me) me.onclick = function (e) { var b = e.target.closest('button'); if (!b) return; qCollect(); Q.method = b.getAttribute('data-v'); qRender(); };
+  body.querySelectorAll('.qsub').forEach(function (b) { b.onclick = function () { qCollect(); Q.subId = b.getAttribute('data-sub'); Q.rplan = ''; qQuote(); }; });
+  var rp = $('#q_rplan'); if (rp) rp.onchange = function () { qCollect(); Q.rplan = rp.value; qQuote(); };
+  ['q_phone', 'q_name', 'q_email', 'q_extra', 'q_amount', 'q_ref', 'q_notes'].forEach(function (id) { var e = $('#' + id); if (e) e.addEventListener('input', qRefreshSummary); });
+  var mp = $('#q_markpaid'); if (mp) mp.onchange = qRefreshSummary;
+  var go = $('#q_go'); if (go) go.onclick = qSubmit;
+  var rs = body.querySelector('[data-act="reset"]'); if (rs) rs.onclick = function () { var t = Q.tab; qReset(t); quickView(); };
+}
+function qAfterCustomer() {
+  qRender();
+  if (Q.tab === 'renew' && Q.cust && !Q.cust.isNew) {
+    api('/admin/api/customer', { phone: Q.cust.phone }).then(function (r) {
+      Q.subs = ((r && r.subs) || []).slice().sort(function (a, b) { return String(a.expiry_date || '').localeCompare(String(b.expiry_date || '')); });
+      if (!Q.cust.email && r && r.profile && r.profile.email) Q.cust.email = r.profile.email;
+      qRender();
+    });
+  }
+}
+function qQuote() {
+  Q.quote = null; qRender();
+  var sid = Q.subId;
+  api('/admin/api/quick/renew-quote', { sub_id: sid, plan: Q.rplan }).then(function (r) {
+    if (Q.subId !== sid) return;
+    Q.quote = r; if (r && r.ok) { Q.rplan = r.plan; Q.amount = String(r.amount); }
+    qRender();
+  });
+}
+function qSubmit() {
+  qCollect();
+  var miss = qMissing(); if (miss) { toast(miss); return; }
+  if (Q.tab === 'new' && (!Q.cust.name || !String(Q.cust.name).trim())) { toast('Enter the customer name.'); return; }
+  if (String(Q.cust.phone || '').length !== 10) { toast('Enter a 10-digit mobile number.'); return; }
+  var body = {
+    mode: Q.tab === 'renew' ? 'RENEW' : 'NEW', phone: Q.cust.phone, name: Q.cust.name, email: Q.cust.email || '',
+    service: Q.service, plan: Q.tab === 'renew' ? Q.rplan : Q.plan, subId: Q.subId,
+    tvCount: Q.tv, extraFieldValue: Q.extra, amount: Q.amount, payMethod: Q.method, txnRef: Q.ref, notes: Q.notes, markPaid: Q.markPaid,
+  };
+  var send = function (confirmDuplicate) {
+    Q.busy = true; qRefreshSummary();
+    post('/admin/api/quick/order', Object.assign({ confirmDuplicate: !!confirmDuplicate }, body)).then(function (r) {
+      Q.busy = false;
+      if (r && r.duplicate) { if (confirm(r.message)) return send(true); qRefreshSummary(); return; }
+      if (!r || !r.ok) { toast('⚠️ ' + ((r && r.message) || 'Could not create the order')); qRefreshSummary(); return; }
+      Q.result = Object.assign({ name: Q.cust.name, phone: Q.cust.phone, service: Q.tab === 'renew' ? (Q.quote && Q.quote.service) : Q.service, plan: body.plan, durationDays: (qPlan() || {}).durationDays }, r);
+      qRender();
+    });
+  };
+  send(false);
+}
+function qWaText(r) {
+  var f = r.fulfillment || {}, a = f.access || {};
+  var first = String(r.name || '').trim().split(/\s+/)[0];
+  var lines = ['Hi' + (first ? ' ' + first : '') + '! ✅ Your FluxFilm ' + (r.service || '') + ' (' + (r.plan || '') + ') ' + (r.mode === 'RENEW' ? 'is renewed.' : 'is ready.')];
+  if (a.user) lines.push('', 'Login: ' + a.user);
+  if (a.pass) lines.push('Password: ' + a.pass);
+  if (a.profileName || a.profileNumber) lines.push('Profile: ' + [a.profileName, a.profileNumber ? '#' + a.profileNumber : ''].filter(Boolean).join(' '));
+  if (a.profilePin) lines.push('Profile PIN: ' + a.profilePin);
+  if (a.deviceType === 'TV' || a.deviceType === 'NON_TV' || a.deviceType === 'MIXED') lines.push('Use on: ' + (a.deviceType === 'TV' ? 'TV' : a.deviceType === 'NON_TV' ? 'mobile / laptop' : 'TV + mobile'));
+  var exp = f.newExpiryText || (f.expiry ? prettyDate(f.expiry) : '');
+  if (exp) lines.push('', 'Valid till: ' + exp);
+  if (f.fulfillment === 'MANUAL_PENDING') lines.push('', 'We are activating it now and will send the details shortly.');
+  if (r.status !== 'PAID') lines.push('', 'Please pay ₹' + r.amount + ' by UPI and send the screenshot. Order: ' + r.orderId);
+  else lines.push('', 'Order: ' + r.orderId);
+  lines.push('Need help? Just reply here 🙏');
+  return lines.join('\n');
+}
+function qRenderResult() {
+  var r = Q.result, f = r.fulfillment || {}, a = f.access || {};
+  var good = r.status === 'PAID' && (f.fulfillment === 'FULFILLED' || f.fulfillment === 'MANUAL_PENDING');
+  var head = r.status !== 'PAID' ? '🧾 Unpaid order created' : f.fulfillment === 'FULFILLED' ? (r.mode === 'RENEW' ? '✅ Renewed and paid' : '✅ Paid — account ready') : f.fulfillment === 'MANUAL_PENDING' ? '✅ Paid — activate it manually' : '⚠️ Paid, but the account was not handed out';
+  var cred = function (label, v) { return v ? '<div class="cr"><span>' + label + '</span><code>' + esc(v) + '</code><button class="copy" data-copy="' + esc(v) + '">Copy</button></div>' : ''; };
+  var creds = cred('Login', a.user) + cred('Password', a.pass) + cred('Profile', [a.profileName, a.profileNumber ? '#' + a.profileNumber : ''].filter(Boolean).join(' ')) + cred('PIN', a.profilePin);
+  var wa = qWaText(r);
+  var h = '<div class="card qresult ' + (good ? 'good' : r.status === 'PAID' ? 'bad' : '') + '"><h2 style="margin:0 0 4px">' + head + '</h2>' +
+    '<div class="muted">' + esc(r.orderId) + ' · ' + esc(r.service || '') + ' · ' + esc(r.plan || '') + ' · ' + money(r.amount) + (r.customerCreated ? ' · new customer added' : '') + '</div>' +
+    (r.markPaidError ? '<div class="qnote bad">' + esc(r.markPaidError) + '</div>' : '') +
+    (f.message ? '<div class="qnote' + (good ? '' : ' bad') + '">' + esc(f.message) + (f.renewMessage ? '<br>' + esc(f.renewMessage) : '') + '</div>' : '') +
+    (creds ? '<div class="creds" style="margin-top:12px">' + creds + '</div>' : '') +
+    (r.status !== 'PAID' && r.upiLink ? '<div class="qnote">UPI link: <code style="word-break:break-all">' + esc(r.upiLink) + '</code> <button class="copy" data-copy="' + esc(r.upiLink) + '">Copy</button></div>' : '') +
+    '<div class="fld" style="margin-top:14px"><label>WhatsApp message</label><textarea class="inp" id="q_wa" rows="9" style="width:100%;font-family:inherit">' + esc(wa) + '</textarea></div>' +
+    '<div class="row" style="margin-top:12px"><button class="btn green" id="q_copywa">📋 Copy message</button><a class="btn wa" id="q_openwa" target="_blank" href="' + waLink(r.phone, wa) + '">💬 Open WhatsApp</a>' +
+    '<button class="btn ghost" data-act="again">＋ Another order</button><button class="btn ghost" data-act="c360">👤 Customer 360</button></div></div>';
+  $('#qbody').innerHTML = h;
+  $('#q_wa').addEventListener('input', function () { $('#q_openwa').href = waLink(r.phone, $('#q_wa').value); });
+  $('#q_copywa').onclick = function () { copy($('#q_wa').value); };
+  $('#qbody [data-act="again"]').onclick = function () { var t = Q.tab; qReset(t); quickView(); };
+  $('#qbody [data-act="c360"]').onclick = function () { store('ff_last_phone', r.phone); nav('customer'); };
+}
+function qRenderUnpaid() {
+  $('#qbody').innerHTML = '<div class="card"><h3>Unpaid orders (last 14 days)</h3><p class="muted" style="margin-top:-6px;font-size:.8rem">Customer paid but the order is still waiting? Mark it paid — the account is handed out and emailed.</p>' +
+    '<div class="search"><input class="inp" id="q_uq" placeholder="Order ID, name or phone…" value="' + esc(Q.uq) + '"/></div><div id="q_ulist" class="list"><p class="muted">Loading…</p></div></div>';
+  var load = function () {
+    api('/admin/api/quick/unpaid', { q: Q.uq }).then(function (r) {
+      var el = $('#q_ulist'); if (!el) return;
+      if (!r.ok) { el.innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
+      Q.unpaid = r.orders;
+      el.innerHTML = r.orders.length ? r.orders.map(function (o, i) {
+        return '<div class="li"><span style="font-size:1.1rem">' + svcIcon(o.service) + '</span><div class="grow"><b>' + esc(o.name || '—') + '</b> <span class="muted">· ' + esc(o.phone_norm || '') + '</span><div class="muted" style="font-size:.72rem">' + esc(o.order_id) + ' · ' + esc(o.service) + ' · ' + esc(o.plan) + (String(o.order_type).toUpperCase() === 'RENEW' ? ' · renew' : '') + ' · ' + prettyDate(o.created_at_sheet, true) + '</div></div><b>' + money(o.final_amount) + '</b><button class="btn green sm" data-i="' + i + '">Mark paid</button></div>';
+      }).join('') : '<p class="muted">🎉 No unpaid orders' + (Q.uq ? ' matching “' + esc(Q.uq) + '”' : '') + '.</p>';
+    });
+  };
+  var t; $('#q_uq').addEventListener('input', function () { Q.uq = $('#q_uq').value.trim(); clearTimeout(t); t = setTimeout(load, 300); });
+  $('#q_ulist').onclick = function (e) {
+    var b = e.target.closest('button[data-i]'); if (!b) return;
+    var o = Q.unpaid[+b.getAttribute('data-i')];
+    modal('Mark ' + esc(o.order_id) + ' as paid',
+      '<p style="margin-top:0"><b>' + esc(o.name || '') + '</b> · ' + esc(o.phone_norm || '') + '<br>' + esc(o.service) + ' · ' + esc(o.plan) + ' · <b>' + money(o.final_amount) + '</b></p>' +
+      '<div class="fld"><label>Paid by</label><select class="inp" id="mp_m">' + ((Q.cat && Q.cat.payMethods) || ['UPI', 'CASH', 'BANK', 'OTHER']).map(function (m) { return '<option>' + m + '</option>'; }).join('') + '</select></div>' +
+      '<div class="fld" style="margin-top:10px"><label>UTR / reference (optional)</label><input class="inp" id="mp_ref"/></div>',
+      '<button class="btn green" id="mp_go">✅ Mark paid & hand out account</button><span id="mp_msg" class="muted"></span>', 'small');
+    $('#mp_go').onclick = function () {
+      $('#mp_go').disabled = true; $('#mp_msg').textContent = 'Working…';
+      post('/admin/api/quick/mark-paid', { orderId: o.order_id, payMethod: $('#mp_m').value, txnRef: $('#mp_ref').value }).then(function (r) {
+        if (!r.ok) { $('#mp_go').disabled = false; $('#mp_msg').textContent = '⚠️ ' + (r.message || 'failed'); return; }
+        closeModal();
+        Q.result = { mode: String(o.order_type).toUpperCase() === 'RENEW' ? 'RENEW' : 'NEW', orderId: o.order_id, amount: o.final_amount, status: 'PAID', fulfillment: r.fulfillment, name: o.name, phone: o.phone_norm, service: o.service, plan: o.plan };
+        qRender();
+      });
+    };
+  };
+  load();
 }
 
 /* ================= boot ================= */
