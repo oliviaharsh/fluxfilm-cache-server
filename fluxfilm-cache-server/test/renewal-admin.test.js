@@ -16,6 +16,7 @@ const mockDb = {
   query: async (sql, params) => {
     sql = sql.replace(/\s+/g, ' ').trim();
     calls.push({ sql, params });
+    if (/COLUMN_NAME c FROM information_schema/.test(sql)) return [{ c: 'sub_id' }, { c: 'expiry_date' }, { c: 'removed' }];
     if (/information_schema\.columns/.test(sql)) return [{ n: columnsPresent }];
     if (/^UPDATE subscriptions SET removed/.test(sql)) return { affectedRows: rowExists ? 1 : 0 };
     if (/^SELECT sub_id, removed, removed_at FROM subscriptions/.test(sql)) return [{ sub_id: params[0], removed: /removed = 1/.test(calls[calls.length - 2].sql) ? 1 : 0, removed_at: /removed = 1/.test(calls[calls.length - 2].sql) ? (calls[calls.length - 2].params[0] || '2026-09-14 10:00:00') : null }];
@@ -86,7 +87,20 @@ Module._load = function (req) {
   let parsed = true;
   for (const sc of scripts) { try { new Function(sc); } catch (e) { parsed = false; console.log('   parse error:', e.message); } }
   ok('every inline script parses', scripts.length > 0 && parsed);
-  ok('panel has the tick box renderer and save handler', /function subsTbl\(/.test(html) && /function saveRemoved\(/.test(html) && /saveRemoved\(\\''\+o\.sub_id\+'\\'\)/.test(html));
+  ok('panel has the Customer 360 tick box and save handler', /function subCard\(/.test(html) && /function saveRemoved\(/.test(html) && /id="rm_' \+ id/.test(html));
+  ok('Sheets grid renders removed as a tick box with an editable time', /data-act="rm"/.test(html) && /function gridRemoved\(/.test(html) && /function removedDialog\(/.test(html));
+  ok('grid has resizable columns and a column picker', /class="rz"/.test(html) && /function autofit\(/.test(html) && /function toggleCols\(/.test(html));
+
+  section('Sheets grid: sorting + page size');
+  const tableCall = async (qs) => { calls.length = 0; await fetch(base + '/admin/api/table?key=k&name=subscriptions' + qs); return calls.find((x) => /^SELECT \* FROM `subscriptions`/.test(x.sql)); };
+  let tc = await tableCall('&sort=expiry_date&dir=asc');
+  ok('sort by a real column', tc && /ORDER BY `expiry_date` ASC/.test(tc.sql), tc);
+  tc = await tableCall('&sort=removed');
+  ok('sort defaults to descending', tc && /ORDER BY `removed` DESC/.test(tc.sql), tc);
+  tc = await tableCall('&sort=' + encodeURIComponent('expiry_date; DROP TABLE x') + '&dir=asc');
+  ok('unknown / injected sort column falls back to the default order', tc && /ORDER BY expiry_date DESC/.test(tc.sql) && !/DROP/.test(tc.sql), tc);
+  tc = await tableCall('&limit=9999');
+  ok('page size is capped at 500', tc && tc.params[tc.params.length - 2] === 500, tc);
   server.close();
 
   section('Sheet import maps RemovedFromDevice');
