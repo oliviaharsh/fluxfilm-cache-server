@@ -844,7 +844,6 @@ function CredCard({
   isOtpService,
   onGoOtp
 }) {
-  const isNetflix = String(service || '').toLowerCase().includes('netflix');
   return React.createElement(Card, null, React.createElement("div", {
     style: {
       fontFamily: PJS,
@@ -861,10 +860,10 @@ function CredCard({
     label: "Password",
     value: access.pass || '-',
     copyable: true
-  }), isNetflix && access.profileNumber && React.createElement(KV, {
+  }), access.profileNumber && React.createElement(KV, {
     label: "Profile",
     value: `#${access.profileNumber} · ${access.profileName || ''}`
-  }), isNetflix && access.profilePin && React.createElement(KV, {
+  }), access.profilePin && React.createElement(KV, {
     label: "Profile PIN",
     value: access.profilePin,
     copyable: true

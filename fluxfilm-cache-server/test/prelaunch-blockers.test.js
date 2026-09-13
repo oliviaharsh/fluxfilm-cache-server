@@ -62,6 +62,13 @@ function makeFixture(r) {
       const id = pre + '-' + i; add(svc, id, { notes: pick(['', 'Our account', '1,3', '6', '12']) });
       if (r() > 0.4) caps.push({ service: svc, account_id: id, max_total: pick([0, 1, 2, 3]), max_tv: 0, is_active: pick(['TRUE', 'FALSE', '']) });
       if (r() > 0.4) occ.push({ svc: svc.toLowerCase(), inventory_ref: id, total: Math.floor(r() * 4), tv: 0 });
+      if (svc === 'Crunchyroll') {
+        const n = Math.floor(r() * 6);
+        for (let pno = 1; pno <= n; pno++) {
+          profiles.push({ service: 'Crunchyroll', account_id: id, profile_number: String(pno), profile_pin: '2222', profile_name: 'C' + pno, raw_json: JSON.stringify({ ProfileType: pick(['PRIVATE_ROTATING', 'PRIVATE_ROTATING', 'PRIVATE_ROTATING', 'SHARING_RESERVED', '']), IsReserved: pick(['FALSE', 'FALSE', 'TRUE']) }) });
+          if (r() > 0.5) occ.push({ svc: 'crunchyroll', inventory_ref: id + '#P' + pno, total: Math.floor(r() * 3), tv: 0 });
+        }
+      }
     }
   }
   return { accounts, caps, profiles, occ };
@@ -90,7 +97,7 @@ function allocConn(fx) {
 function snapOf(fx) {
   return {
     accounts: fx.accounts.filter((a) => a.is_active.toUpperCase() === 'TRUE').map((a) => ({ service: a.service, account_id: a.account_id, notes: a.notes, has_creds: (a.login_id && a.password) ? 1 : 0 })),
-    caps: fx.caps, profiles: fx.profiles.filter((p) => p.service.toLowerCase().includes('netflix')), occ: fx.occ,
+    caps: fx.caps, profiles: fx.profiles, occ: fx.occ,
   };
 }
 
@@ -105,6 +112,8 @@ function snapOf(fx) {
     { service: 'Zee5 Premium', plan: '1 Month', duration_days: 30, raw_json: { AllocationPolicy: 'OTP_ACCOUNT' }, alloc: (c) => fulfill.allocateOtp(c, 'Zee5 Premium', 30) },
     { service: 'Zee5 Premium', plan: '6 Months', duration_days: 180, raw_json: { AllocationPolicy: 'OTP_ACCOUNT' }, alloc: (c) => fulfill.allocateOtp(c, 'Zee5 Premium', 180) },
     { service: 'Crunchyroll', plan: 'Private 1M', duration_days: 30, raw_json: { AllocationPolicy: 'ACCOUNT' }, alloc: (c) => fulfill.allocateWholeAccount(c, 'Crunchyroll', 1) },
+    { service: 'Crunchyroll', plan: 'Private 3M', duration_days: 90, raw_json: { AllocationPolicy: 'PROFILE' }, alloc: (c) => fulfill.allocateProfile(c, 'Crunchyroll', 'Private 3M', 1) },
+    { service: 'Crunchyroll', plan: 'Sharing 1M', duration_days: 30, raw_json: { AllocationPolicy: 'PROFILE' }, alloc: (c) => fulfill.allocateProfile(c, 'Crunchyroll', 'Sharing 1M', 1) },
   ];
   let checks = 0, mismatches = 0, sawOut = 0, sawIn = 0;
   const r = rng(424242);
@@ -117,7 +126,7 @@ function snapOf(fx) {
       if ((units >= 1) !== !!a.ok) { mismatches++; if (mismatches <= 3) console.log('   mismatch', p.service, p.plan, 'units', units, 'alloc', a.ok, a.message); }
     }
   }
-  ok('3200 plan checks, stock>=1 exactly when allocation succeeds', mismatches === 0, { checks, mismatches });
+  ok(checks + ' plan checks, stock>=1 exactly when allocation succeeds', mismatches === 0, { checks, mismatches });
   ok('fixtures covered both in-stock and sold-out', sawIn > 300 && sawOut > 300, { sawIn, sawOut });
 
   section('stock levels + manual services');
@@ -145,6 +154,47 @@ function snapOf(fx) {
     { service: 'YouTube Premium', plan: '1M', duration_days: 30, raw_json: JSON.stringify({ AllocationPolicy: 'NONE' }) },
   ]);
   ok('computeStockLevels keys + sources', lv['JioHotstar|||1 Year'].stockLevel === 'OK' && lv['JioHotstar|||1 Year'].source === 'inventory' && lv['YouTube Premium|||3M'].stockLevel === 'OUT' && lv['YouTube Premium|||1M'].stockLevel === 'OK', lv);
+
+  // ============ 1b. PROFILE allocation beyond Netflix ============
+  section('profile allocation: Crunchyroll + Netflix unchanged');
+  {
+    const r2 = rng(777);
+    let same = 0, diff = 0, leaks = 0, crSold = 0;
+    for (let i = 0; i < 300; i++) {
+      const fx = makeFixture(r2);
+      for (const plan of ['Private 1M', 'Sharing 1M']) {
+        const a = await fulfill.allocateNetflix(allocConn(fx), plan, 1);
+        const b = await fulfill.allocateProfile(allocConn(fx), 'Netflix (Group Offer)', plan, 1);
+        if (JSON.stringify(a) === JSON.stringify(b)) same++; else diff++;
+      }
+      const c = await fulfill.allocateProfile(allocConn(fx), 'Crunchyroll', 'Private 1M', 1);
+      if (c.ok) { crSold++; if (!String(c.inventoryRef).startsWith('CR-')) leaks++; }
+    }
+    ok('Netflix result identical via old and new entry point (600 cases)', diff === 0 && same === 600, { same, diff });
+    ok('Crunchyroll never receives a profile from another service', leaks === 0 && crSold > 50, { leaks, crSold });
+
+    const fx = {
+      accounts: [
+        { service: 'Crunchyroll', account_id: 'CRY-01', login_id: 'cr@x', password: 'pw', notes: '', is_active: 'TRUE' },
+        { service: 'Netflix', account_id: 'NF-9', login_id: 'nf@x', password: 'pw', notes: '', is_active: 'TRUE' },
+      ],
+      caps: [],
+      profiles: [1, 2, 3, 4, 5].map((n) => ({ service: 'Crunchyroll', account_id: 'CRY-01', profile_number: String(n), profile_pin: '100' + n, profile_name: n + 'th Profile', raw_json: JSON.stringify({ ProfileType: 'PRIVATE_ROTATING', IsReserved: 'FALSE' }) }))
+        .concat([1, 2].map((n) => ({ service: 'Netflix', account_id: 'NF-9', profile_number: String(n), profile_pin: '9', profile_name: 'N' + n, raw_json: JSON.stringify({ ProfileType: 'PRIVATE_ROTATING', IsReserved: 'FALSE' }) }))),
+      occ: [2, 3, 4, 5].map((n) => ({ svc: 'crunchyroll', inventory_ref: 'CRY-01#P' + n, total: 1, tv: 0 }))
+        .concat([{ svc: 'netflix', inventory_ref: 'NF-9#P2', total: 1, tv: 0 }]),
+    };
+    const got = await fulfill.allocateProfile(allocConn(fx), 'Crunchyroll', 'Private 1M', 1);
+    ok('Crunchyroll sells profile #1 when #2-#5 are taken', got.ok && got.inventoryRef === 'CRY-01#P1' && got.access.profileNumber === 1 && got.access.profilePin === '1001', got);
+    const snap1 = snapOf(fx);
+    ok('stock agrees: 1 Crunchyroll profile left', stock.unitsForPlan(snap1, { service: 'Crunchyroll', plan: 'Private 1M', duration_days: 30, raw_json: JSON.stringify({ AllocationPolicy: 'PROFILE' }) }) === 1);
+    const nf = await fulfill.allocateNetflix(allocConn(fx), 'Private 1M', 1);
+    ok('Netflix still never sells shared profile #1 privately', nf.ok === false, nf);
+    fx.occ.push({ svc: 'crunchyroll', inventory_ref: 'CRY-01#P1', total: 1, tv: 0 });
+    const full = await fulfill.allocateProfile(allocConn(fx), 'Crunchyroll', 'Private 1M', 1);
+    ok('Crunchyroll sold out after 5 customers, with a Crunchyroll-worded message', full.ok === false && /Crunchyroll/.test(full.message) && !/Netflix/.test(full.message), full);
+    ok('stock agrees: 0 left', stock.unitsForPlan(snapOf(fx), { service: 'Crunchyroll', plan: 'Private 1M', duration_days: 30, raw_json: JSON.stringify({ AllocationPolicy: 'PROFILE' }) }) === 0);
+  }
 
   // ============ 2. coupon rules ============
   section('coupon rules');
