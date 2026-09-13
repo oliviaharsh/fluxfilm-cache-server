@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node test/prelaunch-blockers.test.js && node test/renewal-account-check.test.js && node test/renewal-rules.test.js && node test/renewal-admin.test.js && node test/security.test.js && node test/quick-orders.test.js && node test/admin-lookup.test.js && node test/admin-home.test.js"
+    "test": "node test/prelaunch-blockers.test.js && node test/renewal-account-check.test.js && node test/renewal-rules.test.js && node test/renewal-admin.test.js && node test/security.test.js && node test/quick-orders.test.js && node test/admin-lookup.test.js && node test/admin-home.test.js && node test/account-tools.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

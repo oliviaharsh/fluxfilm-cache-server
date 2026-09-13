@@ -47,7 +47,7 @@ function mount(app, deps) {
           { key: 'undelivered', icon: '⚠️', title: 'Paid but not delivered', count: +undelivered.n || 0, tone: 'bad', go: { view: 'orders', orders: 'undelivered' } },
           { key: 'manual', icon: '🛠', title: 'Manual plans to activate', count: +manual.n || 0, tone: 'warn', go: { view: 'orders', orders: 'manual' } },
           { key: 'unmatched', icon: '💸', title: 'Payments not matched to an order (14 days)', count: +unmatched.n || 0, tone: 'warn', go: { view: 'data', table: 'bank_credits' } },
-          { key: 'ending', icon: '⏳', title: 'Plans ending in 3 days', count: +ending.n || 0, tone: 'warn', go: { view: 'expiring' }, list: endingList },
+          { key: 'ending', icon: '⏳', title: 'Plans ending in 3 days', count: +ending.n || 0, tone: 'warn', go: { view: 'reminders' }, list: endingList },
           { key: 'out', icon: '🔴', title: 'Plans out of stock', count: out.length, tone: 'bad', names: out, go: { view: 'stock' } },
           { key: 'low', icon: '🟡', title: 'Plans running low', count: low.length, tone: 'warn', names: low, go: { view: 'stock' } },
           { key: 'expired', icon: '🚪', title: 'Expired customers still on accounts', count: +expiredOn.n || 0, tone: 'warn', go: { view: 'stock' } },

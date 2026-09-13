@@ -140,6 +140,8 @@ function mountAdmin(app, deps) {
   require('./adminlookup').mount(app, Object.assign({ db, auth, audit }, deps.lookup || {}));
   // Today screen, to-dos, global search, change log viewer (adminhome.js).
   require('./adminhome').mount(app, Object.assign({ db, auth, audit }, deps.home || {}));
+  // Password change (F5) + renewal reminders (accounttools.js).
+  require('./accounttools').mount(app, Object.assign({ db, auth, audit }, deps.tools || {}));
 
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};
