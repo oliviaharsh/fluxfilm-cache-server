@@ -1,5 +1,6 @@
 /* R1 — renewals check the account before payment and at fulfilment.
  * Run: npm test (no database needed — a small in-memory fake answers the SQL). */
+process.env.TZ = 'Asia/Kolkata';
 const Module = require('module');
 
 let pass = 0, fail = 0;
@@ -30,6 +31,7 @@ function run(sqlRaw, params) {
   const sql = norm(sqlRaw);
   params = params || [];
   if (/GET_LOCK|RELEASE_LOCK/.test(sql)) return [{ l: 1 }];
+  if (/information_schema\.columns/.test(sql)) return [{ n: S.noRemovalColumns ? 0 : 2 }];
   const c = conditions(sql, params);
   const activeOnly = /UPPER\(is_active\)='TRUE'/.test(sql);
 
@@ -63,9 +65,16 @@ function run(sqlRaw, params) {
     S.writes.push('move');
     return { affectedRows: 1 };
   }
+  if (/^UPDATE subscriptions SET login_id/.test(sql)) {
+    const s = S.subs.find((x) => x.sub_id === params[4]);
+    Object.assign(s, { login_id: params[0], password: params[1], profile_name: params[2], profile_pin: params[3] });
+    S.writes.push('refresh');
+    return { affectedRows: 1 };
+  }
   if (/^UPDATE subscriptions SET expiry_date/.test(sql)) {
     const s = S.subs.find((x) => x.sub_id === params[4]);
     Object.assign(s, { expiry_date: params[0], order_id: params[2], occupying: true });
+    if (/removed = 0, removed_at = NULL/.test(sql)) Object.assign(s, { removed: 0, removed_at: null });
     S.writes.push('extend');
     return { affectedRows: 1 };
   }
@@ -257,6 +266,65 @@ const other = (ref, service, o) => Object.assign({ sub_id: 'SUB-X' + Math.random
   S.orders.push(renewOrder({ service: 'Netflix', plan: 'Private 1M' }));
   f = await fulfill.fulfillForAdmin('FF-R1');
   ok('Netflix private: moved to free profile #3 with its PIN', f.accountChanged && me().inventory_ref === 'NF-1#P3' && String(f.access.profileNumber) === '3' && f.access.profilePin === '3333', { access: f.access, ref: me().inventory_ref });
+
+  section('renewal rules (F4) applied at fulfilment');
+  {
+    const pad = (n) => String(n).padStart(2, '0');
+    const local = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    const DAYMS = 86400000;
+    const now = Date.now();
+    const daysFromNow = () => Math.round((new Date(me().expiry_date.replace(' ', 'T')).getTime() - now) / DAYMS);
+
+    S = base();
+    S.subs.push(sub({ service: 'Prime Video', plan: '1 Month', inventory_ref: 'PRI-B', login_id: 'b@prime', password: 'pb',
+      expiry_date: local(new Date(now - 8 * DAYMS)), removed: 1, removed_at: local(new Date(now - 4 * DAYMS)), occupying: false }));
+    S.orders.push(renewOrder());
+    let f = await fulfill.fulfillForAdmin('FF-R1');
+    ok('removed customer: 4 free days, 2 goodwill -> 28 days from payment', daysFromNow() === 28, { days: daysFromNow(), expiry: me().expiry_date });
+    ok('customer told what was counted and gifted', /counted only 2 days and gifted you 2 days/.test(f.renewMessage) && /runs until/.test(f.message), f);
+    ok('fun bubble included', /hours/.test(f.renewBubble), f.renewBubble);
+    ok('"removed" tick cleared after renewal', Number(me().removed) === 0 && me().removed_at === null, me());
+
+    S = base();
+    S.subs.push(sub({ service: 'Prime Video', plan: '1 Month', inventory_ref: 'PRI-B', login_id: 'b@prime', password: 'pb', expiry_date: local(new Date(now - 20 * DAYMS)), removed: 0, occupying: false }));
+    S.orders.push(renewOrder());
+    f = await fulfill.fulfillForAdmin('FF-R1');
+    ok('not removed, 20 days late: 7 counted -> 23 days from payment', daysFromNow() === 23 && f.renewCounted === 7, { days: daysFromNow(), counted: f.renewCounted });
+
+    S = base();
+    S.accounts[1].password = 'NEW-pass';
+    S.subs.push(sub({ service: 'Prime Video', plan: '1 Month', inventory_ref: 'PRI-B', login_id: 'b@prime', password: 'old-pass', expiry_date: local(new Date(now - 3 * DAYMS)), removed: 1, removed_at: local(new Date(now - 2 * DAYMS)), occupying: false }));
+    S.orders.push(renewOrder());
+    f = await fulfill.fulfillForAdmin('FF-R1');
+    ok('same account: stale stored password replaced by the current one', f.access.pass === 'NEW-pass' && me().password === 'NEW-pass' && S.writes.includes('refresh') && !f.accountChanged, { access: f.access, writes: S.writes });
+
+    S = base();
+    S.subs.push(sub({ service: 'Prime Video', plan: '1 Month', inventory_ref: 'PRI-B', login_id: 'b@prime', password: 'pb' }));
+    S.orders.push(renewOrder());
+    await fulfill.fulfillForAdmin('FF-R1');
+    ok('credentials already current: no needless write', !S.writes.includes('refresh'), S.writes);
+
+    S = base();
+    S.subs.push(sub({ service: 'Netflix', plan: 'Private 1M', inventory_ref: 'NF-1#P2', login_id: 'n1@nf', password: 'pn', profile_number: '2', profile_name: 'Two', profile_pin: 'OLD' }));
+    S.profiles[1].profile_pin = '9999';
+    S.orders.push(renewOrder({ service: 'Netflix', plan: 'Private 1M' }));
+    f = await fulfill.fulfillForAdmin('FF-R1');
+    ok('Netflix private: changed profile PIN refreshed', f.access.profilePin === '9999' && me().profile_pin === '9999', f.access);
+
+    S = base();
+    S.subs.push(sub({ service: 'Prime Video', plan: '1 Month', inventory_ref: 'PRI-B', expiry_date: local(new Date(now - 8 * DAYMS)), removed: 1, removed_at: local(new Date(now - 4 * DAYMS)), occupying: false }));
+    const pr = await order.createRenewOrder('SUB-ME');
+    ok('pay screen gets the new expiry and the explanation before payment', pr.ok && pr.renewPreview && /^\d{1,2} [A-Z][a-z]{2} \d{4}$/.test(pr.renewPreview.newExpiryText) && /gifted you 2 days/.test(pr.renewPreview.message), pr.renewPreview);
+
+    S = base();
+    S.noRemovalColumns = true;
+    S.subs.push(sub({ service: 'Prime Video', plan: '1 Month', inventory_ref: 'PRI-B', login_id: 'b@prime', password: 'pb', expiry_date: local(new Date(now - 3 * DAYMS)), occupying: false }));
+    S.orders.push(renewOrder());
+    delete require.cache[require.resolve('../fulfill')];
+    const freshFulfill = require('../fulfill');
+    f = await freshFulfill.fulfillForAdmin('FF-R1');
+    ok('before schema-v13 runs: renewal still fulfils, treated as not removed (3 days counted)', f.fulfillment === 'FULFILLED' && f.renewCounted === 3, { fulfillment: f.fulfillment, counted: f.renewCounted, message: f.message });
+  }
 
   console.log('\n---------------------------------------');
   console.log('PASS ' + pass + '   FAIL ' + fail);

@@ -6,6 +6,7 @@
  */
 const db = require('./db');
 const { loginKey, buildLoginGroups } = require('./logins');
+const { computeRenewal } = require('./renewal');
 
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
@@ -429,10 +430,21 @@ async function _renewalPlanInfo(conn, service, plan) {
   };
 }
 
+// schema-v13 adds subscriptions.removed / removed_at. Until it has been run, renewals
+// keep working and treat everyone as "not removed".
+let _removalColumns = false;
+async function _hasRemovalColumns(conn) {
+  if (_removalColumns) return true;
+  const [r] = await conn.query("SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'subscriptions' AND column_name IN ('removed', 'removed_at')");
+  _removalColumns = Number((r[0] || {}).n) === 2;
+  return _removalColumns;
+}
+
 async function _renewalSub(conn, subId) {
+  const removal = (await _hasRemovalColumns(conn)) ? 'removed, removed_at, ' : '0 AS removed, NULL AS removed_at, ';
   const [rows] = await conn.query(
     'SELECT sub_id, service, plan, expiry_date, inventory_ref, account_id, login_id, password, profile_name, profile_pin, profile_number, ' +
-    'device_type, device_count, tv_count, (' + OCC_ACTIVE + ') AS occupying FROM subscriptions WHERE sub_id = ? LIMIT 1', [subId]);
+    'device_type, device_count, tv_count, ' + removal + '(' + OCC_ACTIVE + ') AS occupying FROM subscriptions WHERE sub_id = ? LIMIT 1', [subId]);
   return rows[0] || null;
 }
 
@@ -459,7 +471,11 @@ async function _canKeepAccount(conn, policy, s, plan) {
   const like = policy === 'CAPACITY' ? '%prime%' : (policy === 'PROFILE' && /netflix/i.test(svc)) ? '%netflix%' : '%' + svc + '%';
 
   const [rows] = await conn.query("SELECT login_id, password FROM inventory_accounts WHERE account_id = ? AND LOWER(service) LIKE ? AND UPPER(is_active)='TRUE'", [acc, like]);
-  if (!rows.some((r) => r.login_id && r.password)) return { keep: false, reason: 'INACTIVE' };
+  const live = rows.find((r) => r.login_id && r.password);
+  if (!live) return { keep: false, reason: 'INACTIVE' };
+  // The account's CURRENT login: a customer we removed by changing the password still
+  // has the old one stored on their subscription.
+  const creds = { user: live.login_id, pass: live.password };
 
   if (policy === 'CAPACITY') {
     const [caps] = await conn.query('SELECT max_total, max_tv, is_active FROM inventory_capacity WHERE account_id = ? AND LOWER(service) LIKE ?', [acc, like]);
@@ -468,13 +484,18 @@ async function _canKeepAccount(conn, policy, s, plan) {
     if (!cap.isActive) return { keep: false, reason: 'INACTIVE' };
     const o = (await primeOccupancy(conn)).get(acc) || { total: 0, tv: 0 };
     if (o.total - selfDev + dev > cap.maxTotal || o.tv - selfTv + Math.min(tv, dev) > cap.maxTV) return { keep: false, reason: 'FULL' };
-    return { keep: true };
+    return { keep: true, creds };
   }
 
   if (policy === 'PROFILE') {
     if (!pno) return { keep: false, reason: 'NO_PROFILE' };
-    const [profs] = await conn.query('SELECT profile_number, raw_json FROM inventory_profiles WHERE account_id = ? AND LOWER(service) LIKE ?', [acc, like]);
-    if (!profs.some((p) => (asNum(p.profile_number) || asNum(rawOf(p.raw_json).ProfileNumber)) === pno)) return { keep: false, reason: 'PROFILE_GONE' };
+    const [profs] = await conn.query('SELECT profile_number, profile_name, profile_pin, raw_json FROM inventory_profiles WHERE account_id = ? AND LOWER(service) LIKE ?', [acc, like]);
+    const prof = profs.find((p) => (asNum(p.profile_number) || asNum(rawOf(p.raw_json).ProfileNumber)) === pno);
+    if (!prof) return { keep: false, reason: 'PROFILE_GONE' };
+    const praw = rawOf(prof.raw_json);
+    creds.profileNumber = pno;
+    creds.profileName = String(praw.ProfileDisplayName || praw.ProfileName || prof.profile_name || '').trim();
+    creds.profilePin = String(prof.profile_pin || praw.ProfilePIN || '').trim();
     const used = (await occupancyMap(conn, like)).get(ref) || 0;
     if (/sharing|group/i.test(String(plan || s.plan || ''))) {
       const [caps] = await conn.query('SELECT max_total, is_active FROM inventory_capacity WHERE account_id = ? AND LOWER(service) LIKE ?', [acc, like]);
@@ -485,7 +506,7 @@ async function _canKeepAccount(conn, policy, s, plan) {
     } else if (used - selfDev > 0) {
       return { keep: false, reason: 'FULL' }; // someone else now has this private profile
     }
-    return { keep: true };
+    return { keep: true, creds };
   }
 
   // ACCOUNT / OTP_ACCOUNT: capacity belongs to the login (see logins.js).
@@ -493,7 +514,7 @@ async function _canKeepAccount(conn, policy, s, plan) {
   if (!g.isActive) return { keep: false, reason: 'INACTIVE' };
   const need = policy === 'OTP_ACCOUNT' ? 1 : dev;
   if (g.used - selfDev + need > g.maxTotal) return { keep: false, reason: 'FULL' };
-  return { keep: true };
+  return { keep: true, creds };
 }
 
 const RENEW_MOVE_MESSAGE = {
@@ -505,15 +526,15 @@ const RENEW_NONE_MESSAGE = "Sorry — your old account is no longer available an
 async function _renewalDecision(conn, s, plan) {
   const targetPlan = plan || s.plan;
   const info = await _renewalPlanInfo(conn, s.service, targetPlan);
-  if (info.policy === 'MANUAL') return { mode: 'SAME', policy: info.policy };
+  if (info.policy === 'MANUAL') return { mode: 'SAME', policy: info.policy, durationDays: info.durationDays };
   const keep = await _canKeepAccount(conn, info.policy, s, targetPlan);
-  if (keep.keep) return { mode: 'SAME', policy: info.policy };
+  if (keep.keep) return { mode: 'SAME', policy: info.policy, creds: keep.creds, durationDays: info.durationDays };
   const { dev, tv } = _heldDevices(s);
   const { alloc, dt } = await pickAllocation(conn, info.policy, {
     service: s.service, plan: targetPlan, durationDays: info.durationDays, deviceCount: dev, tvCount: Math.min(tv, dev),
   });
-  if (alloc && alloc.ok) return { mode: 'MOVE', policy: info.policy, reason: keep.reason, alloc, dt };
-  return { mode: 'NONE', policy: info.policy, reason: keep.reason };
+  if (alloc && alloc.ok) return { mode: 'MOVE', policy: info.policy, reason: keep.reason, alloc, dt, durationDays: info.durationDays };
+  return { mode: 'NONE', policy: info.policy, reason: keep.reason, durationDays: info.durationDays };
 }
 
 /** Before payment: what will happen to this renewal? Used by createRenewOrder. */
@@ -525,7 +546,9 @@ async function planRenewal(subId, plan) {
     const d = await _renewalDecision(conn, s, plan);
     const message = d.mode === 'MOVE' ? (RENEW_MOVE_MESSAGE[d.reason] || RENEW_MOVE_MESSAGE.DEFAULT)
       : d.mode === 'NONE' ? RENEW_NONE_MESSAGE : '';
-    return { mode: d.mode, reason: d.reason || '', message };
+    const rn = computeRenewal({ expiry: s.expiry_date, removed: Number(s.removed) === 1, removedAt: s.removed_at, now: new Date(), durationDays: d.durationDays });
+    const preview = { newExpiryText: rn.newExpiryText, message: rn.message, bubble: rn.bubble, counted: rn.counted, gifted: rn.gifted, case: rn.case };
+    return { mode: d.mode, reason: d.reason || '', message, preview };
   } finally { conn.release(); }
 }
 
@@ -555,6 +578,20 @@ async function _fulfillRenew(o) {
 
     let access = _accessOf(s);
     const moved = d.mode === 'MOVE';
+    if (!moved && d.creds) {
+      const c = d.creds;
+      const fresh = {
+        user: c.user, pass: c.pass,
+        profileName: c.profileName != null ? c.profileName : (s.profile_name || ''),
+        profilePin: c.profilePin != null ? c.profilePin : (s.profile_pin || ''),
+      };
+      if (fresh.user !== s.login_id || fresh.pass !== s.password || fresh.profileName !== (s.profile_name || '') || fresh.profilePin !== (s.profile_pin || '')) {
+        await conn.query('UPDATE subscriptions SET login_id = ?, password = ?, profile_name = ?, profile_pin = ? WHERE sub_id = ?',
+          [fresh.user, fresh.pass, fresh.profileName, fresh.profilePin, sid]);
+        console.log('[renew] refreshed stored login for', sid);
+      }
+      access = Object.assign({}, access, { user: fresh.user, pass: fresh.pass, profileName: fresh.profileName, profilePin: fresh.profilePin });
+    }
     if (moved) {
       const na = d.alloc.access || {};
       await conn.query(
@@ -564,20 +601,18 @@ async function _fulfillRenew(o) {
       console.log('[renew] moved', sid, 'from', s.inventory_ref, 'to', d.alloc.inventoryRef, '(' + d.reason + ')');
     }
 
-    const durationDays = asNum(o.duration_days) || 30;
-    const LATE = Number(process.env.RENEW_BASE_TODAY_AFTER_DAYS || 10);
-    const nowDate = new Date();
-    let base = nowDate;
-    const oldExp = s.expiry_date ? new Date(s.expiry_date) : null;
-    if (oldExp && !isNaN(oldExp.getTime())) {
-      const daysLate = Math.ceil((nowDate.getTime() - oldExp.getTime()) / 86400000);
-      base = (daysLate <= LATE) ? oldExp : nowDate;
-    }
-    const newExpiry = addDays(base, durationDays);
+    // How many days the late renewal costs — agreed rules in renewal.js (F4).
+    const rn = computeRenewal({
+      expiry: s.expiry_date, removed: Number(s.removed) === 1, removedAt: s.removed_at,
+      now: new Date(), durationDays: asNum(o.duration_days) || 30,
+    });
+    const newExpiry = rn.newExpiry;
     const release = addDays(newExpiry, COOLDOWN_DAYS);
 
+    // Back on the account: clear the "removed" tick so the next renewal starts clean.
+    const clearRemoval = (await _hasRemovalColumns(conn)) ? ', removed = 0, removed_at = NULL' : '';
     await conn.query(
-      "UPDATE subscriptions SET expiry_date = ?, new_expiry = ?, order_id = ?, status = 'ACTIVE', fulfillment_status = 'FULFILLED', release_eligible_at = ?, fulfilled_at = NOW(), source = 'node' WHERE sub_id = ?",
+      "UPDATE subscriptions SET expiry_date = ?, new_expiry = ?, order_id = ?, status = 'ACTIVE', fulfillment_status = 'FULFILLED', release_eligible_at = ?, fulfilled_at = NOW(), source = 'node'" + clearRemoval + " WHERE sub_id = ?",
       [fmtDt(newExpiry), fmtDt(newExpiry), o.order_id, fmtDt(release), sid]);
     await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
 
@@ -590,7 +625,8 @@ async function _fulfillRenew(o) {
     });
     return {
       ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED',
-      message: moved ? '✅ Renewed! Your old account was no longer available, so here is your new login.' : '✅ Renewed! Your subscription has been extended.',
+      message: (moved ? '✅ Renewed! Your old account was no longer available, so here is your new login.' : '✅ Renewed!') + ' Your plan now runs until ' + rn.newExpiryText + '.',
+      renewMessage: rn.message, renewBubble: rn.bubble, renewCounted: rn.counted, renewGifted: rn.gifted, newExpiryText: rn.newExpiryText,
       postPaymentMessage: '', access, subId: sid, newExpiry: fmtDt(newExpiry), accountChanged: moved,
     };
   });

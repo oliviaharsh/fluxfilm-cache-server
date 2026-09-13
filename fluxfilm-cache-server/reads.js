@@ -135,7 +135,13 @@ async function getMySubscriptions(phone) {
   const t = (x) => { const d = parseDbDate(x.expiryDate); return d ? d.getTime() : null; };
   actionable.sort((a, b) => (t(a) == null ? 9e15 : t(a)) - (t(b) == null ? 9e15 : t(b)));
   tooLate.sort((a, b) => (t(b) == null ? 0 : t(b)) - (t(a) == null ? 0 : t(a)));
-  return { ok: true, phone: ph, infoBanner, actionable, history: tooLate.slice(0, 3) };
+  // Customers whose plan ended a while ago can still renew (the renewal rules decide how many
+  // days are counted), so list every plan that ended in the last RENEW_VISIBLE_DAYS days
+  // (default 60, at most 10) — previously only the 3 most recent were shown.
+  const visibleDays = Number(process.env.RENEW_VISIBLE_DAYS || 60);
+  const recent = tooLate.filter((x) => x.daysLeft != null && x.daysLeft >= -visibleDays);
+  const history = (recent.length > 3 ? recent : tooLate.slice(0, 3)).slice(0, 10);
+  return { ok: true, phone: ph, infoBanner, actionable, history };
 }
 
 async function getCustomerOrders(phone, limit) {
