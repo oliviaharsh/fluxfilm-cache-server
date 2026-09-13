@@ -3974,7 +3974,8 @@ function PayScreen({
     upiLink,
     amount,
     accessToken,
-    renewNotice
+    renewNotice,
+    renewPreview
   } = orderData;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=8&data=${encodeURIComponent(upiLink || '')}`;
   function copyText(text, setter) {
@@ -4017,7 +4018,35 @@ function PayScreen({
       fontWeight: 600,
       lineHeight: 1.45
     }
-  }, "🔄 ", renewNotice) : null, React.createElement("div", {
+  }, "🔄 ", renewNotice) : null, renewPreview && renewPreview.newExpiryText ? React.createElement("div", {
+    style: {
+      margin: '12px 0 0',
+      padding: '12px 14px',
+      borderRadius: 14,
+      background: '#f0fdf4',
+      border: '1px solid #86efac',
+      color: '#14532d',
+      fontFamily: PJS,
+      fontSize: 13.5,
+      fontWeight: 600,
+      lineHeight: 1.5
+    }
+  }, "📅 After payment your plan runs until ", React.createElement("b", null, renewPreview.newExpiryText), ".", renewPreview.message ? React.createElement("div", {
+    style: {
+      marginTop: 6,
+      fontWeight: 500
+    }
+  }, renewPreview.message) : null, renewPreview.bubble ? React.createElement("div", {
+    style: {
+      marginTop: 8,
+      display: 'inline-block',
+      padding: '6px 12px',
+      borderRadius: 999,
+      background: '#fef3c7',
+      color: '#92400e',
+      fontWeight: 700
+    }
+  }, renewPreview.bubble) : null) : null, React.createElement("div", {
     style: {
       margin: '16px 0 14px',
       padding: 20,
@@ -4823,7 +4852,8 @@ function RenewStartScreen({
         amount: Number(r.amount || r.finalAmount || 0),
         currency: r.currency || 'INR',
         accessToken: r.accessToken || '',
-        renewNotice: r.renewNotice || ''
+        renewNotice: r.renewNotice || '',
+        renewPreview: r.renewPreview || null
       };
       setOrderData(oi);
       try {
@@ -5401,7 +5431,7 @@ function DoneScreen({
     }
   } : {};
   const title = !r.found ? '❌ Verify Error' : isNoStock ? '⚠️ Accounts Temporarily Unavailable' : isManual ? '✅ Payment Received' : '✅ Access Granted 🎉';
-  const msg = !r.found ? 'Please try verifying again.' : isNoStock ? r.message || 'Please contact support.' : isManual ? r.message || 'Activation will be done manually soon.' : r.accessWithheld ? r.message || 'Your login details were emailed to you. You can also view them using Recover.' : r.accountChanged ? r.message || 'Your login has changed — your new details are below.' : 'Your details are shown below. We also sent confirmation to your email.';
+  const msg = !r.found ? 'Please try verifying again.' : isNoStock ? r.message || 'Please contact support.' : isManual ? r.message || 'Activation will be done manually soon.' : r.accessWithheld ? r.message || 'Your login details were emailed to you. You can also view them using Recover.' : r.accountChanged ? r.message || 'Your login has changed — your new details are below.' : r.renewMessage ? r.message + ' ' + r.renewMessage : 'Your details are shown below. We also sent confirmation to your email.';
   return React.createElement(Slide, null, React.createElement("div", {
     style: {
       paddingBottom: 90
@@ -5433,7 +5463,19 @@ function DoneScreen({
       fontWeight: 500,
       lineHeight: 1.5
     }
-  }, msg)), postMsg && React.createElement(Card, {
+  }, msg), r.renewBubble ? React.createElement("div", {
+    style: {
+      margin: '10px auto 0',
+      display: 'inline-block',
+      padding: '8px 14px',
+      borderRadius: 999,
+      background: '#fef3c7',
+      color: '#92400e',
+      fontFamily: PJS,
+      fontSize: 13,
+      fontWeight: 700
+    }
+  }, r.renewBubble) : null), postMsg && React.createElement(Card, {
     style: {
       marginBottom: 14,
       background: 'linear-gradient(135deg,rgba(245,158,11,.10),rgba(251,191,36,.06))',

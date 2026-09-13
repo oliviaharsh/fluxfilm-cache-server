@@ -143,9 +143,10 @@ function mountAdmin(app, deps) {
       const [profile, orders, subs, wallet] = await Promise.all([
         db.query('SELECT phone, name, email, member_since FROM customers WHERE phone_norm = ? LIMIT 1', [ph]),
         db.query('SELECT order_id, created_at_sheet, service, plan, final_amount, status, fulfillment_status FROM orders WHERE phone_norm = ? ORDER BY created_at_sheet DESC LIMIT 50', [ph]),
-        db.query('SELECT sub_id, service, plan, expiry_date, status, login_id, password FROM subscriptions WHERE phone_norm = ? ORDER BY expiry_date DESC', [ph]),
+        db.query('SELECT * FROM subscriptions WHERE phone_norm = ? ORDER BY expiry_date DESC', [ph]),
         db.query('SELECT coins_balance, coins_lifetime, last_event FROM wallet WHERE phone_norm = ? LIMIT 1', [ph]),
       ]);
+      for (const x of subs) delete x.raw_json;
       res.json({ ok: true, phone: ph, profile: profile[0] || null, orders, subs, wallet: wallet[0] || null });
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
@@ -157,6 +158,34 @@ function mountAdmin(app, deps) {
   // `raw_json`, so we write raw_json AND the typed columns. A coupon saved with
   // just the typed columns would show in the admin list but silently never apply
   // at checkout.
+  // "Removed from account" tick (renewal rules F4): who we logged out, and when. The
+  // renewal rule reads removed + removed_at. Times are India time, like every date here.
+  app.post('/admin/api/sub-removed', async (req, res) => {
+    if (!auth(req, res)) return;
+    const b = req.body || {};
+    const sid = String(b.sub_id || '').trim();
+    if (!sid) return res.status(400).json({ ok: false, message: 'sub_id required' });
+    const removed = b.removed === true || b.removed === 1 || String(b.removed).toLowerCase() === 'true';
+    let at = null;
+    if (removed && String(b.removed_at || '').trim()) {
+      const m = String(b.removed_at).trim().match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::(\d{2}))?$/);
+      if (!m) return res.status(400).json({ ok: false, message: 'Use a date and time like 2026-09-01 14:30' });
+      at = m[1] + ' ' + m[2] + ':' + (m[3] || '00');
+    }
+    try {
+      const cols = await db.query("SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'subscriptions' AND column_name IN ('removed', 'removed_at')", []);
+      if (Number((cols[0] || {}).n) !== 2) return res.status(409).json({ ok: false, message: 'Run db/schema-v13.sql in phpMyAdmin first.' });
+      // Keep raw_json's Sheet field in step, so editing the row elsewhere can't undo the tick.
+      const flag = removed ? 'TRUE' : 'FALSE';
+      const r = removed
+        ? await db.query("UPDATE subscriptions SET removed = 1, removed_at = COALESCE(?, NOW()), raw_json = IF(raw_json IS NULL, NULL, JSON_SET(raw_json, '$.RemovedFromDevice', ?)) WHERE sub_id = ? LIMIT 1", [at, flag, sid])
+        : await db.query("UPDATE subscriptions SET removed = 0, removed_at = NULL, raw_json = IF(raw_json IS NULL, NULL, JSON_SET(raw_json, '$.RemovedFromDevice', ?)) WHERE sub_id = ? LIMIT 1", [flag, sid]);
+      if (!r || !r.affectedRows) return res.status(404).json({ ok: false, message: 'Subscription not found' });
+      const row = await db.query('SELECT sub_id, removed, removed_at FROM subscriptions WHERE sub_id = ? LIMIT 1', [sid]);
+      res.json({ ok: true, sub: row[0] || null });
+    } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
+  });
+
   app.post('/admin/api/coupon', async (req, res) => {
     if (!auth(req, res)) return;
     const p = req.body || {};
@@ -464,13 +493,15 @@ function loadCoupons(){
 function editCoupon(i){var c=(window._coupons||[])[i]; if(c){renderCouponForm(c); window.scrollTo({top:0,behavior:'smooth'});}}
 function customer(){
  $('#view').innerHTML='<div class="bar"><input id="cp" placeholder="Customer phone number…" style="flex:1;min-width:200px" onkeydown="if(event.key===\\'Enter\\')lookup()"/><button onclick="lookup()">Look up</button></div><div id="c360"></div>'}
+function subsTbl(arr){if(!arr||!arr.length)return '<p class="muted">none</p>';var th=['sub_id','service','plan','expiry_date','status','login_id','password'];return '<div class="tblwrap"><table><thead><tr>'+th.map(function(c){return '<th>'+c+'</th>'}).join('')+'<th>removed from account (India time)</th></tr></thead><tbody>'+arr.map(function(o){var cell;if(!('removed' in o)){cell='<span class="muted">run schema-v13</span>'}else{var t=o.removed_at?String(o.removed_at).slice(0,16).replace(' ','T'):'';cell='<label><input type="checkbox" id="rm_'+o.sub_id+'"'+(Number(o.removed)?' checked':'')+'/> removed</label> <input type="datetime-local" id="rmat_'+o.sub_id+'" value="'+t+'"/> <button onclick="saveRemoved(\\''+o.sub_id+'\\')">Save</button> <span id="rmmsg_'+o.sub_id+'" class="muted"></span>'}return '<tr>'+th.map(function(c){return '<td>'+fmt(c,o[c])+'</td>'}).join('')+'<td>'+cell+'</td></tr>'}).join('')+'</tbody></table></div>'}
+function saveRemoved(id){var cb=document.getElementById('rm_'+id),at=document.getElementById('rmat_'+id),msg=document.getElementById('rmmsg_'+id);msg.textContent='Saving…';fetch(location.origin+'/admin/api/sub-removed?key='+encodeURIComponent(KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sub_id:id,removed:cb.checked,removed_at:at.value?at.value.replace('T',' '):''})}).then(function(r){return r.json()}).then(function(r){if(!r.ok){msg.textContent='⚠️ '+(r.message||'failed');return}msg.textContent='✅ saved';var s=r.sub||{};at.value=s.removed_at?String(s.removed_at).slice(0,16).replace(' ','T'):'';cb.checked=!!Number(s.removed)}).catch(function(e){msg.textContent='⚠️ '+e.message})}
 function lookup(){var p=$('#cp').value.trim();if(!p)return;api('/admin/api/customer',{phone:p}).then(function(r){
   if(!r.ok){$('#c360').innerHTML='<p class="muted">'+(r.message||'error')+'</p>';return}
   var pr=r.profile||{};
   function box(t,h){return '<div class="card"><h3>'+t+'</h3>'+h+'</div>'}
   function tbl(arr,cols){return arr&&arr.length?'<div class="tblwrap"><table><thead><tr>'+cols.map(function(c){return '<th>'+c+'</th>'}).join('')+'</tr></thead><tbody>'+arr.map(function(o){return '<tr>'+cols.map(function(c){return '<td>'+fmt(c,o[c])+'</td>'}).join('')+'</tr>'}).join('')+'</tbody></table></div>':'<p class="muted">none</p>'}
   $('#c360').innerHTML=box('👤 '+(pr.name||'Unknown')+' — '+r.phone,'<div class="muted">'+(pr.email||'')+' · member since '+fmt('since',pr.member_since)+'</div>')+
-    box('🎬 Subscriptions ('+r.subs.length+')',tbl(r.subs,['sub_id','service','plan','expiry_date','status','login_id','password']))+
+    box('🎬 Subscriptions ('+r.subs.length+')',subsTbl(r.subs))+
     box('🧾 Orders ('+r.orders.length+')',tbl(r.orders,['order_id','created_at_sheet','service','plan','final_amount','status']))+
     box('🪙 Wallet',r.wallet?('Balance: <b>'+money(r.wallet.coins_balance)+'</b> · Lifetime: '+money(r.wallet.coins_lifetime)):'<p class="muted">no wallet</p>')})}
 

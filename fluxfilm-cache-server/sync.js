@@ -23,6 +23,7 @@ const API_KEY = process.env.API_KEY || '';
 const s = (v) => (v == null ? null : String(v).trim() || null);
 const num = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
 const int = (v) => { const n = parseInt(v, 10); return isNaN(n) ? null : n; };
+const boolInt = (v) => (/^(true|1|yes)$/i.test(String(v == null ? '' : v).trim()) ? 1 : 0);
 const normPhone = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : null; };
 function dt(v) {
   if (v == null || v === '') return null;
@@ -69,7 +70,7 @@ const TABLES = {
       profile_pin: ['ProfilePIN', s], profile_number: ['ProfileNumber', s],
       last_access_sent_at: ['LastAccessSentAt', dt], release_eligible_at: ['ReleaseEligibleAt', dt],
       fulfilled_at: ['FulfilledAt', dt], notes: ['Notes', s], device_type: ['DeviceType', s],
-      device_count: ['DeviceConcurrency', int],
+      removed: ['RemovedFromDevice', boolInt], device_count: ['DeviceConcurrency', int],
     },
   },
   plans: {

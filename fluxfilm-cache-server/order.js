@@ -316,6 +316,7 @@ async function createRenewOrder(subId, planOverride, couponCode) {
   if (out && out.ok) {
     out.renew = true; out.renewSubId = sid;
     if (renewal.mode === 'MOVE') { out.accountChange = true; out.renewNotice = renewal.message; }
+    if (renewal.preview) out.renewPreview = renewal.preview;
   }
   return out;
 }
