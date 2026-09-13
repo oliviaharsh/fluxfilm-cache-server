@@ -20,7 +20,11 @@ const NETFLIX_SHARING_MAX = Number(process.env.NETFLIX_SHARING_MAX_TOTAL || 5);
 
 function rawOf(v) { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (_) { return {}; } }
 
-const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (release_eligible_at > NOW() OR (release_eligible_at IS NULL AND expiry_date > NOW()))";
+// A subscription holds its slot while EITHER date is in the future. Normally the
+// release date (expiry + cooldown) is the later one, but legacy renewals made in
+// the Sheet extended ExpiryDate without moving ReleaseEligibleAt — such a paying
+// customer must still count, or their slot gets sold a second time.
+const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR release_eligible_at > NOW())";
 
 // Live DEVICE occupancy per inventory_ref, derived ONLY from node subscriptions
 // (never from the inventory tables, which the 5-min sync truncates). Each sub uses
@@ -113,7 +117,9 @@ async function _existingAccess(orderId) {
 
 async function _fulfill(orderId) {
   const [ords] = await db.getPool().query(
-    'SELECT order_id, service, plan, name, email, phone, phone_norm, duration_days, status, fulfillment_status, extra_field_value, source, final_amount, order_type, renew_sub_id FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
+    // device_count/tv_count must be selected: allocation reserves that many devices.
+    // (Omitting them silently treated every multi-device order as 1 device.)
+    'SELECT order_id, service, plan, name, email, phone, phone_norm, duration_days, status, fulfillment_status, extra_field_value, device_count, tv_count, source, final_amount, order_type, renew_sub_id FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
   const o = ords[0];
   if (!o) return { ok: false, found: false, fulfillment: 'ERROR', message: 'Order not found in the FluxFilm database.' };
   if (o.source !== 'node') return { ok: false, found: false, fulfillment: 'ERROR', message: 'This legacy order cannot be fulfilled on the new checkout. Please contact support.' };
@@ -477,4 +483,4 @@ async function fulfillAndGetAccess(orderId, proof) {
 /** Admin endpoint only (key-protected): full result including credentials. */
 async function fulfillForAdmin(orderId) { return _fulfillSafe(orderId); }
 
-module.exports = { fulfillAndGetAccess, fulfillForAdmin, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths } };
+module.exports = { fulfillAndGetAccess, fulfillForAdmin, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths, OCC_ACTIVE } };

@@ -32,8 +32,8 @@ const cfg = () => ({
   low: Math.max(1, Number(process.env.STOCK_LOW_THRESHOLD || 3) || 3),
 });
 
-// Same occupancy rule as fulfill.js OCC_ACTIVE.
-const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (release_eligible_at > NOW() OR (release_eligible_at IS NULL AND expiry_date > NOW()))";
+// Same occupancy rule as fulfill.js OCC_ACTIVE (tests assert they are identical).
+const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR release_eligible_at > NOW())";
 
 /** One round-trip per table; no credentials leave the database. */
 async function loadSnapshot() {
@@ -211,4 +211,4 @@ async function computeStockLevels(planRows) {
   return levels;
 }
 
-module.exports = { computeStockLevels, unitsForPlan, loadSnapshot, levelFor, devicesForPlan };
+module.exports = { computeStockLevels, unitsForPlan, loadSnapshot, levelFor, devicesForPlan, OCC_ACTIVE };

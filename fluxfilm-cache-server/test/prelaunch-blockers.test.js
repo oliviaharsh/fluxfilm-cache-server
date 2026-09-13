@@ -196,6 +196,56 @@ function snapOf(fx) {
     ok('stock agrees: 0 left', stock.unitsForPlan(snapOf(fx), { service: 'Crunchyroll', plan: 'Private 1M', duration_days: 30, raw_json: JSON.stringify({ AllocationPolicy: 'PROFILE' }) }) === 0);
   }
 
+  // ============ 1c. fulfilment reads device counts from the real order row ============
+  section('fulfilment uses the order device/TV count (SQL column projection)');
+  {
+    // Emulate MySQL: a SELECT returns ONLY the columns it names. This is what the
+    // earlier mocks hid — they returned the whole order object, so a query that
+    // forgot device_count still "worked" in tests and allocated 1 device live.
+    const project = (sql, row) => {
+      const m = sql.match(/^SELECT (.+?) FROM /i);
+      if (!m || m[1].trim() === '*') return row;
+      const out = {};
+      for (const c of m[1].split(',').map((x) => x.trim())) if (c in row) out[c] = row[c];
+      return out;
+    };
+    const orderRow = { order_id: 'FF2D', service: 'Prime Video', plan: '2 Devices 1M', name: 'T', email: 't@x', phone: '9876543210', phone_norm: '9876543210', duration_days: 30, status: 'PAID', fulfillment_status: 'PENDING', extra_field_value: 'NON_TV', device_count: 2, tv_count: 1, source: 'node', final_amount: 59, order_type: 'NEW', renew_sub_id: '' };
+    let inserted = null;
+    const accounts = [
+      { service: 'Prime', account_id: 'PR-A', login_id: 'a@x', password: 'pw', is_active: 'TRUE' }, // 1 free device
+      { service: 'Prime', account_id: 'PR-B', login_id: 'b@x', password: 'pw', is_active: 'TRUE' }, // 2 free, 1 free TV
+    ];
+    const caps = [
+      { service: 'Prime', account_id: 'PR-A', max_total: 3, max_tv: 2, is_active: 'TRUE' },
+      { service: 'Prime', account_id: 'PR-B', max_total: 4, max_tv: 2, is_active: 'TRUE' },
+    ];
+    const occ = [{ inventory_ref: 'PR-A', total: 2, tv: 0 }, { inventory_ref: 'PR-B', total: 2, tv: 1 }];
+    const q = async (sql, params) => {
+      sql = sql.replace(/\s+/g, ' ').trim();
+      if (/FROM orders WHERE order_id/.test(sql) && /^SELECT order_id/.test(sql)) return [[project(sql, orderRow)]];
+      if (/SELECT raw_json FROM plans/.test(sql)) return [[{ raw_json: JSON.stringify({ AllocationPolicy: 'CAPACITY' }) }]];
+      if (/GET_LOCK|RELEASE_LOCK/.test(sql)) return [[{ l: 1 }]];
+      if (/SELECT fulfillment_status FROM orders/.test(sql)) return [[{ fulfillment_status: 'PENDING' }]];
+      if (/FROM inventory_accounts/.test(sql)) return [accounts];
+      if (/FROM inventory_capacity/.test(sql)) return [caps];
+      if (/FROM subscriptions WHERE LOWER\(service\) LIKE '%prime%'/.test(sql)) return [occ];
+      if (/^INSERT INTO subscriptions/.test(sql)) { inserted = params; return [{ affectedRows: 1 }]; }
+      if (/^UPDATE orders SET fulfillment_status/.test(sql)) return [{ affectedRows: 1 }];
+      throw new Error('unexpected SQL ' + sql.slice(0, 90));
+    };
+    mock.pool = { query: q, getConnection: async () => ({ query: q, release() {} }) };
+    const res = await fulfill.fulfillForAdmin('FF2D');
+    const REF = 10, DEV = 18, TV = 19; // positions in the subscriptions INSERT params
+    ok('2-device order allocated where 2 devices fit (PR-B, not PR-A)', res.ok && res.access && inserted && inserted[REF] === 'PR-B', { res: res.message, ref: inserted && inserted[REF] });
+    ok('subscription records 2 devices', inserted && Number(inserted[DEV]) === 2, inserted && inserted[DEV]);
+    ok('subscription records the TV count from the order (1), not the old flag', inserted && Number(inserted[TV]) === 1, inserted && inserted[TV]);
+    ok('order SELECT names device_count and tv_count', /device_count/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'fulfill.js'), 'utf8').match(/SELECT order_id, service, plan, name[^']*/)[0]));
+  }
+
+  section('occupancy rule');
+  ok('fulfill.js and stock.js share one occupancy rule', fulfill._internal.OCC_ACTIVE === stock.OCC_ACTIVE, [fulfill._internal.OCC_ACTIVE, stock.OCC_ACTIVE]);
+  ok('paid-up sub with a stale release date still occupies', /expiry_date > NOW\(\) OR release_eligible_at > NOW\(\)/.test(stock.OCC_ACTIVE), stock.OCC_ACTIVE);
+
   // ============ 2. coupon rules ============
   section('coupon rules');
   const coupon = (over) => JSON.stringify(Object.assign({ Code: 'SAVE', Active: 'TRUE', Type: 'FLAT', Value: 20, MinAmount: 0, Scope: 'ANY', PerUserLimit: 0, GlobalLimit: 0, FirstTimeOnly: 'FALSE', AllowedPhones: 'ALL' }, over));
