@@ -3918,7 +3918,8 @@ function PayScreen({
         orderId: r.orderId,
         upiLink: r.upiLink,
         amount: Number(r.amount || 0),
-        currency: r.currency || 'INR'
+        currency: r.currency || 'INR',
+        accessToken: r.accessToken || ''
       };
       setOrderData(oi);
       try {
@@ -3962,7 +3963,8 @@ function PayScreen({
   const {
     orderId,
     upiLink,
-    amount
+    amount,
+    accessToken
   } = orderData;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=8&data=${encodeURIComponent(upiLink || '')}`;
   function copyText(text, setter) {
@@ -4165,14 +4167,18 @@ function PayScreen({
     full: true,
     onClick: () => nav('verify', {
       orderId,
-      service
+      service,
+      accessToken,
+      phone: form?.phone || ''
     })
   }, "✅ I've Paid → Verify")))));
 }
 function VerifyScreen({
   nav,
   orderId,
-  service
+  service,
+  accessToken,
+  phone
 }) {
   const [phase, setPhase] = useState('checking');
   const [message, setMessage] = useState('');
@@ -4252,7 +4258,10 @@ function VerifyScreen({
         setPhase('checking');
         return;
       }
-      API.fulfillAndGetAccess(orderId, r => {
+      API.fulfillAndGetAccess(orderId, {
+        token: accessToken || '',
+        phone: phone || getFFSession().phone || localStorage.getItem('ff_phone') || ''
+      }, r => {
         if (stopped.current) return;
         const fs = String(r?.fulfillment || '').toUpperCase();
         if (fs === 'FULFILLED' || fs === 'RENEWED') {
@@ -4789,7 +4798,8 @@ function RenewStartScreen({
         orderId: r.orderId,
         upiLink: r.upiLink || '-',
         amount: Number(r.amount || r.finalAmount || 0),
-        currency: r.currency || 'INR'
+        currency: r.currency || 'INR',
+        accessToken: r.accessToken || ''
       };
       setOrderData(oi);
       try {
@@ -5367,7 +5377,7 @@ function DoneScreen({
     }
   } : {};
   const title = !r.found ? '❌ Verify Error' : isNoStock ? '⚠️ Accounts Temporarily Unavailable' : isManual ? '✅ Payment Received' : '✅ Access Granted 🎉';
-  const msg = !r.found ? 'Please try verifying again.' : isNoStock ? r.message || 'Please contact support.' : isManual ? r.message || 'Activation will be done manually soon.' : 'Your details are shown below. We also sent confirmation to your email.';
+  const msg = !r.found ? 'Please try verifying again.' : isNoStock ? r.message || 'Please contact support.' : isManual ? r.message || 'Activation will be done manually soon.' : r.accessWithheld ? r.message || 'Your login details were emailed to you. You can also view them using Recover.' : 'Your details are shown below. We also sent confirmation to your email.';
   return React.createElement(Slide, null, React.createElement("div", {
     style: {
       paddingBottom: 90
@@ -5422,7 +5432,7 @@ function DoneScreen({
       lineHeight: 1.55,
       whiteSpace: 'pre-line'
     }
-  }, postMsg)), r.found && !isManual && !isNoStock && React.createElement(React.Fragment, null, React.createElement(CredCard, {
+  }, postMsg)), r.found && !isManual && !isNoStock && !r.accessWithheld && React.createElement(React.Fragment, null, React.createElement(CredCard, {
     access: access,
     service: service,
     isOtpService: isOtpService,
@@ -7825,7 +7835,9 @@ function App() {
   }), screen === 'verify' && React.createElement(VerifyScreen, {
     nav: nav,
     orderId: d.orderId,
-    service: d.service
+    service: d.service,
+    accessToken: d.accessToken,
+    phone: d.phone
   }), screen === 'done' && React.createElement(DoneScreen, {
     nav: navReset,
     verifyResult: d.verifyResult,
@@ -7954,8 +7966,13 @@ const API = {
   verifyPaymentByRef(orderId, ref, onSuccess, onFailure) {
     apiCall_('verifyPaymentByRef', [orderId, ref], onSuccess, onFailure);
   },
-  fulfillAndGetAccess(orderId, onSuccess, onFailure) {
-    apiCall_('fulfillAndGetAccess', [orderId], onSuccess, onFailure);
+  fulfillAndGetAccess(orderId, proof, onSuccess, onFailure) {
+    if (typeof proof === 'function') {
+      onFailure = onSuccess;
+      onSuccess = proof;
+      proof = {};
+    }
+    apiCall_('fulfillAndGetAccess', [orderId, proof || {}], onSuccess, onFailure);
   },
   getOrderStatus(orderId, onSuccess, onFailure) {
     apiCall_('getOrderStatus', [orderId], onSuccess, onFailure);

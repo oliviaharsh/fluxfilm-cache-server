@@ -82,7 +82,8 @@ const DB_WRITES = order ? {
   verifyPaymentByRef: (a) => order.verifyPaymentByRef(a[0], a[1]),
   fulfillAndGetAccess: (a) => {
     if (!fulfill) throw new Error('Fulfillment module is unavailable.');
-    return fulfill.fulfillAndGetAccess(a[0]);
+    // a[1] = { token, phone } proving who may see the credentials (see fulfill.js).
+    return fulfill.fulfillAndGetAccess(a[0], a[1]);
   },
 } : {};
 const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
@@ -144,7 +145,7 @@ app.get('/admin/fulfill', async (req, res) => {
   try {
     const [rows] = await db.getPool().query('SELECT order_id, service, plan, status, fulfillment_status, source, extra_field_value, final_amount FROM orders WHERE order_id = ? LIMIT 1', [oid]);
     let result = null;
-    try { result = fulfill ? await fulfill.fulfillAndGetAccess(oid) : { message: 'no fulfill module' }; }
+    try { result = fulfill ? await fulfill.fulfillForAdmin(oid) : { message: 'no fulfill module' }; }
     catch (e) { result = { threw: String(e && e.message || e) }; }
     res.json({ order: rows[0] || null, result });
   } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }

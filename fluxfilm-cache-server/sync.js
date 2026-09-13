@@ -42,7 +42,7 @@ const TABLES = {
     },
   },
   orders: {
-    tab: 'ORDERS', pk: 'order_id',
+    tab: 'ORDERS', pk: 'order_id', protectNode: true,
     cols: {
       order_id: ['OrderID', s], created_at_sheet: ['CreatedAt', dt], service: ['Service', s],
       plan: ['Plan', s], duration_days: ['DurationDays', int], name: ['Name', s],
@@ -58,7 +58,7 @@ const TABLES = {
     },
   },
   subscriptions: {
-    tab: 'SUBSCRIPTIONS', pk: 'sub_id',
+    tab: 'SUBSCRIPTIONS', pk: 'sub_id', protectNode: true,
     cols: {
       sub_id: ['SubID', s], order_id: ['OrderID', s], phone: ['Phone', s], email: ['Email', s],
       service: ['Service', s], plan: ['Plan', s], duration_days: ['DurationDays', int],
@@ -93,7 +93,7 @@ const TABLES = {
     },
   },
   coupon_usage: {
-    tab: 'COUPON_USAGE', pk: 'coupon_code', mode: 'replace',
+    tab: 'COUPON_USAGE', pk: 'coupon_code', mode: 'replace', keepNodeRows: true,
     cols: {
       coupon_code: ['CouponCode', s], phone: ['Phone', s], email: ['Email', s],
       discount: ['Discount', num], order_id: ['OrderID', s], action: ['Action', s], ts: ['Timestamp', dt],
@@ -154,17 +154,42 @@ function mapRow(def, srcRow) {
 }
 
 async function upsert(table, def, mapped) {
+  // An empty dump never clears a table (a broken/missing Sheet tab must not wipe MySQL).
   if (!mapped.length) return 0;
   const cols = Object.keys(mapped[0]);
   const values = mapped.map((r) => cols.map((c) => r[c]));
   const colList = cols.map((c) => `\`${c}\``).join(', ');
   const pool = db.getPool();
   if (def.mode === 'replace') {
-    await pool.query('TRUNCATE TABLE `' + table + '`');
-    await pool.query(`INSERT INTO \`${table}\` (${colList}) VALUES ?`, [values]);
+    // DELETE + INSERT inside one transaction. The old TRUNCATE auto-committed, so a
+    // failed INSERT left the table EMPTY — for the inventory tables that means no
+    // account can be allocated until someone notices.
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      if (def.keepNodeRows) {
+        // Keep redemptions made on the new checkout: their orders exist only in
+        // MySQL, so the Sheet can never re-supply them and deleting them would reset
+        // every coupon's usage limit.
+        await conn.query(
+          'DELETE t FROM `' + table + '` t LEFT JOIN orders o ON o.order_id = t.order_id ' +
+          "WHERE o.order_id IS NULL OR COALESCE(o.source, '') <> 'node'");
+      } else {
+        await conn.query('DELETE FROM `' + table + '`');
+      }
+      await conn.query(`INSERT INTO \`${table}\` (${colList}) VALUES ?`, [values]);
+      await conn.commit();
+    } catch (e) {
+      try { await conn.rollback(); } catch (_) {}
+      throw e;
+    } finally { conn.release(); }
     return mapped.length;
   }
-  const updates = cols.filter((c) => c !== def.pk).map((c) => `\`${c}\`=VALUES(\`${c}\`)`).join(', ');
+  // protectNode: a row the new stack created or renewed (source='node') is newer
+  // than anything in the Sheet — e.g. a renewal's extended expiry. Leave it alone.
+  const updates = cols.filter((c) => c !== def.pk).map((c) => (def.protectNode
+    ? `\`${c}\`=IF(COALESCE(\`source\`,'')='node', \`${c}\`, VALUES(\`${c}\`))`
+    : `\`${c}\`=VALUES(\`${c}\`)`)).join(', ');
   const sql = `INSERT INTO \`${table}\` (${colList}) VALUES ? ON DUPLICATE KEY UPDATE ${updates}`;
   await pool.query(sql, [values]);
   return mapped.length;
@@ -191,10 +216,17 @@ async function syncOne(table, dry) {
  * Programmatic entry point (used by the server endpoint).
  * @returns {Promise<{ok:boolean, results:Array, error?:string}>}
  */
+const MASTER_TABLES = ['plans', 'coupons', 'inventory_accounts', 'inventory_profiles', 'inventory_capacity'];
+
 async function runSync(tables, opts) {
   opts = opts || {};
   const dry = !!opts.dry;
-  const list = (tables && tables.length) ? tables : Object.keys(TABLES);
+  // MySQL is the master for catalogue + inventory: admin edits made on shop
+  // (prices, ExtraDevicePrice, coupons, accounts, capacity) must not be silently
+  // overwritten by a routine full sync. They are imported only when named
+  // explicitly, e.g. /admin/sync?tables=inventory_accounts.
+  const list = (tables && tables.length) ? tables : Object.keys(TABLES).filter((t) => !MASTER_TABLES.includes(t));
+  const skipped = (tables && tables.length) ? [] : MASTER_TABLES.slice();
   const results = [];
   if (!dry) {
     const p = await db.ping();
@@ -205,10 +237,10 @@ async function runSync(tables, opts) {
     try { results.push(await syncOne(t, dry)); }
     catch (e) { results.push({ table: t, error: e.message }); }
   }
-  return { ok: true, dry, results };
+  return { ok: true, dry, results, skippedMasterTables: skipped };
 }
 
-module.exports = { runSync, TABLES };
+module.exports = { runSync, TABLES, MASTER_TABLES, _internal: { upsert } };
 
 // CLI mode: `node sync.js [--dry-run] [table...]`
 if (require.main === module) {

@@ -419,9 +419,50 @@ async function _fulfillRenew(o) {
   });
 }
 
-async function fulfillAndGetAccess(orderId) {
+async function _fulfillSafe(orderId) {
   try { return await _fulfill(orderId); }
   catch (e) { console.log('[fulfill] error:', e.message); return { ok: false, found: true, orderId, fulfillment: 'ERROR', message: 'Activation hit a snag — please contact support with your order id.', fulfillError: String(e && e.message || e) }; }
 }
 
-module.exports = { fulfillAndGetAccess, allocatePrime, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths } };
+/**
+ * Who may SEE the login details in the HTTP response?
+ *  - NEW orders: the browser that created the order (it holds the per-order
+ *    access token) or anyone presenting the phone number the order was placed on.
+ *  - RENEW orders: only the subscription owner's phone. A token is not enough —
+ *    otherwise paying to renew a stranger's subscription would reveal their login.
+ * Fulfilment itself (allocation, coins, credentials email) always runs; only the
+ * on-screen credentials are withheld, so a paying customer is never stuck: the
+ * email and the Recover flow still give them access.
+ */
+async function _mayViewAccess(orderId, proof) {
+  const p = (proof && typeof proof === 'object') ? proof : { token: proof };
+  const token = String(p.token || '').trim();
+  const phone = norm(p.phone);
+  const [rows] = await db.getPool().query('SELECT phone_norm, order_type, raw_json FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
+  const o = rows[0];
+  if (!o) return false;
+  const phoneOk = !!phone && phone === String(o.phone_norm || '');
+  if (String(o.order_type || '').toUpperCase() === 'RENEW') return phoneOk;
+  const hash = String(rawOf(o.raw_json).AccessTokenHash || '');
+  const tokenOk = !!token && !!hash && require('crypto').createHash('sha256').update(token).digest('hex') === hash;
+  return tokenOk || phoneOk;
+}
+
+async function fulfillAndGetAccess(orderId, proof) {
+  const out = await _fulfillSafe(orderId);
+  if (!out || !out.access) return out;
+  let allowed = false;
+  try { allowed = await _mayViewAccess(orderId, proof); }
+  catch (e) { console.log('[fulfill] access check failed:', e.message); }
+  if (allowed) return out;
+  const { access, ...rest } = out;
+  return Object.assign(rest, {
+    accessWithheld: true,
+    message: '✅ Your account is ready. For your security the login details were emailed to you — you can also view them any time using Recover.',
+  });
+}
+
+/** Admin endpoint only (key-protected): full result including credentials. */
+async function fulfillForAdmin(orderId) { return _fulfillSafe(orderId); }
+
+module.exports = { fulfillAndGetAccess, fulfillForAdmin, allocatePrime, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths } };

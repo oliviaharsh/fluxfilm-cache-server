@@ -13,6 +13,7 @@
  * same row.
  */
 const db = require('./db');
+const stock = require('./stock');
 
 function s(v) { return String(v == null ? '' : v).trim(); }
 function up(v) { return s(v).toUpperCase(); }
@@ -69,24 +70,21 @@ async function getBootstrap() {
   return { ok: true, plans, currency: process.env.CURRENCY || 'INR' };
 }
 
-/** Stock badges are derived from the MySQL PLANS raw_json Stock field. */
+// Stock is recomputed from live inventory (see stock.js). A short cache keeps a
+// burst of storefront page loads from re-running the inventory queries; a sale
+// shows up in the badges within STOCK_CACHE_SEC seconds.
+let _stockCache = { at: 0, value: null };
 async function getStockLevels() {
-  const rows = await db.query('SELECT service, plan, is_active, raw_json FROM plans', []);
-  const low = Math.max(1, Number(process.env.STOCK_LOW_THRESHOLD || 3) || 3);
-  const levels = {};
-  for (const r of rows) {
+  const ttl = Math.max(0, Number(process.env.STOCK_CACHE_SEC == null ? 15 : process.env.STOCK_CACHE_SEC)) * 1000;
+  if (_stockCache.value && Date.now() - _stockCache.at < ttl) return _stockCache.value;
+  const rows = await db.query('SELECT service, plan, duration_days, is_active, raw_json FROM plans', []);
+  const active = rows.filter((r) => {
     const raw = rawOf(r.raw_json);
-    const activeRaw = (r.is_active != null && r.is_active !== '') ? r.is_active : raw.IsActive;
-    if (!isTrue(activeRaw)) continue;
-    const service = s(r.service || raw.Service);
-    const plan = s(r.plan || raw.Plan);
-    if (!service || !plan) continue;
-    const stockText = s(raw.Stock);
-    const stock = stockText === '' ? null : Math.max(0, Math.floor(asNum(raw.Stock)));
-    const stockLevel = stock == null ? 'OK' : (stock <= 0 ? 'OUT' : (stock < low ? 'LOW' : 'OK'));
-    levels[service + '|||' + plan] = { stock, stockLevel };
-  }
-  return { ok: true, levels };
+    return isTrue((r.is_active != null && r.is_active !== '') ? r.is_active : raw.IsActive);
+  });
+  const value = { ok: true, levels: await stock.computeStockLevels(active) };
+  _stockCache = { at: Date.now(), value };
+  return value;
 }
 
 /** Trending ticker rows are stored in MySQL and loaded by the final manual sync. */
