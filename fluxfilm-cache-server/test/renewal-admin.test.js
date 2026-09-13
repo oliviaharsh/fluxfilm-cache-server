@@ -101,6 +101,23 @@ Module._load = function (req) {
   ok('unknown / injected sort column falls back to the default order', tc && /ORDER BY expiry_date DESC/.test(tc.sql) && !/DROP/.test(tc.sql), tc);
   tc = await tableCall('&limit=9999');
   ok('page size is capped at 500', tc && tc.params[tc.params.length - 2] === 500, tc);
+
+  section('Sheets grid: filters');
+  const F = (list) => '&f=' + encodeURIComponent(JSON.stringify(list));
+  tc = await tableCall(F([{ col: 'removed', op: 'eq', value: '0' }, { col: 'expiry_date', op: 'before_now' }]));
+  ok('"expired, still on account" filter = removed is 0 AND expiry before now', tc && /WHERE LOWER\(COALESCE\(CAST\(`removed` AS CHAR\), ''\)\) = LOWER\(\?\) AND `expiry_date` < NOW\(\)/.test(tc.sql) && tc.params[0] === '0', tc);
+  tc = await tableCall(F([{ col: 'expiry_date', op: 'next_days', value: '7' }]) + '&q=netflix');
+  ok('filters combine with search; days are a bound number', tc && /LIKE \? AND `expiry_date` BETWEEN NOW\(\) AND NOW\(\) \+ INTERVAL \? DAY/.test(tc.sql) && tc.params[0] === '%netflix%' && tc.params[1] === 7, tc);
+  tc = await tableCall(F([{ col: 'sub_id', op: 'contains', value: "x' OR 1=1 --" }]));
+  ok('filter values never reach the SQL text', tc && !/OR 1=1/.test(tc.sql) && tc.params[0] === "%x' OR 1=1 --%", tc);
+  const badStatus = async (qs) => (await fetch(base + '/admin/api/table?name=subscriptions' + qs, { headers: { 'X-Admin-Key': 'k' } })).status;
+  ok('unknown / injected column refused (400)', (await badStatus(F([{ col: 'status`; DROP TABLE x; --', op: 'eq', value: '1' }]))) === 400);
+  ok('unknown operator refused (400)', (await badStatus(F([{ col: 'removed', op: 'sleep', value: '1' }]))) === 400);
+  ok('garbage filter JSON refused (400)', (await badStatus('&f=%7Bnope')) === 400);
+  const empty = await (await fetch(base + '/admin/api/table?name=subscriptions' + F([{ col: 'removed', op: 'eq', value: '9' }]), { headers: { 'X-Admin-Key': 'k' } })).json();
+  ok('no matching rows still returns the column list (filters stay editable)', empty.ok && empty.rows.length === 0 && empty.columns.includes('expiry_date'), empty);
+  ok('panel has filter panel + quick views', /function renderFilterPanel\(/.test(html) && /Expired, still on account/.test(html));
+  ok('renew list has show more / less and cached subscriptions', /data-act="moresubs"/.test(html) && /SUBS_CACHE/.test(html));
   if (server.closeAllConnections) server.closeAllConnections();
   await new Promise((r) => server.close(r));
 
