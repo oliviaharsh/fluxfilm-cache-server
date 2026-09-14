@@ -156,6 +156,10 @@ function mountAdmin(app, deps) {
   require('./admingames').mount(app, Object.assign({ db, auth, audit }, deps.games || {}));
   // Payment fallback: backup UPI ID / QR settings + "I've paid" review queue (adminpayments.js).
   require('./adminpayments').mount(app, Object.assign({ db, auth, audit }, deps.payments || {}));
+  // 🏦 Bank payments: unmatched since go-live, "Not a sale", link to an order (adminbankcredits.js).
+  require('./adminbankcredits').mount(app, Object.assign({ db, auth, audit }, deps.bank || {}));
+  // 🚪 Expired customers still on accounts (Sheet rule) + tick all subscriptions of an order removed (adminexpired.js).
+  require('./adminexpired').mount(app, Object.assign({ db, auth, audit }, deps.expired || {}));
   // Maintenance: pause / resume new orders (adminstore.js).
   require('./adminstore').mount(app, Object.assign({ db, auth, audit }, deps.store || {}));
   // 🤖 Olivia, the AI store manager: on/off, test phones, voice, recent chats (adminolivia.js).
@@ -283,7 +287,10 @@ function mountAdmin(app, deps) {
         db.query('SELECT coins_balance, coins_lifetime, last_event FROM wallet WHERE phone_norm = ? ORDER BY coins_lifetime DESC, coins_balance DESC LIMIT 1', [ph]),
       ]);
       for (const x of subs) delete x.raw_json;
-      res.json({ ok: true, phone: ph, profile: profile[0] || null, orders, subs, wallet: wallet[0] || null });
+      // 💸 Refund credit (separate pot in coins_ledger, pays up to 100% of an order) — never blocks Customer 360.
+      let refundCredit = 0;
+      try { refundCredit = await require('./coins').creditBalance(ph); } catch (_) { refundCredit = 0; }
+      res.json({ ok: true, phone: ph, profile: profile[0] || null, orders, subs, wallet: wallet[0] || null, refundCredit });
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
 

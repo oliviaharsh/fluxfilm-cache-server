@@ -37,7 +37,15 @@ const mockDb = {
       { inventory_ref: 'NF-01#P3', subs: 1, devices: 1, tv: 0 },
       { inventory_ref: 'JH-01', subs: 1, devices: 1, tv: 0 },
     ];
-    if (/COALESCE\(removed, 0\) = 0 GROUP BY inventory_ref/.test(sql)) return [{ inventory_ref: 'NF-01#P4', n: 2 }, { inventory_ref: 'PRI-01', n: 1 }];
+    // expiredusers.js (Sheet rule): NF-01 and PRI-01 still have active customers; PRI-02's only customer is gone.
+    if (/FROM subscriptions s WHERE/.test(sql)) return [
+      { sub_id: 'A1', phone_norm: '9000000001', service: 'Netflix', status: 'ACTIVE', expiry_date: '2099-01-01 00:00:00', inventory_ref: 'NF-01#P2', login_id: 'n@x', removed: 0 },
+      { sub_id: 'E1', phone_norm: '9000000002', service: 'Netflix', status: 'EXPIRED', expiry_date: '2020-01-01 00:00:00', inventory_ref: 'NF-01#P4', login_id: 'n@x', removed: 0 },
+      { sub_id: 'E2', phone_norm: '9000000003', service: 'Netflix', status: 'EXPIRED', expiry_date: '2021-01-01 00:00:00', inventory_ref: 'NF-01#P4', login_id: 'n@x', removed: 0 },
+      { sub_id: 'A2', phone_norm: '9000000004', service: 'Prime Video', status: 'ACTIVE', expiry_date: '2099-01-01 00:00:00', inventory_ref: 'PRI-01', login_id: 'p1@x', removed: 0 },
+      { sub_id: 'E3', phone_norm: '9000000005', service: 'Prime Video', status: 'EXPIRED', expiry_date: '2021-01-01 00:00:00', inventory_ref: 'PRI-01', login_id: 'p1@x', removed: 0 },
+      { sub_id: 'E4', phone_norm: '9000000006', service: 'Prime Video', status: 'EXPIRED', expiry_date: '2021-01-01 00:00:00', inventory_ref: 'PRI-02', login_id: 'p2@x', removed: 0 },
+    ];
     return { affectedRows: 1 };
   },
   getPool: () => null, ping: async () => ({ ok: true }),
@@ -126,7 +134,9 @@ const lookupDeps = {
   ok('Prime custom capacity 3/1 TV: TV slot used -> TV_FULL with 2 free devices', acc('PRI-02').status === 'TV_FULL' && acc('PRI-02').free === 2 && acc('PRI-02').tvUsed === 1, acc('PRI-02'));
   ok('inactive account marked INACTIVE', acc('PRI-03').status === 'INACTIVE');
   ok('Netflix counts profiles: 2 of 5 used', acc('NF-01').unit === 'profiles' && acc('NF-01').cap === 5 && acc('NF-01').used === 2 && acc('NF-01').status === 'OK', acc('NF-01'));
-  ok('expired-but-not-removed customers counted per account (profiles roll up)', acc('NF-01').expiredOnAccount === 2 && acc('PRI-01').expiredOnAccount === 1);
+  ok('expired-but-not-removed customers counted per account (profiles roll up)', acc('NF-01').expiredOnAccount === 2 && acc('PRI-01').expiredOnAccount === 1, [acc('NF-01'), acc('PRI-01')]);
+  ok('account nobody active uses: not "to remove", listed as old users (safe to reset)', acc('PRI-02').expiredOnAccount === 0 && acc('PRI-02').expiredOldUsers === 1, acc('PRI-02'));
+  ok('stock response carries the per-login list (main + other)', r.body.expiredUsers && r.body.expiredUsers.main.pending === 3 && r.body.expiredUsers.main.safeOldUsers === 1 && Array.isArray(r.body.expiredUsers.other.groups), r.body.expiredUsers);
   ok('OTP login capacity from inventory_capacity (1 of 2)', acc('JH-01').cap === 2 && acc('JH-01').used === 1 && acc('JH-01').free === 1, acc('JH-01'));
   ok('manual service has no capacity', acc('YT-01').status === 'MANUAL' && acc('YT-01').cap === null);
   ok('stock endpoint needs admin', (await fetch(base + '/admin/api/stock')).status === 403);

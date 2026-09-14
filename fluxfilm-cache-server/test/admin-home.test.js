@@ -23,9 +23,15 @@ const mockDb = {
     if (/MANUAL_PENDING' AND UPPER\(status\) = 'ACTIVE'/.test(sql)) return [{ n: 2 }];
     if (/^SELECT COUNT\(\*\) n FROM subscriptions WHERE UPPER\(status\) = 'ACTIVE' AND expiry_date BETWEEN/.test(sql)) return [{ n: 3 }];
     if (/^SELECT sub_id, phone_norm, service, plan, expiry_date FROM subscriptions WHERE UPPER\(status\) = 'ACTIVE' AND expiry_date BETWEEN/.test(sql)) return [{ sub_id: 'S1', phone_norm: '9876543210', service: 'Netflix', plan: 'Private 1M', expiry_date: '2026-09-16 10:00:00' }];
-    if (/COALESCE\(removed, 0\) = 0$/.test(sql)) return [{ n: 164 }];
+    // expiredusers.js: NF-A has an active customer (2 expired to remove); NF-B has nobody active (safe, not counted).
+    if (/FROM subscriptions s WHERE/.test(sql)) return [
+      { sub_id: 'A1', phone_norm: '9000000001', name: 'Active One', service: 'Netflix', status: 'ACTIVE', expiry_date: '2099-01-01 00:00:00', inventory_ref: 'NF-A#P1', login_id: 'a@x', removed: 0 },
+      { sub_id: 'E1', phone_norm: '9000000002', name: 'Old Two', service: 'Netflix', status: 'EXPIRED', expiry_date: '2020-01-01 00:00:00', inventory_ref: 'NF-A#P1', login_id: 'a@x', removed: 0 },
+      { sub_id: 'E2', phone_norm: '9000000003', name: 'Old Three', service: 'Netflix', status: 'EXPIRED', expiry_date: '2020-02-01 00:00:00', inventory_ref: 'NF-A#P2', login_id: 'a@x', removed: 0 },
+      { sub_id: 'E3', phone_norm: '9000000004', name: 'Idle Four', service: 'Netflix', status: 'EXPIRED', expiry_date: '2020-02-01 00:00:00', inventory_ref: 'NF-B#P1', login_id: 'b@x', removed: 0 },
+    ];
     if (/FROM restock_requests/.test(sql)) return [{ n: 4 }];
-    if (/FROM bank_credits WHERE consumed_order_id IS NULL/.test(sql)) return [{ n: 0 }];
+    if (/FROM bank_credits WHERE consumed_order_id IS NULL/.test(sql)) return [{ n: params[0] === '2026-09-14 21:00:00' && /received_at >= \?/.test(sql) ? 2 : 99 }];
     if (/^SELECT 1 FROM admin_todos/.test(sql)) return [];
     if (/^SELECT id, title, note, due_date, done/.test(sql)) return todos.filter((t) => !/done = 0/.test(sql) || !t.done);
     if (/^INSERT INTO admin_todos/.test(sql)) { todos.push({ id: todos.length + 1, title: params[0], note: params[1], due_date: params[2], done: 0 }); return { insertId: todos.length }; }
@@ -61,13 +67,15 @@ const catalog = { getStockLevels: async () => ({ ok: true, levels: { 'SonyLiv Pr
   section('Today');
   let r = await get('/admin/api/today');
   const item = (k) => r.body.items.find((i) => i.key === k);
-  ok('lists what needs doing with counts', r.body.ok && item('undelivered').count === 1 && item('manual').count === 2 && item('ending').count === 3 && item('expired').count === 164 && item('restock').count === 4 && item('unpaid').count === 5, r.body.items);
+  ok('lists what needs doing with counts', r.body.ok && item('undelivered').count === 1 && item('manual').count === 2 && item('ending').count === 3 && item('expired').count === 2 && item('restock').count === 4 && item('unpaid').count === 5, r.body.items);
+  ok('expired: only the account still in use counts, named with who to remove', item('expired').names.length === 1 && /^NF-A · remove 2: Old Three, Old Two$/.test(item('expired').names[0]) && item('expired').go.stock === 'expired', item('expired'));
+  ok('unmatched payments: since go-live (2026-09-14 21:00) only, opens 🏦 Bank payments', item('unmatched').count === 2 && item('unmatched').go.view === 'bank', item('unmatched'));
   ok('out of stock / low plans named', item('out').names[0] === 'SonyLiv Premium · 1 Month' && item('low').names[0] === 'JioHotstar · 1 Month (2)');
   ok('each item says where to go', item('undelivered').go.orders === 'undelivered' && item('restock').go.table === 'restock_requests');
   ok('to-dos included', Array.isArray(r.body.todos) && r.body.needsSchema === false);
   schema = false;
   r = await get('/admin/api/today');
-  ok('before schema-v14: Today still works, to-dos say to run the SQL', r.body.ok && r.body.todos === null && r.body.needsSchema === true && r.body.items.length === 9, r.body);
+  ok('before schema-v14: Today still works, to-dos say to run the SQL', r.body.ok && r.body.todos === null && r.body.needsSchema === true && r.body.items.length === 11, r.body); // +2: UPI refunds to send, customer still choosing (refunds.js)
   r = await post('/admin/api/todos', { title: 'x' });
   ok('adding a to-do before schema-v14 -> 409 with the fix', r.status === 409 && /schema-v14/.test(r.body.message), r.body);
   schema = true;

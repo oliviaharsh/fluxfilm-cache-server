@@ -15,11 +15,12 @@ const noTable = (t) => { const e = new Error("Table 'u." + t + "' doesn't exist"
 let S;
 function fresh() {
   S = {
-    orders: [], subs: [], credits: [], couponUsage: [], spends: [], ledger: [], wallet: [], rewards: [], referrals: [], settings: {},
+    orders: [], subs: [], credits: [], couponUsage: [], spends: [], ledger: [], wallet: [], rewards: [], referrals: [], settings: {}, coupons: [], todos: [],
     audits: [], sql: [], locks: 0, released: 0, commits: 0, rollbacks: 0, failDeleteOrder: false,
   };
 }
-const TABLES = ['orders', 'subs', 'credits', 'couponUsage', 'spends', 'ledger', 'wallet', 'rewards', 'referrals', 'settings'];
+const TABLES = ['orders', 'subs', 'credits', 'couponUsage', 'spends', 'ledger', 'wallet', 'rewards', 'referrals', 'settings', 'coupons', 'todos'];
+const CREDIT_EVENTS = ['REFUND_CREDIT', 'CREDIT_SPEND', 'CREDIT_RELEASE'];
 const snap = () => clone(TABLES.reduce((o, k) => { o[k] = S[k]; return o; }, {}));
 const restore = (x) => { for (const k of TABLES) S[k] = x[k]; };
 const order = (id) => S.orders.find((o) => o.order_id === id);
@@ -70,6 +71,23 @@ function run(sql, p) {
   if (/^SELECT event, phone_norm, coins_delta FROM coins_ledger WHERE order_id = \? AND event IN/.test(sql)) return S.ledger.filter((l) => l.order_id === p[0] && ['NEW_PURCHASE', 'RENEW', 'EARN_REVERSE'].includes(l.event)).map(clone);
   if (/^SELECT \* FROM coins_ledger WHERE order_id = \?$/.test(sql)) return S.ledger.filter((l) => l.order_id === p[0]).map(clone);
   if (/^SELECT id FROM coins_ledger WHERE order_id = \? AND event = 'REFUND' LIMIT 1$/.test(sql)) return S.ledger.filter((l) => l.order_id === p[0] && l.event === 'REFUND').map((l, i) => ({ id: i + 1 }));
+  // refund credit pot (coins.js)
+  if (/^SELECT id FROM coins_ledger WHERE order_id = \? AND event = 'REFUND_CREDIT' LIMIT 1$/.test(sql)) return S.ledger.filter((l) => l.order_id === p[0] && l.event === 'REFUND_CREDIT').map((l, i) => ({ id: i + 1 }));
+  if (/^SELECT COALESCE\(SUM\(coins_delta\), 0\) AS n FROM coins_ledger WHERE phone_norm = \? AND event IN \('REFUND_CREDIT', 'CREDIT_SPEND', 'CREDIT_RELEASE'\)$/.test(sql)) return [{ n: S.ledger.filter((l) => l.phone_norm === p[0] && CREDIT_EVENTS.includes(l.event)).reduce((n, l) => n + l.coins_delta, 0) }];
+  if (/^SELECT event, coins_delta FROM coins_ledger WHERE order_id = \? AND event IN \('CREDIT_SPEND', 'CREDIT_RELEASE'\) ORDER BY id$/.test(sql)) return S.ledger.filter((l) => l.order_id === p[0] && ['CREDIT_SPEND', 'CREDIT_RELEASE'].includes(l.event)).map(clone);
+  // refund coupons + to-dos + customer refund reads (refunds.js)
+  if (/^SELECT raw_json FROM coupons$/.test(sql)) return S.coupons.map((c) => ({ raw_json: c.raw_json }));
+  if (/^SELECT COUNT\(\*\) n, SUM\(phone_norm = \?\) mine FROM coupon_usage WHERE UPPER\(action\)='USED' AND UPPER\(coupon_code\)=\?$/.test(sql)) { const rows = S.couponUsage.filter((c) => String(c.action).toUpperCase() === 'USED' && String(c.coupon_code).toUpperCase() === p[1]); return [{ n: rows.length, mine: rows.filter((c) => c.phone_norm === p[0]).length }]; }
+  if (/^SELECT code FROM coupons WHERE code = \? LIMIT 1$/.test(sql)) return S.coupons.filter((c) => c.code === p[0]).map(clone);
+  if (/^INSERT INTO coupons \(code, description, scope, type, value, min_amount, max_discount, expiry, per_user_limit, global_limit, active, show_in_profile, allowed_phones, first_time_only, raw_json\)/.test(sql)) { S.coupons.push({ code: p[0], description: p[1], scope: p[2], type: p[3], value: p[4], min_amount: p[5], max_discount: p[6], expiry: p[7], per_user_limit: p[8], global_limit: p[9], active: p[10], show_in_profile: p[11], allowed_phones: p[12], first_time_only: p[13], raw_json: p[14] }); return { affectedRows: 1 }; }
+  if (/^SELECT order_id, service, plan, name, email, phone, phone_norm, status, final_amount, raw_json FROM orders WHERE order_id = \? LIMIT 1 FOR UPDATE$/.test(sql)) return S.orders.filter((o) => o.order_id === p[0]).map(clone);
+  if (/^SELECT order_id, service, plan, final_amount, status, raw_json FROM orders WHERE phone_norm = \? AND UPPER\(status\) = 'REFUNDED'/.test(sql)) return S.orders.filter((o) => o.phone_norm === p[0] && String(o.status).toUpperCase() === 'REFUNDED').map(clone);
+  if (/^INSERT INTO admin_todos \(title, note\) VALUES \(\?, \?\)$/.test(sql)) { const id = S.todos.length + 1; S.todos.push({ id, title: p[0], note: p[1], done: 0 }); return { affectedRows: 1, insertId: id }; }
+  if (/^UPDATE admin_todos SET done = \?, done_at = (NOW\(\)|NULL) WHERE id = \? LIMIT 1$/.test(sql)) { const t = S.todos.find((x) => x.id === p[1]); if (t) t.done = p[0]; return { affectedRows: t ? 1 : 0 }; }
+  if (/^SELECT id, title, note FROM admin_todos WHERE id = \? LIMIT 1$/.test(sql)) return S.todos.filter((x) => x.id === p[0]).map(clone);
+  if (/^SELECT email FROM customers WHERE phone_norm = \?/.test(sql)) return [];
+  if (/^SELECT email FROM orders WHERE phone_norm = \? AND UPPER\(status\) = 'REFUNDED'/.test(sql)) return S.orders.filter((o) => o.phone_norm === p[0] && o.status === 'REFUNDED' && o.email).map((o) => ({ email: o.email }));
+  if (/^UPDATE admin_todos SET done = 1, done_at = NOW\(\) WHERE id = \? AND done = 0 LIMIT 1$/.test(sql)) { const t = S.todos.find((x) => x.id === p[0] && !x.done); if (t) t.done = 1; return { affectedRows: t ? 1 : 0 }; }
   if (/^INSERT INTO coins_ledger/.test(sql)) { S.ledger.push({ event: p[0], order_id: p[1], phone_norm: p[2], coins_delta: p[6], balance_after: p[7], note: p[8] }); return { affectedRows: 1 }; }
   if (/^SELECT phone, coins_balance FROM wallet WHERE phone_norm = \? ORDER BY coins_lifetime DESC, coins_balance DESC LIMIT 1 FOR UPDATE$/.test(sql)) return S.wallet.filter((w) => w.phone_norm === p[0]).map(clone);
   if (/^INSERT IGNORE INTO wallet/.test(sql)) { if (!walletOf(p[1])) S.wallet.push({ phone: p[0], phone_norm: p[1], coins_balance: 0, coins_lifetime: 0 }); return { affectedRows: 1 }; }
@@ -84,14 +102,22 @@ function run(sql, p) {
   if (/^UPDATE referrals SET status = 'PENDING', friend_order_id = NULL/.test(sql)) { let n = 0; for (const r of S.referrals) if (r.friend_order_id === p[0] && ['REWARDED', 'CAPPED'].includes(r.status)) { Object.assign(r, { status: 'PENDING', friend_order_id: null, reward_coins: 0 }); n++; } return { affectedRows: n }; }
   throw new Error('fake db: unhandled SQL: ' + sql);
 }
-const conn = {
-  query: async (sql, p) => { const r = run(sql, p); return [r]; },
-  beginTransaction: async () => { conn._snap = snap(); },
-  commit: async () => { S.commits++; conn._snap = null; },
-  rollback: async () => { S.rollbacks++; if (conn._snap) restore(conn._snap); conn._snap = null; },
-  release: () => {},
-};
-const mockDb = { ENABLED: true, query: async (sql, p) => run(sql, p), getPool: () => ({ getConnection: async () => conn, query: async (sql, p) => [run(sql, p)] }), ping: async () => ({ ok: true }) };
+// One transaction at a time (a coarse stand-in for InnoDB row locks), so parallel requests really race for the same row.
+let txQueue = Promise.resolve();
+function makeConn() {
+  let done = null; let snapv = null;
+  const finish = () => { if (done) { const d = done; done = null; d(); } };
+  const c = {
+    query: async (sql, p) => { const r = run(sql, p); return [r]; },
+    beginTransaction: async () => { const prev = txQueue; let d; txQueue = new Promise((res) => { d = res; }); await prev; done = d; snapv = snap(); },
+    commit: async () => { S.commits++; snapv = null; finish(); },
+    rollback: async () => { S.rollbacks++; if (snapv) restore(snapv); snapv = null; finish(); },
+    release: () => {},
+  };
+  return c;
+}
+const conn = makeConn();
+const mockDb = { ENABLED: true, query: async (sql, p) => run(sql, p), getPool: () => ({ getConnection: async () => makeConn(), query: async (sql, p) => [run(sql, p)] }), ping: async () => ({ ok: true }) };
 
 // ---------------------------------------------------------------- fixtures
 const PH = '6281151936', REF = '9812345678';
@@ -149,12 +175,18 @@ const rawOrder = (id) => { const r = order(id).raw_json; return typeof r === 'st
   const fakeCoins = Object.assign({}, coins, { getSettings: async () => ({ coinValue: 1 }), awardCoins: async (p) => { awards.push(p); return { ok: true }; } });
   const catalog = { getStockLevels: async () => ({ ok: true, levels: { 'Zee5 Premium|||1 Month': { stock: 0, stockLevel: 'OUT', source: 'inventory' } } }) };
   const app = express(); app.use(express.json());
+  const fakeMailer = { send: async (to, subj, html) => { mails.push({ to, subj, html }); return { ok: true }; }, sendAccessEmail: async (p) => { mails.push({ to: p.email, access: p.access }); return { ok: true }; } };
+  const fakePush = { sendToPhone: async (ph, msg) => { pushes.push({ ph, msg }); return { ok: true }; }, sendToAdmins: async (msg) => { pushes.push({ admin: true, msg }); return { ok: true }; } };
+  const codeSends = [];
+  const fakeOtp = { verifyToken: (t, ph) => t === 'good-' + ph, sendCode: async (ph, o) => { codeSends.push({ ph, tool: o.tool, eligible: await o.eligible(ph), email: await o.emailFor(ph) }); return { ok: true, maskedEmail: 'y*@x.com' }; }, _internal: { maskEmail: () => 'y*@x.com' } };
+  const R = require('../refunds').create({ db: mockDb, coins: fakeCoins, push: fakePush, mailer: fakeMailer, otpaccess: fakeOtp });
   admin.mountAdmin(app, {
     db: mockDb, ADMIN_KEY: 'k', sync: require('../sync'),
+    home: { refunds: R },
     orderActions: {
-      fulfill: fakeFulfill, coins: fakeCoins, referrals, catalog,
-      mailer: { send: async (to, subj) => { mails.push({ to, subj }); return { ok: true }; }, sendAccessEmail: async (p) => { mails.push({ to: p.email, access: p.access }); return { ok: true }; } },
-      push: { sendToPhone: async (ph, msg) => { pushes.push({ ph, msg }); return { ok: true }; } },
+      fulfill: fakeFulfill, coins: fakeCoins, referrals, catalog, refunds: R,
+      mailer: fakeMailer,
+      push: fakePush,
       pushreminders: { notifyDelivered: async (p) => { pushes.push({ ph: p.phone, delivered: true }); return { ok: true }; } },
     },
   });
@@ -244,9 +276,21 @@ const rawOrder = (id) => { const r = order(id).raw_json; return typeof r === 'st
   r = await post('/admin/api/order/refund', { orderId: 'FF6', method: 'CASH' });
   ok('unknown method refused before touching anything', r.status === 400 && S.locks === 1);
   r = await post('/admin/api/order/refund', { orderId: 'FF6', method: 'Coins', amount: 50 });
-  ok('Coins refund: partial amount, wallet +50, ledger REFUND once', r.body.ok && r.body.coinsCredited === 50 && walletOf(PH).coins_balance === 50 && S.ledger.filter((l) => l.event === 'REFUND').length === 1 && rawOrder('FF6').RefundCoins === 50 && rawOrder('FF6').RefundAmount === 50, { body: r.body, w: S.wallet, l: S.ledger });
+  const creditOf = (ph) => S.ledger.filter((l) => l.phone_norm === ph && CREDIT_EVENTS.includes(l.event)).reduce((n, l) => n + l.coins_delta, 0);
+  ok('Coins refund: partial amount → ₹50 REFUND CREDIT (separate pot), normal coins untouched, ledger REFUND_CREDIT once', r.body.ok && r.body.refundCredit === 50 && creditOf(PH) === 50 && (!walletOf(PH) || walletOf(PH).coins_balance === 0) && S.ledger.filter((l) => l.event === 'REFUND_CREDIT').length === 1 && rawOrder('FF6').RefundCredit === 50 && rawOrder('FF6').RefundCoins === 50 && rawOrder('FF6').RefundAmount === 50 && rawOrder('FF6').RefundMethod === 'Coins' && rawOrder('FF6').RefundState === 'DONE', { body: r.body, w: S.wallet, l: S.ledger });
   r = await post('/admin/api/order/refund', { orderId: 'FF6', method: 'Coins', amount: 50 });
-  ok('Coins refund repeated: no second credit', r.body.already && walletOf(PH).coins_balance === 50 && S.ledger.filter((l) => l.event === 'REFUND').length === 1);
+  ok('Coins refund repeated: no second credit', r.body.already && creditOf(PH) === 50 && S.ledger.filter((l) => l.event === 'REFUND_CREDIT').length === 1);
+  await tick();
+  ok('Coins refund: customer told by push + email about the refund credit', pushes.some((p) => p.ph === PH && /refund credit/.test(p.msg.title)) && mails.some((m) => /refund credit/.test(m.subj)), { pushes: pushes.slice(-2), mails: mails.slice(-2) });
+  fresh(); S.orders.push(stuckOrder({ order_id: 'FF6B', source: 'node' }));
+  r = await post('/admin/api/order/refund', { orderId: 'FF6B', method: 'Coins', amount: 49.5 });
+  ok('Coins / coupon refunds need whole rupees (rolled back)', r.status === 400 && order('FF6B').status === 'PAID' && !S.ledger.length, r.body);
+  fresh(); S.orders.push(stuckOrder({ order_id: 'FF6C', source: 'node', final_amount: '0.00', raw_json: JSON.stringify({ OrderID: 'FF6C', FreeCheckout: true, RefundCreditUsed: 89 }) }));
+  S.spends.push({ order_id: 'FF6C', phone_norm: PH, coins: 0, rupees: 89, status: 'SPENT' });
+  S.ledger.push({ event: 'REFUND_CREDIT', order_id: 'FFOLD', phone_norm: PH, coins_delta: 89 }, { event: 'CREDIT_SPEND', order_id: 'FF6C', phone_norm: PH, coins_delta: -89 });
+  S.wallet.push({ phone: PH, phone_norm: PH, coins_balance: 7, coins_lifetime: 7 });
+  r = await post('/admin/api/order/refund', { orderId: 'FF6C', method: 'Coins' });
+  ok('refunding a ₹0 order (paid with refund credit) gives the ₹89 credit back, no new credit, coins untouched', r.body.ok && r.body.amount === 0 && creditOf(PH) === 89 && walletOf(PH).coins_balance === 7 && r.body.holds.coins.creditReturned === 89 && !S.ledger.some((l) => l.event === 'SPEND_RELEASE') && S.ledger.filter((l) => l.event === 'REFUND_CREDIT').length === 1 && rawOrder('FF6C').RefundMethod === 'Other', { body: r.body, l: S.ledger });
   fresh(); S.orders.push(stuckOrder({ order_id: 'FF7', source: 'node', status: 'CREATED', fulfillment_status: 'PENDING' }));
   r = await post('/admin/api/order/refund', { orderId: 'FF7', method: 'UPI' });
   ok('unpaid order cannot be refunded', r.status === 409 && order('FF7').status === 'CREATED', r.body);
@@ -262,6 +306,98 @@ const rawOrder = (id) => { const r = order(id).raw_json; return typeof r === 'st
   ok('earned coins taken back, never below 0 (3 of 4, 1 reported short)', walletOf(PH).coins_balance === 0 && r.body.holds.coins.reversed === 3 && r.body.holds.coins.reverseShort === 1 && S.ledger.some((l) => l.event === 'EARN_REVERSE' && l.coins_delta === -3), { w: S.wallet, h: r.body.holds });
   const again = await coins.undoOrderCoinsOn(conn, 'FF8', PH, 'again');
   ok('coins undo is idempotent (no second reverse)', again.reversed === 0 && S.ledger.filter((l) => l.event === 'EARN_REVERSE').length === 1, again);
+
+  section('refund as a personal coupon');
+  fresh(); S.orders.push(stuckOrder({ order_id: 'FF30', source: 'node' }));
+  pushes.length = 0; mails.length = 0;
+  r = await post('/admin/api/order/refund', { orderId: 'FF30', method: 'Coupon' });
+  const cp = S.coupons[0] || {}; const cpRaw = cp.raw_json ? JSON.parse(cp.raw_json) : {};
+  ok('coupon RF + 6 chars, FLAT ₹89, typed columns AND raw_json', r.body.ok && /^RF[A-HJ-NP-Z2-9]{6}$/.test(cp.code) && cp.type === 'FLAT' && cp.value === 89 && cp.per_user_limit === 1 && cp.global_limit === 1 && cp.active === 'TRUE' && cp.allowed_phones === PH && cpRaw.Code === cp.code && cpRaw.CouponCode === cp.code && cpRaw.Value === 89 && cpRaw.Scope === 'ANY' && cpRaw.PerUserLimit === 1 && cpRaw.GlobalLimit === 1 && cpRaw.AllowedPhones === PH && cpRaw.ShowInProfile === 'TRUE' && cpRaw.Source === 'REFUND' && cpRaw.RefundOrderId === 'FF30', { cp, body: r.body });
+  const days = Math.round((new Date(cp.expiry.replace(' ', 'T')) - Date.now()) / 86400e3);
+  ok('coupon expires in ~180 days; order raw_json keeps the code', days >= 179 && days <= 181 && rawOrder('FF30').RefundCoupon === cp.code && rawOrder('FF30').RefundMethod === 'Coupon' && order('FF30').status === 'REFUNDED', { days, raw: rawOrder('FF30') });
+  await tick();
+  ok('coupon refund: push + email with the code', pushes.some((p) => p.ph === PH && p.msg.body.includes(cp.code)) && mails.some((m) => m.html && m.html.includes(cp.code)), { pushes, mails: mails.map((m) => m.subj) });
+  r = await post('/admin/api/order/refund', { orderId: 'FF30', method: 'Coupon' });
+  ok('coupon refund repeated: no second coupon', r.body.already && S.coupons.length === 1);
+  const orderMod0 = require('../order');
+  const cd1 = await orderMod0._internal.couponDiscount(cp.code, PH, 169, { action: 'NEW', service: 'Netflix', plan: 'Private 1M' }).catch((e) => ({ err: e.message }));
+  ok('checkout accepts it for this phone (₹89 off, flagged as a refund coupon)', cd1.ok && cd1.discount === 89 && cd1.refundCoupon === true, cd1);
+  const cd2 = await orderMod0._internal.couponDiscount(cp.code, '9000000009', 169, { action: 'NEW' }).catch((e) => ({ err: e.message }));
+  ok('…but not for another phone', cd2.ok === false && /not valid for this number/.test(cd2.message), cd2);
+  S.couponUsage.push({ order_id: 'FF31', coupon_code: cp.code, phone_norm: PH, action: 'USED' });
+  const cd3 = await orderMod0._internal.couponDiscount(cp.code, PH, 169, { action: 'NEW' }).catch((e) => ({ err: e.message }));
+  ok('…and only once (single use per phone)', cd3.ok === false && /limit/.test(cd3.message), cd3);
+
+  section('UPI cash refund: ask the customer → coins +10% (once)');
+  fresh(); S.orders.push(stuckOrder({ order_id: 'FF40', source: 'node', final_amount: '99.00' }), stuckOrder({ order_id: 'FF41', source: 'node' }));
+  pushes.length = 0; mails.length = 0;
+  r = await post('/admin/api/order/refund', { orderId: 'FF40', method: 'UPI_ASK', note: 'no stock' });
+  ok('UPI_ASK: REFUNDED, RefundMethod UPI_PENDING, state ASK_CUSTOMER, nothing credited', r.body.ok && order('FF40').status === 'REFUNDED' && rawOrder('FF40').RefundMethod === 'UPI_PENDING' && rawOrder('FF40').RefundState === 'ASK_CUSTOMER' && !S.ledger.length && !S.coupons.length && r.body.notes.some((n) => /109 coins/.test(n)), { body: r.body, raw: rawOrder('FF40') });
+  await tick();
+  ok('customer told to open FluxFilm and choose (push + email)', pushes.some((p) => p.ph === PH && /choose/.test(p.msg.body)) && mails.some((m) => /109 coins/.test(m.html)), pushes);
+  r = await get('/admin/api/order/actions?id=FF40');
+  ok('actions: Mark UPI refund sent offered; refund info says waiting', r.body.actions.upiDone.allowed && r.body.refund.kind === 'UPI_PENDING' && r.body.refund.state === 'ASK_CUSTOMER', r.body);
+  let pend = await R.getPendingRefunds(PH);
+  ok('storefront pending list: FF40 with ₹99 → 109 coins (10%)', pend.ok && pend.items.length === 1 && pend.items[0].orderId === 'FF40' && pend.items[0].credit === 109 && pend.items[0].state === 'ASK_CUSTOMER', pend);
+  let cv = await R.convertToCredit('9000000009', 'FF40');
+  ok('another phone cannot convert it', cv.ok === false && !S.ledger.length && rawOrder('FF40').RefundState === 'ASK_CUSTOMER', cv);
+  cv = await R.convertToCredit(PH, 'FF41');
+  ok('an order that is not refunded cannot be converted', cv.ok === false && !S.ledger.length, cv);
+  const [c1, c2] = await Promise.all([R.convertToCredit(PH, 'FF40'), R.convertToCredit(PH, 'ff40')]);
+  ok('convert: +109 refund credit exactly once even when tapped twice at the same time', c1.ok && c2.ok && [c1, c2].filter((x) => x.already).length === 1 && creditOf(PH) === 109 && S.ledger.filter((l) => l.event === 'REFUND_CREDIT').length === 1, { c1, c2, l: S.ledger });
+  ok('order now Refunded as coins (+10 bonus), state DONE, not pending any more', rawOrder('FF40').RefundMethod === 'Coins' && rawOrder('FF40').RefundCredit === 109 && rawOrder('FF40').RefundBonus === 10 && rawOrder('FF40').RefundState === 'DONE' && (await R.getPendingRefunds(PH)).items.length === 0, rawOrder('FF40'));
+  const up1 = await R.requestUpi(PH, 'FF40', 'rahul@okhdfcbank', 'good-' + PH);
+  ok('after converting, a UPI refund can no longer be requested', up1.ok === false && !S.todos.length, up1);
+  r = await post('/admin/api/order/refund-upi-done', { orderId: 'FF40' });
+  ok('…and the admin cannot mark a UPI refund sent', r.status === 409 && rawOrder('FF40').RefundMethod === 'Coins', r.body);
+  await tick();
+  ok('convert: customer told (push)', pushes.some((p) => p.ph === PH && /109 coins/.test(p.msg.title)), pushes.map((p) => p.msg.title));
+
+  section('UPI cash refund: UPI ID → Today to-do → admin marks it sent');
+  fresh(); S.orders.push(stuckOrder({ order_id: 'FF50', source: 'node' }));
+  await post('/admin/api/order/refund', { orderId: 'FF50', method: 'UPI_ASK' });
+  pushes.length = 0; mails.length = 0;
+  let u = await R.requestUpi(PH, 'FF50', 'rahul@okhdfcbank', '');
+  ok('no email-code token → needsVerify (nothing saved)', u.ok === false && u.needsVerify === true && u.hasEmail === true && !S.todos.length && rawOrder('FF50').RefundState === 'ASK_CUSTOMER', u);
+  const sc = await R.sendCode(PH);
+  ok('email code for refunds: eligible because a cash refund waits, email from the refunded order', sc.ok && codeSends[0].tool === 'Refund' && codeSends[0].eligible === true && codeSends[0].email === 'y@x.com', codeSends);
+  for (const bad of ['rahul', 'rahul@', '@okhdfc', 'rahul@o', 'rahul@@ok', 'rahul@ok-hdfc', 'r@1bank', 'rahul@okhdfcbank.com', '<b>@ybl']) {
+    u = await R.requestUpi(PH, 'FF50', bad, 'good-' + PH);
+    if (u.ok || u.field !== 'upi') { ok('UPI ID format refused: ' + bad, false, u); break; }
+  }
+  ok('bad UPI IDs refused (name@handle only)', !S.todos.length);
+  u = await R.requestUpi('9000000009', 'FF50', 'thief@ybl', 'good-9000000009');
+  ok('another phone (even verified) cannot redirect the refund', u.ok === false && !S.todos.length && !rawOrder('FF50').RefundUpi, u);
+  u = await R.requestUpi(PH, 'FF50', 'rahul.k@okhdfcbank', 'good-' + PH);
+  const todo = S.todos[0] || {};
+  ok('UPI ID saved: state UPI_REQUESTED + one Today to-do with amount, UPI, order, masked phone', u.ok && rawOrder('FF50').RefundState === 'UPI_REQUESTED' && rawOrder('FF50').RefundUpi === 'rahul.k@okhdfcbank' && rawOrder('FF50').RefundTodoId === todo.id && /Send ₹89 UPI refund to rahul\.k@okhdfcbank for FF50 \(62••••••36\)/.test(todo.title) && /\[upi-refund:FF50\]/.test(todo.note) && !/6281151936/.test(todo.title), { u, todo, raw: rawOrder('FF50') });
+  ok('customer sees neutral wording ("soon") and a masked UPI', /soon/.test(u.message) && !/24|48|hour/.test(u.message) && /^rah•+@okhdfcbank$/.test(u.upi), u);
+  u = await R.requestUpi(PH, 'FF50', 'other@ybl', 'good-' + PH);
+  ok('asking again: already requested, no second to-do, UPI not changed', u.ok && u.already && S.todos.length === 1 && rawOrder('FF50').RefundUpi === 'rahul.k@okhdfcbank', u);
+  cv = await R.convertToCredit(PH, 'FF50');
+  ok('after asking for UPI, converting to coins is refused (money may be on its way)', cv.ok === false && !S.ledger.length, cv);
+  await tick();
+  ok('customer emailed a "didn\'t ask for this?" confirmation; owner pushed', mails.some((m) => /Didn't ask for this/.test(m.html)) && pushes.some((p) => p.admin && /UPI refund to send/.test(p.msg.title)), { mails: mails.map((m) => m.subj), pushes });
+  pend = await R.getPendingRefunds(PH);
+  ok('pending list shows UPI_REQUESTED with masked UPI', pend.items.length === 1 && pend.items[0].state === 'UPI_REQUESTED' && /^rah•+@okhdfcbank$/.test(pend.items[0].upi), pend);
+  const listU = await readsOrders.getCustomerOrders(PH, 15);
+  ok('storefront order list: refundKind UPI_PENDING / state UPI_REQUESTED', listU.orders[0].refundKind === 'UPI_PENDING' && listU.orders[0].refundState === 'UPI_REQUESTED', listU.orders[0]);
+  pushes.length = 0;
+  r = await post('/admin/api/todos/update', { id: todo.id, done: true });
+  ok('Today to-do ticked done → order Refunded to UPI, state DONE, customer told', r.body.ok && r.body.refund && r.body.refund.ok && rawOrder('FF50').RefundMethod === 'UPI' && rawOrder('FF50').RefundState === 'DONE' && !!rawOrder('FF50').RefundUpiSentAt && rawOrder('FF50').RefundCompletedVia === 'todo' && S.audits.some((a) => a.action === 'order.refundUpiSent'), { body: r.body, raw: rawOrder('FF50') });
+  await tick();
+  ok('UPI sent: push to the customer', pushes.some((p) => p.ph === PH && /refunded to your UPI/.test(p.msg.title)), pushes);
+  r = await post('/admin/api/order/refund-upi-done', { orderId: 'FF50', reference: 'UTR1' });
+  ok('marking sent again → already, nothing changes', r.body.ok && r.body.already && rawOrder('FF50').RefundRef === '', r.body);
+  fresh(); S.orders.push(stuckOrder({ order_id: 'FF51', source: 'node' }));
+  await post('/admin/api/order/refund', { orderId: 'FF51', method: 'UPI_ASK' });
+  await R.requestUpi(PH, 'FF51', 'rahul@ybl', 'good-' + PH);
+  r = await post('/admin/api/order/refund-upi-done', { orderId: 'FF51', reference: 'UTR777' }, noKey);
+  ok('refund-upi-done needs the admin key', r.status === 403 && rawOrder('FF51').RefundState === 'UPI_REQUESTED');
+  r = await post('/admin/api/order/refund-upi-done', { orderId: 'FF51', reference: 'UTR777' });
+  ok('⚡ Actions → Mark UPI refund sent: UTR kept, to-do ticked, change log', r.body.ok && rawOrder('FF51').RefundRef === 'UTR777' && rawOrder('FF51').RefundMethod === 'UPI' && S.todos[0].done === 1 && S.audits.some((a) => a.action === 'order.refundUpiSent' && /UTR777/.test(a.summary)), { body: r.body, todos: S.todos });
+  const listD = await readsOrders.getCustomerOrders(PH, 15);
+  ok('storefront order list: refunded to UPI', listD.orders[0].refundKind === 'UPI' && listD.orders[0].refundState === 'DONE', listD.orders[0]);
 
   section('erase: guards');
   fresh(); S.orders.push(stuckOrder({ order_id: 'FF10', source: 'node' }));
@@ -373,7 +509,10 @@ const rawOrder = (id) => { const r = order(id).raw_json; return typeof r === 'st
   const iscripts = [...idx.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter((t) => t.trim() && !/^\s*\{/.test(t));
   let iparsed = true; for (const sc of iscripts) { try { new Function(sc); } catch (e) { iparsed = false; console.log('   index parse error:', e.message); } }
   ok('index.html scripts parse', iparsed);
-  ok('storefront: Refunded badge with UPI/Coins + no Verify button; Re-delivered note', /'💸 Refunded'/.test(idx) && /Refunded to your UPI/.test(idx) && /Refunded as FluxFilm coins/.test(idx) && /!fulfilled && !refunded && React\.createElement/.test(idx) && /Re-delivered/.test(idx));
+  ok('storefront: Refunded badge with UPI/Coins + no Verify button; Re-delivered note', /'💸 Refunded'/.test(idx) && /'💸 Refunded to UPI'/.test(idx) && /'💸 Refunded as coins'/.test(idx) && /!fulfilled && !refunded && React\.createElement/.test(idx) && /Re-delivered/.test(idx));
+  ok('storefront: coupon / UPI requested / choose badges + button that opens the refund pop-up', /'🎟️ Refunded as coupon ' \+ \(o\.refundCoupon/.test(idx) && /'⏳ UPI refund requested'/.test(idx) && /new Event\('ff-refunds-open'\)/.test(idx) && /window\.addEventListener\('ff-refunds-open', open\)/.test(idx));
+  ok('storefront: refund pop-up offers coins +10% or UPI (with email code), mounted for logged-in customers', /function RefundChoice\(/.test(idx) && /Take ₹\$\{item\.amount\} \+ \$\{item\.bonusPercent \|\| 10\}% = \$\{item\.credit\} coins instead \(use on any plan\)/.test(idx) && /🏦 Continue with UPI refund/.test(idx) && /API\.refundSendCode\(ph/.test(idx) && /sessionPhone && React\.createElement\(RefundChoice, \{/.test(idx) && /You chose a cash refund\./.test(idx));
+  ok('admin: refund dialog has Coins / Coupon / UPI ask / already sent / other + Mark UPI refund sent', ['value="Coins"', 'value="Coupon"', 'value="UPI_ASK"', 'value="UPI"', 'value="Other"'].every((v) => adminHtml.includes(v)) && adminHtml.includes("'/admin/api/order/refund-upi-done'") && /data-oa="upidone"/.test(adminHtml) && /Refund credit \(pays up to 100%\)/.test(adminHtml));
   ok('storefront checkout stops on a refunded order', /if \(r\?\.refunded\) \{ goToDone/.test(idx) && /isRefunded \? '💸 Order Refunded'/.test(idx));
 
   console.log('\nPASS ' + pass + '   FAIL ' + fail);

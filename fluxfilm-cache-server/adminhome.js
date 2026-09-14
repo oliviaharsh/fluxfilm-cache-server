@@ -19,6 +19,7 @@ const UNDELIVERED = "UPPER(o.status) = 'PAID' AND UPPER(COALESCE(o.fulfillment_s
 function mount(app, deps) {
   const { db, auth, audit } = deps;
   const catalog = () => deps.catalog || require('./catalog');
+  const refunds = () => deps.refunds || require('./refunds');
   const fail = (res, e) => res.status(missingTable(e) ? 409 : 500).json({ ok: false, needsSchema: missingTable(e), message: missingTable(e) ? SCHEMA_MSG : String((e && e.message) || e) });
   const one = async (sql, p) => { try { const r = await db.query(sql, p || []); return r[0] || {}; } catch (e) { return { error: e.message }; } };
   const many = async (sql, p) => { try { return await db.query(sql, p || []); } catch (e) { return []; } };
@@ -26,21 +27,28 @@ function mount(app, deps) {
   app.get('/admin/api/today', async (req, res) => {
     if (!auth(req, res)) return;
     try {
-      const [unpaid, undelivered, manual, ending, endingList, expiredOn, restock, unmatched, todos, stock, stuckList] = await Promise.all([
+      const [unpaid, undelivered, manual, ending, endingList, expiredOn, restock, unmatched, todos, stock, stuckList, upiRefunds] = await Promise.all([
         // Checkouts started on the new site in the last 3 days but not paid: worth a nudge.
         one("SELECT COUNT(*) n FROM orders WHERE UPPER(status) = 'CREATED' AND source = 'node' AND created_at_sheet > NOW() - INTERVAL 3 DAY"),
         one('SELECT COUNT(*) n FROM orders o WHERE ' + UNDELIVERED),
         one("SELECT COUNT(*) n FROM subscriptions WHERE UPPER(COALESCE(fulfillment_status, '')) = 'MANUAL_PENDING' AND UPPER(status) = 'ACTIVE'"),
         one("SELECT COUNT(*) n FROM subscriptions WHERE UPPER(status) = 'ACTIVE' AND expiry_date BETWEEN NOW() AND NOW() + INTERVAL 3 DAY"),
         many("SELECT sub_id, phone_norm, service, plan, expiry_date FROM subscriptions WHERE UPPER(status) = 'ACTIVE' AND expiry_date BETWEEN NOW() AND NOW() + INTERVAL 3 DAY ORDER BY expiry_date LIMIT 5"),
-        one('SELECT COUNT(*) n FROM subscriptions WHERE expiry_date < NOW() AND expiry_date > NOW() - INTERVAL 60 DAY AND COALESCE(removed, 0) = 0'),
+        // Sheet DASHBOARD rule (expiredusers.js): only logins that still have active customers, no 60-day cap.
+        (deps.expiredusers || require('./expiredusers')).load((sql, p) => db.query(sql, p)).catch((e) => ({ error: e.message })),
         one("SELECT COUNT(*) n FROM restock_requests WHERE UPPER(COALESCE(status, '')) <> 'DONE'"),
-        one('SELECT COUNT(*) n FROM bank_credits WHERE consumed_order_id IS NULL AND received_at > NOW() - INTERVAL 14 DAY'),
+        // Since go-live only (older payments were confirmed by the old site), minus "Not a sale" (adminbankcredits.js).
+        (deps.bankcredits || require('./adminbankcredits')).storeFor(db).countUnmatched().then((x) => ({ n: x.count }), (e) => ({ error: e.message })),
         many('SELECT id, title, note, due_date, done, created_at FROM admin_todos WHERE done = 0 ORDER BY due_date IS NULL, due_date, id LIMIT 50'),
         catalog().getStockLevels().catch(() => ({ levels: {} })),
         // The stuck orders themselves, so a tap on one opens it with its actions (fulfil / refund / erase).
         many('SELECT o.order_id, o.name, o.phone_norm, o.service, o.plan, o.final_amount, o.fulfillment_status, o.created_at_sheet FROM orders o WHERE ' + UNDELIVERED + ' ORDER BY o.created_at_sheet DESC LIMIT 5'),
+        // 💸 Cash refunds still open (refunds.js): the customer is choosing (ASK_CUSTOMER) or gave a UPI ID (UPI_REQUESTED).
+        many("SELECT o.order_id, o.name, o.phone_norm, o.service, o.plan, o.final_amount, o.raw_json, o.created_at_sheet FROM orders o WHERE UPPER(o.status) = 'REFUNDED' AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_json, '$.RefundMethod')) = 'UPI_PENDING' ORDER BY o.created_at_sheet DESC LIMIT 50"),
       ]);
+      const openRefunds = (Array.isArray(upiRefunds) ? upiRefunds : []).map((o) => { const r = require("./refunds").refundInfo(o); return { order_id: o.order_id, name: o.name, phone_norm: o.phone_norm, service: o.service, plan: o.plan, final_amount: r.amount, fulfillment_status: r.state === 'UPI_REQUESTED' ? 'UPI_REFUND_REQUESTED' : 'CUSTOMER_CHOOSING', state: r.state }; });
+      const toSend = openRefunds.filter((x) => x.state === 'UPI_REQUESTED');
+      const choosing = openRefunds.filter((x) => x.state !== 'UPI_REQUESTED');
       const levels = (stock && stock.levels) || {};
       const out = Object.keys(levels).filter((k) => levels[k].stockLevel === 'OUT').map((k) => k.replace('|||', ' · '));
       const low = Object.keys(levels).filter((k) => levels[k].stockLevel === 'LOW').map((k) => k.replace('|||', ' · ') + ' (' + levels[k].stock + ')');
@@ -49,12 +57,14 @@ function mount(app, deps) {
         ok: true,
         items: [
           { key: 'undelivered', icon: '⚠️', title: 'Paid but not delivered', count: +undelivered.n || 0, tone: 'bad', go: { view: 'orders', orders: 'undelivered' }, orders: Array.isArray(stuckList) ? stuckList : [] },
+          { key: 'upirefunds', icon: '💸', title: 'UPI refunds to send', count: toSend.length, tone: 'bad', go: { view: 'orders', orders: 'all' }, orders: toSend.slice(0, 5) },
+          { key: 'refundchoice', icon: '⏳', title: 'Cash refunds: customer still choosing (coins +10% or UPI)', count: choosing.length, tone: 'info', go: { view: 'orders', orders: 'all' }, orders: choosing.slice(0, 5) },
           { key: 'manual', icon: '🛠', title: 'Manual plans to activate', count: +manual.n || 0, tone: 'warn', go: { view: 'orders', orders: 'manual' } },
-          { key: 'unmatched', icon: '💸', title: 'Payments not matched to an order (14 days)', count: +unmatched.n || 0, tone: 'warn', go: { view: 'data', table: 'bank_credits' } },
+          { key: 'unmatched', icon: '💸', title: 'Payments since go-live not matched to an order', count: +unmatched.n || 0, tone: 'warn', go: { view: 'bank' } },
           { key: 'ending', icon: '⏳', title: 'Plans ending in 3 days', count: +ending.n || 0, tone: 'warn', go: { view: 'reminders' }, list: endingList },
           { key: 'out', icon: '🔴', title: 'Plans out of stock', count: out.length, tone: 'bad', names: out, go: { view: 'stock' } },
           { key: 'low', icon: '🟡', title: 'Plans running low', count: low.length, tone: 'warn', names: low, go: { view: 'stock' } },
-          { key: 'expired', icon: '🚪', title: 'Expired customers still on accounts', count: +expiredOn.n || 0, tone: 'warn', go: { view: 'stock' } },
+          { key: 'expired', icon: '🚪', title: 'Expired customers to remove (accounts still in use)', count: expiredOn && expiredOn.main ? expiredOn.main.pending : 0, tone: 'warn', go: { view: 'stock', stock: 'expired' }, names: expiredOn && expiredOn.main ? (deps.expiredusers || require('./expiredusers')).todayNames(expiredOn, 20) : [] },
           { key: 'unpaid', icon: '🧾', title: 'Unpaid website checkouts (3 days)', count: +unpaid.n || 0, tone: 'info', go: { view: 'orders', orders: 'unpaid' } },
           { key: 'restock', icon: '🔔', title: 'Customers waiting for restock', count: +restock.n || 0, tone: 'info', go: { view: 'data', table: 'restock_requests' } },
         ],
@@ -100,7 +110,15 @@ function mount(app, deps) {
       const r = await db.query('UPDATE admin_todos SET ' + sets.join(', ') + ' WHERE id = ? LIMIT 1', [...params, id]);
       if (!r.affectedRows) return res.status(404).json({ ok: false, message: 'To-do not found.' });
       if (b.done != null) audit.record(req, { action: b.done ? 'todo.done' : 'todo.reopen', entity: 'todo', id });
-      res.json({ ok: true });
+      // A "💸 Send ₹X UPI refund" to-do ticked done = the money was sent: the order's refund is complete + customer told.
+      let refund = null;
+      if (b.done === true || b.done === 1 || String(b.done) === 'true') {
+        try {
+          refund = await refunds().onTodoDone(id);
+          if (refund && refund.ok && !refund.already) audit.record(req, { action: 'order.refundUpiSent', entity: 'order', id: refund.orderId, summary: 'UPI refund sent ₹' + refund.amount + (refund.upi ? ' to ' + refund.upi : '') + ' (to-do ticked)' });
+        } catch (e) { refund = { ok: false, message: String((e && e.message) || e) }; }
+      }
+      res.json(refund ? { ok: true, refund } : { ok: true });
     } catch (e) { fail(res, e); }
   });
   app.post('/admin/api/todos/delete', async (req, res) => {
