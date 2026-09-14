@@ -240,7 +240,7 @@ async function getWalletByPhone(phone) {
   const ph = normPhone(phone);
   if (!ph) return { ok: false, message: 'Phone required.' };
   const rows = await db.query(
-    'SELECT coins_balance, coins_lifetime, last_earned_at, last_spent_at, last_event FROM wallet WHERE phone_norm = ? LIMIT 1', [ph]);
+    'SELECT coins_balance, coins_lifetime, last_earned_at, last_spent_at, last_event FROM wallet WHERE phone_norm = ? ORDER BY coins_lifetime DESC, coins_balance DESC LIMIT 1', [ph]);
   if (!rows.length) return { ok: true, phone: ph, coinsBalance: 0, coinsLifetime: 0, lastEarnedAt: '', lastSpentAt: '', lastEvent: '' };
   const r = rows[0];
   return {

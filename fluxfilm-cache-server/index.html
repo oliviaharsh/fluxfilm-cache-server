@@ -1036,19 +1036,22 @@ function ReferralPanel({
     setTimeout(() => setCopied(c => c === what ? '' : c), 1600);
   });
   const shareText = `🍿 Get premium subscriptions (Netflix, Prime & more) cheaper on FluxFilm! Use my invite link and get ₹${info.friendDiscount} off your first plan: ${info.link}`;
+  const R = info.rules || {};
+  const range = R.firstMax > 0 ? `${R.firstMin}–${R.firstMax}` : `${R.firstMin}+`;
   const STATUS = {
     PENDING: ['⏳ Waiting for first order', 'warn'],
-    REWARDED: [`✅ +${info.rewardCoins} coins`, 'ok'],
+    REWARDED: ['✅ Joined', 'ok'],
     NOT_NEW: ['Already a customer', 'bad'],
     CAPPED: ['Monthly limit reached', 'bad']
   };
+  const howTo = [`Share your link or code with friends who don't use FluxFilm yet.`, `They get ₹${info.friendDiscount} off their first plan automatically.`, `When they pay, you get ${R.firstPercent}% of their order as coins (${range} coins).`, R.repeatOrders > 0 && R.repeatPercent > 0 ? `Plus ${R.repeatPercent}% on their next ${R.repeatOrders} order${R.repeatOrders === 1 ? '' : 's'} — renewals count too.` : '', R.level2Percent > 0 ? `If your friend invites someone, you get ${R.level2Percent}% of that person's first order too.` : ''].filter(Boolean);
   return React.createElement("div", null, React.createElement(Card, {
     className: "ff-ref-hero"
   }, React.createElement("div", {
     style: {
       fontSize: 40
     }
-  }, "🎁"), React.createElement("h3", null, "Give ₹", info.friendDiscount, ", get ", info.rewardCoins, " coins"), React.createElement("p", null, "Your friend gets ₹", info.friendDiscount, " off their first plan. You get ", info.rewardCoins, " coins in your Wallet when they pay."), React.createElement("div", {
+  }, "🎁"), React.createElement("h3", null, "Give ₹", info.friendDiscount, ", earn ", R.firstPercent, "% in coins"), React.createElement("p", null, "Your friend gets ₹", info.friendDiscount, " off their first plan. You earn coins every time they pay", R.repeatOrders > 0 && R.repeatPercent > 0 ? ` (first ${R.repeatOrders + 1} orders)` : '', "."), React.createElement("div", {
     className: "ff-ref-code"
   }, React.createElement("span", null, info.code), React.createElement("button", {
     onClick: () => copy('code', info.code)
@@ -1081,7 +1084,7 @@ function ReferralPanel({
     }
   }, "How it works"), React.createElement("div", {
     className: "ff-ref-steps"
-  }, [`Share your link or code with friends who don't use FluxFilm yet.`, `They open the link and get ₹${info.friendDiscount} off their first plan automatically.`, `When they pay, ${info.rewardCoins} coins land in your Wallet.`].map((txt, i) => React.createElement("div", {
+  }, howTo.map((txt, i) => React.createElement("div", {
     key: i,
     className: "ff-ref-step"
   }, React.createElement("b", null, i + 1), React.createElement("div", null, txt))))), React.createElement(Card, {
@@ -1090,7 +1093,7 @@ function ReferralPanel({
     }
   }, React.createElement("div", {
     className: "ff-stats3"
-  }, [['Invited', info.invited], ['Rewarded', info.rewarded], ['Coins earned', info.coinsEarned]].map(([l, n]) => React.createElement("div", {
+  }, [['Invited', info.invited], ['Joined', info.joined], ['Coins earned', info.coinsEarned]].map(([l, n]) => React.createElement("div", {
     key: l,
     className: "ff-stat"
   }, React.createElement("div", {
@@ -1119,9 +1122,26 @@ function ReferralPanel({
     style: {
       marginLeft: 'auto'
     }
-  }, React.createElement(Badge, {
+  }, f.coins > 0 && React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13,
+      fontWeight: 800,
+      color: C.green,
+      marginRight: 8
+    }
+  }, "+", f.coins, " 🪙"), React.createElement(Badge, {
     tone: (STATUS[f.status] || ['', 'warn'])[1]
-  }, (STATUS[f.status] || [f.status])[0]))))), (!info.friends || !info.friends.length) && React.createElement("div", {
+  }, (STATUS[f.status] || [f.status])[0]))))), info.level2Coins > 0 && React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13,
+      fontWeight: 700,
+      color: C.muted,
+      marginTop: 10,
+      textAlign: 'center'
+    }
+  }, "🔗 +", info.level2Coins, " coins from your friends' invites"), (!info.friends || !info.friends.length) && React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 13,

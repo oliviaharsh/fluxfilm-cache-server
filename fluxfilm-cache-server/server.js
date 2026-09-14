@@ -320,3 +320,5 @@ if (db.ENABLED && SYNC_INTERVAL_MIN > 0) {
 if (db.ENABLED && payments) { try { payments.startWatcher(); } catch (e) { console.log('[imap] start error', e.message); } }
 
 app.listen(PORT, () => console.log('[FluxFilm] listening on :' + PORT + ' (MySQL-only storefront)'));
+// Refer & earn: every 30 min pay any referral reward that failed or was missed (e.g. a restart right after a payment).
+if (referrals && db.ENABLED) referrals.startReconcileTimer();
