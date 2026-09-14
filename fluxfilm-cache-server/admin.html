@@ -3103,9 +3103,10 @@ function renderOlivia() {
     '<label style="display:flex;align-items:center;gap:10px;font-weight:600"><input type="checkbox" style="width:22px;height:22px;flex:none" id="olai"' + (s.aiWords ? ' checked' : '') + '/> <span><b>AI-written replies</b> (DeepSeek). Off = fixed replies only.</span></label>' +
     '<label>WhatsApp link for "WhatsApp our team"<input class="inp" id="olwa" value="' + esc(s.whatsappLink) + '"/></label>' +
     '<label>Voice guide <span class="muted">(how Olivia should sound — from the tone training; max 2000 characters)</span><textarea class="inp" id="olvoice" rows="5" maxlength="2000" placeholder="Warm, respectful, short sentences. Use ji. Never pushy.">' + esc(s.voice) + '</textarea></label>' +
+    '<label>Knowledge <span class="muted">(facts Olivia may use when a customer asks something off-script, e.g. "Sharing = one profile, do not change the PIN". No prices here — prices always come live from Plans. Max 4000 characters)</span><textarea class="inp" id="olknow" rows="6" maxlength="4000" placeholder="Netflix Sharing: your own profile on a shared account, 1 device at a time.&#10;Household problem: open Help → Household Helper.">' + esc(s.knowledge || '') + '</textarea></label>' +
     '</div><div class="rf-save"><button class="btn green" id="olsave">💾 Save settings</button><span class="rf-state" id="olstate"></span></div></div>';
   var stt = function (k, x) { var el = $('#olstate'); if (el) { el.className = 'rf-state ' + k; el.textContent = x; } };
-  var body = function (extra) { return Object.assign({ testOnly: $('#oltest').checked, testPhones: $('#olphones').value, aiWords: $('#olai').checked, whatsappLink: $('#olwa').value, voice: $('#olvoice').value }, extra || {}); };
+  var body = function (extra) { return Object.assign({ testOnly: $('#oltest').checked, testPhones: $('#olphones').value, aiWords: $('#olai').checked, whatsappLink: $('#olwa').value, voice: $('#olvoice').value, knowledge: $('#olknow').value }, extra || {}); };
   $('#olsave').onclick = function () { saveSettingsBtn(this, '/admin/api/olivia', body(), stt, function (r) { OL.s = r.settings; renderOlivia(); }); };
   $('#oltog').onclick = function () {
     var turningOn = !OL.s.enabled;
