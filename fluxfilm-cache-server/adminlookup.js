@@ -18,8 +18,9 @@ const VIEWS = {
   all: '',
   unpaid: "UPPER(status) = 'CREATED'",
   // Old-site orders often got their subscription but were never marked delivered:
-  // only list paid orders with no subscription attached — the real problems.
-  undelivered: "UPPER(status) = 'PAID' AND UPPER(COALESCE(fulfillment_status, '')) NOT IN ('FULFILLED', 'MANUAL_PENDING') AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.order_id = orders.order_id)",
+  // only list paid orders with no subscription attached — the real problems. Old-site renewals
+  // point at the renewed subscription (renew_sub_id) instead; website renewals always stay visible.
+  undelivered: "UPPER(status) = 'PAID' AND UPPER(COALESCE(fulfillment_status, '')) NOT IN ('FULFILLED', 'MANUAL_PENDING') AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.order_id = orders.order_id) AND NOT (COALESCE(orders.source, '') <> 'node' AND COALESCE(orders.renew_sub_id, '') <> '' AND EXISTS (SELECT 1 FROM subscriptions r WHERE r.sub_id = orders.renew_sub_id))",
   manual: "UPPER(COALESCE(fulfillment_status, '')) = 'MANUAL_PENDING'",
   today: 'created_at_sheet >= CURDATE()',
   week: 'created_at_sheet >= CURDATE() - INTERVAL 6 DAY',

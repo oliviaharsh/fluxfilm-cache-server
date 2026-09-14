@@ -27,7 +27,7 @@ function mount(app, deps) {
       const [unpaid, undelivered, manual, ending, endingList, expiredOn, restock, unmatched, todos, stock] = await Promise.all([
         // Checkouts started on the new site in the last 3 days but not paid: worth a nudge.
         one("SELECT COUNT(*) n FROM orders WHERE UPPER(status) = 'CREATED' AND source = 'node' AND created_at_sheet > NOW() - INTERVAL 3 DAY"),
-        one("SELECT COUNT(*) n FROM orders o WHERE UPPER(o.status) = 'PAID' AND UPPER(COALESCE(o.fulfillment_status, '')) NOT IN ('FULFILLED', 'MANUAL_PENDING') AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.order_id = o.order_id)"),
+        one("SELECT COUNT(*) n FROM orders o WHERE UPPER(o.status) = 'PAID' AND UPPER(COALESCE(o.fulfillment_status, '')) NOT IN ('FULFILLED', 'MANUAL_PENDING') AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.order_id = o.order_id) AND NOT (COALESCE(o.source, '') <> 'node' AND COALESCE(o.renew_sub_id, '') <> '' AND EXISTS (SELECT 1 FROM subscriptions r WHERE r.sub_id = o.renew_sub_id))"),
         one("SELECT COUNT(*) n FROM subscriptions WHERE UPPER(COALESCE(fulfillment_status, '')) = 'MANUAL_PENDING' AND UPPER(status) = 'ACTIVE'"),
         one("SELECT COUNT(*) n FROM subscriptions WHERE UPPER(status) = 'ACTIVE' AND expiry_date BETWEEN NOW() AND NOW() + INTERVAL 3 DAY"),
         many("SELECT sub_id, phone_norm, service, plan, expiry_date FROM subscriptions WHERE UPPER(status) = 'ACTIVE' AND expiry_date BETWEEN NOW() AND NOW() + INTERVAL 3 DAY ORDER BY expiry_date LIMIT 5"),
