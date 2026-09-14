@@ -360,6 +360,46 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
   .ff-btn:active:not(:disabled), .ff-tool:active, .ff-coin:active { transform: scale(.98) !important; }
 }
 
+/* ── Offers: bar, card, pop-up (themes t-festive/green/red/purple/dark/gold) ── */
+.ff-promo { position: relative; overflow: hidden; color: #fff; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+.ff-promo.t-festive { background: linear-gradient(120deg, #6d28d9, #db2777 55%, #f59e0b); }
+.ff-promo.t-green { background: linear-gradient(120deg, #15803d, #16a34a 50%, #34d399); }
+.ff-promo.t-red { background: linear-gradient(120deg, #b91c1c, #dc2626 50%, #f97316); }
+.ff-promo.t-purple { background: linear-gradient(120deg, #3730a3, #6d28d9 55%, #a855f7); }
+.ff-promo.t-dark { background: linear-gradient(120deg, #0f172a, #1e293b 60%, #334155); color: #fde68a; }
+.ff-promo.t-gold { background: linear-gradient(120deg, #f59e0b, #fbbf24 55%, #fde68a); color: #3b2300; }
+.ff-promo-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 0 0 12px; padding: 10px 40px 10px 14px; border-radius: 16px; font-size: 13.5px; font-weight: 600; line-height: 1.4; box-shadow: 0 6px 18px rgba(15,23,42,.14); }
+.ff-promo-emoji { font-size: 20px; }
+.ff-promo-text { flex: 1 1 180px; }
+.ff-promo-text b { font-weight: 900; }
+.ff-promo-timer { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.2); font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ff-promo-code { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: 1.5px dashed currentColor; border-radius: 10px; background: rgba(255,255,255,.14); color: inherit; font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.ff-promo-code span { font-size: 10px; font-weight: 800; letter-spacing: .08em; opacity: .85; }
+.ff-promo-code b { font-weight: 900; letter-spacing: .06em; }
+.ff-promo-cta { border: 0; border-radius: 999px; padding: 7px 14px; background: #fff; color: #0f172a; font: inherit; font-size: 13px; font-weight: 900; cursor: pointer; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+.ff-promo.t-gold .ff-promo-cta { background: #3b2300; color: #fde68a; }
+.ff-promo-cta.big { width: 100%; padding: 14px 18px; font-size: 16px; margin-top: 12px; }
+.ff-promo-x { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border: 0; border-radius: 50%; background: rgba(255,255,255,.22); color: inherit; font-size: 18px; line-height: 1; cursor: pointer; z-index: 2; }
+.ff-promo-card { display: flex; gap: 14px; align-items: center; margin: 0 0 16px; padding: 18px; border-radius: 22px; box-shadow: 0 14px 34px rgba(109,40,217,.22); }
+.ff-promo-glow { position: absolute; inset: -40% -20% auto auto; width: 70%; height: 140%; background: radial-gradient(closest-side, rgba(255,255,255,.35), transparent); animation: ffPromoGlow 6s ease-in-out infinite alternate; pointer-events: none; }
+.ff-promo-big { font-size: 56px; line-height: 1; flex: none; animation: ffPromoBounce 2.6s ease-in-out infinite; }
+.ff-promo-img { width: 96px; height: 96px; object-fit: cover; border-radius: 16px; flex: none; }
+.ff-promo-body { position: relative; flex: 1; min-width: 0; }
+.ff-promo-title { font-size: 20px; font-weight: 900; line-height: 1.2; }
+.ff-promo-msg { margin-top: 4px; font-size: 14px; font-weight: 600; line-height: 1.45; opacity: .95; }
+.ff-promo-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+.ff-promo-row.center { justify-content: center; }
+@media (max-width: 520px) { .ff-promo-card { flex-direction: column; text-align: center; } .ff-promo-card .ff-promo-row { justify-content: center; } .ff-promo-img { width: 100%; height: 150px; } }
+.ff-promo-bg { position: fixed; inset: 0; z-index: 75; display: grid; place-items: center; padding: 16px; background: rgba(15,23,42,.45); animation: ffInstallFade .2s ease both; }
+.ff-promo-pop { width: 100%; max-width: 380px; padding: 26px 20px 16px; border-radius: 26px; text-align: center; box-shadow: 0 30px 70px rgba(15,23,42,.4); animation: ffPromoPop .4s cubic-bezier(.2,.9,.3,1.25) both; }
+.ff-promo-pop .ff-promo-big { font-size: 72px; margin: 0 auto 10px; }
+.ff-promo-pop .ff-promo-img { width: 100%; height: 170px; margin-bottom: 12px; }
+.ff-promo-pop .ff-promo-title { font-size: 24px; }
+.ff-promo-later { display: block; margin: 10px auto 0; border: 0; background: none; color: inherit; opacity: .85; font: inherit; font-size: 13px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+@keyframes ffPromoPop { from { transform: perspective(700px) rotateX(18deg) translateY(30px) scale(.92); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ffPromoBounce { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-6px) rotate(4deg); } }
+@keyframes ffPromoGlow { from { transform: translateX(0); opacity: .6; } to { transform: translateX(-30%); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ff-promo-pop, .ff-promo-big, .ff-promo-glow, .ff-promo-bg { animation: none; } }
 /* ── Install app pop-up (fixed, outside any animated screen) ── */
 .ff-install-bg { position: fixed; inset: 0; z-index: 70; display: flex; align-items: flex-end; justify-content: center; background: rgba(15,23,42,.28); padding: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom)); animation: ffInstallFade .2s ease both; }
 .ff-install { width: 100%; max-width: 440px; background: #fff; border-radius: 22px; padding: 16px; box-shadow: 0 20px 50px rgba(15,23,42,.25); animation: ffInstallUp .28s cubic-bezier(.2,.9,.3,1.2) both; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
@@ -4012,7 +4052,7 @@ function DetailsScreen({
     name: profile?.name || '',
     email: profile?.email || '',
     phone: normPhone_(phone || profile?.phone || ''),
-    coupon: '',
+    coupon: getPromoCoupon_(),
     notes: '',
     extraVal: '',
     deviceCount: planDeviceCount_(planObj?.plan),
@@ -4079,6 +4119,13 @@ function DetailsScreen({
       msg: '❌ Coupon check failed.'
     })));
   }
+  // Code from an offer the customer tapped: apply it once automatically (they can still remove or change it).
+  const promoApplied = useRef(false);
+  useEffect(() => {
+    if (promoApplied.current || !form.coupon || form.coupon !== getPromoCoupon_() || !form.phone.trim()) return;
+    promoApplied.current = true;
+    applyCoupon();
+  }, [form.phone]);
   function proceed() {
     if (!form.name.trim()) return alert('Full Name is required.');
     if (!form.email.trim()) return alert('Email is required.');
@@ -5963,7 +6010,7 @@ function RenewStartScreen({
     on: false,
     q: null
   });
-  const [couponCode, setCouponCode] = useState('');
+  const [couponCode, setCouponCode] = useState(getPromoCoupon_);
   const [couponState, setCouponState] = useState({
     applied: false,
     discount: 0,
@@ -8544,6 +8591,7 @@ function InstallPrompt({
     if (seen || installHiddenUntil_() > Date.now()) return;
     if (!ready && !isIos_()) return;
     const t = setTimeout(() => {
+      if (window.ffPromoOpen) return; // an offer pop-up is showing — ask on the next screen instead
       try {
         sessionStorage.setItem('ff_install_asked', '1');
       } catch (e) {}
@@ -8611,6 +8659,256 @@ function InstallPrompt({
     className: "ff-install-never",
     onClick: never
   }, "Don’t show this again")));
+}
+// ── Offers: announcement bar, banner card, pop-up (admin → 📣 Offers) ──
+const PROMO_PAGE_ = {
+  home: 'home',
+  dashboard: 'dashboard',
+  buy1: 'buy',
+  buy2: 'buy',
+  account: 'account'
+};
+function promoFits_(p, screen, loggedIn) {
+  if (p.audience === 'guests' && loggedIn || p.audience === 'customers' && !loggedIn) return false;
+  if (p.endAt && Date.parse(p.endAt) <= Date.now()) return false;
+  if (p.type === 'popup') return ['home', 'dashboard', 'buy1'].includes(screen);
+  return (p.pages || []).includes(PROMO_PAGE_[screen]);
+}
+function promoStore_(kind) {
+  try {
+    return kind === 'session' ? sessionStorage : localStorage;
+  } catch (e) {
+    return null;
+  }
+}
+function promoPopupDue_(p) {
+  const key = 'ff_promo_seen_' + p.id;
+  if (p.frequency === 'visit') {
+    const ss = promoStore_('session');
+    return !(ss && ss.getItem(key));
+  }
+  const ls = promoStore_('local');
+  const at = Number(ls && ls.getItem(key) || 0);
+  if (!at) return true;
+  return p.frequency === 'day' ? Date.now() - at > 20 * 3600000 : false;
+}
+function promoMarkSeen_(p) {
+  try {
+    const key = 'ff_promo_seen_' + p.id;
+    if (p.frequency === 'visit') sessionStorage.setItem(key, '1');else localStorage.setItem(key, String(Date.now()));
+  } catch (e) {}
+}
+function savePromoCoupon_(p) {
+  if (!p || !p.couponCode) return;
+  try {
+    localStorage.setItem('ff_promo_coupon', JSON.stringify({
+      code: p.couponCode,
+      until: p.endAt || new Date(Date.now() + 3 * 86400000).toISOString(),
+      title: p.title || ''
+    }));
+  } catch (e) {}
+}
+function getPromoCoupon_() {
+  try {
+    const r = JSON.parse(localStorage.getItem('ff_promo_coupon') || 'null');
+    return r && r.code && Date.parse(r.until) > Date.now() ? r.code : '';
+  } catch (e) {
+    return '';
+  }
+}
+const promoViewed_ = {};
+function promoEvent_(id, kind) {
+  if (kind === 'view') {
+    if (promoViewed_[id]) return;
+    promoViewed_[id] = 1;
+  }
+  try {
+    API.promoEvent(id, kind, () => {}, () => {});
+  } catch (e) {}
+}
+function promoLeft_(endAt) {
+  const ms = Date.parse(endAt) - Date.now();
+  if (!(ms > 0)) return '';
+  const d = Math.floor(ms / 86400000),
+    hh = Math.floor(ms % 86400000 / 3600000),
+    mm = Math.floor(ms % 3600000 / 60000),
+    ss = Math.floor(ms % 60000 / 1000);
+  const pad = n => String(n).padStart(2, '0');
+  return d >= 1 ? `${d}d ${hh}h left` : `${pad(hh)}:${pad(mm)}:${pad(ss)} left`;
+}
+function PromoCountdown({
+  endAt
+}) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!endAt) return;
+    const lastDay = Date.parse(endAt) - Date.now() < 86400000;
+    const iv = setInterval(() => tick(x => x + 1), lastDay ? 1000 : 30000);
+    return () => clearInterval(iv);
+  }, [endAt]);
+  const txt = endAt ? promoLeft_(endAt) : '';
+  return txt ? React.createElement("span", {
+    className: "ff-promo-timer"
+  }, "⏳ ", txt) : null;
+}
+function PromoCoupon({
+  code
+}) {
+  const [copied, setCopied] = useState(false);
+  if (!code) return null;
+  return React.createElement("button", {
+    type: "button",
+    className: "ff-promo-code",
+    onClick: e => {
+      e.stopPropagation();
+      copyText_(code, () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1800);
+      });
+    },
+    title: "Copy code"
+  }, React.createElement("span", null, "CODE"), " ", React.createElement("b", null, code), " ", copied ? '✅' : '📋');
+}
+function promoAct_(p, nav, after) {
+  promoEvent_(p.id, 'click');
+  savePromoCoupon_(p);
+  if (p.ctaAction === 'link' && /^https:\/\//i.test(p.ctaLink || '')) {
+    try {
+      window.open(p.ctaLink, '_blank', 'noopener');
+    } catch (e) {}
+  } else if (p.ctaAction === 'buy') nav('buy1', {});
+  after && after();
+}
+function PromoBar({
+  p,
+  nav,
+  onClose
+}) {
+  useEffect(() => promoEvent_(p.id, 'view'), [p.id]);
+  return React.createElement("div", {
+    className: 'ff-promo ff-promo-bar t-' + p.theme,
+    role: "region",
+    "aria-label": "Offer"
+  }, p.emoji && React.createElement("span", {
+    className: "ff-promo-emoji"
+  }, p.emoji), React.createElement("span", {
+    className: "ff-promo-text"
+  }, p.title && React.createElement("b", null, p.title), p.title && p.message ? ' ' : '', p.message), p.countdown && React.createElement(PromoCountdown, {
+    endAt: p.endAt
+  }), React.createElement(PromoCoupon, {
+    code: p.couponCode
+  }), p.ctaAction !== 'none' && p.ctaText && React.createElement("button", {
+    type: "button",
+    className: "ff-promo-cta",
+    onClick: () => promoAct_(p, nav)
+  }, p.ctaText, " ›"), React.createElement("button", {
+    type: "button",
+    className: "ff-promo-x",
+    "aria-label": "Hide offer",
+    onClick: onClose
+  }, "×"));
+}
+function PromoCard({
+  p,
+  nav
+}) {
+  useEffect(() => promoEvent_(p.id, 'view'), [p.id]);
+  return React.createElement("div", {
+    className: 'ff-promo ff-promo-card t-' + p.theme
+  }, React.createElement("div", {
+    className: "ff-promo-glow",
+    "aria-hidden": "true"
+  }), p.image ? React.createElement("img", {
+    className: "ff-promo-img",
+    src: p.image,
+    alt: ""
+  }) : p.emoji && React.createElement("div", {
+    className: "ff-promo-big"
+  }, p.emoji), React.createElement("div", {
+    className: "ff-promo-body"
+  }, p.title && React.createElement("div", {
+    className: "ff-promo-title"
+  }, p.title), p.message && React.createElement("div", {
+    className: "ff-promo-msg"
+  }, p.message), React.createElement("div", {
+    className: "ff-promo-row"
+  }, p.countdown && React.createElement(PromoCountdown, {
+    endAt: p.endAt
+  }), React.createElement(PromoCoupon, {
+    code: p.couponCode
+  })), p.ctaAction !== 'none' && p.ctaText && React.createElement("button", {
+    type: "button",
+    className: "ff-promo-cta big",
+    onClick: () => promoAct_(p, nav)
+  }, p.ctaText, " ›")));
+}
+function PromoPopup({
+  promos,
+  screen,
+  loggedIn,
+  nav
+}) {
+  const [shown, setShown] = useState(null);
+  useEffect(() => {
+    if (shown || !Array.isArray(promos)) return;
+    const p = promos.find(x => x.type === 'popup' && promoFits_(x, screen, loggedIn) && promoPopupDue_(x));
+    if (!p) return;
+    const t = setTimeout(() => {
+      promoMarkSeen_(p);
+      promoEvent_(p.id, 'view');
+      window.ffPromoOpen = true;
+      setShown(p);
+    }, 2200);
+    return () => clearTimeout(t);
+  }, [promos, screen, loggedIn]);
+  if (!shown) return null;
+  const close = () => {
+    window.ffPromoOpen = false;
+    setShown(null);
+  };
+  const p = shown;
+  return React.createElement("div", {
+    className: "ff-promo-bg",
+    onClick: e => {
+      if (e.target === e.currentTarget) close();
+    }
+  }, React.createElement("div", {
+    className: 'ff-promo ff-promo-pop t-' + p.theme,
+    role: "dialog",
+    "aria-label": p.title || 'Offer'
+  }, React.createElement("button", {
+    type: "button",
+    className: "ff-promo-x",
+    "aria-label": "Close",
+    onClick: close
+  }, "×"), React.createElement("div", {
+    className: "ff-promo-glow",
+    "aria-hidden": "true"
+  }), p.image ? React.createElement("img", {
+    className: "ff-promo-img",
+    src: p.image,
+    alt: ""
+  }) : p.emoji && React.createElement("div", {
+    className: "ff-promo-big"
+  }, p.emoji), p.title && React.createElement("div", {
+    className: "ff-promo-title"
+  }, p.title), p.message && React.createElement("div", {
+    className: "ff-promo-msg"
+  }, p.message), React.createElement("div", {
+    className: "ff-promo-row center"
+  }, p.countdown && React.createElement(PromoCountdown, {
+    endAt: p.endAt
+  }), React.createElement(PromoCoupon, {
+    code: p.couponCode
+  })), p.ctaAction !== 'none' && p.ctaText && React.createElement("button", {
+    type: "button",
+    className: "ff-promo-cta big",
+    onClick: () => promoAct_(p, nav, close)
+  }, p.ctaText, " ›"), React.createElement("button", {
+    type: "button",
+    className: "ff-promo-later",
+    onClick: close
+  }, "Maybe later")));
 }
 function RestoringScreen({
   trending,
@@ -9722,6 +10020,30 @@ function App() {
   const [refInfo, setRefInfo] = useState(null);
   // Maintenance switch: checked on load, every minute, and when a buy/renew step opens.
   const [storeStatus, setStoreStatus] = useState(null);
+  // Offers (admin → 📣 Offers): loaded on start and every 5 minutes; hidden bars stay hidden for this visit.
+  const [promos, setPromos] = useState([]);
+  const [hiddenPromos, setHiddenPromos] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('ff_promo_hidden') || '[]');
+    } catch (e) {
+      return [];
+    }
+  });
+  useEffect(() => {
+    const load = () => API.getPromos(r => {
+      if (r && r.ok && Array.isArray(r.promos)) setPromos(r.promos);
+    }, () => {});
+    load();
+    const iv = setInterval(load, 5 * 60000);
+    return () => clearInterval(iv);
+  }, []);
+  const hidePromo = id => setHiddenPromos(list => {
+    const next = list.concat(id);
+    try {
+      sessionStorage.setItem('ff_promo_hidden', JSON.stringify(next));
+    } catch (e) {}
+    return next;
+  });
   function refreshStore(done) {
     API.getStoreStatus(r => {
       if (r && r.ok) setStoreStatus(r);
@@ -10253,7 +10575,22 @@ function App() {
     screen: screen
   }), storePaused && !storeBlocked && ['home', 'buy1', 'buy2', 'dashboard'].includes(screen) && React.createElement(PauseBanner, {
     status: storeStatus
-  }), storeBlocked && React.createElement(MaintenanceScreen, {
+  }), !storeBlocked && (() => {
+    const bar = promos.find(p => p.type === 'bar' && !hiddenPromos.includes(p.id) && promoFits_(p, screen, !!sessionPhone));
+    return bar ? React.createElement(PromoBar, {
+      key: bar.id,
+      p: bar,
+      nav: nav,
+      onClose: () => hidePromo(bar.id)
+    }) : null;
+  })(), !storeBlocked && (screen === 'home' || screen === 'dashboard') && (() => {
+    const card = promos.find(p => p.type === 'card' && promoFits_(p, screen, !!sessionPhone));
+    return card ? React.createElement(PromoCard, {
+      key: card.id,
+      p: card,
+      nav: nav
+    }) : null;
+  })(), storeBlocked && React.createElement(MaintenanceScreen, {
     status: storeStatus,
     nav: navReset,
     phone: sessionPhone,
@@ -10434,6 +10771,11 @@ function App() {
     initialPhone: accountModal.phone,
     onClose: closeAccountModal,
     onCreated: handleAccountCreated
+  }), !storeBlocked && React.createElement(PromoPopup, {
+    promos: promos,
+    screen: screen,
+    loggedIn: !!sessionPhone,
+    nav: nav
   }), !storeBlocked && React.createElement(InstallPrompt, {
     screen: screen
   }));
@@ -10462,6 +10804,12 @@ const API = {
   },
   getStoreStatus(onSuccess, onFailure) {
     apiCall_('getStoreStatus', [], onSuccess, onFailure);
+  },
+  getPromos(onSuccess, onFailure) {
+    apiCall_('getPromos', [], onSuccess, onFailure);
+  },
+  promoEvent(id, kind, onSuccess, onFailure) {
+    apiCall_('promoEvent', [id, kind], onSuccess, onFailure);
   },
   getTrendingItems(onSuccess, onFailure) {
     apiCall_('getTrendingItems', [], onSuccess, onFailure);

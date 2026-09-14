@@ -154,6 +154,8 @@ function mountAdmin(app, deps) {
   require('./adminpayments').mount(app, Object.assign({ db, auth, audit }, deps.payments || {}));
   // Maintenance: pause / resume new orders (adminstore.js).
   require('./adminstore').mount(app, Object.assign({ db, auth, audit }, deps.store || {}));
+  // Offers, banners, pop-ups (adminpromos.js).
+  require('./adminpromos').mount(app, Object.assign({ db, auth, audit }, deps.promos || {}));
   // Go-live: safe one-time import of go's customers / orders / subscriptions (admincutover.js).
   require('./admincutover').mount(app, Object.assign({ db, auth, audit }, deps.cutover || {}));
 
