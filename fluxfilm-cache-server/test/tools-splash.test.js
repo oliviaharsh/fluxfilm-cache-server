@@ -31,8 +31,8 @@ function harness(sheet) {
   const useState = (d) => [sheet !== undefined ? sheet : d, (x) => H.sets.push(x)];
   const useEffect = (fn) => H.effects.push(fn);
   const win = { open: (u) => { H.opened.push(u); return { opener: 'x' }; }, addEventListener: (k, f) => H.listeners.push([k, f]), removeEventListener: () => {} };
-  const mod = new Function('React', 'useState', 'useEffect', 'Btn', 'window', 'NETFLIX_HOUSEHOLD_LINK', src + '; return { ToolsGrid, ToolsSheet, openExternal_ };')(
-    React, useState, useEffect, Comp('Btn'), win, 'https://script.google.com/macros/s/LINK1/exec');
+  const mod = new Function('React', 'useState', 'useEffect', 'Btn', 'RocketArt', 'window', 'NETFLIX_HOUSEHOLD_LINK', src + '; return { ToolsGrid, ToolsSheet, openExternal_ };')(
+    React, useState, useEffect, Comp('Btn'), Comp('RocketArt'), win, 'https://script.google.com/macros/s/LINK1/exec');
   H.render = (props) => expand(mod.ToolsGrid(Object.assign({ onOtp: () => H.otp++ }, props || {})));
   return H;
 }

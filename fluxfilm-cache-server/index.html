@@ -228,10 +228,24 @@ input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; 
 }
 @media (prefers-reduced-motion: reduce) { .ff-sheet, .ff-sheet-bg { animation: none; } }
 
+/* ── Rocket art (RocketArt): float + 3D tilt, flame flicker ── */
+.ff-rocket3d { display: block; overflow: visible; }
+.ff-rocket3d .ff-rk-ship { transform-box: fill-box; transform-origin: 50% 60%; animation: ffRkFloat 1.8s ease-in-out infinite; }
+.ff-rocket3d .ff-rk-flame { transform-box: fill-box; transform-origin: 50% 0; animation: ffRkFlame .22s ease-in-out infinite alternate; }
+.ff-rocket3d .ff-rk-shadow { transform-box: fill-box; transform-origin: 50% 50%; animation: ffRkShadow 1.8s ease-in-out infinite; }
+.ff-rocket-mini { display: inline-block; vertical-align: -4px; overflow: visible; }
+@keyframes ffRkFloat { 0%,100% { transform: perspective(300px) translateY(2px) rotateY(-14deg) rotateZ(-3deg); } 50% { transform: perspective(300px) translateY(-8px) rotateY(14deg) rotateZ(3deg); } }
+@keyframes ffRkFlame { from { transform: scaleY(.8) scaleX(.9); opacity: .85; } to { transform: scaleY(1.15) scaleX(1.05); opacity: 1; } }
+@keyframes ffRkShadow { 0%,100% { transform: scaleX(1); opacity: 1; } 50% { transform: scaleX(.78); opacity: .6; } }
+@media (prefers-reduced-motion: reduce) { .ff-rocket3d .ff-rk-ship, .ff-rocket3d .ff-rk-flame, .ff-rocket3d .ff-rk-shadow { animation: none; } }
 /* ── My plans filter chips: All · Active · Expired ── */
-.ff-subfilter { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
-.ff-subfilter button { flex: 1 1 0; min-width: 0; min-height: 42px; padding: 8px 6px; white-space: nowrap; border-radius: 999px; border: 1.5px solid #e2e8f0; background: #fff; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 14px; font-weight: 800; color: #475569; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
-.ff-subfilter button span { display: inline-block; min-width: 22px; margin-left: 4px; padding: 1px 7px; border-radius: 999px; background: #f1f5f9; font-size: 12px; color: #334155; }
+.ff-subfilter { display: flex; gap: 6px; margin: 0 0 12px; }
+.ff-subfilter button { flex: 1 1 0; min-width: 0; min-height: 42px; padding: 8px 4px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; overflow: hidden; border-radius: 999px; border: 1.5px solid #e2e8f0; background: #fff; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 13.5px; font-weight: 800; color: #475569; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.ff-subfilter button i { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,.18); }
+.ff-subfilter button i.x { background: #94a3b8; box-shadow: 0 0 0 2px rgba(148,163,184,.2); }
+.ff-subfilter button.on i { background: #fff; box-shadow: none; }
+.ff-subfilter button span { display: inline-block; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: #f1f5f9; font-size: 12px; color: #334155; }
+@media (max-width: 350px) { .ff-subfilter button { font-size: 12.5px; gap: 4px; } .ff-subfilter button span { padding: 1px 5px; min-width: 18px; } }
 .ff-subfilter button.on { background: #16a34a; border-color: #16a34a; color: #fff; box-shadow: 0 4px 12px rgba(22,163,74,.22); }
 .ff-subfilter button.on span { background: rgba(255,255,255,.25); color: #fff; }
 /* ── Splash: 3D logo intro on every page load (see #ff-splash script) ── */
@@ -1417,7 +1431,7 @@ function WalletPanel({
     }
   }, "How to earn coins"), React.createElement("div", {
     className: "ff-ref-steps"
-  }, ['🛒 Every plan you buy or renew earns coins automatically.', '🎁 Invite friends from Refer & earn — coins when they pay.', rules && rules.enabled ? `🪙 Pay with coins at checkout: 1 coin = ₹${rules.rules.coinValue}, up to ${rules.rules.maxPercent}% of an order${rules.rules.spendOnNew && !rules.rules.spendOnRenew ? ' (new plans)' : !rules.rules.spendOnNew && rules.rules.spendOnRenew ? ' (renewals)' : ''}.` : '🚀 Paying with coins at checkout is coming soon.'].map((txt, i) => React.createElement("div", {
+  }, ['🛒 Every plan you buy or renew earns coins automatically.', '🎁 Invite friends from Refer & earn — coins when they pay.', rules && rules.enabled ? `🪙 Pay with coins at checkout: 1 coin = ₹${rules.rules.coinValue}, up to ${rules.rules.maxPercent}% of an order${rules.rules.spendOnNew && !rules.rules.spendOnRenew ? ' (new plans)' : !rules.rules.spendOnNew && rules.rules.spendOnRenew ? ' (renewals)' : ''}.` : '🪙 Paying with coins at checkout is coming soon.'].map((txt, i) => React.createElement("div", {
     key: i,
     className: "ff-ref-step"
   }, React.createElement("div", {
@@ -1985,7 +1999,10 @@ function ToolsGrid({
     className: "ff-sheet-emoji"
   }, soon[0]), React.createElement("h3", null, soon[1]), React.createElement("p", null, soon[2]), React.createElement("div", {
     className: "ff-soon-badge"
-  }, "🚀 We're working on it!"), React.createElement("div", {
+  }, React.createElement(RocketArt, {
+    size: 18,
+    small: true
+  }), " We're working on it!"), React.createElement("div", {
     className: "ff-sheet-btns"
   }, React.createElement(Btn, {
     variant: "ghost",
@@ -2898,7 +2915,7 @@ function DashboardScreen({
     className: "ff-subfilter",
     role: "tablist",
     "aria-label": "Show subscriptions"
-  }, [['all', 'All', allSubs.length], ['active', '🟢 Active', liveSubs.length], ['expired', '⚪ Expired', expiredSubs.length]].map(([k, label, n]) => React.createElement("button", {
+  }, [['all', 'All', allSubs.length], ['active', 'Active', liveSubs.length], ['expired', 'Expired', expiredSubs.length]].map(([k, label, n]) => React.createElement("button", {
     key: k,
     type: "button",
     role: "tab",
@@ -2906,7 +2923,10 @@ function DashboardScreen({
     "data-filter": k,
     className: subFilter === k ? 'on' : '',
     onClick: () => setSubFilter(k)
-  }, label, " ", React.createElement("span", null, n)))), filteredSubs && React.createElement(React.Fragment, null, React.createElement("div", {
+  }, k !== 'all' && React.createElement("i", {
+    className: k === 'expired' ? 'x' : '',
+    "aria-hidden": "true"
+  }), label, React.createElement("span", null, n)))), filteredSubs && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "ff-cards"
   }, filteredSubs.map((sub, i) => React.createElement(SubCard, {
     key: sub.subId || 'f' + i,
@@ -5598,12 +5618,9 @@ function VerifyScreen({
         gap: 20,
         textAlign: 'center'
       }
-    }, React.createElement("div", {
-      style: {
-        fontSize: 64,
-        animation: 'softPulse 1s ease-in-out infinite'
-      }
-    }, "🚀"), React.createElement("div", {
+    }, React.createElement(RocketArt, {
+      size: 112
+    }), React.createElement("div", {
       style: {
         fontFamily: PJS,
         fontSize: 24,
@@ -7711,6 +7728,147 @@ function CouponList({
     }, f)))));
   }));
 }
+// Drawn 3D-style rocket (shaded body, glass window, fins, flickering flame). Replaces the 🚀 emoji.
+function RocketArt({
+  size = 96,
+  small = false
+}) {
+  const id = small ? 'rks' : 'rkb';
+  return React.createElement("svg", {
+    className: small ? 'ff-rocket-mini' : 'ff-rocket3d',
+    width: size,
+    height: size,
+    viewBox: "0 0 120 120",
+    role: "img",
+    "aria-label": "Rocket",
+    focusable: "false"
+  }, React.createElement("defs", null, React.createElement("linearGradient", {
+    id: id + 'Body',
+    x1: "0",
+    x2: "1"
+  }, React.createElement("stop", {
+    offset: "0",
+    stopColor: "#cbd5e1"
+  }), React.createElement("stop", {
+    offset: ".38",
+    stopColor: "#ffffff"
+  }), React.createElement("stop", {
+    offset: "1",
+    stopColor: "#94a3b8"
+  })), React.createElement("linearGradient", {
+    id: id + 'Nose',
+    x1: "0",
+    x2: "1"
+  }, React.createElement("stop", {
+    offset: "0",
+    stopColor: "#16a34a"
+  }), React.createElement("stop", {
+    offset: ".45",
+    stopColor: "#4ade80"
+  }), React.createElement("stop", {
+    offset: "1",
+    stopColor: "#15803d"
+  })), React.createElement("linearGradient", {
+    id: id + 'Fin',
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1"
+  }, React.createElement("stop", {
+    offset: "0",
+    stopColor: "#22c55e"
+  }), React.createElement("stop", {
+    offset: "1",
+    stopColor: "#166534"
+  })), React.createElement("radialGradient", {
+    id: id + 'Glass',
+    cx: ".35",
+    cy: ".35",
+    r: ".7"
+  }, React.createElement("stop", {
+    offset: "0",
+    stopColor: "#e0f2fe"
+  }), React.createElement("stop", {
+    offset: ".45",
+    stopColor: "#38bdf8"
+  }), React.createElement("stop", {
+    offset: "1",
+    stopColor: "#0c4a6e"
+  })), React.createElement("linearGradient", {
+    id: id + 'Flame',
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1"
+  }, React.createElement("stop", {
+    offset: "0",
+    stopColor: "#fef08a"
+  }), React.createElement("stop", {
+    offset: ".45",
+    stopColor: "#fb923c"
+  }), React.createElement("stop", {
+    offset: "1",
+    stopColor: "#ef4444",
+    stopOpacity: "0"
+  }))), React.createElement("ellipse", {
+    className: "ff-rk-shadow",
+    cx: "60",
+    cy: "112",
+    rx: "22",
+    ry: "4",
+    fill: "rgba(15,23,42,.14)"
+  }), React.createElement("g", {
+    className: "ff-rk-ship"
+  }, React.createElement("path", {
+    className: "ff-rk-flame",
+    d: "M50 84 Q60 118 70 84 Z",
+    fill: `url(#${id}Flame)`
+  }), React.createElement("path", {
+    d: "M44 62 L28 84 Q27 90 34 88 L46 80 Z",
+    fill: `url(#${id}Fin)`
+  }), React.createElement("path", {
+    d: "M76 62 L92 84 Q93 90 86 88 L74 80 Z",
+    fill: `url(#${id}Fin)`
+  }), React.createElement("path", {
+    d: "M60 8 C78 22 80 50 76 86 L44 86 C40 50 42 22 60 8 Z",
+    fill: `url(#${id}Body)`,
+    stroke: "#64748b",
+    strokeOpacity: ".25"
+  }), React.createElement("path", {
+    d: "M60 8 C70 16 75 26 77 36 L43 36 C45 26 50 16 60 8 Z",
+    fill: `url(#${id}Nose)`
+  }), React.createElement("path", {
+    d: "M55 88 L65 88 L63 96 L57 96 Z",
+    fill: "#475569"
+  }), React.createElement("circle", {
+    cx: "60",
+    cy: "54",
+    r: "10",
+    fill: "#e2e8f0",
+    stroke: "#64748b",
+    strokeOpacity: ".35",
+    strokeWidth: "2"
+  }), React.createElement("circle", {
+    cx: "60",
+    cy: "54",
+    r: "7",
+    fill: `url(#${id}Glass)`
+  }), React.createElement("ellipse", {
+    cx: "57",
+    cy: "51",
+    rx: "2.4",
+    ry: "1.6",
+    fill: "#fff",
+    opacity: ".9"
+  }), React.createElement("path", {
+    d: "M49 30 C49 44 48 64 50 82",
+    stroke: "#fff",
+    strokeWidth: "3",
+    strokeLinecap: "round",
+    opacity: ".7",
+    fill: "none"
+  })));
+}
 function ComingSoonCard({
   icon,
   title,
@@ -7723,7 +7881,10 @@ function ComingSoonCard({
     className: "ff-soon-ic"
   }, icon), React.createElement("h3", null, title), React.createElement("p", null, text), badge !== '' && React.createElement("span", {
     className: "ff-soon-badge"
-  }, badge || "🚀 Coming soon"));
+  }, badge || React.createElement(React.Fragment, null, React.createElement(RocketArt, {
+    size: 18,
+    small: true
+  }), " Coming soon")));
 }
 function RestoringScreen({
   trending,
