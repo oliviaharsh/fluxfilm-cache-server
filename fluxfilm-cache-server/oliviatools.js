@@ -5,9 +5,13 @@
  *
  *   catalogFor()                       → { plans, stock }         (getBootstrap + getStockLevels)
  *   profile(phone)                     → { ok, name, email }      (reads.getCustomerProfile)
- *   createOrder(phone, plan, extra)    → createOrder result        (store guard first, exactly like /api createOrder)
+ *   createOrder(phone, plan, extra)    → createOrder result        (store guard first, exactly like /api createOrder; extra.couponCode)
+ *   validateCoupon(phone, code, plan)  → validateCoupon            (same rules as checkout: active, expiry, phone, scope NEW, limits)
+ *   mySubscriptions(phone)             → getMySubscriptions        (renew: only the customer's own plans)
+ *   renewQuote(subId, plan)            → renewQuote                (early-renew discount, new expiry, account check; no writes)
+ *   createRenewOrder(subId, plan, cc)  → createRenewOrder          (store guard first, exactly like /api createRenewOrder)
  *   checkPayment(orderId)              → { paid }                  (order.verifyPayment: bank email + learned payer names)
- *   deliver(orderId, phone)            → fulfillAndGetAccess result (phone proof; renew orders are never created here)
+ *   deliver(orderId, phone)            → fulfillAndGetAccess result (phone proof; for renewals the phone must own the plan)
  *   backupPayment(orderId, phone)      → getBackupPayment          ("payment not working" → plain QR)
  *   claimBackup(orderId, phone, name)  → claimManualPayment
  *   claimStatus(orderId, phone)        → getClaimStatus
@@ -37,8 +41,20 @@ function make(deps) {
       return order().createOrder({
         service: p.service, plan: p.plan, phone, name: extra.name, email: extra.email,
         extraFieldKey: extra.extraFieldKey || '', extraFieldValue: extra.extraFieldValue || '',
+        couponCode: extra.couponCode || '',
         notes: 'Ordered in Olivia chat',
       });
+    },
+    /** The checkout's own "Apply coupon" check, for a new purchase of plan p at its live price. */
+    validateCoupon: (phone, code, p, scope) => order().validateCoupon(code, { phone, amount: p.price, service: p.service, plan: p.plan, scope: scope === 'RENEW' ? 'RENEW' : 'NEW' }),
+    /** My plans: only this phone's own subscriptions (actionable = can still be renewed). */
+    mySubscriptions: (phone) => reads().getMySubscriptions(phone),
+    /** Price, early-renew discount, new expiry and account check for a renewal — creates nothing. */
+    renewQuote: (subId, plan) => order().renewQuote(subId, plan),
+    async createRenewOrder(subId, planOverride, couponCode) {
+      const paused = await store().guard();
+      if (paused) return paused;
+      return order().createRenewOrder(subId, planOverride || '', couponCode || '', {});
     },
     async checkPayment(orderId) {
       const r = await order().verifyPayment(orderId);

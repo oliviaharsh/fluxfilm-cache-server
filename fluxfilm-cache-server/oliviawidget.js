@@ -85,6 +85,8 @@
     '.ffo-in{flex:1;min-width:0;border:1.5px solid #cbd5e1;border-radius:999px;padding:12px 16px;font:inherit;font-size:16px}' +
     '.ffo-send{border:0;background:#16a34a;color:#fff;border-radius:50%;width:48px;height:48px;font-size:20px;cursor:pointer;flex:none}' +
     '.ffo-typing{align-self:flex-start;color:#64748b;font-size:13px;font-weight:700;padding:4px 8px}' +
+    // The panel is display:flex, which would beat the [hidden] attribute: without this the close button did nothing.
+    '.ffo-panel[hidden],.ffo-bg[hidden]{display:none!important}' +
     '.ffo-note{font-size:12.5px;color:#92400e;background:#fffbeb;border-radius:10px;padding:8px 10px;margin-top:8px;font-weight:600}';
   function injectCss() {
     if (document.getElementById('ffo-css')) return;
@@ -97,6 +99,11 @@
     try { var w = window.open(url, '_blank'); if (w) w.opener = null; else location.href = url; } catch (e) { location.href = url; }
   }
 
+  function openUrl(url) {
+    // Only WhatsApp group / chat links come from the server (olivia.js checks them too).
+    if (!/^https:\/\/(chat\.whatsapp\.com|wa\.me|api\.whatsapp\.com)\//i.test(String(url))) return;
+    try { var w = window.open(url, '_blank'); if (w) w.opener = null; else location.href = url; } catch (e) { location.href = url; }
+  }
   // -- "How can we help?" chooser --
   function chooser() {
     injectCss();
@@ -142,6 +149,7 @@
     else if (st.pollAfter) schedulePoll(st.pollAfter);
   }
   function closeChat() { if (ui) ui.panel.hidden = true; st.open = false; }
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && st.open) closeChat(); });
 
   function copyBtn(value) {
     var b = h('button', 'ffo-copy', 'Copy'); b.type = 'button';
@@ -187,6 +195,7 @@
           var el = h('button', 'ffo-b', b.label); el.type = 'button'; el.disabled = st.busy;
           el.onclick = function () {
             if (b.link) return openLink(b.link);
+            if (b.url) return openUrl(b.url);
             if (b.id.indexOf('lang:') === 0) { st.lang = b.id.slice(5); save(); }
             talk({ choice: b.id }, b.label);
           };
