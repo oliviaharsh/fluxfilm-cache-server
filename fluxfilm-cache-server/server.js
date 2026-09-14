@@ -34,6 +34,7 @@ let storeMod = null; try { storeMod = require('./store'); } catch (e) { console.
 let promosMod = null; try { promosMod = require('./promos'); } catch (e) { console.log('[promos] not loaded:', e.message); }
 let pushMod = null; try { pushMod = require('./push'); } catch (e) { console.log('[push] not loaded:', e.message); }
 let feedMod = null; try { feedMod = require('./feed'); } catch (e) { console.log('[feed] not loaded:', e.message); }
+let photosMod = null; try { photosMod = require('./photos'); } catch (e) { console.log('[photos] not loaded:', e.message); }
 // Self-contained Node actions (recover + Get-OTP tool) — MySQL/IMAP, no Apps Script.
 const DB_RECOVER = Object.assign(
   recover ? {
@@ -81,6 +82,11 @@ const DB_STOREFRONT = Object.assign(
     getOrderStatus: (a) => account.getOrderStatus(a[0]),
     getResumePaymentByPhone: (a) => account.getResumePaymentByPhone(a[0]),
     submitRestockRequest: (a) => account.submitRestockRequest(a[0]),
+  } : {},
+  // Own profile photo (Account → Profile). a = [phone, dataUrl] / [phone, avatarUrlToGoBackTo].
+  photosMod ? {
+    setProfilePhoto: (a) => photosMod.setProfilePhoto(a[0], a[1]),
+    removeProfilePhoto: (a) => photosMod.removeProfilePhoto(a[0], a[1]),
   } : {},
   paymatch ? {
     // Payment fallback. a[1] = { token, phone } proving the order is theirs (same proof as fulfillAndGetAccess).
@@ -139,9 +145,10 @@ const LIMITS = {
   getPushKey: security.rateLimiter(60, TEN_MIN),
   pushSubscribe: security.rateLimiter(20, TEN_MIN),
   pushUnsubscribe: security.rateLimiter(20, TEN_MIN),
+  setProfilePhoto: security.rateLimiter(10, TEN_MIN),
   any: security.rateLimiter(3000, TEN_MIN),
 };
-const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'submitRestockRequest']);
+const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'removeProfilePhoto', 'submitRestockRequest']);
 // Per-phone limits (independent of IP) for actions that email or reveal codes.
 const PHONE_LIMITS = {
   recoverSendOtp: security.rateLimiter(3, 15 * 60e3),
@@ -149,6 +156,8 @@ const PHONE_LIMITS = {
   otpSendCode: security.rateLimiter(4, 60 * 60e3),
   otpVerifyCode: security.rateLimiter(12, 15 * 60e3),
   pushSubscribe: security.rateLimiter(10, 60 * 60e3),
+  setProfilePhoto: security.rateLimiter(6, 60 * 60e3),
+  removeProfilePhoto: security.rateLimiter(10, 60 * 60e3),
 };
 function rateLimited(req, action, args) {
   const ip = security.clientIp(req);
@@ -187,7 +196,7 @@ const DB_WRITES = order ? {
   },
 } : {};
 const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
-const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent', 'getPushKey', 'pushSubscribe', 'pushUnsubscribe']);
+const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setProfilePhoto', 'removeProfilePhoto', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent', 'getPushKey', 'pushSubscribe', 'pushUnsubscribe']);
 const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota', 'otpSendCode', 'otpVerifyCode']);
 const DB_WRITE_ACTIONS = new Set(['createOrder', 'createRenewOrder', 'validateCoupon', 'verifyPayment', 'verifyPaymentByRef', 'fulfillAndGetAccess']);
 const DB_NOT_YET_PORTED = new Set(['recoverReassignAccount']);
@@ -370,6 +379,17 @@ app.get('/feed-img/:id', async (req, res) => {
     const img = feedMod && await feedMod.image(req.params.id);
     if (!img) return res.status(404).type('text/plain').send('not found');
     res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.type(img.type).send(img.buf);
+  } catch (e) { res.status(500).type('text/plain').send('error'); }
+});
+
+// Customers' own profile photos (photos.js). The id is random per upload (never the phone); a new upload = a new URL.
+app.get('/profile-photo/:id', async (req, res) => {
+  try {
+    const img = photosMod && await photosMod.image(req.params.id);
+    if (!img) return res.status(404).type('text/plain').send('not found');
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.set('X-Content-Type-Options', 'nosniff');
     res.type(img.type).send(img.buf);
   } catch (e) { res.status(500).type('text/plain').send('error'); }
 });

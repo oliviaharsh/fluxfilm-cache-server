@@ -27,14 +27,14 @@ html, body { background: #f5f7fb; }
 .ff-w-wide { max-width: 1120px; }
 .ff-w-flow { max-width: 620px; }
 .ff-has-bnav { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
-.ff-topbar { position: sticky; top: 0; z-index: 20; background: rgba(255,255,255,.92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid rgba(15,23,42,.08); }
+.ff-topbar { position: sticky; top: 0; z-index: 20; padding-top: env(safe-area-inset-top); background: rgba(255,255,255,.92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid rgba(15,23,42,.08); }
 .ff-topbar-in { max-width: 1120px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
 .ff-desk-nav { display: none; }
-.ff-help { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(22,163,74,.28); background: rgba(22,163,74,.08); color: #15803d; font-size: 13px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+/* Help: ONE button, top-right of the header on every screen (was in the phone bottom menu, which got crowded). */
+.ff-help { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; min-width: 44px; margin-left: auto; padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(22,163,74,.28); background: rgba(22,163,74,.08); color: #15803d; font-size: 13px; font-weight: 800; cursor: pointer; white-space: nowrap; }
 .ff-help:hover { background: rgba(22,163,74,.14); }
 .ff-help-long { display: none; }
-@media (max-width: 899px) { .ff-help-deskonly { display: none; } }
-.ff-bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 2px; background: rgba(255,255,255,.97); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid rgba(15,23,42,.08); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px rgba(15,23,42,.06); }
+.ff-bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 2px; background: rgba(255,255,255,.97); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid rgba(15,23,42,.08); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px rgba(15,23,42,.06); }
 .ff-bnav-btn { border: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; white-space: nowrap; font-weight: 700; color: #64748b; padding: 7px 0 6px; border-radius: 14px; cursor: pointer; }
 .ff-bnav-ic { font-size: 20px; line-height: 1; }
 .ff-bnav-btn.on { color: #15803d; background: rgba(22,163,74,.09); }
@@ -79,6 +79,17 @@ html.ff-lite .ff-slide { animation-duration: .2s; }
 .ff-acard { display: flex; align-items: center; gap: 14px; cursor: pointer; }
 .ff-avatar { flex-shrink: 0; border-radius: 999px; background: linear-gradient(135deg,#34d399,#16a34a); display: grid; place-items: center; color: #fff; font-weight: 800; overflow: hidden; box-shadow: 0 4px 14px rgba(22,163,74,.22); }
 .ff-avatar img { width: 100%; height: 100%; object-fit: cover; }
+/* Own profile photo (avatar picker) */
+.ff-photo-up { display: flex; align-items: center; gap: 12px; padding: 12px; margin-bottom: 14px; border-radius: 18px; border: 1.5px dashed rgba(22,163,74,.35); background: rgba(22,163,74,.05); text-align: left; }
+.ff-photo-up.on { border-style: solid; border-color: #22c55e; }
+.ff-photo-prev { width: 64px; height: 64px; border-radius: 999px; flex-shrink: 0; overflow: hidden; display: grid; place-items: center; font-size: 26px; background: #fff; border: 1px solid rgba(15,23,42,.10); }
+.ff-photo-prev img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ff-photo-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 16px; border-radius: 999px; background: #16a34a; color: #fff; font-size: 14.5px; font-weight: 800; cursor: pointer; }
+.ff-photo-btn.off { opacity: .55; pointer-events: none; }
+.ff-photo-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+.ff-photo-note { font-size: 12.5px; font-weight: 600; color: #64748b; margin-top: 6px; line-height: 1.4; }
+.ff-photo-note.bad { color: #b91c1c; }
+.ff-photo-rm { margin-top: 6px; min-height: 36px; border: 0; background: none; color: #b91c1c; font-size: 13px; font-weight: 800; padding: 6px 0; cursor: pointer; font-family: inherit; }
 .ff-alist { margin-top: 12px; padding: 4px 0 !important; }
 .ff-arow { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: none; border: 0; text-align: left; cursor: pointer; font-family: inherit; }
 .ff-arow + .ff-arow { border-top: 1px solid rgba(15,23,42,.07); }
@@ -484,7 +495,7 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 @media (max-width:380px){ .page-inner{padding:0 12px} }
 @media (max-width:330px){ .ff-help-short{display:none} }
 /* New version ready bar (UpdateBar) */
-.ff-upd { position: fixed; left: 50%; top: calc(10px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 80; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px); background: #04140e; color: #fff; border-radius: 999px; padding: 6px 6px 6px 16px; font-size: 14px; font-weight: 600; box-shadow: 0 10px 30px rgba(4,20,14,.35); width: max-content; white-space: nowrap; }
+.ff-upd { position: fixed; left: 50%; top: calc(66px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 80; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px); background: #04140e; color: #fff; border-radius: 999px; padding: 6px 6px 6px 16px; font-size: 14px; font-weight: 600; box-shadow: 0 10px 30px rgba(4,20,14,.35); width: max-content; white-space: nowrap; }
 .ff-upd-btn { border: 0; border-radius: 999px; background: #34d399; color: #04140e; font: inherit; font-weight: 800; padding: 9px 16px; cursor: pointer; white-space: nowrap; }
 .ff-upd-x { border: 0; background: none; color: #a7f3d0; font-size: 16px; padding: 6px 8px; cursor: pointer; }
 </style>
@@ -1294,6 +1305,22 @@ function PopcornLogo({
     }
   }));
 }
+// Help: ONE action + ONE button for the whole storefront. To change what Help opens, change ffOpenHelp_ only.
+function ffOpenHelp_() {
+  API.openWhatsApp();
+}
+function HelpButton() {
+  return React.createElement("button", {
+    className: "ff-help",
+    "data-ff": "help",
+    onClick: ffOpenHelp_,
+    "aria-label": "Help and WhatsApp support"
+  }, React.createElement("span", null, "💬"), React.createElement("span", {
+    className: "ff-help-short"
+  }, "Help"), React.createElement("span", {
+    className: "ff-help-long"
+  }, "WhatsApp support"));
+}
 function Topbar({
   title,
   sub,
@@ -1302,11 +1329,9 @@ function Topbar({
   onHome,
   pill,
   navItems,
-  activeKey,
-  showHelpMobile
+  activeKey
 }) {
   const items = navItems || [];
-  const help = items.find(i => i.key === 'help');
   return React.createElement("div", {
     className: "ff-topbar"
   }, React.createElement("div", {
@@ -1377,19 +1402,11 @@ function Topbar({
     }
   }, pill), items.length > 0 && React.createElement("nav", {
     className: "ff-desk-nav"
-  }, items.filter(i => i.key !== 'help').map(i => React.createElement("button", {
+  }, items.map(i => React.createElement("button", {
     key: i.key,
     className: i.key === activeKey ? 'on' : '',
     onClick: i.onClick
-  }, i.icon, " ", i.label))), help && React.createElement("button", {
-    className: "ff-help" + (showHelpMobile ? '' : ' ff-help-deskonly'),
-    onClick: help.onClick,
-    "aria-label": "WhatsApp support"
-  }, React.createElement("span", null, "💬"), React.createElement("span", {
-    className: "ff-help-short"
-  }, "Help"), React.createElement("span", {
-    className: "ff-help-long"
-  }, "WhatsApp support"))));
+  }, i.icon, " ", i.label))), React.createElement(HelpButton, null)));
 }
 const CHECKOUT_STEPS = {
   buy: [['Plan', ['buy2', 'groupJoin']], ['Details', ['details', 'review']], ['Pay', ['pay', 'payhelp']], ['Access', ['verify', 'done']]],
@@ -7552,6 +7569,66 @@ function SoundRows() {
     style: st[k] ? undefined : { background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#64748b' }
   }, st[k] ? 'On' : 'Off'))));
 }
+// Own profile photo: centre square, max 256x256 JPEG, ~60 KB. Re-drawing on a canvas drops EXIF (GPS etc.); no SVG.
+const FF_PHOTO_MAX_B64_ = 80000;
+function ffSquarePhoto_(file) {
+  return new Promise((resolve, reject) => {
+    const type = String(file && file.type || '').toLowerCase();
+    const fname = String(file && file.name || '').toLowerCase();
+    if (!file) return reject(new Error('Please choose a photo.'));
+    if (/svg/.test(type) || /\.svg$/.test(fname)) return reject(new Error('Please choose a photo (JPG or PNG).'));
+    if (type && !/^image\//.test(type)) return reject(new Error('Please choose a photo (JPG or PNG).'));
+    if (file.size > 30 * 1024 * 1024) return reject(new Error('That photo is too big. Please choose a smaller one.'));
+    const heic = /hei[cf]/.test(type) || /\.hei[cf]$/.test(fname);
+    const cant = heic ? 'This photo is in HEIC format, which this browser can\'t open. Please choose a JPG/PNG photo, or take a screenshot of it and upload that.' : 'Sorry, we couldn\'t open that photo. Please try a JPG or PNG.';
+    let src = '';
+    try {
+      src = URL.createObjectURL(file);
+    } catch (e) {
+      return reject(new Error(cant));
+    }
+    const img = new Image();
+    const done = () => {
+      try {
+        URL.revokeObjectURL(src);
+      } catch (e) {}
+    };
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth,
+          h = img.naturalHeight;
+        if (!w || !h) throw new Error(cant);
+        const side = Math.min(w, h),
+          size = Math.min(256, side);
+        const c = document.createElement('canvas');
+        c.width = size;
+        c.height = size;
+        const x = c.getContext('2d');
+        x.fillStyle = '#ffffff';
+        x.fillRect(0, 0, size, size);
+        x.imageSmoothingQuality = 'high';
+        x.drawImage(img, (w - side) / 2, (h - side) / 2, side, side, 0, 0, size, size);
+        let q = 0.86,
+          out = c.toDataURL('image/jpeg', q);
+        while (out.length > FF_PHOTO_MAX_B64_ && q > 0.45) {
+          q -= 0.1;
+          out = c.toDataURL('image/jpeg', q);
+        }
+        done();
+        if (!/^data:image\/jpeg;base64,/.test(out) || out.length > FF_PHOTO_MAX_B64_) throw new Error(cant);
+        resolve(out);
+      } catch (e) {
+        done();
+        reject(e && e.message ? e : new Error(cant));
+      }
+    };
+    img.onerror = () => {
+      done();
+      reject(new Error(cant));
+    };
+    img.src = src;
+  });
+}
 function AccountScreen({
   nav,
   subs,
@@ -7580,6 +7657,8 @@ function AccountScreen({
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [pendingAvatar, setPendingAvatar] = useState('');
   const [avatarSaving, setAvatarSaving] = useState(false);
+  const [pendingPhoto, setPendingPhoto] = useState('');
+  const [photoMsg, setPhotoMsg] = useState(null);
   // Account → Notifications row (renewal reminders on this device).
   const [pushSt, setPushSt] = useState('off');
   useEffect(() => {
@@ -7666,6 +7745,84 @@ function AccountScreen({
     }, err => {
       setAvatarSaving(false);
       alert('Avatar update failed: ' + (err?.message || err));
+    });
+  }
+  const hasOwnPhoto = /^\/profile-photo\//.test(profile?.profilePicUrl || '');
+  function closePicker() {
+    setShowAvatarPicker(false);
+    setPendingAvatar('');
+    setPendingPhoto('');
+    setPhotoMsg(null);
+  }
+  function pickPhoto(e) {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    setPhotoMsg({
+      t: 'Getting your photo ready…'
+    });
+    ffSquarePhoto_(f).then(d => {
+      setPendingPhoto(d);
+      setPendingAvatar('');
+      setPhotoMsg({
+        t: 'Looks good? Tap Save.'
+      });
+    }, err => {
+      setPendingPhoto('');
+      setPhotoMsg({
+        t: err && err.message || 'Sorry, we couldn\'t open that photo.',
+        bad: true
+      });
+    });
+  }
+  function photoSaved(url) {
+    setProfile(p => ({
+      ...(p || {}),
+      profilePicUrl: url
+    }));
+    onProfileUpdated && onProfileUpdated(url);
+  }
+  function savePhoto() {
+    setAvatarSaving(true);
+    API.setProfilePhoto(phone, pendingPhoto, r => {
+      setAvatarSaving(false);
+      if (r && r.ok) {
+        photoSaved(r.profilePicUrl);
+        closePicker();
+      } else {
+        if (r && r.notReady) setPendingPhoto('');
+        setPhotoMsg({
+          t: r?.message || 'Could not save your photo. Please try again.',
+          bad: true
+        });
+      }
+    }, err => {
+      setAvatarSaving(false);
+      setPhotoMsg({
+        t: 'Could not save your photo: ' + (err?.message || err),
+        bad: true
+      });
+    });
+  }
+  function removePhoto() {
+    setAvatarSaving(true);
+    API.removeProfilePhoto(phone, '', r => {
+      setAvatarSaving(false);
+      if (r && r.ok) {
+        photoSaved(r.profilePicUrl || '');
+        setPhotoMsg({
+          t: 'Photo removed. Upload a new one or pick an avatar.'
+        });
+      } else setPhotoMsg({
+        t: r?.message || 'Could not remove the photo.',
+        bad: true
+      });
+    }, err => {
+      setAvatarSaving(false);
+      setPhotoMsg({
+        t: 'Could not remove the photo: ' + (err?.message || err),
+        bad: true
+      });
     });
   }
   const name = profile?.name || '';
@@ -7774,10 +7931,17 @@ function AccountScreen({
     bg: 'rgba(22,163,74,.12)',
     title: 'Install the app',
     sub: 'Add FluxFilm to your home screen'
+  }]).concat([{
+    k: 'help',
+    icon: '💬',
+    bg: 'rgba(22,163,74,.10)',
+    title: 'Help & support',
+    sub: 'Chat with us on WhatsApp'
   }]).map(r => React.createElement("button", {
     key: r.k,
     className: "ff-arow",
-    onClick: () => r.k === 'install' ? window.dispatchEvent(new Event('ff-install-open')) : r.k === 'push' ? window.dispatchEvent(new Event('ff-push-open')) : openSection(r.k)
+    "data-ff": 'arow-' + r.k,
+    onClick: () => r.k === 'help' ? ffOpenHelp_() : r.k === 'install' ? window.dispatchEvent(new Event('ff-install-open')) : r.k === 'push' ? window.dispatchEvent(new Event('ff-push-open')) : openSection(r.k)
   }, React.createElement("span", {
     className: "ff-arow-ic",
     style: {
@@ -7913,10 +8077,7 @@ function AccountScreen({
     label: "Status",
     value: profile?.status || '-'
   })), showAvatarPicker && React.createElement("div", {
-    onClick: avatarSaving ? undefined : () => {
-      setShowAvatarPicker(false);
-      setPendingAvatar('');
-    },
+    onClick: avatarSaving ? undefined : closePicker,
     style: {
       position: 'fixed',
       inset: 0,
@@ -7955,10 +8116,7 @@ function AccountScreen({
       color: C.text
     }
   }, "🖼️ Choose Profile Picture"), React.createElement("button", {
-    onClick: () => {
-      setShowAvatarPicker(false);
-      setPendingAvatar('');
-    },
+    onClick: closePicker,
     disabled: avatarSaving,
     style: {
       width: 32,
@@ -7982,7 +8140,36 @@ function AccountScreen({
       fontWeight: 600,
       marginBottom: 14
     }
-  }, "Tap to select, then tap Save."), React.createElement("div", {
+  }, "Upload your own photo, or tap an avatar. Then tap Save."), React.createElement("div", {
+    className: "ff-photo-up" + (pendingPhoto ? ' on' : '')
+  }, React.createElement("div", {
+    className: "ff-photo-prev"
+  }, pendingPhoto || hasOwnPhoto ? React.createElement("img", {
+    src: pendingPhoto || profile.profilePicUrl,
+    alt: "Your photo"
+  }) : "📷"), React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, React.createElement("label", {
+    className: "ff-photo-btn" + (avatarSaving ? ' off' : '')
+  }, pendingPhoto || hasOwnPhoto ? '📷 Change photo' : '📷 Upload your photo', React.createElement("input", {
+    className: "ff-photo-file",
+    type: "file",
+    accept: "image/*",
+    "data-ff": "photo-input",
+    disabled: avatarSaving,
+    onChange: pickPhoto
+  })), React.createElement("div", {
+    className: "ff-photo-note" + (photoMsg && photoMsg.bad ? ' bad' : ''),
+    role: "status"
+  }, photoMsg ? photoMsg.t : 'From your gallery or camera. We crop it to a square.'), hasOwnPhoto && !pendingPhoto && React.createElement("button", {
+    className: "ff-photo-rm",
+    "data-ff": "photo-remove",
+    disabled: avatarSaving,
+    onClick: removePhoto
+  }, "🗑️ Remove photo"))), React.createElement("div", {
     style: {
       display: 'grid',
       gridTemplateColumns: 'repeat(4,minmax(0,1fr))',
@@ -7990,10 +8177,14 @@ function AccountScreen({
       marginBottom: 16
     }
   }, AVATARS.map((url, i) => {
-    const sel = pendingAvatar === url || !pendingAvatar && profile?.profilePicUrl === url;
+    const sel = pendingAvatar === url || !pendingAvatar && !pendingPhoto && profile?.profilePicUrl === url;
     return React.createElement("button", {
       key: i,
-      onClick: () => setPendingAvatar(url),
+      onClick: () => {
+        setPendingAvatar(url);
+        setPendingPhoto('');
+        setPhotoMsg(null);
+      },
       style: {
         border: sel ? '3px solid #22c55e' : `1.5px solid ${C.border}`,
         background: sel ? 'rgba(34,197,94,.06)' : '#fff',
@@ -8036,15 +8227,12 @@ function AccountScreen({
     variant: "ghost",
     full: true,
     disabled: avatarSaving,
-    onClick: () => {
-      setShowAvatarPicker(false);
-      setPendingAvatar('');
-    }
+    onClick: closePicker
   }, "Cancel"), React.createElement(Btn, {
     variant: "primary",
     full: true,
-    disabled: avatarSaving || !pendingAvatar,
-    onClick: saveAvatar
+    disabled: avatarSaving || !pendingAvatar && !pendingPhoto,
+    onClick: pendingPhoto ? savePhoto : saveAvatar
   }, avatarSaving ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), "Saving…") : '✅ Save Picture')))), section === 'profile' && React.createElement(Card, {
     style: {
       marginTop: 10
@@ -11785,11 +11973,6 @@ function App() {
     icon: '👤',
     label: 'Account',
     onClick: openAccount
-  }, {
-    key: 'help',
-    icon: '💬',
-    label: 'Help',
-    onClick: () => API.openWhatsApp()
   }];
   const tStyles = [{
     bg: 'linear-gradient(135deg,rgba(34,197,94,.10),rgba(16,185,129,.05))',
@@ -11823,8 +12006,7 @@ function App() {
     onBack: goBack,
     onHome: goLoggedHome,
     navItems: navItems,
-    activeKey: activeKey,
-    showHelpMobile: !showBnav
+    activeKey: activeKey
   }), !restoring && React.createElement("div", {
     className: "page-inner " + (WIDE_SCREENS[screen] ? 'ff-w-wide' : 'ff-w-flow') + (showBnav ? ' ff-has-bnav' : ''),
     key: screen
@@ -12117,6 +12299,12 @@ const API = {
   },
   updateCustomerProfilePic(phone, url, onSuccess, onFailure) {
     apiCall_('updateCustomerProfilePic', [phone, url], onSuccess, onFailure);
+  },
+  setProfilePhoto(phone, dataUrl, onSuccess, onFailure) {
+    apiCall_('setProfilePhoto', [phone, dataUrl], onSuccess, onFailure);
+  },
+  removeProfilePhoto(phone, avatarUrl, onSuccess, onFailure) {
+    apiCall_('removeProfilePhoto', [phone, avatarUrl], onSuccess, onFailure);
   },
   getActiveCouponsForCustomer(phone, onSuccess, onFailure) {
     apiCall_('getActiveCouponsForCustomer', [phone], onSuccess, onFailure);

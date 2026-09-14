@@ -11,7 +11,7 @@ let parsed = true;
 for (const s of scripts) { try { new Function(s); } catch (e) { parsed = false; console.log('   parse error:', e.message); } }
 ok('storefront script parses', parsed && scripts.length > 0);
 
-// Floating WhatsApp bar used to cover Continue / Pay buttons: help now lives in the header + phone bottom menu.
+// Floating WhatsApp bar used to cover Continue / Pay buttons: help now lives in the header (top-right, every screen).
 ok('no floating WhatsApp bar', !/function WABar\(|createElement\(WABar/.test(html));
 ok('header has WhatsApp support button + desktop menu', /className: "ff-help/.test(html) && /className: "ff-desk-nav"/.test(html));
 ok('phone bottom menu only on home / plans / my plans / what\'s new / account', /function BottomNav\(/.test(html) && /showBnav && React.createElement\(BottomNav/.test(html) && /const BNAV_SCREENS = \{\s*home: 1,\s*dashboard: 1,\s*buy1: 1,\s*feed: 1,\s*account: 1\s*\}/.test(html));
@@ -29,10 +29,11 @@ ok('"All" keeps the old Subscriptions + History layout', /!filteredSubs && React
 const hookInLoop = /\.map\(\([^)]*\)\s*=>\s*\{\s*const \[[^\]]+\] = useState\(|\.map\(\w+\s*=>\s*\{[^{}]*const \[[^\]]+\] = useState\(/;
 ok('service tiles are their own component (no useState inside .map)', /function ServiceTile\(/.test(html) && !hookInLoop.test(html.replace(/false && plans\.map[\s\S]*?\}\)\), React\.createElement\(Hint/, '')));
 
-// Menu: My plans · Buy · New (🍿 What's new feed) · Recover · Account · Help (dashboard tiles for these were removed).
+// Menu: My plans · Buy · New (🍿 What's new feed) · Recover · Account (dashboard tiles for these were removed).
+// Help left the bottom menu (owner 2026-09-15: too crowded) — it is the header's top-right button on every screen.
 const navBlock = (html.match(/const navItems = \[[\s\S]*?\}\];/) || [''])[0];
-ok('menu order: home, buy, feed, recover, account, help', ['home', 'buy', 'feed', 'recover', 'account', 'help'].map((k) => navBlock.indexOf("key: '" + k + "'")).every((v, i, a) => v >= 0 && (i === 0 || v > a[i - 1])), navBlock.slice(0, 80));
-ok('bottom menu has 6 columns', /\.ff-bnav \{[^}]*repeat\(6, minmax\(0,1fr\)\)/.test(html));
+ok('menu order: home, buy, feed, recover, account (no help in the menu)', !/key: 'help'/.test(navBlock) && ['home', 'buy', 'feed', 'recover', 'account'].map((k) => navBlock.indexOf("key: '" + k + "'")).every((v, i, a) => v >= 0 && (i === 0 || v > a[i - 1])), navBlock.slice(0, 80));
+ok('bottom menu has 5 columns', /\.ff-bnav \{[^}]*repeat\(5, minmax\(0,1fr\)\)/.test(html));
 ok('dashboard no longer has Buy / Recover / Account tiles', !/className: "ff-dash-actions"/.test(html) && /className: "ff-dash-stats"/.test(html));
 ok('account is a list menu (Profile, Coupons, Refer & earn, Wallet) opening sub-pages', /className: "ff-arow"/.test(html) && /k: 'profile'[\s\S]*?k: 'coupons'[\s\S]*?k: 'referral'[\s\S]*?k: 'wallet'/.test(html) && /‹ Account/.test(html) && /function ComingSoonCard\(/.test(html) && !/className: "ff-tabs",/.test(html));
 ok('coupons shown as cards with plain words (no raw ANY / NEW / RENEW)', /function CouponList\(/.test(html) && /ANY: '🛒 New plans & renewals'/.test(html) && !/Valid for \$\{c.scope/.test(html));
