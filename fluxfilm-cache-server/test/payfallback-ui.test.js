@@ -19,7 +19,7 @@ const Comp = (name) => { const f = function (props) { return el(name, props, pro
 function harness(initial) {
   const H = { effects: [], timers: [], sets: [], api: [], navs: [], opened: [] };
   let i = 0;
-  const order = ['info', 'phase', 'name', 'utr', 'formMsg', 'busy', 'claim', 'copied'];
+  const order = ['info', 'phase', 'name', 'knownName', 'utr', 'formMsg', 'busy', 'claim', 'copied'];
   const React = { createElement: el, Fragment: 'Fragment' };
   const useState = (d) => { const key = order[i++]; const v = key in initial ? initial[key] : d; return [v, (x) => H.sets.push([key, x])]; };
   const useEffect = (fn) => H.effects.push(fn);
@@ -105,6 +105,21 @@ const INFO = { ok: true, enabled: true, orderId: 'FF9123456', amount: 139, vpa: 
   ok('server says name problem → back to form with message', H.sets.some((s) => s[0] === 'phase' && s[1] === 'form') && H.sets.some((s) => s[0] === 'formMsg'));
   H = harness({ phase: 'confirm', info: INFO, name: 'Rahul', utr: '' }); buttonWith(H.render(), /No, change it/).p.onClick();
   ok('No → form', H.sets.some((s) => s[0] === 'phase' && s[1] === 'form'));
+
+  section('remembered name from the last payment');
+  H = harness({ phase: 'loading', info: null }); H.render(); H.effects[0]();
+  H.api.find((x) => x[0] === 'getBackupPayment')[1][2](Object.assign({}, INFO, { knownName: 'HARSH WALIA' }));
+  ok('name pre-filled from the server', H.sets.some((s) => s[0] === 'knownName' && s[1] === 'HARSH WALIA') && H.sets.some((s) => s[0] === 'name' && s[1] === 'HARSH WALIA'));
+  H = harness({ phase: 'pay', info: INFO, knownName: 'HARSH WALIA', name: 'HARSH WALIA' }); buttonWith(H.render(), /I've paid/).p.onClick();
+  ok("I've paid → straight to the confirm step (no typing again)", H.sets.some((s) => s[0] === 'phase' && s[1] === 'confirm') && !H.sets.some((s) => s[0] === 'phase' && s[1] === 'form'));
+  H = harness({ phase: 'confirm', info: INFO, knownName: 'HARSH WALIA', name: 'HARSH WALIA', utr: '' }); tree = H.render();
+  ok('confirm says "same name as last time"', /Paying with the same name as last time\?/.test(textOf(tree)) && textOf(find(tree, (n) => n.p && n.p['data-ff'] === 'name-confirm')[0]) === 'HARSH WALIA');
+  buttonWith(tree, /Change it \/ add UTR/).p.onClick();
+  ok('Change it → form (name already filled in, can edit or add UTR)', H.sets.some((s) => s[0] === 'phase' && s[1] === 'form'));
+  H = harness({ phase: 'confirm', info: INFO, knownName: 'HARSH WALIA', name: 'HARSH WALIA', utr: '' }); buttonWith(H.render(), /Yes, that's right/).p.onClick();
+  ok('Yes → claim sent with the remembered name', (H.api.find((x) => x[0] === 'claimManualPayment') || [0, []])[1][2] === 'HARSH WALIA');
+  H = harness({ phase: 'pay', info: INFO, knownName: '', name: '' }); buttonWith(H.render(), /I've paid/).p.onClick();
+  ok('no remembered name → the normal form', H.sets.some((s) => s[0] === 'phase' && s[1] === 'form'));
 
   section('status states');
   const status = (st, extra) => { const h = harness({ phase: 'status', info: INFO, claim: Object.assign({ ok: true, status: st, payerName: 'RAHUL SHARMA', message: 'msg-' + st }, extra || {}) }); const tr = h.render(); return { h, tr, text: textOf(tr), node: find(tr, (n) => n.p && n.p['data-ff'] === 'claim-status')[0] }; };

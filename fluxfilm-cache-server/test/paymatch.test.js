@@ -31,6 +31,8 @@ async function q(sql, p) {
   if (/^SELECT order_id, phone_norm FROM orders WHERE UPPER\(status\) = 'CREATED'/.test(sql)) return T.orders.filter((o) => o.status === 'CREATED' && o.order_id !== p[0] && Math.round(o.final_amount) === Math.round(p[1]) && o.created_at_sheet >= p[2] && o.created_at_sheet <= p[3]);
   if (/^SELECT o.order_id FROM orders o WHERE UPPER\(o.status\) = 'CREATED'/.test(sql)) return T.orders.filter((o) => o.status === 'CREATED' && o.created_at_sheet > p[0] && T.names.some((n) => n.phone_norm === o.phone_norm));
   if (/^SELECT name_norm FROM customer_payer_names/.test(sql)) return T.names.filter((n) => n.phone_norm === p[0]);
+  if (/^SELECT payer_name FROM payment_claims WHERE phone_norm = \? AND source = 'CUSTOMER' AND status IN \('MATCHED', 'APPROVED'\)/.test(sql)) return T.claims.filter((c) => c.phone_norm === p[0] && c.source === 'CUSTOMER' && (c.status === 'MATCHED' || c.status === 'APPROVED')).reverse().slice(0, 1);
+  if (/^SELECT name_display FROM customer_payer_names WHERE phone_norm = \?/.test(sql)) return T.names.filter((n) => n.phone_norm === p[0]).slice(-1);
   if (/^INSERT INTO customer_payer_names/.test(sql)) { const ex = T.names.find((n) => n.phone_norm === p[0] && n.name_norm === p[1]); if (ex) ex.times_used++; else T.names.push({ phone_norm: p[0], name_norm: p[1], name_display: p[2], times_used: 1 }); return { affectedRows: 1 }; }
   if (/^SELECT id, upi_ref, amount, order_ids, raw, received_at, consumed_order_id FROM bank_credits WHERE upi_ref = \?/.test(sql)) return T.credits.filter((c) => c.upi_ref === p[0]).map((c) => ({ ...c }));
   if (/^SELECT id, upi_ref, amount, order_ids, raw, received_at, consumed_order_id FROM bank_credits WHERE id = \?/.test(sql)) return T.credits.filter((c) => c.id === p[0]).map((c) => ({ ...c }));
@@ -111,6 +113,15 @@ const fresh = () => { reset(); pm._internal.reset(); seq = 1; };
   ok('backup UPI + amount, link without amount/note', r.ok && r.vpa === 'backup@ybl' && r.amount === 99 && !/am=|tn=/.test(r.upiLink) && r.lastClaim === null, r);
   r = await pm.getBackupPayment('FF1000001', { phone: A });
   ok('order phone also works', r.ok);
+  ok('first time: no remembered name', r.knownName === '');
+  T.claims.push({ id: 99, order_id: 'FF0999999', phone_norm: A, amount: 99, payer_name: 'RAHUL KUMAR SHARMA', status: 'MATCHED', source: 'CUSTOMER' });
+  T.names.push({ phone_norm: A, name_norm: 'RAHUL KUMAR SHARM', name_display: 'RAHUL KUMAR SHARM', times_used: 1 });
+  r = await pm.getBackupPayment('FF1000001', proofA('FF1000001'));
+  ok('next time: the name they typed last time is offered (not the bank-cut one)', r.knownName === 'RAHUL KUMAR SHARMA', r.knownName);
+  T.claims = T.claims.filter((c) => c.id !== 99);
+  r = await pm.getBackupPayment('FF1000001', proofA('FF1000001'));
+  ok('only a learned name (auto-matched before) → that name', r.knownName === 'RAHUL KUMAR SHARM', r.knownName);
+  T.names = [];
 
   section('claim validation');
   r = await pm.claimPayment('FF1000001', proofA('FF1000001'), ' . ', '');

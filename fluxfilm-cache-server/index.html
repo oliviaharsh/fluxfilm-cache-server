@@ -4918,6 +4918,7 @@ function PayHelpScreen({
   const [info, setInfo] = useState(null);
   const [phase, setPhase] = useState('loading'); // loading · pay · form · confirm · status · error
   const [name, setName] = useState('');
+  const [knownName, setKnownName] = useState('');
   const [utr, setUtr] = useState('');
   const [formMsg, setFormMsg] = useState('');
   const [busy, setBusy] = useState(false);
@@ -4938,6 +4939,10 @@ function PayHelpScreen({
       if (r.paid) {
         goVerify();
         return;
+      }
+      if (r.knownName) {
+        setKnownName(r.knownName);
+        setName(r.knownName);
       }
       if (r.lastClaim && r.lastClaim.status && r.lastClaim.status !== 'REJECTED') {
         setClaim(r.lastClaim);
@@ -5202,7 +5207,7 @@ function PayHelpScreen({
     }, "Tell us you paid so we can find your payment."), h(Btn, {
       variant: "primary",
       full: true,
-      onClick: () => setPhase('form')
+      onClick: () => setPhase(knownName && name ? 'confirm' : 'form')
     }, "✅ I've paid"), h("div", {
       style: {
         marginTop: 10
@@ -5289,7 +5294,7 @@ function PayHelpScreen({
       }
     }, h("div", {
       style: T(18, 900)
-    }, "Is this exactly your name in your UPI app?"), h("div", {
+    }, knownName && name === knownName ? "Paying with the same name as last time?" : "Is this exactly your name in your UPI app?"), h("div", {
       "data-ff": "name-confirm",
       style: T(24, 900, '#1e3a8a', {
         margin: '16px 0 6px',
@@ -5306,7 +5311,7 @@ function PayHelpScreen({
       style: T(13, 600, C.muted, {
         marginTop: 8
       })
-    }, "We match it with the name the bank sends us, so small spelling differences can slow things down."), formMsg && h("div", {
+    }, knownName && name === knownName ? "We remembered it from your last payment. Paid from another account? Tap “Change it”." : "We match it with the name the bank sends us, so small spelling differences can slow things down."), formMsg && h("div", {
       style: T(13.5, 700, '#b45309', {
         marginTop: 10
       })
@@ -5327,7 +5332,7 @@ function PayHelpScreen({
       variant: "ghost",
       full: true,
       onClick: () => setPhase('form')
-    }, "✏️ No, change it")));
+    }, knownName && name === knownName ? "✏️ Change it / add UTR" : "✏️ No, change it")));
   } else {
     const st = claim?.paid ? 'MATCHED' : claim?.status;
     const look = {
