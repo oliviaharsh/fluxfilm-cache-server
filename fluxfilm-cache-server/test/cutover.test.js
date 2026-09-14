@@ -55,9 +55,18 @@ const SHEET = {
 };
 
 const inList = (p) => new Set(p.map(String));
+// Like mysql2: db.query uses prepared statements (execute), which cannot expand a bulk "VALUES ?"; pool.query can.
+const exec = async (sql, p, viaPool) => {
+    if (!viaPool && /VALUES \?/.test(sql)) throw new Error("You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '?' at line 1");
+    return runSql(sql, p);
+};
 const mockDb = {
   ENABLED: true,
-  query: async (sql, p) => {
+  getPool: () => ({ query: async (sql, p) => [await exec(sql, p, true)] }),
+  query: async (sql, p) => exec(sql, p, false),
+};
+async function runSql(sql, p) {
+  {
     sql = sql.replace(/\s+/g, ' ').trim();
     let m;
     if ((m = sql.match(/^SELECT `(\w+)`.* FROM `(orders|subscriptions)` WHERE `\w+` IN/))) { const set = inList(p); return DB[m[2]].filter((r) => set.has(r[m[1]])).map((r) => Object.assign({}, r)); }
@@ -73,8 +82,8 @@ const mockDb = {
     if (/^INSERT IGNORE INTO wallet/.test(sql)) { DB.wallet.push({ phone: p[0], phone_norm: p[1], coins_balance: p[2], coins_lifetime: p[3] }); return { affectedRows: 1 }; }
     if (/^INSERT INTO sync_log/.test(sql)) { DB.sync_log.push(p); return { affectedRows: 1 }; }
     throw new Error('unexpected SQL in test: ' + sql.slice(0, 120));
-  },
-};
+  }
+}
 Module._load = (function (orig) { return function (req) { if (req === './db') return mockDb; if (req === 'dotenv') return { config: () => {} }; return orig.apply(this, arguments); }; })(Module._load);
 const sync = require('../sync');
 const cutover = require('../cutover');
