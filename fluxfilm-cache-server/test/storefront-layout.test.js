@@ -23,6 +23,17 @@ ok('responsive grids for services and subscription cards', /className: "ff-grid-
 const hookInLoop = /\.map\(\([^)]*\)\s*=>\s*\{\s*const \[[^\]]+\] = useState\(|\.map\(\w+\s*=>\s*\{[^{}]*const \[[^\]]+\] = useState\(/;
 ok('service tiles are their own component (no useState inside .map)', /function ServiceTile\(/.test(html) && !hookInLoop.test(html.replace(/false && plans\.map[\s\S]*?\}\)\), React\.createElement\(Hint/, '')));
 
+// Menu: My plans · Buy · Recover · Account · Help (dashboard tiles for these were removed).
+const navBlock = (html.match(/const navItems = \[[\s\S]*?\}\];/) || [''])[0];
+ok('menu order: home, buy, recover, account, help', ['home', 'buy', 'recover', 'account', 'help'].map((k) => navBlock.indexOf("key: '" + k + "'")).every((v, i, a) => v >= 0 && (i === 0 || v > a[i - 1])), navBlock.slice(0, 80));
+ok('bottom menu has 5 columns', /\.ff-bnav \{[^}]*repeat\(5, minmax\(0,1fr\)\)/.test(html));
+ok('dashboard no longer has Buy / Recover / Account tiles', !/className: "ff-dash-actions"/.test(html) && /className: "ff-dash-stats"/.test(html));
+ok('account has Profile · Wallet · Refer & earn · Coupons tabs', /\['profile', '👤 Profile'\], \['wallet', '👛 Wallet'\], \['referral', '🎁 Refer & earn'\], \['coupons', '🎟️ Coupons'\]/.test(html) && /function ComingSoonCard\(/.test(html));
+
+// Numbered checkout: buy = Plan, Details, Review, Pay, Access; renew = Plan, Pay, Access.
+ok('checkout steps defined for buy and renew', /buy: \[\['Plan', \['buy2', 'groupJoin'\]\], \['Details', \['details'\]\], \['Review', \['review'\]\], \['Pay', \['pay'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html) && /renew: \[\['Plan', \['renewStart'\]\], \['Pay', \['pay'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html));
+ok('steps shown above every screen; flow tracked on nav + navReset', /React.createElement\(CheckoutSteps, \{\s*flow: flow,\s*screen: screen\s*\}\)/.test(html) && (html.match(/    trackFlow\(s\);/g) || []).length === 2);
+
 console.log('\n---------------------------------------');
 console.log('PASS ' + pass + '   FAIL ' + fail);
 process.exitCode = fail ? 1 : 0;

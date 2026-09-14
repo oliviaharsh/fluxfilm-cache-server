@@ -25,10 +25,29 @@ html, body { background: #f5f7fb; }
 .ff-help:hover { background: rgba(22,163,74,.14); }
 .ff-help-long { display: none; }
 @media (max-width: 899px) { .ff-help-deskonly { display: none; } }
-.ff-bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 4px; background: rgba(255,255,255,.97); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid rgba(15,23,42,.08); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px rgba(15,23,42,.06); }
-.ff-bnav-btn { border: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 700; color: #64748b; padding: 7px 0 6px; border-radius: 14px; cursor: pointer; }
+.ff-bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 2px; background: rgba(255,255,255,.97); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid rgba(15,23,42,.08); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px rgba(15,23,42,.06); }
+.ff-bnav-btn { border: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; white-space: nowrap; font-weight: 700; color: #64748b; padding: 7px 0 6px; border-radius: 14px; cursor: pointer; }
 .ff-bnav-ic { font-size: 20px; line-height: 1; }
 .ff-bnav-btn.on { color: #15803d; background: rgba(22,163,74,.09); }
+.ff-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 4px; margin: 4px 0 14px; scrollbar-width: none; }
+.ff-tabs::-webkit-scrollbar { display: none; }
+.ff-tab { flex-shrink: 0; border: 1px solid rgba(15,23,42,.10); background: #fff; color: #334155; padding: 9px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 800; cursor: pointer; white-space: nowrap; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
+.ff-tab.on { background: #16a34a; border-color: #16a34a; color: #fff; box-shadow: 0 4px 14px rgba(22,163,74,.25); }
+.ff-soon { text-align: center; padding: 28px 18px; }
+.ff-soon-ic { font-size: 40px; margin-bottom: 10px; }
+.ff-soon h3 { font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 6px; }
+.ff-soon p { font-size: 13.5px; color: #64748b; font-weight: 500; line-height: 1.55; max-width: 380px; margin: 0 auto 14px; }
+.ff-soon-badge { display: inline-block; padding: 6px 14px; border-radius: 999px; background: rgba(245,158,11,.10); border: 1px solid rgba(245,158,11,.28); color: #92400e; font-size: 12.5px; font-weight: 800; }
+.ff-steps { display: flex; align-items: flex-start; margin: 16px 0 4px; padding: 12px 10px 10px; background: #fff; border: 1px solid rgba(15,23,42,.08); border-radius: 18px; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
+.ff-step { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; position: relative; }
+.ff-step + .ff-step::before { content: ''; position: absolute; top: 13px; right: 50%; width: 100%; height: 2px; background: #e2e8f0; z-index: 0; }
+.ff-step.done::before, .ff-step.on::before { background: #22c55e; }
+.ff-step-n { position: relative; z-index: 1; width: 28px; height: 28px; border-radius: 999px; display: grid; place-items: center; font-size: 13px; font-weight: 800; background: #f1f5f9; color: #94a3b8; border: 2px solid #e2e8f0; }
+.ff-step.done .ff-step-n { background: #22c55e; border-color: #22c55e; color: #fff; }
+.ff-step.on .ff-step-n { background: #fff; border-color: #16a34a; color: #15803d; box-shadow: 0 0 0 4px rgba(22,163,74,.14); }
+.ff-step-l { font-size: 11.5px; font-weight: 700; color: #94a3b8; white-space: nowrap; }
+.ff-step.on .ff-step-l { color: #15803d; font-weight: 800; }
+.ff-step.done .ff-step-l { color: #334155; }
 .ff-grid-svc { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
 .ff-cards { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; }
 .ff-cards > * { margin: 0 !important; }
@@ -59,8 +78,8 @@ html, body { background: #f5f7fb; }
   .ff-has-bnav { padding-bottom: 32px; }
   .ff-topbar-pill { display: none !important; }
   .ff-cards { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
-  .ff-dash-actions, .ff-dash-stats { display: inline-grid !important; width: calc(50% - 8px); vertical-align: top; margin-bottom: 14px !important; }
-  .ff-dash-actions { margin-right: 16px; }
+  .ff-steps { margin-top: 22px; padding: 14px 18px 12px; }
+  .ff-step-l { font-size: 12.5px; }
   .ff-home { display: grid; grid-template-columns: minmax(0,1.1fr) minmax(0,1fr); column-gap: 56px; align-items: start; padding-top: 28px; }
   .ff-home-left, .ff-home-right { display: block; }
   .ff-home-left { position: sticky; top: 96px; }
@@ -830,6 +849,35 @@ function Topbar({
   }, "Help"), React.createElement("span", {
     className: "ff-help-long"
   }, "WhatsApp support"))));
+}
+const CHECKOUT_STEPS = {
+  buy: [['Plan', ['buy2', 'groupJoin']], ['Details', ['details']], ['Review', ['review']], ['Pay', ['pay']], ['Access', ['verify', 'done']]],
+  renew: [['Plan', ['renewStart']], ['Pay', ['pay']], ['Access', ['verify', 'done']]]
+};
+function CheckoutSteps({
+  flow,
+  screen
+}) {
+  const steps = CHECKOUT_STEPS[flow];
+  if (!steps) return null;
+  const idx = steps.findIndex(s => s[1].includes(screen));
+  if (idx < 0) return null;
+  const allDone = screen === 'done';
+  return React.createElement("div", {
+    className: "ff-steps",
+    "aria-label": `Step ${idx + 1} of ${steps.length}`
+  }, steps.map(([label], i) => {
+    const state = allDone || i < idx ? 'done' : i === idx ? 'on' : '';
+    return React.createElement("div", {
+      key: label,
+      className: 'ff-step ' + state,
+      "aria-current": state === 'on' ? 'step' : undefined
+    }, React.createElement("span", {
+      className: "ff-step-n"
+    }, state === 'done' ? '✓' : i + 1), React.createElement("span", {
+      className: "ff-step-l"
+    }, label));
+  }));
 }
 function BottomNav({
   items,
@@ -2060,65 +2108,12 @@ function DashboardScreen({
       objectFit: 'cover'
     }
   }) : name ? name[0].toUpperCase() : '👤')), React.createElement("div", {
-    className: "ff-dash-actions",
-    style: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr 1fr',
-      gap: 10,
-      marginBottom: 14
-    }
-  }, quickActions.map(a => {
-    const gr = {
-      primary: 'linear-gradient(135deg,#16a34a,#22c55e)',
-      purple: 'linear-gradient(135deg,#7c3aed,#a78bfa)',
-      slate: 'linear-gradient(135deg,#334155,#64748b)'
-    };
-    const sh = {
-      primary: '0 4px 14px rgba(22,163,74,.28)',
-      purple: '0 4px 14px rgba(124,58,237,.25)',
-      slate: '0 4px 14px rgba(51,65,85,.22)'
-    };
-    return React.createElement("button", {
-      key: a.label,
-      onClick: a.fn,
-      style: {
-        padding: '14px 8px 12px',
-        borderRadius: 18,
-        border: 'none',
-        background: gr[a.variant],
-        color: '#fff',
-        boxShadow: sh[a.variant],
-        cursor: 'pointer',
-        fontFamily: PJS,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 5,
-        transition: 'transform .14s,box-shadow .14s'
-      }
-    }, React.createElement("span", {
-      style: {
-        fontSize: 22
-      }
-    }, a.icon), React.createElement("span", {
-      style: {
-        fontWeight: 800,
-        fontSize: 13
-      }
-    }, a.label), React.createElement("span", {
-      style: {
-        fontWeight: 500,
-        fontSize: 11,
-        opacity: .78
-      }
-    }, a.desc));
-  })), React.createElement("div", {
     className: "ff-dash-stats",
     style: {
       display: 'grid',
       gridTemplateColumns: '1fr 1fr 1fr',
       gap: 10,
-      marginBottom: 4
+      marginBottom: 12
     }
   }, [{
     label: 'Total',
@@ -5935,8 +5930,10 @@ function AccountScreen({
   couponCache,
   setCouponCache,
   initialCoupons,
-  onProfileUpdated
+  onProfileUpdated,
+  initialSection
 }) {
+  const [section, setSection] = useState(initialSection || 'profile');
   const allSubs = subs || [];
   const active = allSubs.filter(s => Number(s.daysLeft || 0) > 7).length;
   const expiring = allSubs.filter(s => {
@@ -6126,7 +6123,16 @@ function AccountScreen({
     }
   }, React.createElement(Badge, {
     tone: profile.status === 'ACTIVE' ? 'ok' : 'bad'
-  }, profile.status === 'ACTIVE' ? '✅ Active Customer' : profile.status))), React.createElement(Card, null, React.createElement("div", {
+  }, profile.status === 'ACTIVE' ? '✅ Active Customer' : profile.status))), React.createElement("div", {
+    className: "ff-tabs",
+    role: "tablist"
+  }, [['profile', '👤 Profile'], ['wallet', '👛 Wallet'], ['referral', '🎁 Refer & earn'], ['coupons', '🎟️ Coupons']].map(([k, label]) => React.createElement("button", {
+    key: k,
+    role: "tab",
+    "aria-selected": section === k,
+    className: 'ff-tab' + (section === k ? ' on' : ''),
+    onClick: () => setSection(k)
+  }, label))), section === 'profile' && React.createElement(Card, null, React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 15,
@@ -6287,7 +6293,7 @@ function AccountScreen({
     full: true,
     disabled: avatarSaving || !pendingAvatar,
     onClick: saveAvatar
-  }, avatarSaving ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), "Saving…") : '✅ Save Picture')))), React.createElement(Card, {
+  }, avatarSaving ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), "Saving…") : '✅ Save Picture')))), section === 'profile' && React.createElement(Card, {
     style: {
       marginTop: 10
     }
@@ -6348,7 +6354,14 @@ function AccountScreen({
       color: C.muted,
       marginTop: 4
     }
-  }, s.label))))), React.createElement(Card, {
+  }, s.label))))), section === 'profile' && React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    style: {
+      marginTop: 10
+    },
+    onClick: () => setShowAvatarPicker(true)
+  }, "🖼️ Change profile picture"), section === 'coupons' && React.createElement(Card, {
     style: {
       marginTop: 10
     }
@@ -6464,9 +6477,17 @@ function AccountScreen({
         color: '#991b1b'
       }
     }, "😔 You missed it — this coupon is no longer valid."));
+  })), section === 'wallet' && React.createElement(ComingSoonCard, {
+    icon: '👛',
+    title: 'FluxFilm Wallet',
+    text: 'Your coins and balance will live here — earn on every purchase and use them to pay for renewals.'
+  }), section === 'referral' && React.createElement(ComingSoonCard, {
+    icon: '🎁',
+    title: 'Refer & earn',
+    text: 'Share your invite link with friends and get rewards when they buy their first plan.'
   }), React.createElement("div", {
     style: {
-      marginTop: 14
+      marginTop: 18
     }
   }, React.createElement(Btn, {
     variant: "danger",
@@ -6475,22 +6496,20 @@ function AccountScreen({
       clearFFSession();
       nav('home', {});
     }
-  }, "🚪 Logout"))), expired > 0 && React.createElement(Hint, null, "📋 ", expired, " expired subscription", expired > 1 ? 's' : '', " in history. Go to Dashboard to view."), React.createElement("div", {
-    style: {
-      marginTop: 12
-    }
-  }, React.createElement(Btn, {
-    variant: "ghost",
-    full: true,
-    onClick: () => nav('dashboard', {
-      manageResp: manageResp || {
-        actionable: subs || [],
-        history: []
-      },
-      phone,
-      profile
-    })
-  }, "⬅️ Back to Dashboard"))));
+  }, "🚪 Logout"))));
+}
+function ComingSoonCard({
+  icon,
+  title,
+  text
+}) {
+  return React.createElement(Card, {
+    className: "ff-soon"
+  }, React.createElement("div", {
+    className: "ff-soon-ic"
+  }, icon), React.createElement("h3", null, title), React.createElement("p", null, text), React.createElement("span", {
+    className: "ff-soon-badge"
+  }, "🚀 Coming soon"));
 }
 function RestoringScreen({
   trending,
@@ -7386,7 +7405,7 @@ const TOPBAR_META = {
   done: ['Access Granted 🎉', 'Enjoy your subscription', null],
   recover: ['Recover Access', 'OTP secured · Fast 🔒', null],
   otpScreen: ['Get OTP', 'SMS OTP · Fast & secure', '📲'],
-  account: ['My Account', 'Profile & subscription stats', null],
+  account: ['My Account', 'Profile · Wallet · Refer & earn', null],
   renewStart: ['Renew', 'Early discount available', null]
 };
 const BOOT_CACHE_KEY = 'ff_boot_v2';
@@ -7415,6 +7434,8 @@ function setCachedBoot(data) {
 }
 function App() {
   const [screen, setScreen] = useState('home');
+  // Which checkout the customer is in ('buy' or 'renew') so the step numbers match; '' = no steps.
+  const [flow, setFlow] = useState('');
   const [history, setHistory] = useState([]);
   const [screenData, setScreenData] = useState({});
   const [loadingMsg, setLoadingMsg] = useState(null);
@@ -7515,7 +7536,11 @@ function App() {
       manageResp: bestManage
     };
   }
+  function trackFlow(s) {
+    if (s === 'buy1' || s === 'buy2') setFlow('buy');else if (s === 'renewStart') setFlow('renew');else if (s === 'verify' && screen !== 'pay') setFlow('');else if (['home', 'dashboard', 'account', 'recover', 'otpScreen'].includes(s)) setFlow('');
+  }
   function nav(s, data) {
+    trackFlow(s);
     setHistory(h => [...h, {
       screen,
       data: screenData
@@ -7543,6 +7568,7 @@ function App() {
     });
   }
   function navReset(s, data) {
+    trackFlow(s);
     setHistory([]);
     const nextData = buildNextData(data);
     setScreenData(nextData);
@@ -7818,6 +7844,13 @@ function App() {
     dashboard: 1,
     buy1: 1
   };
+  const openAccount = () => {
+    if (!sessionPhone) {
+      goLoggedHome();
+      return;
+    }
+    if (screen !== 'account') nav('account', {});
+  };
   const BNAV_SCREENS = {
     home: 1,
     dashboard: 1,
@@ -7828,7 +7861,7 @@ function App() {
   const activeKey = {
     home: 'home',
     dashboard: 'home',
-    account: 'home',
+    account: 'account',
     buy1: 'buy',
     buy2: 'buy',
     recover: 'recover'
@@ -7841,7 +7874,7 @@ function App() {
   }, {
     key: 'buy',
     icon: '🛒',
-    label: 'Buy plans',
+    label: 'Buy',
     onClick: () => {
       if (screen !== 'buy1') nav('buy1', {});
     }
@@ -7852,6 +7885,11 @@ function App() {
     onClick: () => {
       if (screen !== 'recover') recoverFromTop();
     }
+  }, {
+    key: 'account',
+    icon: '👤',
+    label: 'Account',
+    onClick: openAccount
   }, {
     key: 'help',
     icon: '💬',
@@ -7895,7 +7933,10 @@ function App() {
   }), !restoring && React.createElement("div", {
     className: "page-inner " + (WIDE_SCREENS[screen] ? 'ff-w-wide' : 'ff-w-flow') + (showBnav ? ' ff-has-bnav' : ''),
     key: screen
-  }, screen === 'home' && React.createElement(HomeScreen, {
+  }, React.createElement(CheckoutSteps, {
+    flow: flow,
+    screen: screen
+  }), screen === 'home' && React.createElement(HomeScreen, {
     nav: nav,
     onNeedAccount: openAccountModal
   }), screen === 'dashboard' && React.createElement(DashboardScreen, {
@@ -8014,6 +8055,7 @@ function App() {
     couponCache: couponCache,
     setCouponCache: setCouponCache,
     initialCoupons: d.coupons,
+    initialSection: d.accountSection,
     onProfileUpdated: url => {
       setScreenData(prev => ({
         ...(prev || {}),
