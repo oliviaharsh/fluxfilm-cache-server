@@ -29,9 +29,10 @@ html, body { background: #f5f7fb; }
 .ff-bnav-btn { border: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; white-space: nowrap; font-weight: 700; color: #64748b; padding: 7px 0 6px; border-radius: 14px; cursor: pointer; }
 .ff-bnav-ic { font-size: 20px; line-height: 1; }
 .ff-bnav-btn.on { color: #15803d; background: rgba(22,163,74,.09); }
-@keyframes ffSlideIn { from { transform: translateX(28px); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes ffSlideBack { from { transform: translateX(-28px); opacity: 0; } to { transform: none; opacity: 1; } }
-.ff-slide { animation: ffSlideIn .22s ease backwards; }
+@keyframes ffSlideIn { from { transform: perspective(1400px) translate3d(30px,0,-24px) rotateY(-7deg); opacity: 0; } to { transform: perspective(1400px) rotateY(0); opacity: 1; } }
+@keyframes ffSlideBack { from { transform: perspective(1400px) translate3d(-30px,0,-24px) rotateY(7deg); opacity: 0; } to { transform: perspective(1400px) rotateY(0); opacity: 1; } }
+.ff-slide { animation: ffSlideIn .26s cubic-bezier(.2,.8,.3,1) backwards; transform-origin: 50% 30%; }
+html.ff-lite .ff-slide { animation-duration: .2s; }
 .ff-slide-back { animation-name: ffSlideBack; }
 @media (prefers-reduced-motion: reduce) { .ff-slide { animation: none; } }
 .ff-refbar { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; padding: 11px 14px; border-radius: 16px; background: linear-gradient(135deg,rgba(236,72,153,.10),rgba(245,158,11,.10)); border: 1px solid rgba(236,72,153,.22); font-size: 13.5px; font-weight: 700; color: #831843; }
@@ -252,6 +253,51 @@ input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; 
 @keyframes ffSplashOut { to { opacity: 0; transform: scale(1.06); visibility: hidden; } }
 @media (prefers-reduced-motion: reduce) { #ff-splash { display: none !important; } }
 
+/* ── 3D motion (credentials, payment, order, coupon/coins, steps, presses) ──
+   Rules: transform/opacity only; perspective() lives INSIDE each transform (a `perspective` property on a
+   parent would make it the containing block for position:fixed pop-ups); every entrance uses fill
+   `backwards` so no transform is left behind; no will-change. html.ff-lite (low-end phone) keeps only the
+   main entrance; prefers-reduced-motion switches all of it off. */
+@keyframes ffCredLift { 0% { transform: perspective(900px) translate3d(0,34px,-120px) rotateX(-62deg); opacity: 0; } 45% { opacity: 1; } 78% { transform: perspective(900px) translate3d(0,-4px,12px) rotateX(5deg); } 100% { transform: perspective(900px) rotateX(0); opacity: 1; } }
+@keyframes ffRowFlip { from { transform: perspective(700px) rotateX(-88deg); opacity: 0; } to { transform: perspective(700px) rotateX(0); opacity: 1; } }
+@keyframes ffShineSweep { from { transform: translateX(-130%) skewX(-20deg); opacity: 1; } to { transform: translateX(330%) skewX(-20deg); opacity: 1; } }
+@keyframes ffCoinSpin { 0% { transform: perspective(500px) rotateY(-540deg) scale(.3); opacity: 0; } 40% { opacity: 1; } 75% { transform: perspective(500px) rotateY(20deg) scale(1.12); } 100% { transform: perspective(500px) rotateY(0) scale(1); opacity: 1; } }
+@keyframes ffRing { from { transform: scale(.55); opacity: .55; } to { transform: scale(1.9); opacity: 0; } }
+@keyframes ffRise3d { from { transform: perspective(700px) translate3d(0,16px,-40px) rotateX(-40deg); opacity: 0; } to { transform: perspective(700px) rotateX(0); opacity: 1; } }
+@keyframes ffTumble { 0% { transform: perspective(400px) translate3d(0,26px,-60px) rotateX(-200deg) rotateZ(-30deg); opacity: 0; } 70% { transform: perspective(400px) translate3d(0,-6px,10px) rotateX(10deg) rotateZ(4deg); opacity: 1; } 100% { transform: perspective(400px) rotateX(0); opacity: 1; } }
+@keyframes ffTicketDrop { 0% { transform: perspective(900px) translate3d(0,-26px,-90px) rotateX(58deg); opacity: 0; } 60% { opacity: 1; } 82% { transform: perspective(900px) translate3d(0,3px,8px) rotateX(-6deg); } 100% { transform: perspective(900px) rotateX(0); opacity: 1; } }
+@keyframes ffFlipIn { from { transform: perspective(500px) rotateX(-90deg); opacity: 0; } to { transform: perspective(500px) rotateX(0); opacity: 1; } }
+@keyframes ffFlipY { from { transform: perspective(400px) rotateY(-180deg) scale(.8); } to { transform: perspective(400px) rotateY(0) scale(1); } }
+@keyframes ffStepPop { 0% { transform: perspective(300px) rotateY(90deg) scale(.7); } 70% { transform: perspective(300px) rotateY(-12deg) scale(1.12); } 100% { transform: perspective(300px) rotateY(0) scale(1); } }
+.ff-3d-cred { position: relative; overflow: hidden; animation: ffCredLift .62s cubic-bezier(.2,.85,.3,1.1) .08s backwards; }
+.ff-3d-cred::after { content: ''; position: absolute; top: -10%; bottom: -10%; left: 0; width: 38%; pointer-events: none; background: linear-gradient(100deg, transparent, rgba(255,255,255,.75), transparent); opacity: 0; animation: ffShineSweep .7s ease-out .62s backwards; }
+.ff-3d-cred > * { animation: ffRowFlip .36s cubic-bezier(.2,.8,.3,1.15) backwards; transform-origin: 50% 0; }
+.ff-3d-cred > :nth-child(1) { animation-delay: .22s; } .ff-3d-cred > :nth-child(2) { animation-delay: .32s; }
+.ff-3d-cred > :nth-child(3) { animation-delay: .42s; } .ff-3d-cred > :nth-child(4) { animation-delay: .52s; }
+.ff-3d-cred > :nth-child(5) { animation-delay: .60s; } .ff-3d-cred > :nth-child(n+6) { animation-delay: .68s; }
+.ff-3d-badge { position: relative; display: inline-block; animation: ffCoinSpin .72s cubic-bezier(.2,.8,.3,1.1) backwards; }
+.ff-3d-badge::before { content: ''; position: absolute; left: 50%; top: 50%; width: 1.15em; height: 1.15em; margin: -.575em 0 0 -.575em; border-radius: 50%; border: 3px solid rgba(34,197,94,.55); pointer-events: none; opacity: 0; animation: ffRing .8s ease-out .5s backwards; }
+.ff-3d-rise { animation: ffRise3d .46s cubic-bezier(.2,.8,.3,1.1) .28s backwards; }
+.ff-3d-tumble { display: inline-block; animation: ffTumble .6s cubic-bezier(.2,.8,.3,1.1) backwards; }
+.ff-3d-ticket { position: relative; overflow: hidden; animation: ffTicketDrop .58s cubic-bezier(.2,.85,.3,1.1) backwards; }
+.ff-3d-ticket::after { content: ''; position: absolute; top: -10%; bottom: -10%; left: 0; width: 34%; pointer-events: none; background: linear-gradient(100deg, transparent, rgba(255,255,255,.35), transparent); opacity: 0; animation: ffShineSweep .8s ease-out .5s backwards; }
+.ff-3d-flipin { animation: ffFlipIn .34s cubic-bezier(.2,.8,.3,1.2) backwards; transform-origin: 50% 0; }
+.ff-3d-flipy { display: inline-block; animation: ffFlipY .42s cubic-bezier(.2,.8,.3,1.2) backwards; }
+.ff-coin.on .ff-coin-box { animation: ffFlipY .38s cubic-bezier(.2,.8,.3,1.2) backwards; }
+.ff-coin.on .ff-coin-amt { animation: ffCoinSpin .6s cubic-bezier(.2,.8,.3,1.1) backwards; }
+.ff-step.on .ff-step-n, .ff-step.done .ff-step-n { animation: ffStepPop .44s cubic-bezier(.2,.8,.3,1.1) backwards; }
+.ff-btn:active:not(:disabled) { transform: perspective(600px) translate3d(0,2px,-10px) scale(.975) !important; }
+.ff-tool:active { transform: perspective(700px) rotateX(7deg) scale(.97) !important; }
+.ff-coin:active { transform: perspective(700px) rotateX(5deg) scale(.985); }
+html.ff-lite .ff-3d-cred > *, html.ff-lite .ff-3d-cred::after, html.ff-lite .ff-3d-ticket::after,
+html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .ff-3d-cred, .ff-3d-cred > *, .ff-3d-cred::after, .ff-3d-badge, .ff-3d-badge::before, .ff-3d-rise, .ff-3d-tumble,
+  .ff-3d-ticket, .ff-3d-ticket::after, .ff-3d-flipin, .ff-3d-flipy, .ff-coin.on .ff-coin-box, .ff-coin.on .ff-coin-amt,
+  .ff-step.on .ff-step-n, .ff-step.done .ff-step-n { animation: none !important; }
+  .ff-btn:active:not(:disabled), .ff-tool:active, .ff-coin:active { transform: scale(.98) !important; }
+}
+
 /* ── Mobile hardening (added) ── */
 #root{overflow-x:clip}
 #root img,#root svg,#root canvas{max-width:100%}
@@ -260,6 +306,10 @@ input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; 
 @media (max-width:380px){ .page-inner{padding:0 12px} }
 @media (max-width:330px){ .ff-help-short{display:none} }
 </style>
+<script>
+// Low-end phone (≤2 CPU cores or ≤2 GB RAM): html.ff-lite trims the extra 3D flourishes (stagger, shine, rings).
+try { if ((navigator.hardwareConcurrency || 8) <= 2 || (navigator.deviceMemory || 8) <= 2) document.documentElement.classList.add('ff-lite'); } catch (e) {}
+</script>
 </head>
 <body>
 <div id="ff-splash" hidden aria-hidden="true"><div class="ff-sp-stage"><div class="ff-sp-cube"><div class="ff-sp-edge ff-sp-e2"></div><div class="ff-sp-edge ff-sp-e1"></div><div class="ff-sp-face">🍿</div></div><div class="ff-sp-shadow"></div><div class="ff-sp-word"><span>F</span><span>l</span><span>u</span><span>x</span><span>F</span><span>i</span><span>l</span><span>m</span></div></div></div>
@@ -590,6 +640,7 @@ function Btn({
   const v = variants[variant] || variants.ghost;
   return React.createElement("button", {
     type: type,
+    className: "ff-btn",
     onClick: onClick,
     disabled: disabled,
     onMouseEnter: () => setHov(true),
@@ -1432,7 +1483,10 @@ function CredCard({
   isOtpService,
   onGoOtp
 }) {
-  return React.createElement(Card, null, React.createElement("div", {
+  // ff-3d-cred: the card lifts in and each row flips up in turn (CSS only, leaves no transform behind).
+  return React.createElement(Card, {
+    className: "ff-3d-cred"
+  }, React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 15,
@@ -4190,7 +4244,11 @@ function DetailsScreen({
       transition: '.15s',
       opacity: couponState.loading ? .6 : 1
     }
-  }, couponState.loading ? '…' : couponState.applied ? '✅' : 'Apply')), couponState.msg && React.createElement("div", {
+  }, couponState.loading ? '…' : couponState.applied ? React.createElement("span", {
+    className: "ff-3d-flipy"
+  }, "✅") : 'Apply')), couponState.msg && React.createElement("div", {
+    key: couponState.msg,
+    className: couponState.applied ? 'ff-3d-flipin' : undefined,
     style: {
       marginTop: 6,
       fontFamily: PJS,
@@ -4515,6 +4573,7 @@ function PayScreen({
       fontWeight: 700
     }
   }, renewPreview.bubble) : null) : null, React.createElement("div", {
+    className: "ff-3d-ticket",
     style: {
       margin: '16px 0 14px',
       padding: 20,
@@ -5416,17 +5475,18 @@ function VerifyScreen({
         textAlign: 'center'
       }
     }, React.createElement("div", {
+      className: "ff-3d-badge",
       style: {
         fontSize: 72,
-        animation: 'popIn .35s ease both'
+        lineHeight: 1
       }
     }, "✅"), React.createElement("div", {
+      className: "ff-3d-rise",
       style: {
         fontFamily: PJS,
         fontSize: 26,
         fontWeight: 900,
-        color: '#15803d',
-        animation: 'popIn .4s ease both'
+        color: '#15803d'
       }
     }, "Payment Verified!"), React.createElement("div", {
       style: {
@@ -5442,10 +5502,11 @@ function VerifyScreen({
         gap: 8,
         fontSize: 28
       }
-    }, '🎉🍿🎬'.split('').map((e, i) => React.createElement("span", {
+    }, ['🎉', '🍿', '🎬'].map((e, i) => React.createElement("span", {
       key: i,
+      className: "ff-3d-tumble",
       style: {
-        animation: `popIn .3s ease ${i * 100}ms both`
+        animationDelay: `${450 + i * 110}ms`
       }
     }, e))), React.createElement("div", {
       style: {
@@ -6426,7 +6487,11 @@ function RenewStartScreen({
       opacity: couponState.loading ? .6 : 1,
       flexShrink: 0
     }
-  }, couponState.loading ? '…' : couponState.applied ? '✅' : 'Apply')), couponState.msg && React.createElement("div", {
+  }, couponState.loading ? '…' : couponState.applied ? React.createElement("span", {
+    className: "ff-3d-flipy"
+  }, "✅") : 'Apply')), couponState.msg && React.createElement("div", {
+    key: couponState.msg,
+    className: couponState.applied ? 'ff-3d-flipin' : undefined,
     style: {
       marginTop: 6,
       fontFamily: PJS,
@@ -6490,12 +6555,15 @@ function DoneScreen({
       padding: '28px 0 20px'
     }
   }, React.createElement("div", {
+    className: r.found ? 'ff-3d-badge' : undefined,
     style: {
       fontSize: 52,
+      lineHeight: 1,
       marginBottom: 12,
-      animation: 'popIn .35s ease both'
+      animation: r.found ? undefined : 'popIn .35s ease both'
     }
   }, !r.found ? '❌' : isManual ? '⏳' : '🎉'), React.createElement("div", {
+    className: r.found ? 'ff-3d-rise' : undefined,
     style: {
       fontFamily: PJS,
       fontSize: 22,
