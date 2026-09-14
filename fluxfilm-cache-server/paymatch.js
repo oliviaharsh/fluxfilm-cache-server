@@ -442,7 +442,7 @@ async function listClaims(opts) {
   try {
     rows = await db.query('SELECT c.id, c.order_id, c.phone_norm, c.amount, c.payer_name, c.utr, c.status, c.reason, c.credit_id, c.candidates, c.source, c.created_at, c.updated_at, c.decided_at, c.admin_note, ' +
       'o.service, o.plan, o.status order_status, o.created_at_sheet order_created, cu.name customer_name FROM payment_claims c LEFT JOIN orders o ON o.order_id = c.order_id LEFT JOIN customers cu ON cu.phone_norm = c.phone_norm ' +
-      'WHERE ' + where + ' ORDER BY FIELD(c.status, \'REVIEW\', \'WAITING\') DESC, c.id DESC LIMIT 60', params);
+      'WHERE ' + where + ' ORDER BY FIELD(c.status, \'WAITING\', \'REVIEW\') DESC, c.id DESC LIMIT 60', params);
   } catch (e) { if (missingTable(e)) return { ok: true, needsSchema: true, claims: [], counts: {} }; throw e; }
   const claims = [];
   for (const r of rows) {
