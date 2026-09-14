@@ -26,7 +26,10 @@ html, body { background: #f5f7fb; }
 .page-inner { padding: 0 16px; margin: 0 auto; width: 100%; }
 .ff-w-wide { max-width: 1120px; }
 .ff-w-flow { max-width: 620px; }
-.ff-has-bnav { padding-bottom: calc(72px + env(safe-area-inset-bottom)); padding-bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 24px); }
+.ff-has-bnav { padding-bottom: calc(72px + env(safe-area-inset-bottom) + 88px); padding-bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 88px); }
+/* +88 px and a real spacer after the content: Android Chrome on some phones (owner's OnePlus Nord 5, also incognito,
+   2026-09-15) still hid Logout and the referral stats under the bottom menu with only +24 px. */
+.ff-has-bnav::after { content: ""; display: block; height: calc(env(safe-area-inset-bottom) + 24px); }
 /* Installed app on newer Android draws behind the system bars, so the page's end sits ~60 px lower than the
    visible screen and the last button hid under the menu (owner report 2026-09-15: Account → Logout). Extra room there. */
 @media (display-mode: standalone) { .ff-has-bnav { padding-bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 96px); } }
@@ -223,6 +226,9 @@ input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; 
 .ff-tool-nf .ff-tool-go { color: #b91c1c; }
 .ff-tools-soon { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; margin-top: 10px; }
 .ff-tools-soon button { display: flex; align-items: center; gap: 6px; padding: 11px 12px; border-radius: 16px; border: 1px dashed rgba(15,23,42,.16); background: rgba(255,255,255,.6); font-size: 13px; font-weight: 700; color: #475569; cursor: pointer; text-align: left; min-width: 0; }
+.ff-tools-live { grid-template-columns: minmax(0,1fr); }
+.ff-tools-live button { border-style: solid; border-color: rgba(22,163,74,.28); background: rgba(22,163,74,.06); color: #14532d; }
+.ff-tools-live b.ff-new { color: #15803d; background: rgba(22,163,74,.14); }
 .ff-tools-soon b { margin-left: auto; flex-shrink: 0; font-size: 10.5px; font-weight: 800; color: #92400e; background: rgba(245,158,11,.12); border-radius: 999px; padding: 2px 7px; }
 .ff-sheet-bg { position: fixed; inset: 0; z-index: 60; background: rgba(15,23,42,.50); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: flex; align-items: flex-end; justify-content: center; padding: 0 0 16px; animation: ffFadeIn .18s ease both; }
 .ff-sheet { width: min(520px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; background: #fff; border-radius: 24px 24px 18px 18px; padding: 6px 20px calc(20px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 40px rgba(15,23,42,.22); animation: slideUp .22s ease; text-align: center; }
@@ -2289,9 +2295,9 @@ function openExternal_(url) {
   } catch (e) {}
 }
 const TOOLS_SOON_ = {
-  // [icon, sheet title, sheet text, short tile label]
-  movies: ['🎬', 'Latest Movies & Series', 'Stay up to date with what\'s new on Netflix, Prime, and more. Coming soon!', 'Movies & Series'],
-  games: ['🎮', 'Games', 'Browse and subscribe to game passes and services. Coming soon!', 'Games']
+  // [icon, sheet title, sheet text, short tile label] — "Soon" chips. Movies & Series is live now (the What's new feed;
+  // the green chip opens it) and Games was removed until it is built (owner 2026-09-15).
+  // Old entries: _deleted-old-code/2026-09-15_tools-soon-bottom-space/.
 };
 function ToolsSheet({
   onClose,
@@ -2318,6 +2324,7 @@ function ToolsSheet({
 }
 function ToolsGrid({
   onOtp,
+  onFeed,
   className,
   style
 }) {
@@ -2363,7 +2370,15 @@ function ToolsGrid({
     className: "ff-tool-s"
   }, t.sub), React.createElement("span", {
     className: "ff-tool-go"
-  }, t.go, " ›")))), React.createElement("div", {
+  }, t.go, " ›")))), onFeed && React.createElement("div", {
+    className: "ff-tools-soon ff-tools-live"
+  }, React.createElement("button", {
+    type: "button",
+    "data-tool": "movies",
+    onClick: onFeed
+  }, "🍿 Latest Movies & Series", React.createElement("b", {
+    className: "ff-new"
+  }, "New ›"))), Object.keys(TOOLS_SOON_).length > 0 && React.createElement("div", {
     className: "ff-tools-soon"
   }, Object.keys(TOOLS_SOON_).map(k => React.createElement("button", {
     key: k,
@@ -2756,7 +2771,8 @@ function HomeScreen({
     onClick: () => nav('buy1', {})
   }, "🛒 Buy New Subscription")), React.createElement(ToolsGrid, {
     className: "ff-o5",
-    onOtp: openOtpFromHome
+    onOtp: openOtpFromHome,
+    onFeed: () => nav('feed', {})
   }))));
 }
 function SubCard({
@@ -3296,6 +3312,7 @@ function DashboardScreen({
     }
   }, s.label)))), React.createElement(ToolsGrid, {
     onOtp: onOtpClick,
+    onFeed: () => nav('feed', {}),
     style: {
       marginBottom: 16
     }
