@@ -85,6 +85,8 @@
     '.ffo-in{flex:1;min-width:0;border:1.5px solid #cbd5e1;border-radius:999px;padding:12px 16px;font:inherit;font-size:16px}' +
     '.ffo-send{border:0;background:#16a34a;color:#fff;border-radius:50%;width:48px;height:48px;font-size:20px;cursor:pointer;flex:none}' +
     '.ffo-typing{align-self:flex-start;color:#64748b;font-size:13px;font-weight:700;padding:4px 8px}' +
+    // The panel is display:flex, which would beat the [hidden] attribute: without this the close button did nothing.
+    '.ffo-panel[hidden],.ffo-bg[hidden]{display:none!important}' +
     '.ffo-note{font-size:12.5px;color:#92400e;background:#fffbeb;border-radius:10px;padding:8px 10px;margin-top:8px;font-weight:600}';
   function injectCss() {
     if (document.getElementById('ffo-css')) return;
@@ -147,6 +149,7 @@
     else if (st.pollAfter) schedulePoll(st.pollAfter);
   }
   function closeChat() { if (ui) ui.panel.hidden = true; st.open = false; }
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && st.open) closeChat(); });
 
   function copyBtn(value) {
     var b = h('button', 'ffo-copy', 'Copy'); b.type = 'button';
