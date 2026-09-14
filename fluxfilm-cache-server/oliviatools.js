@@ -5,7 +5,8 @@
  *
  *   catalogFor()                       → { plans, stock }         (getBootstrap + getStockLevels)
  *   profile(phone)                     → { ok, name, email }      (reads.getCustomerProfile)
- *   createOrder(phone, plan, extra)    → createOrder result        (store guard first, exactly like /api createOrder)
+ *   createOrder(phone, plan, extra)    → createOrder result        (store guard first, exactly like /api createOrder; extra.couponCode)
+ *   validateCoupon(phone, code, plan)  → validateCoupon            (same rules as checkout: active, expiry, phone, scope NEW, limits)
  *   checkPayment(orderId)              → { paid }                  (order.verifyPayment: bank email + learned payer names)
  *   deliver(orderId, phone)            → fulfillAndGetAccess result (phone proof; renew orders are never created here)
  *   backupPayment(orderId, phone)      → getBackupPayment          ("payment not working" → plain QR)
@@ -37,9 +38,12 @@ function make(deps) {
       return order().createOrder({
         service: p.service, plan: p.plan, phone, name: extra.name, email: extra.email,
         extraFieldKey: extra.extraFieldKey || '', extraFieldValue: extra.extraFieldValue || '',
+        couponCode: extra.couponCode || '',
         notes: 'Ordered in Olivia chat',
       });
     },
+    /** The checkout's own "Apply coupon" check, for a new purchase of plan p at its live price. */
+    validateCoupon: (phone, code, p) => order().validateCoupon(code, { phone, amount: p.price, service: p.service, plan: p.plan, scope: 'NEW' }),
     async checkPayment(orderId) {
       const r = await order().verifyPayment(orderId);
       return { paid: !!(r && r.paid), ok: !!(r && r.ok) };
