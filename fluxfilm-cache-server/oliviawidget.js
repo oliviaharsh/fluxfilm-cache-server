@@ -97,6 +97,11 @@
     try { var w = window.open(url, '_blank'); if (w) w.opener = null; else location.href = url; } catch (e) { location.href = url; }
   }
 
+  function openUrl(url) {
+    // Only WhatsApp group / chat links come from the server (olivia.js checks them too).
+    if (!/^https:\/\/(chat\.whatsapp\.com|wa\.me|api\.whatsapp\.com)\//i.test(String(url))) return;
+    try { var w = window.open(url, '_blank'); if (w) w.opener = null; else location.href = url; } catch (e) { location.href = url; }
+  }
   // -- "How can we help?" chooser --
   function chooser() {
     injectCss();
@@ -187,6 +192,7 @@
           var el = h('button', 'ffo-b', b.label); el.type = 'button'; el.disabled = st.busy;
           el.onclick = function () {
             if (b.link) return openLink(b.link);
+            if (b.url) return openUrl(b.url);
             if (b.id.indexOf('lang:') === 0) { st.lang = b.id.slice(5); save(); }
             talk({ choice: b.id }, b.label);
           };

@@ -37,7 +37,8 @@ const PLANS = [
   { service: 'Netflix', plan: 'Sharing 3M', durationDays: 90, price: 399, benefits: ['Your own profile on a shared account'] },
   { service: 'Netflix', plan: 'Private 1M', durationDays: 30, price: 169, benefits: ['Only you use the profile', '4K'] },
   { service: 'Netflix', plan: 'Private 3M', durationDays: 90, price: 499, benefits: ['Only you use the profile'] },
-  { service: 'Netflix (Group Offer)', plan: 'Sharing 1M', durationDays: 30, price: 99, requiresGroupJoin: true },
+  { service: 'Netflix (Group Offer)', plan: 'Sharing 1M', durationDays: 30, price: 99, requiresGroupJoin: true, groupJoinLink: 'https://chat.whatsapp.com/TESTGROUP1' },
+  { service: 'Netflix (Group Offer)', plan: 'Private 1M', durationDays: 30, price: 149, requiresGroupJoin: true, groupJoinLink: 'javascript:alert(1)' },
   { service: 'Prime Video', plan: '1 Month', durationDays: 30, price: 39, needsExtraField: true, extraFieldKey: 'PRIME_DEVICE_TYPE' },
   { service: 'Prime Video', plan: '2 Devices 1M', durationDays: 30, price: 59, needsExtraField: true, extraFieldKey: 'PRIME_DEVICE_TYPE', loginChoice: true },
   { service: 'JioHotstar', plan: '1 Month', durationDays: 30, price: 69 },
@@ -53,7 +54,13 @@ const tools = {
   createOrder: async (phone, p, extra) => {
     calls.push(['createOrder', phone, p, extra]);
     if (shop.paused) return { ok: false, paused: true, message: 'paused' };
-    return { ok: true, orderId: 'FF1234567', amount: PLANS.find((x) => x.service === p.service && x.plan === p.plan).price, upiLink: 'upi://pay?pa=x@upi&am=139&tn=FF1234567' };
+    return { ok: true, orderId: 'FF' + (1234567 + calls.filter((c) => c[0] === 'createOrder').length), amount: PLANS.find((x) => x.service === p.service && x.plan === p.plan).price - (extra.couponCode === 'FLUX20' ? 20 : 0), upiLink: 'upi://pay?pa=x@upi&am=139&tn=FF1234567' };
+  },
+  validateCoupon: async (phone, code, p) => {
+    calls.push(['validateCoupon', phone, code, p.service, p.plan, p.price]);
+    if (code === 'FLUX20') return { ok: true, code, discount: 20, finalAmount: p.price - 20 };
+    if (code === 'OLD5') return { ok: false, message: 'Coupon expired.' };
+    return { ok: false, message: 'Invalid coupon.' };
   },
   checkPayment: async (id) => { calls.push(['checkPayment', id]); return { ok: true, paid: shop.paid }; },
   deliver: async (id, phone) => {
@@ -116,7 +123,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   // ── buy: Netflix → Sharing/Private → difference → duration → confirm ──
   r = await olivia.handle(PH, { conversationId: conv, choice: 'buy' });
   const svc = last(r);
-  ok('buy → which service; group-offer plans not offered in chat', svc.intent === 'ASK_SERVICE' && svc.buttons.some((b) => b.label === 'Netflix') && !svc.buttons.some((b) => /Group/.test(b.label)), svc);
+  ok('buy → which service; Group Offer shown as its own option with 👥', svc.intent === 'ASK_SERVICE' && svc.buttons.some((b) => b.label === 'Netflix') && svc.buttons.some((b) => b.label === 'Netflix (Group Offer) 👥'), svc);
   r = await olivia.handle(PH, { conversationId: conv, choice: findBtn(svc, /^Netflix$/).id });
   ok('Netflix → Sharing or Private + difference', last(r).intent === 'ASK_SHARING_OR_PRIVATE' && ids(last(r)).includes('variant:sharing') && ids(last(r)).includes('diff'));
   r = await olivia.handle(PH, { conversationId: conv, text: 'dono mein fark kya hai?' });
@@ -142,7 +149,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('"ho gaya" but bank has nothing → NOT received (never trusts the customer)', last(r).intent === 'PAYMENT_NOT_YET' && !calls.some((c) => c[0] === 'deliver'), last(r));
   shop.paid = true;
   r = await olivia.handle(PH, { conversationId: conv, choice: 'poll', installedApp: false });
-  ok('paid (bank) in a browser tab → delivered, login EMAILED, not shown', last(r).intent === 'PAYMENT_RECEIVED_LOGIN_EMAILED' && !last(r).card && calls.some((c) => c[0] === 'deliver' && c[1] === 'FF1234567' && c[2] === PH), last(r));
+  ok('paid (bank) in a browser tab → delivered, login EMAILED, not shown', last(r).intent === 'PAYMENT_RECEIVED_LOGIN_EMAILED' && !last(r).card && calls.some((c) => c[0] === 'deliver' && /^FF\d+$/.test(c[1]) && c[2] === PH), last(r));
   ok('response never carries the password in a browser tab', !JSON.stringify(r).includes('SuperSecret'));
 
   // ── same again inside the installed app: login card ──
@@ -232,6 +239,91 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('language can change any time (Hindi)', r.lang === 'hi' && /नमस्ते/.test(last(r).text));
   r = await olivia.handle(PH, { conversationId: conv, choice: 'lang:en' });
   ok('English greeting', /^Hello Ramesh!/.test(last(r).text), last(r).text);
+
+
+  // ── Harsh's live test (15 Sep): side requests in the middle of a flow ──
+  shop.paid = false; shop.fulfillment = 'FULFILLED'; calls.length = 0;
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix sharing' });
+  ok('replay: Netflix Sharing → durations', last(r).intent === 'ASK_DURATION', last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'But I purchased for ₹99 earlier' });
+  ok('"I purchased for ₹99 earlier" is a price question, NOT a restart', last(r).intent === 'PRICE_HELP' && !r.messages.some((m) => m.intent === 'ASK_SERVICE'), r.messages);
+  ok('price help offers the Group Offer and a coupon', last(r).buttons.some((b) => /Group Offer/.test(b.label)) && ids(last(r)).includes('coupon'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix sharing 1 month' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'why is it so costly, it was cheaper before' });
+  ok('price question on a chosen plan → live price + same plan in Group Offer ₹99', last(r).intent === 'PRICE_HELP_PLAN' && /₹139/.test(last(r).text) && /₹99/.test(last(r).text) && last(r).buttons.some((b) => b.id === 'twin' && /₹99/.test(b.label)), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'twin' });
+  const gj = last(r);
+  ok('Group Offer → join the WhatsApp group first (link button) + "I have joined"', gj.intent === 'GROUP_JOIN' && gj.buttons.some((b) => b.id === 'groupjoin' && b.url === 'https://chat.whatsapp.com/TESTGROUP1') && ids(gj).includes('joined'), gj);
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'joined' });
+  ok('joined → straight to confirm of the SAME plan (Sharing 1 month ₹99)', last(r).intent === 'CONFIRM_PLAN' && /₹99/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'pay' });
+  const firstOrder = calls.filter((c) => c[0] === 'createOrder').length;
+  ok('group order created for the Group Offer plan', calls.some((c) => c[0] === 'createOrder' && c[2].service === 'Netflix (Group Offer)'));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'I want to use coupon code' });
+  ok('replay: "I want to use coupon code" while paying → asks the code (payment paused, no polling)', last(r).intent === 'ASK_COUPON' && last(r).input === 'coupon' && !r.poll && ids(last(r)).includes('backpay'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'poll' });
+  ok('no silent payment checks while a side question is open', r.messages.length === 0);
+  r = await olivia.handle(PH, { conversationId: conv, text: 'NOPE1' });
+  ok('wrong code → not valid, can try again / continue / back to payment', last(r).intent === 'COUPON_INVALID' && /NOPE1/.test(last(r).text) && ids(last(r)).includes('nocoupon') && ids(last(r)).includes('backpay'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'OLD5' });
+  ok('expired code → says expired', last(r).intent === 'COUPON_INVALID' && /expire/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'flux20' });
+  ok('good code checked by the shop\'s own validateCoupon at the plan\'s live price', calls.some((c) => c[0] === 'validateCoupon' && c[2] === 'FLUX20' && c[3] === 'Netflix (Group Offer)' && c[5] === 99));
+  ok('→ "applied, do NOT pay the old QR" + confirm with the new price', r.messages[0].intent === 'COUPON_APPLIED_NEW_QR' && last(r).intent === 'CONFIRM_PLAN_COUPON' && /₹79/.test(last(r).text) && /FLUX20/.test(last(r).text), r.messages);
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'pay' });
+  const couponOrder = calls.filter((c) => c[0] === 'createOrder').pop();
+  ok('new order carries the coupon; QR for ₹79', calls.filter((c) => c[0] === 'createOrder').length === firstOrder + 1 && couponOrder[3].couponCode === 'FLUX20' && last(r).card && last(r).card.amount === 79, last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix household problem' });
+  ok('side question while paying keeps the order: household help + "back to payment"', last(r).intent === 'HOUSEHOLD_HELPER' && ids(last(r))[0] === 'backpay', last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'backpay' });
+  ok('back to payment → the SAME QR again, polling resumes', last(r).intent === 'SEND_PAYMENT' && last(r).card.amount === 79 && r.poll, last(r));
+  shop.paid = true;
+  r = await olivia.handle(PH, { conversationId: conv, text: 'use coupon FLUX20' });
+  ok('coupon after the money arrived → "too late" + delivered (never a second order)', r.messages[0].intent === 'COUPON_TOO_LATE' && last(r).intent === 'PAYMENT_RECEIVED_LOGIN_EMAILED' && calls.filter((c) => c[0] === 'createOrder').length === firstOrder + 1, r.messages);
+  ok('Group Offer delivery repeats the group link', last(r).buttons.some((b) => b.id === 'groupjoin'), last(r));
+  shop.paid = false;
+
+  // change plan while paying (not paid) / coupon before a plan / tries limit / bad group link
+  await olivia.handle(PH, { conversationId: conv, text: 'jiohotstar 3 months' });
+  await olivia.handle(PH, { conversationId: conv, choice: 'pay' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'wrong plan, I want to change plan' });
+  ok('"change plan" while paying → old QR cancelled + choose again', r.messages[0].intent === 'OLD_QR_CANCELLED' && last(r).intent === 'ASK_SERVICE', r.messages);
+  r = await olivia.handle(PH, { conversationId: conv, text: 'coupon code FLUX20' });
+  ok('coupon before a plan → "pick the plan first", code remembered', r.messages[0].intent === 'COUPON_PICK_PLAN_FIRST', r.messages);
+  r = await olivia.handle(PH, { conversationId: conv, text: 'jiohotstar' });
+  r = await olivia.handle(PH, { conversationId: conv, choice: findBtn(last(r), /3 months/).id });
+  ok('remembered coupon applied as soon as the plan is picked', r.messages.some((m) => m.intent === 'COUPON_APPLIED') && last(r).intent === 'CONFIRM_PLAN_COUPON' && /₹179/.test(last(r).text), r.messages);
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'nocoupon' });
+  ok('continue without coupon → normal confirm', last(r).intent === 'CONFIRM_PLAN' && /₹199/.test(last(r).text), last(r));
+  for (let i = 0; i < 5; i++) await olivia.handle(PH, { conversationId: conv, text: 'coupon BAD' + i });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'coupon BAD9' });
+  ok('more than 5 coupon tries → stop guessing', last(r).intent === 'COUPON_TOO_MANY' && calls.filter((c) => c[0] === 'validateCoupon' && /^BAD/.test(c[2])).length < 6, last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix group offer private 1 month' });
+  ok('a group plan with a bad link falls back to the FluxFilm group link (never javascript:)', last(r).intent === 'GROUP_JOIN' && last(r).buttons.some((b) => b.id === 'groupjoin' && /^https:\/\/chat\.whatsapp\.com\//.test(b.url)), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'hindi mein baat karo' });
+  ok('"hindi mein baat karo" switches language', r.lang === 'hi', r);
+  await olivia.handle(PH, { conversationId: conv, choice: 'lang:hinglish' });
+  ok('"I purchased earlier" is not a buy command', olivia._internal.intentOf('I purchased netflix earlier') === '');
+  ok('coupon code picked from a sentence, not the word "code"', olivia._internal.couponCodeIn('mere paas coupon code hai', false) === '' && olivia._internal.couponCodeIn('coupon code is NEW10', false) === 'NEW10' && olivia._internal.couponCodeIn('new10', true) === 'NEW10');
+
+  // off-script question → answer only from facts
+  await olivia.saveSettings({ aiWords: true, knowledge: 'Sharing plans work on 1 device at a time. Do not change the profile PIN.' }); olivia._internal.reset();
+  const seenQ = [];
+  olivia._internal.setDeps({ words: Object.assign({}, words, {
+    say: (i, f, l, s2) => words.say(i, f, l, Object.assign({}, s2, { aiWords: false })),
+    classify: async () => ({ id: '', tokens: 0 }),
+    answer: (q, facts, k, l, s2) => words.answer(q, facts, k, l, s2, { model: async (m) => { seenQ.push(m); return /tv/i.test(q) ? { json: { text: 'Sharing works on 1 device at a time, TV too 😊', handoff: false }, tokens: 30 } : { json: { text: 'Sure, you get 3 months free!', handoff: false }, tokens: 30 }; } }),
+  }) });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'does sharing work on my tv?' });
+  ok('off-script question → answer from owner knowledge, same buttons kept', last(r).intent === 'FREE_ANSWER' && /1 device/.test(last(r).text) && last(r).buttons.length > 0, last(r));
+  ok('the model got live prices + owner knowledge, but no phone / email / name', JSON.stringify(seenQ).includes('Sharing plans work on 1 device') && JSON.stringify(seenQ).includes('₹') && !JSON.stringify(seenQ).includes('9876543210') && !JSON.stringify(seenQ).includes('ramesh@example.com') && !JSON.stringify(seenQ).includes('Ramesh'));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'any free months offer for me?' });
+  ok('an unsafe answer ("3 months free") is thrown away → handed to the team on WhatsApp', last(r).intent === 'QUESTION_TO_TEAM' && !/free/i.test(last(r).text) && last(r).buttons.some((b) => b.id === 'whatsapp'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'asdf' });
+  ok('gibberish (not a question) still → "did not understand"', last(r).intent === 'DIDNT_UNDERSTAND', last(r));
+  olivia._internal.setDeps({ words });
+  await olivia.saveSettings({ aiWords: false }); olivia._internal.reset();
 
   // ── words: AI rewrite only when it keeps the facts ──
   const base = words.template('CONFIRM_PLAN', { title: 'Netflix Sharing 1 month', price: 139 }, 'en');
