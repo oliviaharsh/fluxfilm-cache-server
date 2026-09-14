@@ -4,6 +4,14 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>FluxFilm</title>
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#16a34a" />
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="FluxFilm" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -352,6 +360,22 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
   .ff-btn:active:not(:disabled), .ff-tool:active, .ff-coin:active { transform: scale(.98) !important; }
 }
 
+/* ── Install app pop-up (fixed, outside any animated screen) ── */
+.ff-install-bg { position: fixed; inset: 0; z-index: 70; display: flex; align-items: flex-end; justify-content: center; background: rgba(15,23,42,.28); padding: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom)); animation: ffInstallFade .2s ease both; }
+.ff-install { width: 100%; max-width: 440px; background: #fff; border-radius: 22px; padding: 16px; box-shadow: 0 20px 50px rgba(15,23,42,.25); animation: ffInstallUp .28s cubic-bezier(.2,.9,.3,1.2) both; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+.ff-install-top { display: flex; gap: 12px; align-items: center; }
+.ff-install-top img { border-radius: 14px; flex: none; box-shadow: 0 6px 16px rgba(22,163,74,.25); }
+.ff-install-top b { display: block; font-size: 16.5px; font-weight: 900; color: #0f172a; }
+.ff-install-top span { display: block; font-size: 13px; font-weight: 600; color: #475569; line-height: 1.45; margin-top: 2px; }
+.ff-install-x { margin-left: auto; align-self: flex-start; border: 0; background: #f1f5f9; width: 32px; height: 32px; border-radius: 50%; font-size: 20px; line-height: 1; color: #475569; cursor: pointer; flex: none; }
+.ff-install-btns { display: grid; gap: 8px; margin-top: 14px; }
+.ff-install-steps { margin: 14px 0 4px; padding-left: 22px; font-size: 14.5px; font-weight: 600; color: #0f172a; line-height: 1.9; }
+.ff-ios-share { display: inline-block; padding: 0 6px; border-radius: 6px; background: #eff6ff; }
+.ff-install-never { display: block; margin: 10px auto 0; border: 0; background: none; color: #64748b; font-size: 12.5px; font-weight: 700; cursor: pointer; text-decoration: underline; }
+@media (min-width: 900px) { .ff-install-bg { align-items: center; } }
+@keyframes ffInstallUp { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ffInstallFade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ff-install, .ff-install-bg { animation: none; } }
 /* ── Mobile hardening (added) ── */
 #root{overflow-x:clip}
 #root img,#root svg,#root canvas{max-width:100%}
@@ -363,6 +387,14 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 <script>
 // Low-end phone (≤2 CPU cores or ≤2 GB RAM): html.ff-lite trims the extra 3D flourishes (stagger, shine, rings).
 try { if ((navigator.hardwareConcurrency || 8) <= 2 || (navigator.deviceMemory || 8) <= 2) document.documentElement.classList.add('ff-lite'); } catch (e) {}
+</script>
+<script>
+// Installable app: keep Chrome's install prompt for our own "Install app" buttons; register the service worker
+// (pages always load from the network, so the installed app always shows the latest website).
+window.ffInstall = { evt: null, installed: false };
+window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); window.ffInstall.evt = e; window.dispatchEvent(new Event('ff-install-ready')); });
+window.addEventListener('appinstalled', function () { window.ffInstall.installed = true; window.ffInstall.evt = null; window.dispatchEvent(new Event('ff-install-done')); });
+if ('serviceWorker' in navigator) window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
 </script>
 </head>
 <body>
@@ -7327,10 +7359,16 @@ function AccountScreen({
     bg: 'rgba(245,158,11,.12)',
     title: 'Wallet',
     sub: 'Your FluxFilm coins'
-  }].map(r => React.createElement("button", {
+  }].concat(isStandalone_() ? [] : [{
+    k: 'install',
+    icon: '📲',
+    bg: 'rgba(22,163,74,.12)',
+    title: 'Install the app',
+    sub: 'Add FluxFilm to your home screen'
+  }]).map(r => React.createElement("button", {
     key: r.k,
     className: "ff-arow",
-    onClick: () => openSection(r.k)
+    onClick: () => r.k === 'install' ? window.dispatchEvent(new Event('ff-install-open')) : openSection(r.k)
   }, React.createElement("span", {
     className: "ff-arow-ic",
     style: {
@@ -8449,6 +8487,130 @@ function PauseBanner({
   }, React.createElement("span", {
     className: "ff-pausebar-ic"
   }, "🚧"), React.createElement("span", null, React.createElement("b", null, "New orders are paused for maintenance."), " ", status.backText ? 'Back ' + status.backText + '. ' : '', "Your plans, Get OTP and Recover still work."));
+}
+// ── Installable app: first-visit pop-up, iPhone steps, Account → Install app ──
+function isStandalone_() {
+  try {
+    return window.matchMedia && window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  } catch (e) {
+    return false;
+  }
+}
+function isIos_() {
+  const ua = navigator.userAgent || '';
+  return /iphone|ipad|ipod/i.test(ua) || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+}
+function installHiddenUntil_() {
+  try {
+    return Number(localStorage.getItem('ff_install_never') || 0);
+  } catch (e) {
+    return 0;
+  }
+}
+function InstallPrompt({
+  screen
+}) {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState('ask'); // ask · ios · manual · done
+  const [ready, setReady] = useState(!!(window.ffInstall && window.ffInstall.evt));
+  useEffect(() => {
+    const onReady = () => setReady(true);
+    const onDone = () => {
+      setMode('done');
+      setOpen(true);
+      setTimeout(() => setOpen(false), 3500);
+    };
+    const onOpen = () => {
+      if (isStandalone_()) return;
+      setMode(window.ffInstall && window.ffInstall.evt ? 'ask' : isIos_() ? 'ios' : 'manual');
+      setOpen(true);
+    };
+    window.addEventListener('ff-install-ready', onReady);
+    window.addEventListener('ff-install-done', onDone);
+    window.addEventListener('ff-install-open', onOpen);
+    return () => {
+      window.removeEventListener('ff-install-ready', onReady);
+      window.removeEventListener('ff-install-done', onDone);
+      window.removeEventListener('ff-install-open', onOpen);
+    };
+  }, []);
+  // First screen of every new visit (not during checkout), a few seconds after the page settles.
+  useEffect(() => {
+    if (isStandalone_() || !['home', 'dashboard', 'buy1'].includes(screen)) return;
+    let seen = false;
+    try {
+      seen = !!sessionStorage.getItem('ff_install_asked');
+    } catch (e) {}
+    if (seen || installHiddenUntil_() > Date.now()) return;
+    if (!ready && !isIos_()) return;
+    const t = setTimeout(() => {
+      try {
+        sessionStorage.setItem('ff_install_asked', '1');
+      } catch (e) {}
+      setMode(ready ? 'ask' : 'ios');
+      setOpen(true);
+    }, 6000);
+    return () => clearTimeout(t);
+  }, [screen, ready]);
+  if (!open) return null;
+  const close = () => setOpen(false);
+  const never = () => {
+    try {
+      localStorage.setItem('ff_install_never', String(Date.now() + 30 * 86400000));
+    } catch (e) {}
+    setOpen(false);
+  };
+  const install = () => {
+    const e = window.ffInstall && window.ffInstall.evt;
+    if (!e) return setMode(isIos_() ? 'ios' : 'manual');
+    e.prompt();
+    (e.userChoice || Promise.resolve({})).then(c => {
+      window.ffInstall.evt = null;
+      setReady(false);
+      if (c && c.outcome === 'accepted') setMode('done');else setOpen(false);
+    });
+  };
+  const h = React.createElement;
+  return h("div", {
+    className: "ff-install-bg",
+    onClick: e => {
+      if (e.target === e.currentTarget) close();
+    }
+  }, h("div", {
+    className: "ff-install",
+    role: "dialog",
+    "aria-label": "Install the FluxFilm app"
+  }, h("div", {
+    className: "ff-install-top"
+  }, h("img", {
+    src: "/icons/icon-192.png",
+    alt: "",
+    width: 56,
+    height: 56
+  }), h("div", null, h("b", null, mode === 'done' ? '✅ FluxFilm is on your home screen' : 'Get the FluxFilm app'), h("span", null, mode === 'done' ? 'Open it any time with one tap.' : 'One tap from your home screen. Always up to date — nothing to download or update.')), h("button", {
+    className: "ff-install-x",
+    onClick: close,
+    "aria-label": "Close"
+  }, "×")), mode === 'ask' && h("div", {
+    className: "ff-install-btns"
+  }, h(Btn, {
+    variant: "primary",
+    full: true,
+    onClick: install
+  }, "📲 Install app"), h(Btn, {
+    variant: "ghost",
+    full: true,
+    onClick: close
+  }, "Not now")), mode === 'ios' && h("ol", {
+    className: "ff-install-steps"
+  }, h("li", null, "Tap the ", h("b", null, "Share"), " button ", h("span", {
+    className: "ff-ios-share"
+  }, "⬆️"), " at the bottom of Safari"), h("li", null, "Choose ", h("b", null, "Add to Home Screen")), h("li", null, "Tap ", h("b", null, "Add"), " — done!")), mode === 'manual' && h("ol", {
+    className: "ff-install-steps"
+  }, h("li", null, "Open this site in ", h("b", null, "Chrome")), h("li", null, "Tap the menu ", h("b", null, "⋮"), " (top right)"), h("li", null, "Choose ", h("b", null, "Install app"), " or ", h("b", null, "Add to Home screen"))), mode !== 'done' && h("button", {
+    className: "ff-install-never",
+    onClick: never
+  }, "Don’t show this again")));
 }
 function RestoringScreen({
   trending,
@@ -10272,6 +10434,8 @@ function App() {
     initialPhone: accountModal.phone,
     onClose: closeAccountModal,
     onCreated: handleAccountCreated
+  }), !storeBlocked && React.createElement(InstallPrompt, {
+    screen: screen
   }));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App, null));
