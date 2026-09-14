@@ -2956,9 +2956,9 @@ function renderOlivia() {
     '<div class="card mt-status ' + (on ? '' : 'paused') + '"><div class="mt-big">' + (on ? '🟢' : '⚪') + '</div><div class="grow"><h3 style="margin:0">' + (on ? 'Olivia is ON' + (s.testOnly ? ' — test mode' : '') : 'Olivia is OFF') + '</h3><p class="muted" style="margin:4px 0 0">' + who + '</p></div>' +
     '<button class="btn ' + (on ? 'red' : 'green') + ' mt-toggle" id="oltog">' + (on ? '⏹ Switch off' : '▶️ Switch on') + '</button></div>' +
     '<div class="card"><h3>⚙️ Settings</h3><div class="mt-f">' +
-    '<label class="row" style="gap:8px"><input type="checkbox" id="oltest"' + (s.testOnly ? ' checked' : '') + '/> <b>Test mode</b> — only the phones below can chat</label>' +
+    '<label style="display:flex;align-items:center;gap:10px;font-weight:600"><input type="checkbox" style="width:22px;height:22px;flex:none" id="oltest"' + (s.testOnly ? ' checked' : '') + '/> <span><b>Test mode</b> — only the phones below can chat</span></label>' +
     '<label>Test phone numbers <span class="muted">(10 digits, comma separated)</span><input class="inp" id="olphones" value="' + esc(s.testPhones) + '" placeholder="98xxxxxxxx, 99xxxxxxxx"/></label>' +
-    '<label class="row" style="gap:8px"><input type="checkbox" id="olai"' + (s.aiWords ? ' checked' : '') + '/> <b>AI-written replies</b> (DeepSeek). Off = fixed replies only.</label>' +
+    '<label style="display:flex;align-items:center;gap:10px;font-weight:600"><input type="checkbox" style="width:22px;height:22px;flex:none" id="olai"' + (s.aiWords ? ' checked' : '') + '/> <span><b>AI-written replies</b> (DeepSeek). Off = fixed replies only.</span></label>' +
     '<label>WhatsApp link for "WhatsApp our team"<input class="inp" id="olwa" value="' + esc(s.whatsappLink) + '"/></label>' +
     '<label>Voice guide <span class="muted">(how Olivia should sound — from the tone training; max 2000 characters)</span><textarea class="inp" id="olvoice" rows="5" maxlength="2000" placeholder="Warm, respectful, short sentences. Use ji. Never pushy.">' + esc(s.voice) + '</textarea></label>' +
     '</div><div class="rf-save"><button class="btn green" id="olsave">💾 Save settings</button><span class="rf-state" id="olstate"></span></div></div>';
