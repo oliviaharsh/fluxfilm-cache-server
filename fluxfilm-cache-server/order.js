@@ -318,6 +318,11 @@ async function verifyPayment(orderId) {
   if (String(o.status || '').toUpperCase() === 'PAID') return { ok: true, found: true, paid: true, message: '✅ Payment confirmed.' };
   const credit = await pay.findByOrder(orderId, o.final_amount);
   if (credit) { await _markPaid(orderId, credit.upi_ref); return { ok: true, found: true, paid: true }; }
+  // Paid to the plain backup QR by a customer whose payer name we already know (payment fallback, schema-v17).
+  try {
+    const learned = await require('./paymatch').autoMatchLearned(orderId);
+    if (learned && learned.paid) return { ok: true, found: true, paid: true };
+  } catch (e) { console.log('[paymatch] learned-name check failed for', orderId, e.message); }
   return { ok: true, found: false, retryAfterSec: 5, needRef: true, message: 'Payment not detected yet. Auto-checking…' };
 }
 

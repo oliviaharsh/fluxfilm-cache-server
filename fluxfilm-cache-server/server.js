@@ -29,6 +29,7 @@ let catalog = null; try { catalog = require('./catalog'); } catch (e) { console.
 let account = null; try { account = require('./account'); } catch (e) { console.log('[account] not loaded:', e.message); }
 let referrals = null; try { referrals = require('./referrals'); } catch (e) { console.log('[referrals] not loaded:', e.message); }
 let coinsMod = null; try { coinsMod = require('./coins'); } catch (e) { console.log('[coins] not loaded:', e.message); }
+let paymatch = null; try { paymatch = require('./paymatch'); } catch (e) { console.log('[paymatch] not loaded:', e.message); }
 // Self-contained Node actions (recover + Get-OTP tool) — MySQL/IMAP, no Apps Script.
 const DB_RECOVER = Object.assign(
   recover ? {
@@ -76,6 +77,12 @@ const DB_STOREFRONT = Object.assign(
     getOrderStatus: (a) => account.getOrderStatus(a[0]),
     getResumePaymentByPhone: (a) => account.getResumePaymentByPhone(a[0]),
     submitRestockRequest: (a) => account.submitRestockRequest(a[0]),
+  } : {},
+  paymatch ? {
+    // Payment fallback. a[1] = { token, phone } proving the order is theirs (same proof as fulfillAndGetAccess).
+    getBackupPayment: (a) => paymatch.getBackupPayment(a[0], a[1]),
+    claimManualPayment: (a) => paymatch.claimPayment(a[0], a[1], a[2], a[3]),
+    getClaimStatus: (a) => paymatch.getClaimStatus(a[0], a[1]),
   } : {}
 );
 
@@ -109,6 +116,9 @@ const LIMITS = {
   getReferralInfo: security.rateLimiter(60, TEN_MIN),
   getCoinQuote: security.rateLimiter(120, TEN_MIN),
   getCoinHistory: security.rateLimiter(60, TEN_MIN),
+  getBackupPayment: security.rateLimiter(60, TEN_MIN),
+  claimManualPayment: security.rateLimiter(10, TEN_MIN),
+  getClaimStatus: security.rateLimiter(400, TEN_MIN),
   any: security.rateLimiter(3000, TEN_MIN),
 };
 const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'submitRestockRequest']);
@@ -155,7 +165,7 @@ const DB_WRITES = order ? {
   },
 } : {};
 const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
-const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory']);
+const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus']);
 const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota', 'otpSendCode', 'otpVerifyCode']);
 const DB_WRITE_ACTIONS = new Set(['createOrder', 'createRenewOrder', 'validateCoupon', 'verifyPayment', 'verifyPaymentByRef', 'fulfillAndGetAccess']);
 const DB_NOT_YET_PORTED = new Set(['recoverReassignAccount']);
@@ -339,3 +349,5 @@ app.listen(PORT, () => console.log('[FluxFilm] listening on :' + PORT + ' (MySQL
 if (referrals && db.ENABLED) referrals.startReconcileTimer();
 // Coins: give back coins held on orders never paid, and settle paid orders (every 10 min).
 if (coinsMod && db.ENABLED) coinsMod.startTimer();
+// Payment fallback: re-check "I've paid" claims every minute (bank mail also triggers a check, see payments.js).
+if (paymatch && db.ENABLED) paymatch.startTimer();
