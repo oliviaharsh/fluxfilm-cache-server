@@ -32,6 +32,7 @@ let coinsMod = null; try { coinsMod = require('./coins'); } catch (e) { console.
 let paymatch = null; try { paymatch = require('./paymatch'); } catch (e) { console.log('[paymatch] not loaded:', e.message); }
 let storeMod = null; try { storeMod = require('./store'); } catch (e) { console.log('[store] not loaded:', e.message); }
 let promosMod = null; try { promosMod = require('./promos'); } catch (e) { console.log('[promos] not loaded:', e.message); }
+let pushMod = null; try { pushMod = require('./push'); } catch (e) { console.log('[push] not loaded:', e.message); }
 // Self-contained Node actions (recover + Get-OTP tool) — MySQL/IMAP, no Apps Script.
 const DB_RECOVER = Object.assign(
   recover ? {
@@ -89,7 +90,13 @@ const DB_STOREFRONT = Object.assign(
   // Maintenance switch (admin → 🚧 Maintenance): the storefront polls this.
   storeMod ? { getStoreStatus: () => storeMod.getStatus() } : {},
   // Offers, banners, pop-ups (admin → 📣 Offers).
-  promosMod ? { getPromos: () => promosMod.publicList(), promoEvent: (a) => promosMod.record(a[0], a[1]) } : {}
+  promosMod ? { getPromos: () => promosMod.publicList(), promoEvent: (a) => promosMod.record(a[0], a[1]) } : {},
+  // Renewal reminders by push notification (admin → 🔔 Notifications). a = [phone, subscription] / [endpoint].
+  pushMod ? {
+    getPushKey: () => pushMod.publicKeyInfo(),
+    pushSubscribe: (a, req) => pushMod.subscribe({ phone: a[0], subscription: a[1], userAgent: req && req.headers ? req.headers['user-agent'] : '', app: 'store' }),
+    pushUnsubscribe: (a) => pushMod.unsubscribe(a[0], 'store'),
+  } : {}
 );
 
 const security = require('./security');
@@ -128,6 +135,9 @@ const LIMITS = {
   getStoreStatus: security.rateLimiter(200, TEN_MIN),
   getPromos: security.rateLimiter(200, TEN_MIN),
   promoEvent: security.rateLimiter(120, TEN_MIN),
+  getPushKey: security.rateLimiter(60, TEN_MIN),
+  pushSubscribe: security.rateLimiter(20, TEN_MIN),
+  pushUnsubscribe: security.rateLimiter(20, TEN_MIN),
   any: security.rateLimiter(3000, TEN_MIN),
 };
 const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'submitRestockRequest']);
@@ -137,6 +147,7 @@ const PHONE_LIMITS = {
   getLatestOtp: security.rateLimiter(15, TEN_MIN),
   otpSendCode: security.rateLimiter(4, 60 * 60e3),
   otpVerifyCode: security.rateLimiter(12, 15 * 60e3),
+  pushSubscribe: security.rateLimiter(10, 60 * 60e3),
 };
 function rateLimited(req, action, args) {
   const ip = security.clientIp(req);
@@ -175,7 +186,7 @@ const DB_WRITES = order ? {
   },
 } : {};
 const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
-const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent']);
+const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent', 'getPushKey', 'pushSubscribe', 'pushUnsubscribe']);
 const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota', 'otpSendCode', 'otpVerifyCode']);
 const DB_WRITE_ACTIONS = new Set(['createOrder', 'createRenewOrder', 'validateCoupon', 'verifyPayment', 'verifyPaymentByRef', 'fulfillAndGetAccess']);
 const DB_NOT_YET_PORTED = new Set(['recoverReassignAccount']);
@@ -282,7 +293,7 @@ app.post('/api', async (req, res) => {
   if (DB_STOREFRONT_ACTIONS.has(action)) {
     if (!db.ENABLED || !DB_STOREFRONT[action]) return dbUnavailable();
     try {
-      const out = await DB_STOREFRONT[action](a);
+      const out = await DB_STOREFRONT[action](a, req);
       res.set('X-Source', 'mysql');
       return res.type('application/json').send(JSON.stringify(out));
     } catch (e) { return dbError('storefront', e); }
@@ -377,3 +388,5 @@ if (paymatch && db.ENABLED) paymatch.startTimer();
 if (promosMod && db.ENABLED) promosMod.startTimer();
 // Mark plans EXPIRED once expiry + release date have passed (every hour; replaces the old Apps Script job).
 try { if (db.ENABLED) require('./subexpiry').startTimer(); } catch (e) { console.log('[subexpiry] not started:', e.message); }
+// Push renewal reminders (3 / 1 days before, expiry day, day after; 09:00-21:00 IST): every hour + 60 s after start.
+try { if (pushMod && db.ENABLED) require('./pushreminders').startTimer(); } catch (e) { console.log('[push] reminders not started:', e.message); }

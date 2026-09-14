@@ -156,6 +156,8 @@ function mountAdmin(app, deps) {
   require('./adminstore').mount(app, Object.assign({ db, auth, audit }, deps.store || {}));
   // Offers, banners, pop-ups (adminpromos.js).
   require('./adminpromos').mount(app, Object.assign({ db, auth, audit }, deps.promos || {}));
+  // Push notifications: renewal reminders settings, test, send, broadcast (adminpush.js).
+  require('./adminpush').mount(app, Object.assign({ db, auth, audit }, deps.push || {}));
   // Plans editor: builder, copy, on/off, safe delete (adminplans.js).
   require('./adminplans').mount(app, Object.assign({ db, auth, audit }, deps.plans || {}));
   // Go-live: safe one-time import of go's customers / orders / subscriptions (admincutover.js).
