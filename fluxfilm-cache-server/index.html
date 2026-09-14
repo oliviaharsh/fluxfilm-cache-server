@@ -1515,8 +1515,9 @@ function RefBanner({
 }
 // ✍️ Share texts — every message a customer sends from the app is written here, so the wording is easy to change.
 // WhatsApp layout: *bold*, _italic_, one idea per line, a blank line between sections.
-// The link always goes on its own LAST line: WhatsApp builds its preview card from it.
-// The share sheet (navigator.share) gets the text WITHOUT the link (it ends with "👉"): Android and iOS add the url themselves.
+// The link goes on the FIRST line (owner 2026-09-15): WhatsApp builds its preview card from the first link, and long
+// shared messages often got no card when the link was last. The share sheet gets ONE text with the link inside (no separate
+// url, so apps don't append it a second time at the end).
 const shareText_ = {
   // Loaded catalog + stock, set by App: { plans: boot.plans, levels: stockLevels | null while loading }.
   data: {
@@ -1626,7 +1627,7 @@ const shareText_ = {
     return lines.filter(l => l != null && l !== false).join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
   },
   // 🍿 What's new post. info = feedServiceInfo_(post.service, plans) (fallback price); catalog = shareText_.data.
-  post(p, info, now, catalog) {
+  post(p, info, now, catalog, url) {
     p = p || {};
     const title = shareText_.trim(p.title, 80) || 'Something new';
     const service = shareText_.clean(p.service || info && info.service);
@@ -1643,7 +1644,8 @@ const shareText_ = {
     const caption = shareText_.trim(String(p.caption || '').split(/\n/)[0], 80);
     const quote = caption ? `_"${caption}"_` : '';
     const news = !service || p.type === 'announcement';
-    const text = news ? shareText_.join([`📣 *${title}*`, '', quote, '', '✨ Streaming plans for less on *FluxFilm*', '⚡ Instant login  •  💳 UPI', '👉']) : shareText_.join([`🍿 *${title}*`, [soon ? `🗓️ Coming *${shareText_.date(t)}* on *${service}*` : `${s ? s.emoji : '🎬'} Now streaming on *${service}*`, kind, !soon && t ? '🗓️ ' + shareText_.date(t, true) : ''].filter(Boolean).join('  •  '), genres ? '🎭 ' + genres : null, '', quote, '', price ? `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${service} from *${price}*` : `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${service} at low prices`, '⚡ Instant login  •  💳 UPI', '👉']);
+    const head = url ? ['👉 ' + url, ''] : [];
+    const text = news ? shareText_.join([...head, `📣 *${title}*`, '', quote, '', '✨ Streaming plans for less on *FluxFilm*', '⚡ Instant login  •  💳 UPI']) : shareText_.join([...head, `🍿 *${title}*`, [soon ? `🗓️ Coming *${shareText_.date(t)}* on *${service}*` : `${s ? s.emoji : '🎬'} Now streaming on *${service}*`, kind, !soon && t ? '🗓️ ' + shareText_.date(t, true) : ''].filter(Boolean).join('  •  '), genres ? '🎭 ' + genres : null, '', quote, '', price ? `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${service} from *${price}*` : `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${service} at low prices`, '⚡ Instant login  •  💳 UPI']);
     return {
       title: news ? title : `${title} — on ${service}`,
       text
@@ -1657,14 +1659,14 @@ const shareText_ = {
     const name = shareText_.firstName(info.name);
     const offers = shareText_.offers(catalog);
     const lines = offers ? offers.slice(0, 4).map(o => `${o.emoji} *${o.name}* from ${shareText_.rupees(o.price)}`) : ['🍿 *Netflix*, *Prime Video*, *JioHotstar* & more at low prices'];
-    return shareText_.join(['🎬 *FluxFilm* — streaming for less', '', off ? name ? `🎁 *${name}* invited you — get *${off} OFF* your first plan!` : `🎁 Get *${off} OFF* your first plan with my invite!` : name ? `🎁 *${name}* invited you to FluxFilm!` : '🎁 Join me on FluxFilm with my invite!', '', ...lines, '', shareText_.PERKS, code ? `🔑 My code: *${code}*` : null, info.link ? '👉 ' + info.link : null]);
+    return shareText_.join([info.link ? '👉 ' + info.link : null, info.link ? '' : null, '🎬 *FluxFilm* — streaming for less', '', off ? name ? `🎁 *${name}* invited you — get *${off} OFF* your first plan!` : `🎁 Get *${off} OFF* your first plan with my invite!` : name ? `🎁 *${name}* invited you to FluxFilm!` : '🎁 Join me on FluxFilm with my invite!', '', ...lines, '', shareText_.PERKS, code ? `🔑 My code: *${code}*` : null]);
   },
   // 🎁 Refer & earn, "Copy link": short, code kept for typing in by hand.
   referralShort(info) {
     info = info || {};
     const off = shareText_.rupees(info.friendDiscount);
     const code = shareText_.clean(info.code);
-    return shareText_.join([off ? `🎁 *${off} OFF* your first *FluxFilm* plan` : '🎁 Join me on *FluxFilm*', code ? `🔑 Code: *${code}*` : null, info.link ? '👉 ' + info.link : null]);
+    return shareText_.join([info.link ? '👉 ' + info.link : null, off ? `🎁 *${off} OFF* your first *FluxFilm* plan` : '🎁 Join me on *FluxFilm*', code ? `🔑 Code: *${code}*` : null]);
   }
 };
 function copyText_(text, done) {
@@ -10298,17 +10300,17 @@ function feedThumb_(url) {
 }
 function feedShare_(p, info, done) {
   const url = window.location.origin + '/?post=' + encodeURIComponent(p.id);
-  const msg = shareText_.post(p, info, 0, shareText_.data);
+  const msg = shareText_.post(p, info, 0, shareText_.data, url);
   feedEvent_(p.id, 'share');
   if (navigator.share) {
+    // Link is already the first line of the text; no separate url (it would be added again at the end).
     navigator.share({
       title: msg.title,
-      text: msg.text,
-      url
+      text: msg.text
     }).then(() => done && done('shared'), () => {});
     return;
   }
-  copyText_(msg.text + ' ' + url, () => done && done('copied'));
+  copyText_(msg.text, () => done && done('copied'));
 }
 function FeedStrip({
   nav
