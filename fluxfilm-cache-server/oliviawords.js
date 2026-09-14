@@ -276,6 +276,21 @@ const T = {
     hinglish: (f) => 'Payment mil gaya ✅ Aapka ' + f.title + ' renew ho gaya' + (f.newExpiry ? ', ' + f.newExpiry + ' tak' : '') + '. Aapka NAYA login email par bheja hai, My plans mein bhi dikhega.',
     hi: (f) => 'पेमेंट मिल गया ✅ आपका ' + f.title + ' रिन्यू हो गया' + (f.newExpiry ? ', ' + f.newExpiry + ' तक' : '') + '। आपका नया लॉगिन ईमेल पर भेजा है, My plans में भी दिखेगा।',
   },
+  PRICE_MATCH: {
+    en: (f) => 'The ' + rupees(f.price) + ' plan' + (f.titles.length > 1 ? 's are: ' : ' is ') + f.titles.join(', ') + '. Tap the one you want.',
+    hinglish: (f) => rupees(f.price) + ' wala plan' + (f.titles.length > 1 ? ' yeh hain: ' : ' hai ') + f.titles.join(', ') + '. Jo chahiye us par tap kijiye.',
+    hi: (f) => rupees(f.price) + ' वाला प्लान' + (f.titles.length > 1 ? ' ये हैं: ' : ' है ') + f.titles.join(', ') + '। जो चाहिए उस पर टैप कीजिए।',
+  },
+  PAYMENT_REMINDER: {
+    en: (f) => 'You are already buying ' + f.title + '. Just pay ' + rupees(f.amount) + ' with this QR, then tap "I have paid".',
+    hinglish: (f) => 'Aap ' + f.title + ' hi le rahe hain. Bas is QR se ' + rupees(f.amount) + ' pay kijiye, phir "I have paid" dabaiye.',
+    hi: (f) => 'आप ' + f.title + ' ही ले रहे हैं। बस इस QR से ' + rupees(f.amount) + ' पे कीजिए, फिर "I have paid" दबाइए।',
+  },
+  SWITCH_CONFIRM: {
+    en: (f) => 'You have an open payment of ' + rupees(f.amount) + (f.title ? ' for ' + f.title : '') + '. Do you want ' + f.service + ' instead? Then that QR will be cancelled.',
+    hinglish: (f) => 'Aapka ' + rupees(f.amount) + ' ka payment' + (f.title ? ' (' + f.title + ')' : '') + ' abhi baaki hai. Kya uski jagah ' + f.service + ' chahiye? Tab woh QR cancel ho jayega.',
+    hi: (f) => 'आपका ' + rupees(f.amount) + ' का पेमेंट' + (f.title ? ' (' + f.title + ')' : '') + ' अभी बाकी है। क्या उसकी जगह ' + f.service + ' चाहिए? तब वह QR रद्द हो जाएगा।',
+  },
   DIDNT_UNDERSTAND: {
     en: () => 'Sorry, I did not understand that 🙏 Please tap one of the options below.',
     hinglish: () => 'Sorry, samajh nahi aaya 🙏 Neeche diye options mein se ek dabaiye.',
@@ -324,6 +339,7 @@ const B = {
   twin: { en: '👥 Group Offer', hinglish: '👥 Group Offer', hi: '👥 Group Offer' },
   keep: { en: '👍 Keep this plan', hinglish: '👍 Yahi plan theek hai', hi: '👍 यही प्लान ठीक है' },
   rchange: { en: '↩️ Change duration', hinglish: '↩️ Time badlo', hi: '↩️ समय बदलो' },
+  switch: { en: '🔁 Yes, change plan', hinglish: '🔁 Haan, plan badlo', hi: '🔁 हाँ, प्लान बदलो' },
   menu: { en: '🏠 Main menu', hinglish: '🏠 Main menu', hi: '🏠 मेन मेन्यू' },
   whatsapp: { en: '💬 WhatsApp our team', hinglish: '💬 WhatsApp par team', hi: '💬 WhatsApp पर टीम' },
   helper: { en: '🏠 Open Household Helper', hinglish: '🏠 Household Helper kholo', hi: '🏠 Household Helper खोलो' },
