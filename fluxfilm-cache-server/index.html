@@ -228,7 +228,13 @@ input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; 
 }
 @media (prefers-reduced-motion: reduce) { .ff-sheet, .ff-sheet-bg { animation: none; } }
 
-/* ── Splash: 3D logo intro, once per tab session (see #ff-splash script) ── */
+/* ── My plans filter chips: All · Active · Expired ── */
+.ff-subfilter { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.ff-subfilter button { flex: 1 1 0; min-width: 0; min-height: 42px; padding: 8px 6px; white-space: nowrap; border-radius: 999px; border: 1.5px solid #e2e8f0; background: #fff; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 14px; font-weight: 800; color: #475569; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.ff-subfilter button span { display: inline-block; min-width: 22px; margin-left: 4px; padding: 1px 7px; border-radius: 999px; background: #f1f5f9; font-size: 12px; color: #334155; }
+.ff-subfilter button.on { background: #16a34a; border-color: #16a34a; color: #fff; box-shadow: 0 4px 12px rgba(22,163,74,.22); }
+.ff-subfilter button.on span { background: rgba(255,255,255,.25); color: #fff; }
+/* ── Splash: 3D logo intro on every page load (see #ff-splash script) ── */
 #ff-splash { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; background: radial-gradient(120% 80% at 50% 42%, #ffffff 0%, #eefbf3 55%, #e3f5ea 100%); animation: ffSplashOut .26s ease-in .92s forwards; -webkit-tap-highlight-color: transparent; }
 #ff-splash[hidden] { display: none; }
 .ff-sp-stage { perspective: 700px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
@@ -314,15 +320,13 @@ try { if ((navigator.hardwareConcurrency || 8) <= 2 || (navigator.deviceMemory |
 <body>
 <div id="ff-splash" hidden aria-hidden="true"><div class="ff-sp-stage"><div class="ff-sp-cube"><div class="ff-sp-edge ff-sp-e2"></div><div class="ff-sp-edge ff-sp-e1"></div><div class="ff-sp-face">🍿</div></div><div class="ff-sp-shadow"></div><div class="ff-sp-word"><span>F</span><span>l</span><span>u</span><span>x</span><span>F</span><span>i</span><span>l</span><span>m</span></div></div></div>
 <script>
-// Splash: once per tab session, skipped for reduced motion, removed by 1.4 s at the latest. The app renders underneath.
+// Splash: every page load (incl. reload), skipped for reduced motion, removed by 1.4 s at the latest. The app renders underneath.
 (function () {
   var el = document.getElementById('ff-splash');
   if (!el) return;
   var done = function () { if (el.parentNode) el.parentNode.removeChild(el); };
   try {
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
-    if (sessionStorage.getItem('ff_splash')) return done();
-    sessionStorage.setItem('ff_splash', '1');
   } catch (e) {}
   el.hidden = false;
   el.addEventListener('click', done);
@@ -2568,6 +2572,21 @@ function DashboardScreen({
 }) {
   const [dashData, setDashData] = useState(data || {});
   const [tab, setTab] = useState('subs');
+  // Subscriptions filter (remembered on this phone): all · active (days left) · expired.
+  const [subFilter, setSubFilterState] = useState(() => {
+    try {
+      const v = localStorage.getItem('ff_sub_filter');
+      return v === 'active' || v === 'expired' ? v : 'all';
+    } catch (e) {
+      return 'all';
+    }
+  });
+  const setSubFilter = v => {
+    setSubFilterState(v);
+    try {
+      localStorage.setItem('ff_sub_filter', v);
+    } catch (e) {}
+  };
   const [refreshing, setRefreshing] = useState(false);
   const [orders, setOrders] = useState(Array.isArray(cachedOrders) ? cachedOrders : []);
   const [ordersLoading, setOrdersLoading] = useState(false);
@@ -2665,6 +2684,10 @@ function DashboardScreen({
   const actionable = dashData?.actionable || [];
   const history = dashData?.history || [];
   const allSubs = [...actionable, ...history];
+  const isLiveSub = s => Number(s.daysLeft) > 0;
+  const liveSubs = allSubs.filter(isLiveSub);
+  const expiredSubs = allSubs.filter(s => !isLiveSub(s));
+  const filteredSubs = subFilter === 'active' ? liveSubs : subFilter === 'expired' ? expiredSubs : null;
   const active = actionable.filter(s => Number(s.daysLeft || 0) > 7).length;
   const expiring = actionable.filter(s => {
     const d = Number(s.daysLeft || 0);
@@ -2870,8 +2893,47 @@ function DashboardScreen({
     full: true,
     onClick: () => setTab('orders')
   }, "🧾 Orders")), tab === 'subs' && React.createElement(React.Fragment, null, React.createElement(SectionHead, {
-    right: `${allSubs.length} total`
-  }, "Subscriptions"), React.createElement("div", {
+    right: `${(filteredSubs || allSubs).length} ${subFilter === 'all' ? 'total' : 'shown'}`
+  }, "Subscriptions"), allSubs.length > 0 && React.createElement("div", {
+    className: "ff-subfilter",
+    role: "tablist",
+    "aria-label": "Show subscriptions"
+  }, [['all', 'All', allSubs.length], ['active', '🟢 Active', liveSubs.length], ['expired', '⚪ Expired', expiredSubs.length]].map(([k, label, n]) => React.createElement("button", {
+    key: k,
+    type: "button",
+    role: "tab",
+    "aria-selected": subFilter === k,
+    "data-filter": k,
+    className: subFilter === k ? 'on' : '',
+    onClick: () => setSubFilter(k)
+  }, label, " ", React.createElement("span", null, n)))), filteredSubs && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "ff-cards"
+  }, filteredSubs.map((sub, i) => React.createElement(SubCard, {
+    key: sub.subId || 'f' + i,
+    sub: sub,
+    boot: boot,
+    onRenew: s => nav('renewStart', {
+      sub: s,
+      phone
+    }),
+    onRecover: s => onRecoverCard ? onRecoverCard(s) : nav('recover', {})
+  }))), filteredSubs.length === 0 && React.createElement(Card, {
+    style: {
+      textAlign: 'center',
+      padding: '22px 18px',
+      fontFamily: PJS,
+      fontSize: 14,
+      fontWeight: 700,
+      color: C.muted
+    }
+  }, subFilter === 'active' ? 'No active plans right now.' : 'No expired plans. 🎉', subFilter === 'active' && React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    style: {
+      marginTop: 12
+    },
+    onClick: () => nav('buy1', {})
+  }, "🛒 Buy a plan"))), !filteredSubs && React.createElement("div", {
     className: "ff-cards"
   }, actionable.map((sub, i) => React.createElement(SubCard, {
     key: sub.subId || i,
@@ -2882,7 +2944,7 @@ function DashboardScreen({
       phone
     }),
     onRecover: s => onRecoverCard ? onRecoverCard(s) : nav('recover', {})
-  }))), history.length > 0 && React.createElement(React.Fragment, null, React.createElement(SectionHead, null, "History"), React.createElement("div", {
+  }))), !filteredSubs && history.length > 0 && React.createElement(React.Fragment, null, React.createElement(SectionHead, null, "History"), React.createElement("div", {
     className: "ff-cards"
   }, history.map((sub, i) => React.createElement(SubCard, {
     key: sub.subId || 'h' + i,

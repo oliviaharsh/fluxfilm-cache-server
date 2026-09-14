@@ -17,7 +17,11 @@ ok('header has WhatsApp support button + desktop menu', /className: "ff-help/.te
 ok('phone bottom menu only on home / plans / my plans / account', /function BottomNav\(/.test(html) && /showBnav && React.createElement\(BottomNav/.test(html) && /const BNAV_SCREENS = \{\s*home: 1,\s*dashboard: 1,\s*buy1: 1,\s*account: 1\s*\}/.test(html));
 ok('checkout screens use the narrow centred column, lists use the wide one', /'ff-w-wide' : 'ff-w-flow'/.test(html) && /\.ff-w-flow \{ max-width: 620px; \}/.test(html));
 ok('old phone-strip desktop layout removed', !/body::after/.test(html) && !/#root \{ max-width: 520px/.test(html));
-ok('responsive grids for services and subscription cards', /className: "ff-grid-svc"/.test(html) && (html.match(/className: "ff-cards"/g) || []).length === 2);
+ok('responsive grids for services and subscription cards', /className: "ff-grid-svc"/.test(html) && (html.match(/className: "ff-cards"/g) || []).length === 3); // active subs, history, filtered list
+// My plans: All / Active / Expired filter (owner 2026-09-14).
+ok('My plans has All · Active · Expired chips with counts', /\[\['all', 'All', allSubs\.length\], \['active', '🟢 Active', liveSubs\.length\], \['expired', '⚪ Expired', expiredSubs\.length\]\]/.test(html) && /\.ff-subfilter button \{[^}]*min-height: 42px/.test(html));
+ok('active = days left > 0, expired = the rest; choice remembered on the phone', /const isLiveSub = s => Number\(s\.daysLeft\) > 0;/.test(html) && /localStorage\.setItem\('ff_sub_filter', v\)/.test(html) && /const filteredSubs = subFilter === 'active' \? liveSubs : subFilter === 'expired' \? expiredSubs : null;/.test(html));
+ok('"All" keeps the old Subscriptions + History layout', /!filteredSubs && React\.createElement\("div", \{\s*className: "ff-cards"\s*\}, actionable\.map/.test(html) && /!filteredSubs && history\.length > 0/.test(html));
 
 // React hooks must never be called inside a loop (crashes when the plan list changes size).
 const hookInLoop = /\.map\(\([^)]*\)\s*=>\s*\{\s*const \[[^\]]+\] = useState\(|\.map\(\w+\s*=>\s*\{[^{}]*const \[[^\]]+\] = useState\(/;
