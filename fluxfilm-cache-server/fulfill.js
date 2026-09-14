@@ -161,14 +161,20 @@ async function _existingAccess(orderId) {
   return { subId: s.sub_id, access };
 }
 
-async function _fulfill(orderId) {
+// Refunded by the owner (admin order actions): never allocate, and stop the checkout page polling.
+const REFUNDED_RESULT = (orderId) => ({ ok: true, found: true, orderId, fulfillment: 'REFUNDED', refunded: true, message: '💸 This order was refunded, so no account will be delivered for it. Please contact WhatsApp support if this looks wrong.' });
+
+async function _fulfill(orderId, opts) {
   const [ords] = await db.getPool().query(
     // device_count/tv_count must be selected: allocation reserves that many devices.
     // (Omitting them silently treated every multi-device order as 1 device.)
     'SELECT order_id, service, plan, name, email, phone, phone_norm, duration_days, status, fulfillment_status, extra_field_value, device_count, tv_count, source, final_amount, order_type, renew_sub_id, raw_json FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
   const o = ords[0];
   if (!o) return { ok: false, found: false, fulfillment: 'ERROR', message: 'Order not found in the FluxFilm database.' };
-  if (o.source !== 'node') return { ok: false, found: false, fulfillment: 'ERROR', message: 'This legacy order cannot be fulfilled on the new checkout. Please contact support.' };
+  if (String(o.status || '').toUpperCase() === 'REFUNDED') return REFUNDED_RESULT(orderId);
+  // allowLegacy: the owner delivering an old-site (imported) order from the admin panel. Old-site renewals are
+  // refused by the admin route before this point; the storefront never passes it.
+  if (o.source !== 'node' && !(opts && opts.allowLegacy)) return { ok: false, found: false, fulfillment: 'ERROR', message: 'This legacy order cannot be fulfilled on the new checkout. Please contact support.' };
   if (String(o.status || '').toUpperCase() !== 'PAID') return { ok: true, found: false, fulfillment: 'PENDING', retryAfterSec: 3, message: 'Processing your order…' };
 
   if (String(o.fulfillment_status || '').toUpperCase() === 'FULFILLED') {
@@ -489,6 +495,9 @@ async function _allocateAndFinish(o, policy, ppm) {
       const ex = await _existingAccess(o.order_id);
       return { ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED', message: '✅ Showing your credentials.', access: (ex && ex.access) || {} };
     }
+    // Refunded or erased by the owner while this delivery waited for the lock: allocate nothing.
+    if (Array.isArray(chk) && !chk.length) return { ok: false, found: false, fulfillment: 'ERROR', message: 'Order not found in the FluxFilm database.' };
+    if (chk[0] && String(chk[0].fulfillment_status || '').toUpperCase() === 'REFUNDED') return REFUNDED_RESULT(o.order_id);
 
     // How many devices this order uses, and (Prime) how many are TV.
     const deviceCount = Math.max(1, asNum(o.device_count) || 1);
@@ -908,6 +917,9 @@ async function _fulfillRenew(o) {
       if (groupsOn && s.group_id) rows = await _renewalRows(conn, await _renewalSub(conn, sid));
       return { ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED', message: '✅ Your subscription is renewed.', access: accessFor(rows), subId: sid };
     }
+    // Refunded or erased by the owner while this renewal waited for the lock: extend nothing.
+    if (Array.isArray(chk) && !chk.length) return { ok: false, found: false, fulfillment: 'ERROR', message: 'Order not found in the FluxFilm database.' };
+    if (chk[0] && String(chk[0].fulfillment_status || '').toUpperCase() === 'REFUNDED') return REFUNDED_RESULT(o.order_id);
 
     // Re-check the account(s) now: stock can change between order and payment.
     const d = await _purchaseRenewalDecision(conn, rows, o.plan);
@@ -1015,8 +1027,8 @@ async function _fulfillRenew(o) {
   });
 }
 
-async function _fulfillSafe(orderId) {
-  try { return await _fulfill(orderId); }
+async function _fulfillSafe(orderId, opts) {
+  try { return await _fulfill(orderId, opts); }
   catch (e) { console.log('[fulfill] error:', e.message); return { ok: false, found: true, orderId, fulfillment: 'ERROR', message: 'Activation hit a snag — please contact support with your order id.', fulfillError: String(e && e.message || e) }; }
 }
 
@@ -1058,7 +1070,7 @@ async function fulfillAndGetAccess(orderId, proof) {
   });
 }
 
-/** Admin endpoint only (key-protected): full result including credentials. */
-async function fulfillForAdmin(orderId) { return _fulfillSafe(orderId); }
+/** Admin endpoint only (key-protected): full result including credentials. opts.allowLegacy: old-site order. */
+async function fulfillForAdmin(orderId, opts) { return _fulfillSafe(orderId, opts && opts.allowLegacy ? { allowLegacy: true } : undefined); }
 
 module.exports = { fulfillAndGetAccess, fulfillForAdmin, planRenewal, checkDeviceLogins, pickDeviceLogins, allocatePrimeSeparate, allocateProfileSeparate, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, freeSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE } };

@@ -140,6 +140,8 @@ function mountAdmin(app, deps) {
   require('./quickorders').mount(app, Object.assign({ db, auth, audit }, deps.quick || {}));
   // Order lookup + stock levels (adminlookup.js).
   require('./adminlookup').mount(app, Object.assign({ db, auth, audit }, deps.lookup || {}));
+  // Stuck orders: fulfil / re-fulfil, deliver manually, refund, erase (adminorderactions.js).
+  require('./adminorderactions').mount(app, Object.assign({ db, auth, audit }, deps.orderActions || {}));
   // Today screen, to-dos, global search, change log viewer (adminhome.js).
   require('./adminhome').mount(app, Object.assign({ db, auth, audit }, deps.home || {}));
   // Password change (F5) + renewal reminders (accounttools.js).
