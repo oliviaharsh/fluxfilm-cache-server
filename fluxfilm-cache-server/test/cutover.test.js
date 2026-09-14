@@ -51,7 +51,7 @@ const SHEET = {
     { Phone: '9000000001', CoinsBalance: 8, CoinsLifetime: 8 },
     { Phone: '9222222222', CoinsBalance: 999, CoinsLifetime: 999 },
   ],
-  COUPON_USAGE: [{ CouponCode: 'FLUX20', Phone: '9000000001', OrderID: 'FF3000003', Action: 'USED' }],
+  COUPON_USAGE: [{ CouponCode: 'FLUX20', Phone: '9000000001', OrderID: 'FF3000003', Action: 'USED' }, { CouponCode: 'FLUX20', Phone: '9111111111', OrderID: 'FF3000004', Action: 'USED' }],
 };
 
 const inList = (p) => new Set(p.map(String));
@@ -131,6 +131,7 @@ sync._internal.upsert = async (table, def, rows) => {
   ok('existing customer: still one row, name NOT overwritten, empty email filled', rahul.length === 1 && rahul[0].name === 'Rahul' && rahul[0].email === 'rahul@example.com', rahul);
   ok('new customers added once each (merged duplicate keeps both name and email)', DB.customers.filter((c) => c.phone_norm === '9000000001').length === 1 && DB.customers.filter((c) => c.phone_norm === '9111111111').length === 1 && DB.customers.find((c) => c.phone_norm === '9111111111').name === 'Dev' && DB.customers.find((c) => c.phone_norm === '9111111111').email === 'dev@example.com');
   ok('coins: go balance copied; shop coin user keeps 75', DB.wallet.find((w) => w.phone_norm === '9876543210').coins_balance === 50 && DB.wallet.find((w) => w.phone_norm === '9000000001').coins_balance === 8 && DB.wallet.find((w) => w.phone_norm === '9222222222').coins_balance === '75.00');
+  ok('every coupon use is copied (two uses of FLUX20 stay two rows — they share the coupon code)', DB.coupon_usage.filter((u) => /^FF300000[34]$/.test(u.order_id)).length === 2, DB.coupon_usage);
   ok('coupon usage: old imported rows replaced by go rows, shop redemption kept', DB.coupon_usage.some((u) => u.order_id === 'FF2000002') && DB.coupon_usage.some((u) => u.order_id === 'FF3000003') && !DB.coupon_usage.some((u) => u.order_id === 'OLD-IMPORTED'));
   ok('result has done counts + sync_log rows', r.done.orders.added === 1 && r.done.customers.added === 2 && r.done.customers.filled === 1 && DB.sync_log.length >= 4, r.done);
 

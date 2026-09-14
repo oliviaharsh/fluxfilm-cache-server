@@ -135,7 +135,11 @@ async function planWallet() {
 }
 
 async function planCouponUsage() {
-  const src = await load(sync.TABLES.coupon_usage);
+  // Many rows share a coupon code (one per use), so do NOT de-duplicate by the table's "pk" here.
+  const def = sync.TABLES.coupon_usage;
+  const all = await deps.fetchDump(def.tab);
+  const keyOf = def.key || ((r) => r[def.cols[def.pk][0]]);
+  const src = { sheetRows: all.length, mapped: all.filter((r) => s(keyOf(r))).map((r) => sync._internal.mapRow(def, r)) };
   const shop = await db.query("SELECT COUNT(*) n FROM coupon_usage t JOIN orders o ON o.order_id = t.order_id WHERE o.source = 'node'", []);
   const cur = await db.query('SELECT COUNT(*) n FROM coupon_usage', []);
   return { table: 'coupon_usage', sheetRows: src.sheetRows, replaceImported: Math.max(0, Number(cur[0].n) - Number(shop[0].n)), keepShop: Number(shop[0].n), rows: src.mapped };
