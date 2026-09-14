@@ -23,7 +23,7 @@ function storeManifest() {
     id: '/?app=fluxfilm', name: 'FluxFilm', short_name: 'FluxFilm',
     description: 'Premium subscriptions at lower prices — Netflix, Prime Video, JioHotstar and more. Instant access, easy renewals.',
     start_url: '/?source=app', scope: '/', display: 'standalone', orientation: 'portrait',
-    background_color: '#f5f7fb', theme_color: '#16a34a', lang: 'en-IN', categories: ['entertainment', 'shopping'],
+    background_color: '#04140e', theme_color: '#04140e', lang: 'en-IN', categories: ['entertainment', 'shopping'],
     icons: [
       { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
       { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
@@ -35,7 +35,7 @@ function adminManifest() {
   return {
     id: '/panel?app=fluxfilm-admin', name: 'FluxFilm Admin', short_name: 'FF Admin',
     description: 'FluxFilm admin panel', start_url: '/panel?source=app', scope: '/panel', display: 'standalone',
-    background_color: '#f3f5f9', theme_color: '#e11d48', lang: 'en-IN',
+    background_color: '#12040a', theme_color: '#12040a', lang: 'en-IN',
     icons: [
       { src: '/icons/admin-icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
       { src: '/icons/admin-icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
