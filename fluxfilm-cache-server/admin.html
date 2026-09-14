@@ -492,7 +492,7 @@ function subCard(s) {
     '<input type="datetime-local" id="rmat_' + id + '" value="' + esc(t) + '" title="India time — leave empty for now"/>' +
     '<button class="btn dark sm" onclick="saveRemoved(\'' + id + '\')">Save</button><span id="rmmsg_' + id + '" class="muted" style="font-size:.72rem">' + (rm && !t ? 'no time → counted as removed at expiry' : '') + '</span></div>';
   var remind = 'Hi! Your FluxFilm ' + (s.service || '') + ' (' + (s.plan || '') + ') ' + (d != null && d > 0 ? 'expires in ' + d + ' day(s)' : 'has expired') + '. Renew now on shop.fluxfilm.in 🙏';
-  return '<div class="sc' + (act ? '' : ' exp') + '"><div class="hd"><div class="sic">' + svcIcon(s.service) + '</div><div class="ttl"><b>' + esc(s.service || '—') + '</b><small>' + esc(s.plan || '') + (s.device_count ? ' · ' + esc(s.device_count) + ' device(s)' : '') + (s.device_type ? ' · ' + esc(s.device_type) : '') + '</small></div>' +
+  return '<div class="sc' + (act ? '' : ' exp') + '"><div class="hd"><div class="sic">' + svcIcon(s.service) + '</div><div class="ttl"><b>' + esc(s.service || '—') + '</b><small>' + esc(s.plan || '') + (s.device_count ? ' · ' + esc(s.device_count) + ' device(s)' : '') + (s.device_type ? ' · ' + esc(s.device_type) : '') + (Number(s.group_size) > 1 ? ' · <b>Device ' + esc(s.group_index) + ' of ' + esc(s.group_size) + '</b> (separate logins, order ' + esc(s.order_id || '') + ')' : '') + '</small></div>' +
     '<div class="rt">' + pill + '<div style="margin-top:6px">Start: ' + prettyDate(s.start_date) + '</div><div>Expiry: <b style="color:var(--ink)">' + prettyDate(s.expiry_date, true) + '</b></div></div></div>' +
     '<div class="bar' + (d != null && d <= 0 ? ' b' : d != null && d <= 7 ? ' w' : '') + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
     (creds ? '<div class="creds">' + creds + '</div>' : '') + rmUi +
@@ -1267,7 +1267,7 @@ function openOrder(id) {
     var subs = (r.subs || []).map(function (s) {
       var cred = function (label, v) { return v ? '<div class="cr"><span>' + label + '</span><code>' + esc(v) + '</code><button class="copy" data-copy="' + esc(v) + '">Copy</button></div>' : ''; };
       return '<div class="card" style="padding:12px;margin-top:10px"><div class="row" style="justify-content:space-between"><b>' + svcIcon(s.service) + ' ' + esc(s.service) + ' · ' + esc(s.plan) + '</b>' + statusPill(s.status) + '</div>' +
-        '<div class="muted" style="font-size:.75rem;margin:4px 0 8px">' + esc(s.sub_id) + ' · ' + esc(s.inventory_ref || 'no account') + ' · ends ' + prettyDate(s.expiry_date, true) + (s.device_type ? ' · ' + esc(s.device_type) : '') + '</div>' +
+        '<div class="muted" style="font-size:.75rem;margin:4px 0 8px">' + esc(s.sub_id) + ' · ' + esc(s.inventory_ref || 'no account') + ' · ends ' + prettyDate(s.expiry_date, true) + (s.device_type ? ' · ' + esc(s.device_type) : '') + (Number(s.group_size) > 1 ? ' · <b>Device ' + esc(s.group_index) + ' of ' + esc(s.group_size) + '</b>' : Number(s.device_count) > 1 ? ' · same login on ' + esc(s.device_count) + ' devices' : '') + '</div>' +
         '<div class="creds">' + cred('Login', s.login_id) + cred('Password', s.password) + cred('Profile', [s.profile_name, s.profile_number ? '#' + s.profile_number : ''].filter(Boolean).join(' ')) + cred('PIN', s.profile_pin) + '</div></div>';
     }).join('');
     var body = steps +
@@ -1277,8 +1277,8 @@ function openOrder(id) {
       kv('Created via', esc(m.createdVia === 'ADMIN' ? '⚡ Admin quick order' : m.createdVia === 'WEBSITE' ? '🌐 Website' : '📄 Old Sheet site')) + kv('Paid by', esc(m.paymentMethod || '')) + kv('UTR / ref', esc(o.txn_ref || '')) +
       kv('Bank credit', (r.bankCredits || []).map(function (b) { return money(b.amount) + ' · ' + esc(b.upi_ref) + ' · ' + prettyDate(b.received_at, true); }).join('<br>')) +
       kv('Coupon', (r.couponUsage || []).map(function (c) { return esc(c.coupon_code) + ' −' + money(c.discount) + ' (' + esc(c.action) + ')'; }).join(', ')) +
-      kv('Devices', o.device_count ? esc(o.device_count) + (o.tv_count != null ? ' (' + esc(o.tv_count) + ' TV)' : '') : '') + kv('Note', esc(m.adminNote || o.notes || '')) + '</div>' +
-      (subs ? '<h4 style="margin:14px 0 0">Subscription</h4>' + subs : (paid ? '<div class="qnote bad" style="margin-top:12px">No subscription was created for this paid order.</div>' : ''));
+      kv('Devices', o.device_count ? esc(o.device_count) + (o.tv_count != null ? ' (' + esc(o.tv_count) + ' TV)' : '') + (m.loginMode ? ' · asked for ' + (m.loginMode === 'separate' ? 'separate logins' : 'the same login') : '') : '') + kv('Note', esc(m.adminNote || o.notes || '')) + '</div>' +
+      (subs ? '<h4 style="margin:14px 0 0">Subscription' + ((r.subs || []).length > 1 ? 's (' + r.subs.length + ' logins)' : '') + '</h4>' + subs : (paid ? '<div class="qnote bad" style="margin-top:12px">No subscription was created for this paid order.</div>' : ''));
     var foot = '';
     if (!paid && o.source === 'node') foot += '<button class="btn green" id="od_paid">✅ Mark paid</button>';
     if (paid && !delivered && o.source === 'node') foot += '<button class="btn" id="od_retry">🔁 Try delivering again</button>';

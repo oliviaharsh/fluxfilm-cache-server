@@ -57,8 +57,9 @@ function mount(app, deps) {
     const same = await db.query('SELECT service, account_id, is_active FROM inventory_accounts WHERE LOWER(TRIM(login_id)) = ? AND LOWER(service) LIKE ?', [key, '%' + fam + '%']);
     const ids = [...new Set(same.map((r) => s(r.account_id)).filter(Boolean))];
     const refLike = ids.map(() => 'inventory_ref LIKE ?').join(' OR ');
+    const groupsOn = await require('./devicelogins').groupsReady(db.query);
     const subs = await db.query(
-      'SELECT s.sub_id, s.phone_norm, s.email, s.service, s.plan, s.expiry_date, s.status, s.inventory_ref, s.profile_name, s.profile_pin, COALESCE(s.removed, 0) AS removed, c.name ' +
+      'SELECT s.sub_id, s.phone_norm, s.email, s.service, s.plan, s.expiry_date, s.status, s.inventory_ref, s.profile_name, s.profile_pin, COALESCE(s.removed, 0) AS removed, ' + (groupsOn ? 's.group_index, s.group_size, ' : '') + 'c.name ' +
       'FROM subscriptions s LEFT JOIN customers c ON c.phone_norm = s.phone_norm ' +
       'WHERE (s.inventory_ref IN (' + inList(ids) + ') OR s.account_id IN (' + inList(ids) + ') OR ' + refLike.replace(/inventory_ref/g, 's.inventory_ref') + ' OR LOWER(TRIM(s.login_id)) = ?) ' +
       'AND LOWER(s.service) LIKE ? ORDER BY s.expiry_date DESC LIMIT 1000',
@@ -72,7 +73,9 @@ function mount(app, deps) {
     }
     return { ok: true, account: acc, login: s(acc.login_id), key, fam, sameLogin: same, ids, active, expired };
   }
-  const brief = (x) => ({ subId: x.sub_id, name: s(x.name), phone: s(x.phone_norm), email: s(x.email), service: s(x.service), plan: s(x.plan), expiry: s(x.expiry_date), inventoryRef: s(x.inventory_ref) });
+  // F1: a login row of a purchase with separate logins is shown as "Device 2 of 2" (only that device is affected).
+  const brief = (x) => Object.assign({ subId: x.sub_id, name: s(x.name), phone: s(x.phone_norm), email: s(x.email), service: s(x.service), plan: s(x.plan), expiry: s(x.expiry_date), inventoryRef: s(x.inventory_ref) },
+    Number(x.group_size) > 1 ? { device: 'Device ' + Number(x.group_index) + ' of ' + Number(x.group_size) } : {});
 
   app.get('/admin/api/accounts/impact', async (req, res) => {
     if (!auth(req, res)) return;
@@ -129,8 +132,14 @@ function mount(app, deps) {
 
   const clampDays = (v, d) => Math.max(0, Math.min(60, parseInt(v, 10) >= 0 ? parseInt(v, 10) : d));
   async function reminderRows(past, next, subIds) {
+    // F1: a purchase with separate logins (one row per login) is one plan → one reminder, via its Device 1 row.
+    const groupsOn = await require('./devicelogins').groupsReady(db.query);
+    const rows = await reminderRowsRaw(past, next, subIds, groupsOn);
+    return groupsOn ? rows.filter((x) => !(Number(x.group_index) > 1)) : rows;
+  }
+  async function reminderRowsRaw(past, next, subIds, groupsOn) {
     const base =
-      'SELECT s.sub_id, s.phone_norm, s.email, s.service, s.plan, s.expiry_date, s.status, COALESCE(s.removed, 0) AS removed, c.name, ' +
+      'SELECT s.sub_id, s.phone_norm, s.email, s.service, s.plan, s.expiry_date, s.status, COALESCE(s.removed, 0) AS removed, c.name, ' + (groupsOn ? 's.group_index, s.group_size, ' : '') +
       "EXISTS (SELECT 1 FROM subscriptions n WHERE n.phone_norm = s.phone_norm AND n.service = s.service AND n.sub_id <> s.sub_id AND n.expiry_date > s.expiry_date AND UPPER(n.status) = 'ACTIVE') AS has_newer";
     const where = subIds
       ? ' WHERE s.sub_id IN (' + inList(subIds) + ')'

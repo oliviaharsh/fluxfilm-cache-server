@@ -6,6 +6,7 @@
  * returned to the storefront and never fall through to Apps Script.
  */
 const db = require('./db');
+const deviceLogins = require('./devicelogins');
 
 function normPhone(p) {
   const s = String(p == null ? '' : p).replace(/\D/g, '');
@@ -82,15 +83,38 @@ function planInfo(map, service, plan) {
     || { durationDays: 0, d8plus: 0, d7to2: 0, logoUrl: '' };
 }
 
+// Per-device profile details for a plan card (no passwords here — those stay behind Recover / the access email).
+function devicesOf(r) {
+  const b = deviceLogins.buildLogins(r._group || [r]);
+  return {
+    deviceCount: b.deviceCount, sameLogin: b.sameLogin,
+    list: b.logins.map((x) => ({ device: x.device, profileNumber: x.profileNumber, profileName: x.profileName, profilePIN: x.profilePin })),
+  };
+}
+
 async function getMySubscriptions(phone) {
   const ph = normPhone(phone);
   if (!ph) return { ok: false, message: 'Phone is required.' };
-  const rows = await db.query(
+  const groupsOn = await deviceLogins.groupsReady(db.query);
+  const allRows = await db.query(
     `SELECT sub_id, order_id, service, plan, email, start_date, expiry_date,
-            profile_number, profile_name, profile_pin, inventory_ref
+            profile_number, profile_name, profile_pin, inventory_ref` + (groupsOn ? ', device_count, group_id, group_index' : '') + `
      FROM subscriptions WHERE phone_norm = ?`, [ph]);
   const infoBanner = '📱 Please enter the same phone number you used to buy subscriptions.';
-  if (!rows.length) return { ok: true, phone: ph, infoBanner, actionable: [], history: [] };
+  if (!allRows.length) return { ok: true, phone: ph, infoBanner, actionable: [], history: [] };
+  // F1: a purchase with separate logins (one row per login, same group_id) is ONE plan card with N devices.
+  const groupRows = new Map();
+  const rows = [];
+  for (const r of allRows) {
+    const g = groupsOn && r.group_id ? String(r.group_id) : '';
+    if (!g) { rows.push(r); continue; }
+    if (!groupRows.has(g)) { groupRows.set(g, []); rows.push(r); }
+    groupRows.get(g).push(r);
+  }
+  for (let i = 0; i < rows.length; i++) {
+    const list = rows[i].group_id && groupRows.get(String(rows[i].group_id));
+    if (list && list.length > 1) { list.sort((a, b) => asNum(a.group_index) - asNum(b.group_index)); rows[i] = Object.assign({}, list[0], { _group: list }); }
+  }
 
   const plansMap = await getPlansMap();
   const nowMs = Date.now();
@@ -103,7 +127,8 @@ async function getMySubscriptions(phone) {
     const disc = calcEarlyDiscount(daysLeft, pInfo);
     const elig = renewEligibility(daysLeft);
     const mood = expiryMood(daysLeft);
-    return {
+    const devices = groupsOn ? devicesOf(r) : null;
+    return Object.assign({
       subId: String(r.sub_id || '').trim(),
       orderId: String(r.order_id || '').trim(),
       service: svc,
@@ -127,7 +152,7 @@ async function getMySubscriptions(phone) {
       uiTone: elig === 'CAN_RENEW' ? 'normal' : (elig === 'LATE_RENEW' ? 'faded_red' : 'faded_grey'),
       showRenewButton: elig !== 'TOO_LATE',
       inventoryRef: String(r.inventory_ref || '').trim(),
-    };
+    }, devices && devices.deviceCount > 1 ? { deviceCount: devices.deviceCount, sameLogin: devices.sameLogin, devices: devices.list } : {});
   });
 
   const actionable = all.filter((x) => x.renewEligibility !== 'TOO_LATE');

@@ -8,6 +8,7 @@
  */
 const db = require('./db');
 const crypto = require('crypto');
+const deviceLogins = require('./devicelogins');
 
 const OTP_TTL_MS = Number(process.env.RECOVER_OTP_TTL_MIN || 10) * 60 * 1000;
 const TOKEN_TTL_MS = Number(process.env.RECOVER_TOKEN_TTL_MIN || 20) * 60 * 1000;
@@ -87,8 +88,16 @@ function checkToken(token, ph, em) {
 async function listSubscriptions(phone, email, token) {
   const ph = norm(phone); const em = normEmail(email);
   if (!checkToken(token, ph, em)) return { ok: false, message: 'Your session expired. Please verify the OTP again.' };
-  const rows = await db.query(
-    'SELECT order_id, sub_id, service, plan, status, fulfillment_status, expiry_date FROM subscriptions WHERE phone_norm = ? ORDER BY expiry_date DESC', [ph]);
+  const groupsOn = await deviceLogins.groupsReady(db.query);
+  const all = await db.query(
+    'SELECT order_id, sub_id, service, plan, status, fulfillment_status, expiry_date' + (groupsOn ? ', group_id, group_index' : '') + ' FROM subscriptions WHERE phone_norm = ? ORDER BY expiry_date DESC', [ph]);
+  // F1: a purchase with separate logins is listed once (its first device); getAccess shows every device.
+  const seen = new Set();
+  const rows = all.filter((r) => {
+    if (!groupsOn || !r.group_id) return true;
+    if (seen.has(r.group_id)) return false;
+    seen.add(r.group_id); return true;
+  }).map((r) => (groupsOn && r.group_id ? Object.assign({}, all.filter((x) => x.group_id === r.group_id).sort((a, b) => Number(a.group_index) - Number(b.group_index))[0]) : r));
   const subscriptions = rows.map((r) => ({
     orderId: r.order_id, subId: r.sub_id, service: r.service, plan: r.plan,
     status: r.status, fulfillmentStatus: r.fulfillment_status, expiry: r.expiry_date, expiryDate: r.expiry_date,
@@ -100,22 +109,32 @@ async function getAccess(orderId, phone, email, token) {
   const ph = norm(phone); const em = normEmail(email);
   if (!checkToken(token, ph, em)) return { ok: false, message: 'Your session expired. Please verify the OTP again.' };
   const oid = String(orderId || '').trim();
+  const groupsOn = await deviceLogins.groupsReady(db.query);
+  const cols = 'order_id, sub_id, service, plan, login_id, password, profile_name, profile_pin, profile_number, expiry_date, status' + (groupsOn ? ', device_type, device_count, tv_count, group_id, group_index' : '');
   const rows = await db.query(
-    'SELECT order_id, sub_id, service, plan, login_id, password, profile_name, profile_pin, profile_number, expiry_date, status FROM subscriptions WHERE (order_id = ? OR sub_id = ?) AND phone_norm = ? LIMIT 1',
+    'SELECT ' + cols + ' FROM subscriptions WHERE (order_id = ? OR sub_id = ?) AND phone_norm = ? LIMIT 1',
     [oid, oid, ph]);
-  const s = rows[0];
+  let s = rows[0];
   if (!s) return { ok: false, message: 'Subscription not found for this account.' };
+  // F1: every login of the purchase (same phone only), Device 1 first.
+  let group = [s];
+  if (groupsOn && s.group_id) {
+    const g = await db.query('SELECT ' + cols + ' FROM subscriptions WHERE group_id = ? AND phone_norm = ? ORDER BY group_index', [s.group_id, ph]);
+    if (g.length) { group = g; s = g[0]; }
+  }
   const isOtp = OTP_SERVICES.some((k) => String(s.service || '').toLowerCase().includes(k));
-  return {
-    ok: true,
-    access: {
-      service: s.service, plan: s.plan,
-      user: s.login_id || '', pass: s.password || '',
-      loginId: s.login_id || '', password: s.password || '',
-      profileName: s.profile_name || '', profilePin: s.profile_pin || '', profileNumber: s.profile_number || '',
-      expiry: s.expiry_date, isOtpService: isOtp,
-    },
+  const access = {
+    service: s.service, plan: s.plan,
+    user: s.login_id || '', pass: s.password || '',
+    loginId: s.login_id || '', password: s.password || '',
+    profileName: s.profile_name || '', profilePin: s.profile_pin || '', profileNumber: s.profile_number || '',
+    expiry: s.expiry_date, isOtpService: isOtp,
   };
+  if (groupsOn) {
+    const multi = deviceLogins.accessWithLogins(group);
+    if (multi.logins) Object.assign(access, { logins: multi.logins, sameLogin: multi.sameLogin, deviceCount: multi.deviceCount });
+  }
+  return { ok: true, access };
 }
 
 module.exports = { sendOtp, verifyOtp, listSubscriptions, getAccess, _internal: { checkToken, otpStore, tokenStore, maskEmail } };

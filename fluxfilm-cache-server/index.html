@@ -514,7 +514,12 @@ function normalizeAccess_(raw) {
     profileNumber: String(a.profileNumber || a.profileNo || '').trim(),
     profileName: String(a.profileName || a.profile || '').trim(),
     profilePin: String(a.profilePin || a.profilePIN || a.pin || '').trim(),
-    service: String(a.service || '').trim()
+    service: String(a.service || '').trim(),
+    // F1: a plan with 2+ devices lists every device's login (Device 1, Device 2 …).
+    logins: Array.isArray(a.logins) && a.logins.length > 1 ? a.logins.map(function (x, i) {
+      return { device: Number(x.device) || i + 1, user: String(x.user || '').trim(), pass: String(x.pass || '').trim(), profileNumber: String(x.profileNumber || '').trim(), profileName: String(x.profileName || '').trim(), profilePin: String(x.profilePin || '').trim(), deviceType: String(x.deviceType || '').trim() };
+    }) : null,
+    sameLogin: a.sameLogin === true
   };
 }
 const FF_SESSION_KEY = 'ff_session_v2';
@@ -1609,12 +1614,35 @@ function BottomNav({
     className: "ff-bnav-ic"
   }, i.icon), React.createElement("span", null, i.label))));
 }
+// F1: one login block per device ("Device 1", "Device 2"), or one block + "use it on all devices".
+function DeviceLoginsCard({ access }) {
+  var list = access.logins || [];
+  var n = list.length;
+  var note = function (text, tone) {
+    return React.createElement("div", { style: { marginTop: 10, padding: '12px 14px', borderRadius: 14, background: tone === 'green' ? '#f0fdf4' : '#eff6ff', border: '1px solid ' + (tone === 'green' ? '#86efac' : '#bfdbfe'), color: tone === 'green' ? '#166534' : '#1e3a8a', fontFamily: PJS, fontSize: 14, fontWeight: 800, lineHeight: 1.45 } }, text);
+  };
+  var block = function (x, title) {
+    return React.createElement("div", { key: title || x.device, style: { marginTop: 10, padding: '4px 12px 10px', borderRadius: 14, border: '1.5px solid ' + C.border, background: '#fafafa' } },
+      title && React.createElement("div", { style: { fontFamily: PJS, fontSize: 15, fontWeight: 900, color: C.text, margin: '8px 0 2px' } }, title),
+      React.createElement(KV, { label: "Login ID / Email", value: x.user || '-', copyable: true }),
+      React.createElement(KV, { label: "Password", value: x.pass || '-', copyable: true }),
+      x.profileNumber && React.createElement(KV, { label: "Profile", value: '#' + x.profileNumber + ' · ' + (x.profileName || '') }),
+      x.profilePin && React.createElement(KV, { label: "Profile PIN", value: x.profilePin, copyable: true }));
+  };
+  return React.createElement(Card, { className: "ff-3d-cred" },
+    React.createElement("div", { style: { fontFamily: PJS, fontSize: 15, fontWeight: 800, color: C.text, marginBottom: 4 } }, "🔑 Login Credentials · " + n + " devices"),
+    access.sameLogin
+      ? React.createElement(React.Fragment, null, block(list[0], ''), note('✅ Use this same login on ' + (n === 2 ? 'both devices' : 'all ' + n + ' devices') + '.', 'green'))
+      : React.createElement(React.Fragment, null, note('🔑 Each device has its own login. Use Device 1 on your first device, Device 2 on the second.', 'blue'), list.map(function (x) { return block(x, '📱 Device ' + x.device + (x.deviceType === 'TV' ? ' · 📺 TV' : '')); })),
+    React.createElement(Hint, null, "🔒 If a profile is locked, use ", React.createElement("b", null, "Forgot PIN"), " to reset it. Check your email for a copy of these details."));
+}
 function CredCard({
   access,
   service,
   isOtpService,
   onGoOtp
 }) {
+  if (!isOtpService && access && access.logins && access.logins.length > 1) return React.createElement(DeviceLoginsCard, { access: access });
   // ff-3d-cred: the card lifts in and each row flips up in turn (CSS only, leaves no transform behind).
   return React.createElement(Card, {
     className: "ff-3d-cred"
@@ -2523,7 +2551,10 @@ function SubCard({
   }
   const logoUrl = (boot?.plans || []).filter(p => p.service === service).map(p => p.logoUrl).find(u => u) || '';
   const isOtpSvc = ['jiohotstar', 'hotstar', 'zee5', 'sonyliv'].some(k => String(service || '').toLowerCase().includes(k));
-  const metaItems = [['📅 Expiry', fmtDate(expiryDate)], ['🗓️ Started', fmtDate(startDate)], ['🧾 Order ID', orderId || '-'], ...(isOtpSvc ? [['📱 Login Phone', sub.loginId || '-']] : [['👤 Profile', profileName ? `#${profileNumber} · ${profileName}` : '-'], ['🔢 PIN', profilePIN || '-']])];
+  // F1: a plan with 2+ devices — one profile line per device (separate logins), or one line for all (same login).
+  const devs = Array.isArray(sub.devices) && sub.devices.length > 1 ? sub.devices : null;
+  const deviceItems = !devs ? null : sub.sameLogin ? [['📱 Devices', devs.length + ' · same login on all'], ['👤 Profile', devs[0].profileName ? `#${devs[0].profileNumber} · ${devs[0].profileName}` : '-'], ['🔢 PIN', devs[0].profilePIN || '-']] : [['📱 Devices', devs.length + ' · separate logins']].concat(devs.map(d => ['👤 Device ' + d.device, (d.profileName ? `#${d.profileNumber} · ${d.profileName}` : 'own login') + (d.profilePIN ? ' · PIN ' + d.profilePIN : '')]));
+  const metaItems = [['📅 Expiry', fmtDate(expiryDate)], ['🗓️ Started', fmtDate(startDate)], ['🧾 Order ID', orderId || '-'], ...(isOtpSvc ? [['📱 Login Phone', sub.loginId || '-']] : deviceItems || [['👤 Profile', profileName ? `#${profileNumber} · ${profileName}` : '-'], ['🔢 PIN', profilePIN || '-']])];
   return React.createElement("div", {
     style: {
       background: '#fff',
@@ -4059,6 +4090,27 @@ function DeviceSelect({ service, planObj, form, setForm }) {
     })),
     React.createElement("div", { style: { fontFamily: PJS, fontSize: 11.5, color: C.muted, fontWeight: 600, marginTop: 6, lineHeight: 1.5 } }, "💡 Smart TV / Fire Stick counts as a TV. Phone, tablet and laptop don't."));
 }
+// F1: "Same login on all devices, or a separate login for each device?" — only on plans the server marks
+// loginChoice (2+ device Netflix / Prime, once the database is ready). Big buttons, plain words.
+function LoginModeSelect({ planObj, form, setForm }) {
+  if (!planObj || !planObj.loginChoice) return null;
+  var n = planDeviceCount_(planObj.plan);
+  var both = n === 2 ? 'both devices' : 'all ' + n + ' devices';
+  var privateNetflix = /netflix/i.test(String(planObj.service || '')) && !/sharing|group/i.test(String(planObj.plan || ''));
+  var pick = function (mode) { setForm(function (f) { return Object.assign({}, f, { loginMode: mode }); }); };
+  var big = function (mode, title, sub) {
+    var on = form.loginMode === mode;
+    return React.createElement("button", { key: mode, type: "button", onClick: function () { pick(mode); }, "aria-pressed": on, style: { display: 'block', width: '100%', textAlign: 'left', padding: '14px 14px', borderRadius: 16, border: '2.5px solid ' + (on ? '#6d28d9' : C.border), background: on ? 'rgba(109,40,217,.08)' : '#fff', cursor: 'pointer', fontFamily: PJS } },
+      React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: on ? '#6d28d9' : C.text } }, (on ? '🔘 ' : '⚪ ') + title),
+      React.createElement("div", { style: { fontSize: 13, fontWeight: 600, color: C.muted, marginTop: 4, lineHeight: 1.45 } }, sub));
+  };
+  return React.createElement("div", { style: { marginTop: 4 } },
+    React.createElement("label", { style: { display: 'block', fontFamily: PJS, fontSize: 14, fontWeight: 800, color: C.text, marginBottom: 8, lineHeight: 1.4 } }, "🔐 Same login on " + both + ", or a separate login for each device?"),
+    React.createElement("div", { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
+      big('same', 'Same login', 'One ID and password, used on ' + both + '.' + (privateNetflix ? ' (One Netflix profile on ' + both + '.)' : '')),
+      big('separate', 'Separate logins', 'Each device gets its own ID and password.')),
+    React.createElement("div", { style: { fontFamily: PJS, fontSize: 11.5, color: C.muted, fontWeight: 600, marginTop: 6, lineHeight: 1.5 } }, "💡 Same price either way. If your choice isn't free right now, we'll tell you before you pay."));
+}
 function DetailsScreen({
   nav,
   service,
@@ -4076,7 +4128,8 @@ function DetailsScreen({
     notes: '',
     extraVal: '',
     deviceCount: planDeviceCount_(planObj?.plan),
-    tvCount: null
+    tvCount: null,
+    loginMode: ''
   });
   const [couponState, setCouponState] = useState({
     applied: false,
@@ -4155,6 +4208,7 @@ function DetailsScreen({
       if (isPrimeDev && !form.extraVal.trim()) return alert(planDeviceCount_(planObj.plan) > 1 ? 'Please choose how many of your devices will be a TV.' : 'Please select whether you will use Prime on a TV.');
       if (!isPrimeDev && !form.extraVal.trim()) return alert('Please fill: ' + (planObj.extraFieldLabel || 'Required field'));
     }
+    if (planObj?.loginChoice && !form.loginMode) return alert('Please choose: the same login on all devices, or a separate login for each device.');
     if (form.coupon.trim() && !couponState.applied) {
       if (!confirm('You entered a coupon but did not apply it.\nContinue without applying?')) return;
     }
@@ -4320,6 +4374,10 @@ function DetailsScreen({
   })), React.createElement(DeviceSelect, {
     service: service,
     planObj: planObj,
+    form: form,
+    setForm: setForm
+  }), React.createElement(LoginModeSelect, {
+    planObj: Object.assign({ service: service }, planObj),
     form: form,
     setForm: setForm
   }), (planObj?.needsExtraField && planObj.extraFieldKey !== 'PRIME_DEVICE_TYPE') && (false ? React.createElement("div", null, React.createElement("label", {
@@ -4654,6 +4712,7 @@ function PayScreen({
       extraFieldValue: form?.extraVal || '',
       deviceCount: planDeviceCount_(planObj?.plan),
       tvCount: form?.tvCount != null ? form.tvCount : '',
+      loginMode: planObj?.loginChoice ? form?.loginMode || '' : '',
       useCoins: form?.useCoins === true,
       groupJoined: !!groupJoined
     }, r => {
@@ -4668,7 +4727,8 @@ function PayScreen({
         upiLink: r.upiLink,
         amount: Number(r.amount || 0),
         currency: r.currency || 'INR',
-        accessToken: r.accessToken || ''
+        accessToken: r.accessToken || '',
+        loginNotice: r.loginNotice || ''
       };
       if (form?.useCoins && !r.coinsUsed && r.coinsMessage) alert('🪙 Coins were not used: ' + r.coinsMessage);
       setOrderData(oi);
@@ -4716,7 +4776,8 @@ function PayScreen({
     amount,
     accessToken,
     renewNotice,
-    renewPreview
+    renewPreview,
+    loginNotice
   } = orderData;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=8&data=${encodeURIComponent(upiLink || '')}`;
   function copyText(text, setter) {
@@ -4759,7 +4820,20 @@ function PayScreen({
       fontWeight: 600,
       lineHeight: 1.45
     }
-  }, "🔄 ", renewNotice) : null, renewPreview && renewPreview.newExpiryText ? React.createElement("div", {
+  }, "🔄 ", renewNotice) : null, loginNotice ? React.createElement("div", {
+    style: {
+      margin: '16px 0 0',
+      padding: '12px 14px',
+      borderRadius: 14,
+      background: '#eff6ff',
+      border: '1px solid #bfdbfe',
+      color: '#1e3a8a',
+      fontFamily: PJS,
+      fontSize: 13.5,
+      fontWeight: 700,
+      lineHeight: 1.45
+    }
+  }, "ℹ️ ", loginNotice) : null, renewPreview && renewPreview.newExpiryText ? React.createElement("div", {
     style: {
       margin: '12px 0 0',
       padding: '12px 14px',
@@ -6761,7 +6835,9 @@ function DoneScreen({
     }
   } : {};
   const title = !r.found ? '❌ Verify Error' : isNoStock ? '⚠️ Accounts Temporarily Unavailable' : isManual ? '✅ Payment Received' : '✅ Access Granted 🎉';
-  const msg = !r.found ? 'Please try verifying again.' : isNoStock ? r.message || 'Please contact support.' : isManual ? r.message || 'Activation will be done manually soon.' : r.accessWithheld ? r.message || 'Your login details were emailed to you. You can also view them using Recover.' : r.accountChanged ? r.message || 'Your login has changed — your new details are below.' : r.renewMessage ? r.message + ' ' + r.renewMessage : 'Your details are shown below. We also sent confirmation to your email.';
+  const msgBase = !r.found ? 'Please try verifying again.' : isNoStock ? r.message || 'Please contact support.' : isManual ? r.message || 'Activation will be done manually soon.' : r.accessWithheld ? r.message || 'Your login details were emailed to you. You can also view them using Recover.' : r.accountChanged ? r.message || 'Your login has changed — your new details are below.' : r.renewMessage ? r.message + ' ' + r.renewMessage : 'Your details are shown below. We also sent confirmation to your email.';
+  // F1: why the logins differ from what was chosen (e.g. not enough separate accounts right now).
+  const msg = msgBase + (r.found && !isNoStock && !isManual && r.loginNotice ? ' ℹ️ ' + r.loginNotice : '');
   return React.createElement(Slide, null, React.createElement("div", {
     style: {
       paddingBottom: 90

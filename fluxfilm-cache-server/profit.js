@@ -105,7 +105,11 @@ function mount(app, deps) {
       const svcRow = (fam) => { if (!bySvc.has(fam)) bySvc.set(fam, { family: fam, services: new Set(), revenue: 0, earned: 0, orders: 0, renewals: 0, cost: 0, accounts: 0, accountsWithoutCost: 0 }); return bySvc.get(fam); };
       let revenue = 0, earnedTotal = 0, ahead = 0, orderCount = 0, renewals = 0;
       const fromMs = istMs(range.from), toMs = istMs(range.to);
+      const seenOrders = new Set();
       for (const o of orders) {
+        // One order joined to several subscriptions (F1 separate logins: one row per login) is counted once.
+        if (o.order_id != null && seenOrders.has(o.order_id)) continue;
+        seenOrders.add(o.order_id);
         const x = orderSplit(o, fromMs, toMs);
         if (!x.inPeriod && x.earned <= 0) continue;
         const amt = x.cash; const n = x.inPeriod ? 1 : 0;

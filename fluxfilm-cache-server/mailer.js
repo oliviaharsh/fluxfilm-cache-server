@@ -34,6 +34,17 @@ async function sendAccessEmail(payload) {
     const a = p.access || {};
     let rows = row('Login / Email', a.user) + row('Password', a.pass) +
       row('Profile', a.profileName) + row('Profile PIN', a.profilePin) + row('Device', a.deviceType);
+    // F1: a plan with 2+ devices — one block per device, or one block + "use it on all devices".
+    const logins = Array.isArray(a.logins) ? a.logins : [];
+    if (logins.length > 1 && a.sameLogin) {
+      rows += '<tr><td colspan="2" style="padding:8px 12px;color:#166534;font-weight:700;font-size:13px">✅ Use this same login on ' + (logins.length === 2 ? 'both devices' : 'all ' + logins.length + ' devices') + '.</td></tr>';
+    } else if (logins.length > 1) {
+      rows = logins.map((x) =>
+        '<tr><td colspan="2" style="padding:12px 12px 2px;font-weight:800;font-size:14px;color:#0f172a">📱 Device ' + escHtml(x.device) + '</td></tr>' +
+        row('Login / Email', escHtml(x.user)) + row('Password', escHtml(x.pass)) + row('Profile', escHtml([x.profileName, x.profileNumber ? '#' + x.profileNumber : ''].filter(Boolean).join(' '))) + row('Profile PIN', escHtml(x.profilePin)) +
+        row('Device', escHtml(x.deviceType === 'TV' ? 'TV' : x.deviceType === 'NON_TV' ? 'Mobile / laptop' : x.deviceType))).join('') +
+        '<tr><td colspan="2" style="padding:10px 12px;color:#475569;font-size:13px">Each device has its own login — use Device 1\'s details on your first device, Device 2\'s on the second.</td></tr>';
+    }
     subject = '🎬 Your FluxFilm ' + (p.service || '') + ' access — ' + (p.orderId || '');
     html =
       '<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:520px;margin:auto">' +
@@ -43,6 +54,7 @@ async function sendAccessEmail(payload) {
       '<table style="width:100%;border-collapse:collapse">' +
       row('Service', p.service) + row('Plan', p.plan) + row('Order ID', p.orderId) + row('Valid till', p.expiry) + rows +
       '</table></div>' +
+      (p.loginNotice ? '<div style="background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:12px;font-size:13px;color:#9a3412;margin-bottom:10px">ℹ️ ' + escHtml(p.loginNotice) + '</div>' : '') +
       (p.postPaymentMessage ? '<div style="background:#fef9c3;border-radius:10px;padding:12px;white-space:pre-line;font-size:13px">' + p.postPaymentMessage + '</div>' : '') +
       '<p style="color:#94a3b8;font-size:12px;margin-top:18px">Need help? Just reply to this email or message us on WhatsApp. 💚</p></div>';
   }

@@ -7,6 +7,7 @@
 const db = require('./db');
 const { loginKey, buildLoginGroups } = require('./logins');
 const { computeRenewal } = require('./renewal');
+const deviceLogins = require('./devicelogins');
 
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
@@ -42,10 +43,13 @@ const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR release_e
 // device_count devices (older rows without it count as 1).
 async function occupancyMap(conn, serviceLike) {
   const [occ] = await conn.query(
-    "SELECT inventory_ref, SUM(COALESCE(device_count,1)) total FROM subscriptions " +
+    "SELECT inventory_ref, SUM(COALESCE(device_count,1)) total, SUM(GREATEST(COALESCE(device_count,1)-1,0)) extra FROM subscriptions " +
     "WHERE LOWER(service) LIKE ? AND " + OCC_ACTIVE + " GROUP BY inventory_ref", [serviceLike]);
   const m = new Map();
-  for (const o of occ) m.set(String(o.inventory_ref), asNum(o.total));
+  // extra = devices beyond the first on each subscription (F1: a Netflix private profile used on N devices
+  // takes N − 1 extra devices of its account's max_total). 0 for every 1-device subscription.
+  m.extra = new Map();
+  for (const o of occ) { m.set(String(o.inventory_ref), asNum(o.total)); m.extra.set(String(o.inventory_ref), asNum(o.extra)); }
   return m;
 }
 
@@ -95,27 +99,32 @@ async function withLock(name, ttl, fn) {
 
 // Pick a Prime account that can fit deviceCount more devices (of which tvCount are
 // TV): used_total + deviceCount <= MaxTotal, and used_tv + tvCount <= MaxTV.
-async function allocatePrime(conn, deviceCount, tvCount) {
-  const need = Math.max(1, deviceCount || 1);
-  const needTV = Math.max(0, Math.min(tvCount || 0, need));
+// Every active Prime account with its capacity and live use (no filtering by free room).
+async function primeAccounts(conn) {
   const [accs] = await conn.query("SELECT account_id, login_id, password FROM inventory_accounts WHERE LOWER(service) LIKE '%prime%' AND UPPER(is_active)='TRUE'");
-  if (!accs.length) return { ok: false, message: 'No active Prime accounts.' };
+  if (!accs.length) return null;
   const [caps] = await conn.query("SELECT account_id, max_total, max_tv, is_active FROM inventory_capacity WHERE LOWER(service) LIKE '%prime%'");
   const capMap = new Map();
   for (const c of caps) capMap.set(String(c.account_id), { maxTotal: asNum(c.max_total) || PRIME_MAX_TOTAL, maxTV: asNum(c.max_tv) || PRIME_MAX_TV, isActive: String(c.is_active || '').toUpperCase() === 'TRUE' });
   const occMap = await primeOccupancy(conn);
-
-  const candidates = [];
+  const list = [];
   for (const a of accs) {
     const id = String(a.account_id);
     if (!id || !a.login_id || !a.password) continue;
     const cap = capMap.get(id) || { maxTotal: PRIME_MAX_TOTAL, maxTV: PRIME_MAX_TV, isActive: true };
     if (!cap.isActive) continue;
     const o = occMap.get(id) || { total: 0, tv: 0 };
-    if (o.total + need > cap.maxTotal) continue;      // not enough free devices
-    if (o.tv + needTV > cap.maxTV) continue;          // not enough free TV slots
-    candidates.push({ id, login: a.login_id, pass: a.password, total: o.total });
+    list.push({ id, login: a.login_id, pass: a.password, total: o.total, tv: o.tv, maxTotal: cap.maxTotal, maxTV: cap.maxTV });
   }
+  return list;
+}
+
+async function allocatePrime(conn, deviceCount, tvCount) {
+  const need = Math.max(1, deviceCount || 1);
+  const needTV = Math.max(0, Math.min(tvCount || 0, need));
+  const accounts = await primeAccounts(conn);
+  if (!accounts) return { ok: false, message: 'No active Prime accounts.' };
+  const candidates = accounts.filter((x) => x.total + need <= x.maxTotal && x.tv + needTV <= x.maxTV); // free devices + free TV slots
   if (!candidates.length) return { ok: false, noStock: true, message: 'Prime slots are full right now (TV/non-TV capacity).' };
   candidates.sort((x, y) => x.total - y.total); // emptiest first (spreads load)
   const picked = candidates[0];
@@ -123,18 +132,40 @@ async function allocatePrime(conn, deviceCount, tvCount) {
   return { ok: true, inventoryRef: picked.id, deviceType: dt, access: { user: picked.login, pass: picked.pass } };
 }
 
+// F1 separate logins on Prime: n devices on n DIFFERENT accounts, 1 device each. The first tvCount devices
+// are the TVs: each goes to an account with a free TV slot; the others need only a free device.
+// Emptiest accounts first. Returns parts in device order, or a failure (never a partial set).
+async function allocatePrimeSeparate(conn, n, tvCount, exclude) {
+  const need = Math.max(1, n || 1);
+  const needTV = Math.max(0, Math.min(tvCount || 0, need));
+  const accounts = await primeAccounts(conn);
+  if (!accounts) return { ok: false, message: 'No active Prime accounts.' };
+  const skip = exclude || new Set();
+  const cands = accounts.filter((x) => !skip.has(x.id) && x.total + 1 <= x.maxTotal && x.tv <= x.maxTV).sort((x, y) => x.total - y.total);
+  const tvCands = cands.filter((x) => x.tv + 1 <= x.maxTV);
+  if (cands.length < need || tvCands.length < needTV) return { ok: false, noStock: true, message: 'Not enough separate Prime accounts are free right now.' };
+  const tvPicked = tvCands.slice(0, needTV);
+  const rest = cands.filter((x) => !tvPicked.includes(x)).slice(0, need - needTV);
+  const mk = (x, tv) => ({ alloc: { ok: true, inventoryRef: x.id, accountId: x.id, deviceType: tv ? 'TV' : 'NON_TV', access: { user: x.login, pass: x.pass } }, dt: tv ? 'TV' : 'NON_TV', devices: 1, tv: tv ? 1 : 0 });
+  return { ok: true, parts: tvPicked.map((x) => mk(x, true)).concat(rest.map((x) => mk(x, false))) };
+}
+
 async function _existingAccess(orderId) {
-  const [rows] = await db.getPool().query('SELECT sub_id, login_id, password, profile_name, profile_pin, profile_number FROM subscriptions WHERE order_id = ? LIMIT 1', [orderId]);
+  const pool = db.getPool();
+  const rows = await _purchaseRows((sql, p) => pool.query(sql, p), 'order_id', orderId);
   const s = rows[0];
   if (!s) return null;
-  return { subId: s.sub_id, access: { user: s.login_id || '', pass: s.password || '', profileName: s.profile_name || '', profilePin: s.profile_pin || '', profileNumber: s.profile_number || '' } };
+  const access = { user: s.login_id || '', pass: s.password || '', profileName: s.profile_name || '', profilePin: s.profile_pin || '', profileNumber: s.profile_number || '' };
+  const multi = deviceLogins.accessWithLogins(rows);
+  if (rows.groupsOn && multi.logins) Object.assign(access, { logins: multi.logins, sameLogin: multi.sameLogin, deviceCount: multi.deviceCount });
+  return { subId: s.sub_id, access };
 }
 
 async function _fulfill(orderId) {
   const [ords] = await db.getPool().query(
     // device_count/tv_count must be selected: allocation reserves that many devices.
     // (Omitting them silently treated every multi-device order as 1 device.)
-    'SELECT order_id, service, plan, name, email, phone, phone_norm, duration_days, status, fulfillment_status, extra_field_value, device_count, tv_count, source, final_amount, order_type, renew_sub_id FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
+    'SELECT order_id, service, plan, name, email, phone, phone_norm, duration_days, status, fulfillment_status, extra_field_value, device_count, tv_count, source, final_amount, order_type, renew_sub_id, raw_json FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
   const o = ords[0];
   if (!o) return { ok: false, found: false, fulfillment: 'ERROR', message: 'Order not found in the FluxFilm database.' };
   if (o.source !== 'node') return { ok: false, found: false, fulfillment: 'ERROR', message: 'This legacy order cannot be fulfilled on the new checkout. Please contact support.' };
@@ -181,7 +212,50 @@ async function _fulfill(orderId) {
 // account; profile #NETFLIX_SHARING_NO is the shared profile and is never sold
 // privately). Other services (e.g. Crunchyroll) draw only from accounts of their
 // own service, and every PRIVATE_ROTATING profile is sellable, including #1.
+// Devices a PROFILE account already uses against its max_total (F1 counting rule, decided 2026-09-14):
+// seats on its sharing profile + the EXTRA devices (device_count − 1) of multi-device private subscriptions.
+// A 1-device private profile adds 0, so stock for today's 1-device plans does not change.
+function sharingProfileOf(list, reservedNo) {
+  return (reservedNo != null && list.find((p) => p.pno === reservedNo)) || list.find((p) => p.type.indexOf('SHARING') === 0 || p.reserved) || null;
+}
+function profileAccountLoad(occ, acc, list, reservedNo) {
+  const sp = sharingProfileOf(list, reservedNo);
+  const sharingUsed = sp && sp.pno ? (occ.get(acc + '#P' + sp.pno) || 0) : 0;
+  let extras = 0;
+  for (const p of list) {
+    if (!p.pno || p.pno === reservedNo || p.type !== 'PRIVATE_ROTATING') continue;
+    extras += (occ.extra && occ.extra.get(acc + '#P' + p.pno)) || 0;
+  }
+  return { sharingUsed, extras, load: sharingUsed + extras };
+}
+
 async function allocateProfile(conn, service, plan, deviceCount) {
+  const r = await profileCandidates(conn, service, plan, deviceCount);
+  if (!r.ok) return r.noStock ? { ok: false, noStock: true, message: r.message } : { ok: false, message: r.message };
+  const p = r.cands[0];
+  return r.sharing
+    ? { ok: true, inventoryRef: p.ref, accountId: p.acc, access: { user: p.a.login_id, pass: p.a.password, profileNumber: p.prof.pno, profileName: p.prof.name || 'FluxFilm', profilePin: p.prof.pin } }
+    : { ok: true, inventoryRef: p.ref, accountId: p.acc, access: { user: p.a.login_id, pass: p.a.password, profileNumber: p.prof.pno, profileName: p.prof.name || 'Private', profilePin: p.prof.pin } };
+}
+
+// F1 separate logins on Netflix: n devices on n DIFFERENT accounts, one seat (sharing) or one private
+// profile (private) each. All or nothing.
+async function allocateProfileSeparate(conn, service, plan, n, exclude) {
+  const r = await profileCandidates(conn, service, plan, 1);
+  if (!r.ok && !r.noStock) return r;
+  const skip = exclude || new Set();
+  const cands = (r.cands || []).filter((c) => !skip.has(c.acc));
+  const need = Math.max(1, n || 1);
+  if (cands.length < need) return { ok: false, noStock: true, message: 'Not enough separate ' + (r.label || 'Netflix') + ' accounts are free right now.' };
+  const name = r.sharing ? 'FluxFilm' : 'Private';
+  return {
+    ok: true,
+    parts: cands.slice(0, need).map((p) => ({ alloc: { ok: true, inventoryRef: p.ref, accountId: p.acc, access: { user: p.a.login_id, pass: p.a.password, profileNumber: p.prof.pno, profileName: p.prof.name || name, profilePin: p.prof.pin } }, dt: '', devices: 1, tv: 0 })),
+  };
+}
+
+// Candidate accounts for a PROFILE sale of `deviceCount` devices on one login, best first.
+async function profileCandidates(conn, service, plan, deviceCount) {
   const need = Math.max(1, deviceCount || 1);
   const sharing = /sharing|group/i.test(String(plan || ''));
   const isNetflix = /netflix/i.test(String(service || ''));
@@ -189,7 +263,7 @@ async function allocateProfile(conn, service, plan, deviceCount) {
   const reservedNo = isNetflix ? NETFLIX_SHARING_NO : null;
   const label = isNetflix ? 'Netflix' : String(service || 'this service').trim();
   const [accs] = await conn.query("SELECT account_id, login_id, password FROM inventory_accounts WHERE LOWER(service) LIKE ? AND UPPER(is_active)='TRUE'", [like]);
-  if (!accs.length) return { ok: false, message: 'No active ' + label + ' accounts.' };
+  if (!accs.length) return { ok: false, label, sharing, message: 'No active ' + label + ' accounts.' };
   const [profs] = await conn.query('SELECT account_id, profile_number, profile_pin, profile_name, raw_json FROM inventory_profiles WHERE LOWER(service) LIKE ?', [like]);
   const [caps] = await conn.query('SELECT account_id, max_total, is_active FROM inventory_capacity WHERE LOWER(service) LIKE ?', [like]);
   const capMap = new Map();
@@ -217,32 +291,37 @@ async function allocateProfile(conn, service, plan, deviceCount) {
       const acc = String(a.account_id); if (!acc || !a.login_id || !a.password) continue;
       const cap = capMap.get(acc) || { maxTotal: NETFLIX_SHARING_MAX, isActive: true }; if (!cap.isActive) continue;
       const list = byAcc.get(acc) || [];
-      const prof = (reservedNo != null && list.find((p) => p.pno === reservedNo)) || list.find((p) => p.type.indexOf('SHARING') === 0 || p.reserved);
+      const prof = sharingProfileOf(list, reservedNo);
       if (!prof || !prof.pno) continue;
       const ref = acc + '#P' + prof.pno;
-      const used = occ.get(ref) || 0;
+      const used = profileAccountLoad(occ, acc, list, reservedNo).load; // seats + extra private devices
       if (used + need > cap.maxTotal) continue;   // not enough free device slots
       cands.push({ acc, a, prof, ref, used });
     }
-    if (!cands.length) return { ok: false, noStock: true, message: label + ' sharing slots are full right now.' };
+    if (!cands.length) return { ok: false, noStock: true, label, sharing, cands: [], message: label + ' sharing slots are full right now.' };
     cands.sort((x, y) => x.used - y.used);
-    const p = cands[0];
-    return { ok: true, inventoryRef: p.ref, accountId: p.acc, access: { user: p.a.login_id, pass: p.a.password, profileNumber: p.prof.pno, profileName: p.prof.name || 'FluxFilm', profilePin: p.prof.pin } };
+    return { ok: true, label, sharing, cands };
   }
 
-  // PRIVATE: a PRIVATE_ROTATING profile (not the sharing one) with no active sub.
+  // PRIVATE: a PRIVATE_ROTATING profile (not the sharing one) with no active sub. On N devices (same login)
+  // the account must also have room for the N − 1 extra devices within its max_total.
   const cands = [];
   for (const a of accs) {
     const acc = String(a.account_id); if (!acc || !a.login_id || !a.password) continue;
-    const list = (byAcc.get(acc) || []).filter((p) => p.pno && p.pno !== reservedNo && p.type === 'PRIVATE_ROTATING');
+    const all = byAcc.get(acc) || [];
+    const list = all.filter((p) => p.pno && p.pno !== reservedNo && p.type === 'PRIVATE_ROTATING');
     let assigned = 0; let free = null;
     for (const p of list) { const used = occ.get(acc + '#P' + p.pno) || 0; if (used > 0) assigned++; else if (!free) free = p; }
-    if (free) cands.push({ acc, a, prof: free, ref: acc + '#P' + free.pno, assigned });
+    if (!free) continue;
+    if (need > 1) {
+      const cap = capMap.get(acc) || { maxTotal: NETFLIX_SHARING_MAX, isActive: true };
+      if (profileAccountLoad(occ, acc, all, reservedNo).load + (need - 1) > cap.maxTotal) continue;
+    }
+    cands.push({ acc, a, prof: free, ref: acc + '#P' + free.pno, assigned });
   }
-  if (!cands.length) return { ok: false, noStock: true, message: 'No ' + label + ' private profiles available right now.' };
+  if (!cands.length) return { ok: false, noStock: true, label, sharing, cands: [], message: 'No ' + label + ' private profiles available right now.' };
   cands.sort((x, y) => x.assigned - y.assigned); // load-balance: emptiest account first
-  const p = cands[0];
-  return { ok: true, inventoryRef: p.ref, accountId: p.acc, access: { user: p.a.login_id, pass: p.a.password, profileNumber: p.prof.pno, profileName: p.prof.name || 'Private', profilePin: p.prof.pin } };
+  return { ok: true, label, sharing, cands };
 }
 
 /** Back-compat name: the Netflix case of allocateProfile. */
@@ -339,6 +418,68 @@ async function pickAllocation(conn, policy, a) {
   return { alloc, dt };
 }
 
+// ---------------------------------------------------------------------------
+// F1: multiple devices — same login or a separate login for each device.
+// Read-only: chooses every device of the order at once (the caller holds the allocation lock and writes).
+//   same     → one account with room for all N devices; else separate accounts (+ message)
+//   separate → N different accounts, 1 device each; else one account for all N (+ message)
+//   neither  → { ok: false, noStock } — nothing is allocated (never a partial set)
+// ---------------------------------------------------------------------------
+async function _separateParts(conn, policy, a, n, exclude) {
+  const r = policy === 'CAPACITY'
+    ? await allocatePrimeSeparate(conn, n, a.tvCount, exclude)
+    : await allocateProfileSeparate(conn, a.service, a.plan, n, exclude);
+  return r && r.ok ? r.parts : null;
+}
+async function pickDeviceLogins(conn, policy, a) {
+  const n = Math.max(1, asNum(a.deviceCount) || 1);
+  const tvCount = Math.max(0, Math.min(asNum(a.tvCount) || 0, n));
+  const mode = a.mode === 'separate' ? 'separate' : 'same';
+  const same = async () => {
+    const { alloc, dt } = await pickAllocation(conn, policy, { service: a.service, plan: a.plan, durationDays: a.durationDays, deviceCount: n, tvCount });
+    return alloc && alloc.ok ? [{ alloc, dt, devices: n, tv: tvCount }] : null;
+  };
+  const separate = () => _separateParts(conn, policy, { service: a.service, plan: a.plan, tvCount }, n, a.exclude);
+  let parts; let delivered = mode; let message = '';
+  if (mode === 'separate') {
+    parts = await separate();
+    if (!parts) { parts = await same(); delivered = 'same'; message = parts ? deviceLogins.MESSAGES.separateGaveSame(n) : ''; }
+  } else {
+    parts = await same();
+    if (!parts) { parts = await separate(); delivered = 'separate'; message = parts ? deviceLogins.MESSAGES.sameGaveSeparate(n) : ''; }
+  }
+  if (!parts) return { ok: false, noStock: true, requested: mode, message: deviceLogins.MESSAGES.outOfStock(n) };
+  return { ok: true, requested: mode, delivered, fallback: delivered !== mode, message, parts };
+}
+
+/** Before payment (createOrder): can this N-device order be delivered, and how? No lock, nothing written. */
+async function checkDeviceLogins(a) {
+  const conn = await db.getPool().getConnection();
+  try {
+    const r = await pickDeviceLogins(conn, String(a.policy || '').toUpperCase(), a);
+    return { ok: r.ok, requested: r.requested, delivered: r.delivered, fallback: !!r.fallback, message: r.message };
+  } finally { conn.release(); }
+}
+
+/** Is this order an F1 multi-login order (eligible plan AND schema-v19 ready)? */
+async function _deviceLoginsOn(conn, service, plan, policy, deviceCount) {
+  if (Math.max(1, asNum(deviceCount) || 1) < 2) return false;
+  if (!deviceLogins.isEligible({ service, plan, policy })) return false;
+  return deviceLogins.groupsReady((sql, p) => conn.query(sql, p));
+}
+
+const SUB_ACCESS_COLS = 'sub_id, login_id, password, profile_name, profile_pin, profile_number, device_type, device_count, tv_count';
+// All login rows of one purchase, in device order. Before schema-v19 (or for legacy rows) → just the first row.
+async function _purchaseRows(q, where, param) {
+  const on = await deviceLogins.groupsReady(q);
+  const [rows] = await q('SELECT ' + SUB_ACCESS_COLS + (on ? ', group_id, group_index' : '') + ' FROM subscriptions WHERE ' + where + ' = ?' + (on ? ' ORDER BY group_index' : ''), [param]);
+  if (!rows || !rows.length) return [];
+  const first = rows[0];
+  const out = (!on || !first.group_id) ? [first] : rows.filter((r) => r.group_id === first.group_id);
+  out.groupsOn = on;
+  return out;
+}
+
 // Allocate (under a lock) + write the subscription + finish the order. Shared by
 // Prime/Netflix/whole-account so the record + hook are identical everywhere.
 async function _allocateAndFinish(o, policy, ppm) {
@@ -354,6 +495,11 @@ async function _allocateAndFinish(o, policy, ppm) {
     let tvCount = (o.tv_count != null) ? asNum(o.tv_count) : null;
     if (tvCount == null) { const dtOld = String(o.extra_field_value || '').toUpperCase(); tvCount = dtOld === 'TV' ? deviceCount : 0; }
     tvCount = Math.max(0, Math.min(tvCount, deviceCount));
+
+    // F1: 2+ device Netflix / Prime order and schema-v19 ready → same login or separate logins.
+    if (await _deviceLoginsOn(conn, o.service, o.plan, policy, deviceCount)) {
+      return await _finishDeviceLogins(conn, o, policy, ppm, deviceCount, tvCount);
+    }
 
     const { alloc, dt } = await pickAllocation(conn, policy, { service: o.service, plan: o.plan, durationDays: o.duration_days, deviceCount, tvCount });
 
@@ -391,6 +537,76 @@ async function _allocateAndFinish(o, policy, ppm) {
       subId, expiry: fmtDt(expiry),
     };
   });
+}
+
+// All writes of one delivery succeed or none do (fake test connections without transactions just run in order).
+async function _inTransaction(conn, fn) {
+  const tx = typeof conn.beginTransaction === 'function';
+  if (tx) await conn.beginTransaction();
+  try {
+    const out = await fn();
+    if (tx) await conn.commit();
+    return out;
+  } catch (e) {
+    if (tx) { try { await conn.rollback(); } catch (_) {} }
+    throw e;
+  }
+}
+
+const SUB_INSERT_SQL =
+  `INSERT INTO subscriptions (sub_id, order_id, phone, phone_norm, email, service, plan, duration_days,
+     start_date, expiry_date, status, fulfillment_status, order_type, inventory_ref, account_id,
+     login_id, password, profile_number, profile_name, profile_pin, device_type, device_count, tv_count, release_eligible_at, fulfilled_at, source,
+     group_id, group_size, group_index)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'FULFILLED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'node', ?, ?, ?)`;
+
+// F1 delivery (caller holds the ff_alloc lock): pick every device at once, then write one subscriptions row per
+// login in one transaction. A same-login delivery is one row with device_count N (group_size 1).
+async function _finishDeviceLogins(conn, o, policy, ppm, deviceCount, tvCount) {
+  const oraw = rawOf(o.raw_json);
+  const mode = deviceLogins.normalizeMode(oraw.LoginMode) || 'same';
+  const pick = await pickDeviceLogins(conn, policy, { service: o.service, plan: o.plan, durationDays: o.duration_days, deviceCount, tvCount, mode });
+  if (!pick.ok) {
+    await conn.query("UPDATE orders SET fulfillment_status = 'FAILED' WHERE order_id = ?", [o.order_id]).catch(() => {});
+    return { ok: true, found: true, orderId: o.order_id, fulfillment: 'NO_STOCK', message: '😔 No account has room for this ' + deviceCount + "-device plan right now (same or separate logins). Please contact WhatsApp support — we'll sort it instantly." };
+  }
+  const start = new Date();
+  const expiry = addDays(start, asNum(o.duration_days) || 30);
+  const release = addDays(expiry, COOLDOWN_DAYS);
+  const groupId = 'G-' + o.order_id;
+  const size = pick.parts.length;
+  const rows = [];
+  await _inTransaction(conn, async () => {
+    for (let i = 0; i < size; i++) {
+      const part = pick.parts[i];
+      const acc = part.alloc.access || {};
+      let rowSubId = await freeSubId();
+      while (rows.some((r) => r.sub_id === rowSubId)) rowSubId = await freeSubId(); // not visible to freeSubId until commit
+      const dt = policy === 'CAPACITY' ? (part.dt || (part.tv >= part.devices ? 'TV' : part.tv > 0 ? 'MIXED' : 'NON_TV')) : '';
+      const tv = policy === 'CAPACITY' ? part.tv : null;
+      await conn.query(SUB_INSERT_SQL,
+        [rowSubId, o.order_id, o.phone, o.phone_norm, o.email, o.service, o.plan, asNum(o.duration_days) || 30,
+          fmtDt(start), fmtDt(expiry), 'NEW', part.alloc.inventoryRef, part.alloc.accountId || part.alloc.inventoryRef,
+          acc.user || '', acc.pass || '', acc.profileNumber || '', acc.profileName || '', acc.profilePin || '', dt,
+          part.devices, tv, fmtDt(release), groupId, size, i + 1]);
+      rows.push({ sub_id: rowSubId, login_id: acc.user || '', password: acc.pass || '', profile_name: acc.profileName || '', profile_pin: acc.profilePin || '', profile_number: acc.profileNumber || '', device_type: dt, device_count: part.devices, tv_count: tv, group_index: i + 1 });
+    }
+    await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
+  });
+  const access = deviceLogins.accessWithLogins(rows);
+  console.log('[fulfill] F1', o.order_id, 'requested', pick.requested, 'delivered', pick.delivered, 'on', rows.length, 'login row(s)');
+  afterFulfillHook({
+    event: 'NEW_PURCHASE',
+    orderId: o.order_id, phone: o.phone, email: o.email, name: o.name,
+    service: o.service, plan: o.plan, amount: o.final_amount, expiry: fmtDt(expiry), postPaymentMessage: ppm || '',
+    access, loginNotice: pick.message,
+  });
+  return {
+    ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED',
+    message: '✅ Your access is ready!', postPaymentMessage: ppm || '',
+    access, loginMode: pick.delivered, requestedLoginMode: pick.requested, loginNotice: pick.message,
+    subId: rows[0].sub_id, subIds: rows.map((r) => r.sub_id), expiry: fmtDt(expiry),
+  };
 }
 
 // Manual services: log a MANUAL_PENDING subscription (visible in the admin panel)
@@ -453,12 +669,21 @@ async function _hasRemovalColumns(conn) {
   return _removalColumns;
 }
 
-async function _renewalSub(conn, subId) {
+async function _renewalCols(conn) {
   const removal = (await _hasRemovalColumns(conn)) ? 'removed, removed_at, ' : '0 AS removed, NULL AS removed_at, ';
-  const [rows] = await conn.query(
-    'SELECT sub_id, service, plan, expiry_date, inventory_ref, account_id, login_id, password, profile_name, profile_pin, profile_number, ' +
-    'device_type, device_count, tv_count, ' + removal + '(' + OCC_ACTIVE + ') AS occupying FROM subscriptions WHERE sub_id = ? LIMIT 1', [subId]);
+  const groups = (await deviceLogins.groupsReady((sql, p) => conn.query(sql, p))) ? 'group_id, group_size, group_index, ' : '';
+  return 'sub_id, service, plan, expiry_date, start_date, inventory_ref, account_id, login_id, password, profile_name, profile_pin, profile_number, ' +
+    'device_type, device_count, tv_count, ' + removal + groups + '(' + OCC_ACTIVE + ') AS occupying';
+}
+async function _renewalSub(conn, subId) {
+  const [rows] = await conn.query('SELECT ' + (await _renewalCols(conn)) + ' FROM subscriptions WHERE sub_id = ? LIMIT 1', [subId]);
   return rows[0] || null;
+}
+// Every login row of the purchase this subscription belongs to (F1), in device order. Legacy / pre-v19 → [s].
+async function _renewalRows(conn, s) {
+  if (!s || !s.group_id) return [s];
+  const [rows] = await conn.query('SELECT ' + (await _renewalCols(conn)) + ' FROM subscriptions WHERE group_id = ? ORDER BY group_index', [s.group_id]);
+  return rows && rows.length ? rows : [s];
 }
 
 // Devices this subscription holds — counted exactly as the occupancy queries do.
@@ -509,15 +734,28 @@ async function _canKeepAccount(conn, policy, s, plan) {
     creds.profileNumber = pno;
     creds.profileName = String(praw.ProfileDisplayName || praw.ProfileName || prof.profile_name || '').trim();
     creds.profilePin = String(prof.profile_pin || praw.ProfilePIN || '').trim();
-    const used = (await occupancyMap(conn, like)).get(ref) || 0;
-    if (/sharing|group/i.test(String(plan || s.plan || ''))) {
+    const occ = await occupancyMap(conn, like);
+    const used = occ.get(ref) || 0;
+    // F1 counting rule: the account's sharing seats + extra devices of multi-device private profiles.
+    const reservedNo = /netflix/i.test(svc) ? NETFLIX_SHARING_NO : null;
+    const list = profs.map((p) => { const r = rawOf(p.raw_json); return { pno: asNum(p.profile_number) || asNum(r.ProfileNumber), type: String(r.ProfileType || '').toUpperCase(), reserved: String(r.IsReserved || '').toUpperCase() === 'TRUE' }; });
+    const accLoad = profileAccountLoad(occ, acc, list, reservedNo);
+    const capOf = async () => {
       const [caps] = await conn.query('SELECT max_total, is_active FROM inventory_capacity WHERE account_id = ? AND LOWER(service) LIKE ?', [acc, like]);
       let cap = { maxTotal: NETFLIX_SHARING_MAX, isActive: true };
       for (const c of caps) cap = { maxTotal: asNum(c.max_total) || NETFLIX_SHARING_MAX, isActive: String(c.is_active || '').toUpperCase() !== 'FALSE' };
+      return cap;
+    };
+    if (/sharing|group/i.test(String(plan || s.plan || ''))) {
+      const cap = await capOf();
       if (!cap.isActive) return { keep: false, reason: 'INACTIVE' };
-      if (used - selfDev + dev > cap.maxTotal) return { keep: false, reason: 'FULL' };
+      if (used - selfDev + dev + accLoad.extras > cap.maxTotal) return { keep: false, reason: 'FULL' };
     } else if (used - selfDev > 0) {
       return { keep: false, reason: 'FULL' }; // someone else now has this private profile
+    } else if (dev > 1) {
+      // One private profile on N devices: its N − 1 extra devices must still fit (own extras excluded).
+      const cap = await capOf();
+      if (accLoad.load - (mine ? dev - 1 : 0) + (dev - 1) > cap.maxTotal) return { keep: false, reason: 'FULL' };
     }
     return { keep: true, creds };
   }
@@ -550,97 +788,229 @@ async function _renewalDecision(conn, s, plan) {
   return { mode: 'NONE', policy: info.policy, reason: keep.reason, durationDays: info.durationDays };
 }
 
+const accountOfRef = (ref) => { const r = String(ref || '').trim(); const cut = r.indexOf('#P'); return cut >= 0 ? r.slice(0, cut) : r; };
+const deviceNames = (rows) => rows.map((r, i) => 'Device ' + (asNum(r.group_index) || i + 1)).join(' and ');
+
+// F1: the whole purchase (every login row) renews together, for one price.
+//   one row (a normal or same-login subscription): today's R1 decision; if nothing can take all N devices
+//     together but N separate accounts can (schema-v19) → SPLIT into one row per device.
+//   several rows (separate logins): each row keeps its account if it can; the others MOVE to other accounts
+//     (1 device each, different from the kept ones when possible). If any device can't be placed → NONE.
+async function _purchaseRenewalDecision(conn, rows, plan) {
+  const lead = rows[0];
+  const targetPlan = plan || lead.plan;
+  if (rows.length === 1) {
+    const d = await _renewalDecision(conn, lead, targetPlan);
+    d.rows = rows;
+    d.keeps = d.mode === 'SAME' ? [{ row: lead, creds: d.creds }] : [];
+    d.moves = d.mode === 'MOVE' ? [{ row: lead, reason: d.reason, part: { alloc: d.alloc, dt: d.dt } }] : [];
+    if (d.mode !== 'NONE') return d;
+    const { dev, tv } = _heldDevices(lead);
+    if (dev > 1 && await _deviceLoginsOn(conn, lead.service, targetPlan, d.policy, dev)) {
+      const parts = await _separateParts(conn, d.policy, { service: lead.service, plan: targetPlan, tvCount: Math.min(tv, dev) }, dev);
+      if (parts) return Object.assign(d, { mode: 'SPLIT', parts });
+    }
+    return d;
+  }
+  const info = await _renewalPlanInfo(conn, lead.service, targetPlan);
+  const base = { policy: info.policy, durationDays: info.durationDays, rows, keeps: [], moves: [] };
+  const held = rows.reduce((n, r) => n + _heldDevices(r).dev, 0);
+  if (deviceLogins.devicesForPlan(targetPlan) !== held) return Object.assign(base, { mode: 'NONE', reason: 'DEVICES' });
+  if (info.policy === 'MANUAL') return Object.assign(base, { mode: 'SAME', keeps: rows.map((row) => ({ row })) });
+  const moving = [];
+  for (const row of rows) {
+    const k = await _canKeepAccount(conn, info.policy, row, targetPlan);
+    if (k.keep) base.keeps.push({ row, creds: k.creds }); else moving.push({ row, reason: k.reason });
+  }
+  if (!moving.length) return Object.assign(base, { mode: 'SAME' });
+  const a = { service: lead.service, plan: targetPlan, tvCount: moving.reduce((n, m) => n + Math.min(1, _heldDevices(m.row).tv), 0) };
+  const exclude = new Set(base.keeps.map((k) => accountOfRef(k.row.inventory_ref)));
+  const parts = (await _separateParts(conn, info.policy, a, moving.length, exclude)) || (await _separateParts(conn, info.policy, a, moving.length));
+  if (!parts) return Object.assign(base, { mode: 'NONE', reason: moving[0].reason });
+  moving.sort((x, y) => Math.min(1, _heldDevices(y.row).tv) - Math.min(1, _heldDevices(x.row).tv)); // TV devices get the TV places (listed first)
+  return Object.assign(base, { mode: 'MOVE', reason: moving[0].reason, moves: moving.map((m, i) => ({ row: m.row, reason: m.reason, part: parts[i] })) });
+}
+
+function _renewalMessage(d) {
+  const n = d.rows.length;
+  if (d.mode === 'NONE') {
+    if (d.reason === 'DEVICES') {
+      const held = d.rows.reduce((x, r) => x + _heldDevices(r).dev, 0);
+      return 'This plan has a separate login for each of its ' + held + ' devices. To renew it, please choose the same ' + held + '-device plan.';
+    }
+    return RENEW_NONE_MESSAGE;
+  }
+  if (d.mode === 'SPLIT') {
+    const dev = _heldDevices(d.rows[0]).dev;
+    return 'Your old account can no longer take ' + deviceLogins.bothWord(dev) + ' together and no single account has room for them, so each device will get its own login right after renewal.';
+  }
+  if (d.mode === 'MOVE') {
+    if (n === 1) return RENEW_MOVE_MESSAGE[d.reason] || RENEW_MOVE_MESSAGE.DEFAULT;
+    const moved = d.moves.map((m) => m.row);
+    return (moved.length === n ? 'The old accounts for your devices are' : 'The old account for ' + deviceNames(moved) + ' is') +
+      ' no longer available, so ' + (moved.length === 1 ? 'that device' : 'those devices') + ' will get a new login right after renewal.' +
+      (moved.length < n ? ' Your other device' + (n - moved.length === 1 ? ' keeps its' : 's keep their') + ' login.' : '');
+  }
+  return '';
+}
+
+// Renewal days (F4) for the purchase: "removed" only when every login was removed; the latest removal counts
+// (the customer could watch until then). One row → exactly that row's values.
+function _purchaseRemoval(rows) {
+  const removed = rows.every((r) => Number(r.removed) === 1);
+  if (!removed) return { removed: false, removedAt: null };
+  let at = null;
+  for (const r of rows) { const d = require('./renewal').toDate(r.removed_at); if (d && (!at || d.getTime() > at.getTime())) at = d; }
+  return { removed: true, removedAt: rows.length === 1 ? rows[0].removed_at : at };
+}
+
 /** Before payment: what will happen to this renewal? Used by createRenewOrder. */
 async function planRenewal(subId, plan) {
   const conn = await db.getPool().getConnection();
   try {
     const s = await _renewalSub(conn, subId);
     if (!s) return { mode: 'NONE', message: 'Subscription not found.' };
-    const d = await _renewalDecision(conn, s, plan);
-    const message = d.mode === 'MOVE' ? (RENEW_MOVE_MESSAGE[d.reason] || RENEW_MOVE_MESSAGE.DEFAULT)
-      : d.mode === 'NONE' ? RENEW_NONE_MESSAGE : '';
-    const rn = computeRenewal({ expiry: s.expiry_date, removed: Number(s.removed) === 1, removedAt: s.removed_at, now: new Date(), durationDays: d.durationDays });
+    const rows = await _renewalRows(conn, s);
+    const d = await _purchaseRenewalDecision(conn, rows, plan);
+    const message = _renewalMessage(d);
+    const rem = _purchaseRemoval(rows);
+    const rn = computeRenewal({ expiry: s.expiry_date, removed: rem.removed, removedAt: rem.removedAt, now: new Date(), durationDays: d.durationDays });
     const preview = { newExpiryText: rn.newExpiryText, message: rn.message, bubble: rn.bubble, counted: rn.counted, gifted: rn.gifted, case: rn.case };
-    return { mode: d.mode, reason: d.reason || '', message, preview };
+    const out = { mode: d.mode, reason: d.reason || '', message, preview };
+    if (rows.length > 1 || d.mode === 'SPLIT') Object.assign(out, { leadSubId: rows[0].sub_id, logins: rows.length, devices: rows.reduce((x, r) => x + _heldDevices(r).dev, 0) });
+    return out;
   } finally { conn.release(); }
 }
 
-// Extend an existing subscription (renewal). Base policy: renewing in advance OR
-// late by <= RENEW_BASE_TODAY_AFTER_DAYS days -> extend from the old expiry (keep
-// continuity); later than that -> extend from today (the gap days are lost).
-// Runs under the same lock as new sales, so moving a customer to another account
-// can never race a purchase for the last free slot.
+function _applyAccess(row, a) {
+  Object.assign(row, { login_id: a.user || '', password: a.pass || '', profile_name: a.profileName || '', profile_pin: a.profilePin || '' });
+}
+
+// Extend an existing subscription (renewal) — every login row of the purchase, for one payment.
+// New expiry follows the agreed rules in renewal.js (F4). Runs under the same lock as new sales, so moving a
+// customer to another account can never race a purchase for the last free slot.
 async function _fulfillRenew(o) {
   const sid = String(o.renew_sub_id || '').trim();
   return withLock('ff_alloc', 12, async (conn) => {
     const s = await _renewalSub(conn, sid);
     if (!s) return { ok: false, found: true, orderId: o.order_id, fulfillment: 'ERROR', message: 'Renewal target not found — please contact support.' };
+    let rows = await _renewalRows(conn, s);
+    const groupsOn = !!s.group_id || (_heldDevices(s).dev > 1 && await deviceLogins.groupsReady((sql, p) => conn.query(sql, p)));
+    const accessFor = (list) => {
+      if (list.length === 1 && !groupsOn) return _accessOf(list[0]);
+      const multi = deviceLogins.accessWithLogins(list);
+      return Object.assign(_accessOf(list[0]), multi.logins ? { logins: multi.logins, sameLogin: multi.sameLogin, deviceCount: multi.deviceCount } : {});
+    };
 
     // idempotent: if this renew order already applied, just show the (possibly new) credentials
     const [chk] = await conn.query('SELECT fulfillment_status FROM orders WHERE order_id = ? LIMIT 1', [o.order_id]);
     if (chk[0] && String(chk[0].fulfillment_status || '').toUpperCase() === 'FULFILLED') {
-      return { ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED', message: '✅ Your subscription is renewed.', access: _accessOf(s), subId: sid };
+      if (groupsOn && s.group_id) rows = await _renewalRows(conn, await _renewalSub(conn, sid));
+      return { ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED', message: '✅ Your subscription is renewed.', access: accessFor(rows), subId: sid };
     }
 
-    // Re-check the account now: stock can change between order and payment.
-    const d = await _renewalDecision(conn, s, o.plan);
+    // Re-check the account(s) now: stock can change between order and payment.
+    const d = await _purchaseRenewalDecision(conn, rows, o.plan);
     if (d.mode === 'NONE') {
       await conn.query("UPDATE orders SET fulfillment_status = 'FAILED' WHERE order_id = ?", [o.order_id]).catch(() => {});
-      return { ok: true, found: true, orderId: o.order_id, fulfillment: 'NO_STOCK', message: "😔 Your payment is received, but your old account is no longer available and no other account is free right now. Please contact WhatsApp support — we'll sort it instantly." };
-    }
-
-    let access = _accessOf(s);
-    const moved = d.mode === 'MOVE';
-    if (!moved && d.creds) {
-      const c = d.creds;
-      const fresh = {
-        user: c.user, pass: c.pass,
-        profileName: c.profileName != null ? c.profileName : (s.profile_name || ''),
-        profilePin: c.profilePin != null ? c.profilePin : (s.profile_pin || ''),
-      };
-      if (fresh.user !== s.login_id || fresh.pass !== s.password || fresh.profileName !== (s.profile_name || '') || fresh.profilePin !== (s.profile_pin || '')) {
-        await conn.query('UPDATE subscriptions SET login_id = ?, password = ?, profile_name = ?, profile_pin = ? WHERE sub_id = ?',
-          [fresh.user, fresh.pass, fresh.profileName, fresh.profilePin, sid]);
-        console.log('[renew] refreshed stored login for', sid);
-      }
-      access = Object.assign({}, access, { user: fresh.user, pass: fresh.pass, profileName: fresh.profileName, profilePin: fresh.profilePin });
-    }
-    if (moved) {
-      const na = d.alloc.access || {};
-      await conn.query(
-        "UPDATE subscriptions SET inventory_ref = ?, account_id = ?, login_id = ?, password = ?, profile_number = ?, profile_name = ?, profile_pin = ?, device_type = COALESCE(NULLIF(?, ''), device_type) WHERE sub_id = ?",
-        [d.alloc.inventoryRef, d.alloc.accountId || d.alloc.inventoryRef, na.user || '', na.pass || '', na.profileNumber || '', na.profileName || '', na.profilePin || '', d.dt || '', sid]);
-      access = { user: na.user || '', pass: na.pass || '', profileName: na.profileName || '', profilePin: na.profilePin || '', profileNumber: na.profileNumber || '', deviceType: d.dt || s.device_type || '' };
-      console.log('[renew] moved', sid, 'from', s.inventory_ref, 'to', d.alloc.inventoryRef, '(' + d.reason + ')');
+      return { ok: true, found: true, orderId: o.order_id, fulfillment: 'NO_STOCK', message: d.reason === 'DEVICES'
+        ? '😔 Your payment is received, but this renewal has a different number of devices than your plan. Please contact WhatsApp support — we\'ll sort it instantly.'
+        : "😔 Your payment is received, but your old account is no longer available and no other account is free right now. Please contact WhatsApp support — we'll sort it instantly." };
     }
 
     // How many days the late renewal costs — agreed rules in renewal.js (F4).
+    const rem = _purchaseRemoval(rows);
     const rn = computeRenewal({
-      expiry: s.expiry_date, removed: Number(s.removed) === 1, removedAt: s.removed_at,
+      expiry: s.expiry_date, removed: rem.removed, removedAt: rem.removedAt,
       now: new Date(), durationDays: asNum(o.duration_days) || 30,
     });
     const newExpiry = rn.newExpiry;
     const release = addDays(newExpiry, COOLDOWN_DAYS);
+    const moved = d.mode === 'MOVE' || d.mode === 'SPLIT';
 
-    // Back on the account: clear the "removed" tick so the next renewal starts clean.
-    const clearRemoval = (await _hasRemovalColumns(conn)) ? ', removed = 0, removed_at = NULL' : '';
-    await conn.query(
-      "UPDATE subscriptions SET expiry_date = ?, new_expiry = ?, order_id = ?, status = 'ACTIVE', fulfillment_status = 'FULFILLED', release_eligible_at = ?, fulfilled_at = NOW(), source = 'node'" + clearRemoval + " WHERE sub_id = ?",
-      [fmtDt(newExpiry), fmtDt(newExpiry), o.order_id, fmtDt(release), sid]);
-    await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
+    await _inTransaction(conn, async () => {
+      for (const k of d.keeps) {
+        if (!k.creds) continue;
+        const r = k.row; const c = k.creds;
+        const fresh = {
+          user: c.user, pass: c.pass,
+          profileName: c.profileName != null ? c.profileName : (r.profile_name || ''),
+          profilePin: c.profilePin != null ? c.profilePin : (r.profile_pin || ''),
+        };
+        if (fresh.user !== r.login_id || fresh.pass !== r.password || fresh.profileName !== (r.profile_name || '') || fresh.profilePin !== (r.profile_pin || '')) {
+          await conn.query('UPDATE subscriptions SET login_id = ?, password = ?, profile_name = ?, profile_pin = ? WHERE sub_id = ?',
+            [fresh.user, fresh.pass, fresh.profileName, fresh.profilePin, r.sub_id]);
+          console.log('[renew] refreshed stored login for', r.sub_id);
+        }
+        _applyAccess(r, fresh);
+      }
+      for (const m of d.moves) {
+        const r = m.row; const na = m.part.alloc.access || {}; const dt = m.part.dt || '';
+        await conn.query(
+          "UPDATE subscriptions SET inventory_ref = ?, account_id = ?, login_id = ?, password = ?, profile_number = ?, profile_name = ?, profile_pin = ?, device_type = COALESCE(NULLIF(?, ''), device_type) WHERE sub_id = ?",
+          [m.part.alloc.inventoryRef, m.part.alloc.accountId || m.part.alloc.inventoryRef, na.user || '', na.pass || '', na.profileNumber || '', na.profileName || '', na.profilePin || '', dt, r.sub_id]);
+        console.log('[renew] moved', r.sub_id, 'from', r.inventory_ref, 'to', m.part.alloc.inventoryRef, '(' + m.reason + ')');
+        _applyAccess(r, na);
+        Object.assign(r, { inventory_ref: m.part.alloc.inventoryRef, profile_number: na.profileNumber || '', device_type: dt || r.device_type });
+      }
+      if (d.mode === 'SPLIT') {
+        // One row held all N devices; no single account can take them any more → one row per device.
+        const lead = rows[0];
+        const groupId = lead.group_id || ('G-' + lead.sub_id);
+        const size = d.parts.length;
+        const next = [];
+        for (let i = 0; i < size; i++) {
+          const part = d.parts[i]; const na = part.alloc.access || {};
+          const dt = d.policy === 'CAPACITY' ? (part.dt || (part.tv ? 'TV' : 'NON_TV')) : '';
+          const tv = d.policy === 'CAPACITY' ? part.tv : null;
+          const row = Object.assign({}, lead, { inventory_ref: part.alloc.inventoryRef, login_id: na.user || '', password: na.pass || '', profile_number: na.profileNumber || '', profile_name: na.profileName || '', profile_pin: na.profilePin || '', device_type: dt, device_count: 1, tv_count: tv, group_id: groupId, group_size: size, group_index: i + 1 });
+          if (i === 0) {
+            await conn.query(
+              'UPDATE subscriptions SET inventory_ref = ?, account_id = ?, login_id = ?, password = ?, profile_number = ?, profile_name = ?, profile_pin = ?, device_type = ?, device_count = 1, tv_count = ?, group_id = ?, group_size = ?, group_index = 1 WHERE sub_id = ?',
+              [part.alloc.inventoryRef, part.alloc.accountId || part.alloc.inventoryRef, row.login_id, row.password, row.profile_number, row.profile_name, row.profile_pin, dt, tv, groupId, size, lead.sub_id]);
+          } else {
+            row.sub_id = await freeSubId();
+            while (next.some((x) => x.sub_id === row.sub_id)) row.sub_id = await freeSubId();
+            await conn.query(SUB_INSERT_SQL,
+              [row.sub_id, o.order_id, o.phone, o.phone_norm, o.email, lead.service, lead.plan, asNum(o.duration_days) || 30,
+                fmtDt(require('./renewal').toDate(lead.start_date) || new Date()), fmtDt(newExpiry), 'RENEW', part.alloc.inventoryRef, part.alloc.accountId || part.alloc.inventoryRef,
+                row.login_id, row.password, row.profile_number, row.profile_name, row.profile_pin, dt, 1, tv, fmtDt(release), groupId, size, i + 1]);
+          }
+          next.push(row);
+        }
+        console.log('[renew] split', lead.sub_id, 'from', lead.inventory_ref, 'into', size, 'login rows (' + d.reason + ')');
+        rows = next;
+      }
 
+      // Back on the account: clear the "removed" tick so the next renewal starts clean.
+      const clearRemoval = (await _hasRemovalColumns(conn)) ? ', removed = 0, removed_at = NULL' : '';
+      for (const r of rows) {
+        await conn.query(
+          "UPDATE subscriptions SET expiry_date = ?, new_expiry = ?, order_id = ?, status = 'ACTIVE', fulfillment_status = 'FULFILLED', release_eligible_at = ?, fulfilled_at = NOW(), source = 'node'" + clearRemoval + ' WHERE sub_id = ?',
+          [fmtDt(newExpiry), fmtDt(newExpiry), o.order_id, fmtDt(release), r.sub_id]);
+      }
+      await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
+    });
+
+    const access = accessFor(rows);
+    const notice = moved && (rows.length > 1 || d.mode === 'SPLIT') ? _renewalMessage(Object.assign({}, d, { rows: d.mode === 'SPLIT' ? [s] : d.rows })) : '';
     afterFulfillHook({
       event: 'RENEW',
       orderId: o.order_id, phone: o.phone, email: o.email, name: o.name,
       service: o.service, plan: o.plan, amount: o.final_amount,
       expiry: fmtDt(newExpiry), postPaymentMessage: '',
-      access: { user: access.user, pass: access.pass, profileName: access.profileName, profilePin: access.profilePin, deviceType: access.deviceType },
+      access: access.logins ? access : { user: access.user, pass: access.pass, profileName: access.profileName, profilePin: access.profilePin, deviceType: access.deviceType },
+      loginNotice: notice,
     });
+    const head = d.mode === 'SPLIT' ? '✅ Renewed! No single account could take all your devices, so each device now has its own login.'
+      : moved ? (rows.length > 1 ? '✅ Renewed! Some of your old logins were no longer available, so the new ones are below.' : '✅ Renewed! Your old account was no longer available, so here is your new login.')
+        : '✅ Renewed!';
     return {
       ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED',
-      message: (moved ? '✅ Renewed! Your old account was no longer available, so here is your new login.' : '✅ Renewed!') + ' Your plan now runs until ' + rn.newExpiryText + '.',
+      message: head + ' Your plan now runs until ' + rn.newExpiryText + '.',
       renewMessage: rn.message, renewBubble: rn.bubble, renewCounted: rn.counted, renewGifted: rn.gifted, newExpiryText: rn.newExpiryText,
       postPaymentMessage: '', access, subId: sid, newExpiry: fmtDt(newExpiry), accountChanged: moved,
+      loginNotice: notice,
     };
   });
 }
@@ -691,4 +1061,4 @@ async function fulfillAndGetAccess(orderId, proof) {
 /** Admin endpoint only (key-protected): full result including credentials. */
 async function fulfillForAdmin(orderId) { return _fulfillSafe(orderId); }
 
-module.exports = { fulfillAndGetAccess, fulfillForAdmin, planRenewal, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, freeSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE } };
+module.exports = { fulfillAndGetAccess, fulfillForAdmin, planRenewal, checkDeviceLogins, pickDeviceLogins, allocatePrimeSeparate, allocateProfileSeparate, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, freeSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE } };
