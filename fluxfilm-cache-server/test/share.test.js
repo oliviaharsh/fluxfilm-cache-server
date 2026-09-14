@@ -117,6 +117,10 @@ const titleOf = (html) => decode((html.match(/<title>([^<]*)<\/title>/) || [])[1
   ok('post: no catalog loaded → falls back to the feed info price', /— SonyLiv Premium from \*₹69\*$/m.test(m.text), m.text);
   m = T.post({ title: 'Diwali offers', type: 'announcement', service: '', caption: 'Flat deals all week.' }, null, now, catalog);
   ok('post: announcement layout', m.text === '📣 *Diwali offers*\n\n_"Flat deals all week."_\n\n✨ Streaming plans for less on *FluxFilm*\n⚡ Instant login  •  💳 UPI' && m.title === 'Diwali offers', m);
+  m = T.post({ title: 'Big Film', type: 'movie', service: 'Netflix', releaseDate: '2026-09-25', instagramUrl: 'https://www.instagram.com/reel/C9xYz_12-ab/' }, null, now, catalog, 'https://shop.fluxfilm.in/?post=fpa3a00152db');
+  ok('post with an Instagram Reel: "🎬 Watch the video 👇" right above the first-line link, instagram URL never in the text', /^🎬 Watch the video 👇\n👉 https:\/\/shop\.fluxfilm\.in\/\?post=fpa3a00152db\n\n🍿 \*Big Film\*/.test(m.text) && !/instagram/i.test(m.text), m.text);
+  m = T.post({ title: 'News reel', type: 'announcement', instagramUrl: 'https://www.instagram.com/p/DAbc123/' }, null, now, catalog, 'https://shop.fluxfilm.in/?post=fpa3a00152db');
+  ok('news post with a Reel gets the line too; posts without one do not', /^🎬 Watch the video 👇\n👉 /.test(m.text) && !/Watch the video/.test(T.post({ title: 'Big Film', type: 'movie', service: 'Netflix', trailerUrl: 'https://youtu.be/dQw4w9WgXcQ' }, null, now, catalog, 'https://shop.fluxfilm.in/?post=x').text), m.text);
   m = T.post(null, null, now);
   ok('post: missing data → plain fallback, never throws', /^📣 \*Something new\*/.test(m.text) && lastLine(m.text) === '⚡ Instant login  •  💳 UPI');
   ok('SERVICES emoji map is one constant (one emoji per service)', Array.isArray(T.SERVICES) && new Set(T.SERVICES.map((x) => x.emoji)).size === T.SERVICES.length && T.SERVICES.length >= 7);

@@ -2539,6 +2539,7 @@ var FD_CSS = '.fd-item .fd-thumb{width:54px;height:68px;border-radius:10px;objec
   '.ff-feed-body{padding:6px 14px 14px}.ff-feed-title{font-size:16px;font-weight:900;color:#0f172a}.ff-feed-rel{margin-top:3px;font-size:12.5px;font-weight:700;color:#15803d}.ff-feed-cap{margin-top:6px;font-size:14px;color:#334155;line-height:1.5;white-space:pre-line}' +
   '.ff-feed-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.ff-feed-tags span{padding:3px 9px;border-radius:999px;background:#f1f5f9;font-size:11.5px;font-weight:700;color:#475569}' +
   '.ff-feed-cta{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:10px 16px;border-radius:16px;background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff;font-size:15px;font-weight:800}.ff-feed-cta small{display:block;font-size:11.5px;font-weight:600;opacity:.92}' +
+  '.ff-feed-ig{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#fff;font-weight:800;font-size:14px;background:linear-gradient(180deg,rgba(15,23,42,.05),rgba(15,23,42,.55))}.ff-feed-ig b{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;font-size:28px;background:linear-gradient(135deg,#f59e0b,#db2777,#7c3aed)}.ff-feed-ig.yt b{background:#dc2626}' +
   '@media(max-width:600px){.fd-item .pr-actions{width:100%}.fd-item .pr-actions .btn{flex:1;justify-content:center;min-height:40px}}';
 function fdCss() { if (!document.getElementById('fdcss')) { var st = document.createElement('style'); st.id = 'fdcss'; st.textContent = FD_CSS; document.head.appendChild(st); } }
 function fdType(t) { return (FD_TYPES.filter(function (x) { return x[0] === t; })[0] || [0, t])[1]; }
@@ -2590,7 +2591,7 @@ function fdRenderList() {
     return '<div class="card pr-item fd-item">' + (img ? '<img class="fd-thumb" src="' + esc(img) + '" alt="" loading="lazy"/>' : '<div class="fd-thumb">🍿</div>') +
       '<div class="grow" style="min-width:0"><div class="row" style="gap:6px"><b>' + esc(p.title) + '</b><span class="pill ' + st[1] + '">' + st[0] + '</span>' + (p.pinned ? '<span class="pill p-warn">📌 Pinned</span>' : '') + '</div>' +
       '<div class="muted" style="font-size:.78rem;margin-top:4px">' + esc(p.service || 'No platform') + ' · ' + fdType(p.type) + (p.publishAt ? ' · from ' + prNice(p.publishAt) : '') + (p.hideAfter ? ' · hides ' + prNice(p.hideAfter) : '') + (p.source === 'tmdb' ? ' · TMDB' : '') + '</div>' +
-      '<div class="muted" style="font-size:.78rem;margin-top:2px">👀 ' + p.views + ' views · ❤️ ' + p.likes + ' likes · 👆 ' + p.clicks + ' button taps · 📤 ' + p.shares + ' shares</div></div>' +
+      '<div class="muted" style="font-size:.78rem;margin-top:2px">👀 ' + p.views + ' views · ❤️ ' + p.likes + ' likes · 👆 ' + p.clicks + ' button taps · 📤 ' + p.shares + ' shares · ▶️ ' + (p.plays || 0) + ' plays' + (p.instagramUrl ? ' · 📸 Reel' : '') + '</div></div>' +
       '<div class="pr-actions"><button class="btn sm ' + (p.active ? 'ghost' : 'green') + '" data-tog="' + p.id + '">' + (p.active ? '⏸ Turn off' : '▶️ Turn on') + '</button><button class="btn sm ghost" data-pin="' + p.id + '">' + (p.pinned ? 'Unpin' : '📌 Pin') + '</button><button class="btn sm dark" data-ed="' + p.id + '">✏️ Edit</button><button class="btn sm ghost" data-dup="' + p.id + '">⧉ Copy</button><button class="btn sm ghost" data-del="' + p.id + '" aria-label="Delete">🗑</button></div></div>';
   }).join('') + '</div>';
   var body = $('#fdbody');
@@ -2619,7 +2620,9 @@ function fdEdit(p) {
     '<label>Button<select class="inp" data-k="cta"><option value="service"' + (e.cta !== 'none' ? ' selected' : '') + '>“Get ' + esc(e.service || 'platform') + '” → its plans</option><option value="none"' + (e.cta === 'none' ? ' selected' : '') + '>No button</option></select></label></div>' +
     '<label>Caption <span class="fd-count" id="fdcount"></span><textarea class="inp" data-k="caption" maxlength="600" rows="5" placeholder="What is it about? Why watch it?">' + esc(e.caption || '') + '</textarea></label>' +
     '<div class="pr-two"><label>Release date <span class="muted">(optional)</span><input class="inp" type="date" data-k="releaseDate" value="' + esc(e.releaseDate || '') + '"/></label>' +
-    '<label>Trailer <span class="muted">(YouTube link, optional)</span><input class="inp" data-k="trailerUrl" value="' + esc(e.trailerUrl || '') + '" placeholder="https://www.youtube.com/watch?v=…"/></label></div>' +
+    '<label>Trailer <span class="muted">(YouTube link, optional — plays inside the feed)</span><input class="inp" data-k="trailerUrl" value="' + esc(e.trailerUrl || '') + '" placeholder="https://www.youtube.com/watch?v=…"/></label></div>' +
+    '<div><label>📸 Instagram Reel link <span class="muted">(optional)</span><input class="inp" data-k="instagramUrl" id="fdig" inputmode="url" autocomplete="off" value="' + esc(e.instagramUrl || '') + '" placeholder="https://www.instagram.com/reel/…"/></label>' +
+    '<div class="muted" style="font-size:.75rem;margin-top:4px">Public posts only. The video stays on Instagram and is credited to its creator.</div><div id="fdigmsg"></div><div id="fdigprev"></div></div>' +
     '<div class="pr-two"><label>Languages <span class="muted">(commas)</span><input class="inp" data-k="languages" value="' + tags(e.languages) + '" placeholder="Hindi, English"/></label>' +
     '<label>Genres <span class="muted">(commas)</span><input class="inp" data-k="genres" value="' + tags(e.genres) + '" placeholder="Thriller, Drama"/></label></div>' +
     '<div><div class="muted" style="font-size:.8rem;margin-bottom:4px">Picture — poster (4:5 or 2:3) looks best</div>' + (e.id ? '<input type="file" accept="image/png,image/jpeg,image/webp" id="fdimg"/>' + (e.hasImage ? ' <button type="button" class="btn ghost sm" id="fdimgdel">Remove uploaded picture</button>' : '') : '<span class="muted" style="font-size:.8rem">Save first, then upload a picture — or paste a TMDB picture link below.</span>') + '</div>' +
@@ -2637,6 +2640,7 @@ function fdEdit(p) {
     if (k === 'publishAt' || k === 'hideAfter') v = el.value ? el.value + ':00+05:30' : '';
     FD.edit[k] = v;
     rfStateSet('dirty', '● Not saved yet'); refresh();
+    if (k === 'instagramUrl') fdIgCheck();
   };
   body.onclick = function (ev) { var tb = ev.target.closest('[data-type]'); if (tb) { FD.edit.type = tb.dataset.type; fdEdit(FD.edit); } };
   $('#fdback').onclick = fdBack;
@@ -2662,13 +2666,38 @@ function fdEdit(p) {
     rd.readAsDataURL(f);
   };
   var del = $('#fdimgdel'); if (del) del.onclick = function () { post('/admin/api/feed/image', { id: FD.edit.id, dataUrl: '' }).then(function (r) { if (r.ok) { FD.edit.hasImage = false; FD.edit._img = ''; fdEdit(FD.edit); } }); };
-  refresh();
+  refresh(); fdIgCheck();
+}
+// 📸 Same rule as feed.js instagramUrl(): '' empty, null not valid, else the clean permalink (tracking like ?igsh= dropped).
+function fdIgNorm(v) {
+  var t = String(v == null ? '' : v).trim(), u;
+  if (!t) return '';
+  if (t.length > 300 || /[\s"'<>\\`]/.test(t)) return null;
+  try { u = new URL(t); } catch (x) { return null; }
+  if (u.protocol !== 'https:' || ['www.instagram.com', 'instagram.com'].indexOf(u.hostname) < 0 || u.username || u.password || u.port) return null;
+  var m = u.pathname.match(/^\/(?:[A-Za-z0-9._]{1,30}\/)?(reels?|p|tv)\/([A-Za-z0-9_-]{5,40})\/?$/);
+  return m ? 'https://www.instagram.com/' + (m[1] === 'p' || m[1] === 'tv' ? 'p' : 'reel') + '/' + m[2] + '/' : null;
+}
+// Message + click-to-load preview under the link box (Instagram loads only when the owner taps).
+function fdIgCheck() {
+  var msg = $('#fdigmsg'), prev = $('#fdigprev'); if (!msg || !prev) return;
+  var n = fdIgNorm(FD.edit && FD.edit.instagramUrl);
+  prev.innerHTML = '';
+  if (n === '') { msg.innerHTML = ''; return; }
+  if (n === null) { msg.innerHTML = '<div class="qnote bad">⚠️ Paste a public Instagram Reel or post link, like https://www.instagram.com/reel/ABC123xyz/</div>'; return; }
+  msg.innerHTML = '<div class="qnote">✅ Saved as <b>' + esc(n) + '</b></div>';
+  prev.innerHTML = '<button type="button" class="btn ghost sm" id="fdigload" style="margin-top:6px">▶️ Preview the Reel</button>';
+  $('#fdigload').onclick = function () {
+    prev.innerHTML = '<div style="max-width:360px;margin-top:8px"><iframe src="' + esc(n + 'embed/captioned/') + '" title="Instagram preview" loading="lazy" allow="encrypted-media; picture-in-picture" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerpolicy="strict-origin-when-cross-origin" style="width:100%;height:560px;border:0;border-radius:12px;background:#fff"></iframe></div>' +
+      '<a href="' + esc(n) + '" target="_blank" rel="noopener noreferrer" class="muted" style="font-size:.78rem">Open in Instagram ↗</a>';
+  };
 }
 function fdPreview(e) {
   var img = fdImg(e), svc = e.service || 'FluxFilm', tags = fdTags(e.languages).concat(fdTags(e.genres));
   var rel = ''; if (/^\d{4}-\d{2}-\d{2}$/.test(e.releaseDate || '')) { var t = Date.parse(e.releaseDate + 'T00:00:00+05:30'); rel = (t > Date.now() ? '📅 Streaming from ' : (e.type === 'series' ? '📺 Out since ' : '🎬 Released ')) + prettyDate(e.releaseDate); }
   return '<div class="fd-phone"><div class="ff-feed-post"><div class="ff-feed-head"><div class="ff-feed-av"><span>' + esc(svc.charAt(0).toUpperCase()) + '</span></div><div class="ff-feed-name"><b>' + esc(svc) + '</b><span>' + fdType(e.type) + ' · just now</span></div>' + (e.pinned ? '<span class="ff-feed-pin">📌 Pinned</span>' : '') + '</div>' +
-    '<div class="ff-feed-media">' + (img ? '<img src="' + esc(img) + '" alt=""/>' : '<div class="ff-feed-noimg">🍿</div>') + '</div>' +
+    '<div class="ff-feed-media">' + (img ? '<img src="' + esc(img) + '" alt=""/>' : '<div class="ff-feed-noimg">🍿</div>') +
+    (fdIgNorm(e.instagramUrl) ? '<div class="ff-feed-ig"><b>▶️</b><span>📸 Watch on Instagram</span></div>' : e.trailerUrl ? '<div class="ff-feed-ig yt"><b>▶️</b><span>Play trailer</span></div>' : '') + '</div>' +
     '<div class="ff-feed-acts"><span>🤍</span><span>📤 Share</span>' + (e.trailerUrl ? '<span class="ff-feed-trailer">▶ Trailer</span>' : '') + '</div>' +
     '<div class="ff-feed-body"><div class="ff-feed-title">' + esc(e.title || 'Title') + '</div>' + (rel ? '<div class="ff-feed-rel">' + rel + '</div>' : '') + (e.caption ? '<div class="ff-feed-cap">' + esc(e.caption) + '</div>' : '') +
     (tags.length ? '<div class="ff-feed-tags">' + tags.map(function (x) { return '<span>' + esc(x) + '</span>'; }).join('') + '</div>' : '') +

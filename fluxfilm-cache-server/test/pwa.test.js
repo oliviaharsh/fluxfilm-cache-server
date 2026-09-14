@@ -48,6 +48,8 @@ const pngSize = (p) => { const b = fs.readFileSync(p); return b.slice(1, 4).toSt
   net = 'up'; fetched.length = 0;
   ok('API calls, admin API and POSTs are never touched', (await run('https://shop.fluxfilm.in/api')) === undefined && (await run('https://shop.fluxfilm.in/admin/api/today')) === undefined && (await run('https://shop.fluxfilm.in/api', 'cors', 'POST')) === undefined && fetched.length === 0);
   ok('other sites (fonts, React CDN) are not intercepted', (await run('https://unpkg.com/react.js')) === undefined);
+  fetched.length = 0;
+  ok('feed videos: Instagram embed + YouTube (nocookie) requests are never intercepted or cached', (await run('https://www.instagram.com/embed.js')) === undefined && (await run('https://www.instagram.com/reel/C9xYz_12-ab/embed/captioned/', 'navigate')) === undefined && (await run('https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1', 'navigate')) === undefined && (await run('https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg')) === undefined && fetched.length === 0 && cached.size === 0);
   await run('https://shop.fluxfilm.in/icons/icon-192.png'); fetched.length = 0; net = 'down';
   r = await run('https://shop.fluxfilm.in/icons/icon-192.png');
   ok('icons are cached (app icon shows even offline)', r && fetched.length === 0);

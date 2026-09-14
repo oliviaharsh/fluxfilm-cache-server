@@ -23,7 +23,7 @@ function mount(app, deps) {
     if (!auth(req, res)) return;
     try {
       const [items, st, settings, services, job] = await Promise.all([feed.list(), feed.stats(), feed.getSettings(), feed.catalogServices(), feed.jobStatus().catch(() => null)]);
-      const posts = feed.sortPosts(items).map((p) => Object.assign({}, p, { status: feed.statusOf(p), views: (st[p.id] || {}).views || 0, likes: (st[p.id] || {}).likes || 0, clicks: (st[p.id] || {}).clicks || 0, shares: (st[p.id] || {}).shares || 0 }));
+      const posts = feed.sortPosts(items).map((p) => Object.assign({}, p, { status: feed.statusOf(p), views: (st[p.id] || {}).views || 0, likes: (st[p.id] || {}).likes || 0, clicks: (st[p.id] || {}).clicks || 0, shares: (st[p.id] || {}).shares || 0, plays: (st[p.id] || {}).plays || 0 }));
       res.json({ ok: true, posts, services, settings: feed.publicSettings(settings), job, max: feed.MAX_POSTS, now: new Date().toISOString() });
     } catch (e) { fail(res, e); }
   });
