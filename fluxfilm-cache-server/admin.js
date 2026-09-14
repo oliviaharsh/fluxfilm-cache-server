@@ -154,6 +154,8 @@ function mountAdmin(app, deps) {
   require('./adminpayments').mount(app, Object.assign({ db, auth, audit }, deps.payments || {}));
   // Maintenance: pause / resume new orders (adminstore.js).
   require('./adminstore').mount(app, Object.assign({ db, auth, audit }, deps.store || {}));
+  // Go-live: safe one-time import of go's customers / orders / subscriptions (admincutover.js).
+  require('./admincutover').mount(app, Object.assign({ db, auth, audit }, deps.cutover || {}));
 
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};

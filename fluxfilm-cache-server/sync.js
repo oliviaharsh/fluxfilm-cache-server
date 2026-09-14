@@ -241,7 +241,7 @@ async function runSync(tables, opts) {
   return { ok: true, dry, results, skippedMasterTables: skipped };
 }
 
-module.exports = { runSync, TABLES, MASTER_TABLES, _internal: { upsert } };
+module.exports = { runSync, TABLES, MASTER_TABLES, _internal: { upsert, fetchDump, mapRow } };
 
 // CLI mode: `node sync.js [--dry-run] [table...]`
 if (require.main === module) {
