@@ -57,3 +57,19 @@ On a 512 grid: the play button is the triangle `M170 128V384L392 256Z` (moved 8p
 stem `x198 y186 w36 h148`, top arm `x198 y186 w98 h32`, middle arm `x198 y244 w78 h30` (corner radius 6).
 PNGs were rendered from the SVGs with headless Chrome, then cropped to the exact size (and alpha removed for
 the full-bleed icons) with `pngjs`. For a new size, open `logo.svg` in Chrome at that width or in any vector tool.
+
+## Saved alternate: A1 midnight (not in use)
+
+`alternates/` keeps the runner-up the owner liked, so it can replace the current mark later:
+an **F with a separate play triangle** beside the stem, mint `#6ee7b7` on the same midnight-green tile
+(admin version: `#fda4af` on wine). Same top highlight and shadow as the live icon.
+
+| File | Notes |
+|---|---|
+| `alternates/a1-midnight-logo.svg` | Store icon, 512×512 viewBox, rounded square |
+| `alternates/a1-midnight-admin-logo.svg` | Admin icon, 512×512 viewBox |
+| `alternates/a1-midnight-512.png` | 512×512 preview |
+
+Geometry on the 512 grid, all moved 22px left: F `M150 118H352V172H212V394H150Z` (22px round-joined stroke),
+play `M290 212V352L408 282Z` (30px round-joined stroke). To switch, render the same file names as above from
+these SVGs (maskable at 84%, apple-touch at 90%, full-bleed without alpha).
