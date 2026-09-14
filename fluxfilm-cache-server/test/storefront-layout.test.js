@@ -41,7 +41,7 @@ ok('screen slide-in leaves no transform behind (pop-ups were trapped under heade
 // Numbered checkout: buy = Plan, Details, Review, Pay, Access; renew = Plan, Pay, Access.
 ok('checkout steps: buy = Plan, Details (incl. review), Pay (incl. payment help), Access; renew = Plan, Pay, Access', /buy: \[\['Plan', \['buy2', 'groupJoin'\]\], \['Details', \['details', 'review'\]\], \['Pay', \['pay', 'payhelp'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html) && /renew: \[\['Plan', \['renewStart'\]\], \['Pay', \['pay', 'payhelp'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html));
 ok('details goes straight to pay; failed order goes back to the filled-in details', /nav\('pay', \{\s*service,\s*planObj,\s*form,\s*couponState,\s*creating: true/.test(html) && !/nav\('review', \{\}\)/.test(html) && (html.match(/goBack \? goBack\(\) : nav\('home', \{\}\)/g) || []).length === 2);
-ok('steps shown above every screen; flow tracked on nav + navReset', /React.createElement\(CheckoutSteps, \{\s*flow: flow,\s*screen: screen\s*\}\)/.test(html) && (html.match(/    trackFlow\(s\);/g) || []).length === 2);
+ok('steps shown above every screen; flow tracked on nav + navReset', /React.createElement\(CheckoutSteps, \{\s*flow: storeBlocked \? '' : flow,\s*screen: screen\s*\}\)/.test(html) && (html.match(/    trackFlow\(s\);/g) || []).length === 2);
 
 // Devices: checkout sends the plan's device count and how many are TVs (was never sent; a 2-device Prime
 // order with "TV" reserved 2 TV slots even for TV + mobile).
