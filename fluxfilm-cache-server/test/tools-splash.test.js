@@ -89,7 +89,7 @@ ok('Escape closes', H.sets.includes(''));
 section('soon sheet');
 H = harness('movies'); tree = H.render();
 ok('no leftover coming-soon sheet for movies', !/Coming soon!/.test(textOf(tree)));
-ok('bottom menu leaves real room under the last item (Logout / referral stats)', /\.ff-has-bnav \{ padding-bottom: calc\(72px \+ env\(safe-area-inset-bottom\) \+ 88px\); padding-bottom: calc\(max\(72px \+ env\(safe-area-inset-bottom\), var\(--ff-bnav-h, 0px\)\) \+ 88px \+ var\(--ff-bnav-extra, 0px\)\); \}/.test(html) && /\.ff-has-bnav::after \{ content: ""; display: block; height: calc\(env\(safe-area-inset-bottom\) \+ 24px\); \}/.test(html));
+ok('bottom menu leaves real room under the last item (Logout / referral stats)', /\.ff-has-bnav \{ padding-bottom: calc\(72px \+ env\(safe-area-inset-bottom\)\); padding-bottom: calc\(max\(72px \+ env\(safe-area-inset-bottom\), var\(--ff-bnav-h, 0px\)\) \+ 24px\); \}/.test(html) && /@media \(max-width:380px\)\{ \.page-inner\{padding-left:12px;padding-right:12px\} \}/.test(html));
 
 section('wiring in the screens');
 ok('home uses ToolsGrid (old Extra Tools card gone)', /React\.createElement\(ToolsGrid, \{\s*className: "ff-o5",\s*onOtp: openOtpFromHome,\s*onFeed: \(\) => nav\('feed', \{\}\)\s*\}\)/.test(html) && !/Extra Tools/.test(html));
