@@ -428,6 +428,10 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 #root{overflow-wrap:break-word}
 @media (max-width:380px){ .page-inner{padding:0 12px} }
 @media (max-width:330px){ .ff-help-short{display:none} }
+/* New version ready bar (UpdateBar) */
+.ff-upd { position: fixed; left: 50%; top: calc(10px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 80; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px); background: #04140e; color: #fff; border-radius: 999px; padding: 6px 6px 6px 16px; font-size: 14px; font-weight: 600; box-shadow: 0 10px 30px rgba(4,20,14,.35); width: max-content; white-space: nowrap; }
+.ff-upd-btn { border: 0; border-radius: 999px; background: #34d399; color: #04140e; font: inherit; font-weight: 800; padding: 9px 16px; cursor: pointer; white-space: nowrap; }
+.ff-upd-x { border: 0; background: none; color: #a7f3d0; font-size: 16px; padding: 6px 8px; cursor: pointer; }
 </style>
 <script>
 // Low-end phone (≤2 CPU cores or ≤2 GB RAM): html.ff-lite trims the extra 3D flourishes (stagger, shine, rings).
@@ -8588,6 +8592,91 @@ function installHiddenUntil_() {
     return 0;
   }
 }
+// ── New version ready (appversion.js) ──
+// An installed app left open in the background keeps the old page. When it comes back to the front (and every
+// 10 min while open) we compare window.FF_VERSION with GET /version. Changed + a safe screen + nothing being typed
+// → reload quietly. Anywhere in checkout / payment / credentials → only a small "Refresh" bar (never lose a payment).
+const FF_UPDATE_SAFE_SCREENS = ['home', 'dashboard', 'buy1', 'account'];
+function ffCanQuietReload_(screen, busy) {
+  if (busy || FF_UPDATE_SAFE_SCREENS.indexOf(screen) < 0) return false;
+  const a = document.activeElement;
+  if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return false;
+  return true;
+}
+function ffCheckVersion_(onNew) {
+  if (!window.FF_VERSION || !window.fetch) return;
+  fetch('/version', {
+    cache: 'no-store'
+  }).then(r => r.json()).then(r => {
+    if (r && r.version && r.version !== window.FF_VERSION) onNew(r.version);
+  }).catch(() => {});
+}
+function ffUpdateSw_() {
+  try {
+    if (!('serviceWorker' in navigator)) return Promise.resolve();
+    const p = navigator.serviceWorker.getRegistration('/').then(reg => reg && reg.update()).catch(() => {});
+    return Promise.race([p, new Promise(res => setTimeout(res, 1500))]);
+  } catch (e) {
+    return Promise.resolve();
+  }
+}
+function ffReloadForUpdate_() {
+  ffUpdateSw_().then(() => window.location.reload());
+}
+function UpdateBar({
+  screen,
+  busy
+}) {
+  const [ready, setReady] = useState(false);
+  const live = useRef({
+    screen,
+    busy
+  });
+  live.current = {
+    screen,
+    busy
+  };
+  const found = useRef(false);
+  useEffect(() => {
+    let last = Date.now();
+    const check = () => {
+      if (found.current || document.visibilityState === 'hidden') return;
+      last = Date.now();
+      ffCheckVersion_(() => {
+        found.current = true;
+        if (ffCanQuietReload_(live.current.screen, live.current.busy)) ffReloadForUpdate_();else {
+          ffUpdateSw_();
+          setReady(true);
+        }
+      });
+    };
+    const onVis = () => {
+      if (document.visibilityState === 'visible' && Date.now() - last > 15000) check();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    const iv = setInterval(check, 10 * 60000);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      clearInterval(iv);
+    };
+  }, []);
+  if (!ready) return null;
+  return React.createElement("div", {
+    className: "ff-upd",
+    role: "status"
+  }, React.createElement("span", null, "🔄 New version ready"), React.createElement("button", {
+    className: "ff-upd-btn",
+    onClick: () => ffReloadForUpdate_()
+  }, "Refresh"), React.createElement("button", {
+    className: "ff-upd-x",
+    "aria-label": "Later",
+    onClick: () => {
+      // Later: checked again next time the app comes back to the front.
+      found.current = false;
+      setReady(false);
+    }
+  }, "✕"));
+}
 function InstallPrompt({
   screen
 }) {
@@ -11123,6 +11212,9 @@ function App() {
     nav: nav
   }), !storeBlocked && React.createElement(InstallPrompt, {
     screen: screen
+  }), React.createElement(UpdateBar, {
+    screen: screen,
+    busy: !!(loadingMsg || restoring || showRecoverModal || showOtpModal || accountModal.open)
   }), React.createElement(PushPrompt, {
     screen: screen,
     phone: sessionPhone,
