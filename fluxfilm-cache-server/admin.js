@@ -156,6 +156,10 @@ function mountAdmin(app, deps) {
   require('./admingames').mount(app, Object.assign({ db, auth, audit }, deps.games || {}));
   // Payment fallback: backup UPI ID / QR settings + "I've paid" review queue (adminpayments.js).
   require('./adminpayments').mount(app, Object.assign({ db, auth, audit }, deps.payments || {}));
+  // 🏦 Bank payments: unmatched since go-live, "Not a sale", link to an order (adminbankcredits.js).
+  require('./adminbankcredits').mount(app, Object.assign({ db, auth, audit }, deps.bank || {}));
+  // 🚪 Expired customers still on accounts (Sheet rule) + tick all subscriptions of an order removed (adminexpired.js).
+  require('./adminexpired').mount(app, Object.assign({ db, auth, audit }, deps.expired || {}));
   // Maintenance: pause / resume new orders (adminstore.js).
   require('./adminstore').mount(app, Object.assign({ db, auth, audit }, deps.store || {}));
   // 🤖 Olivia, the AI store manager: on/off, test phones, voice, recent chats (adminolivia.js).

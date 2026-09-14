@@ -499,6 +499,10 @@ async function _allocateAndFinish(o, policy, ppm) {
     if (Array.isArray(chk) && !chk.length) return { ok: false, found: false, fulfillment: 'ERROR', message: 'Order not found in the FluxFilm database.' };
     if (chk[0] && String(chk[0].fulfillment_status || '').toUpperCase() === 'REFUNDED') return REFUNDED_RESULT(o.order_id);
 
+    // Duplicate guard: an order that already has a delivered subscription is never allocated again.
+    const dup = await _deliveredRowsGuard(conn, o.order_id);
+    if (dup) return dup;
+
     // How many devices this order uses, and (Prime) how many are TV.
     const deviceCount = Math.max(1, asNum(o.device_count) || 1);
     let tvCount = (o.tv_count != null) ? asNum(o.tv_count) : null;
@@ -523,16 +527,20 @@ async function _allocateAndFinish(o, policy, ppm) {
     const start = new Date();
     const expiry = addDays(start, asNum(o.duration_days) || 30);
     const release = addDays(expiry, COOLDOWN_DAYS);
-    await conn.query(
-      `INSERT INTO subscriptions (sub_id, order_id, phone, phone_norm, email, service, plan, duration_days,
-         start_date, expiry_date, status, fulfillment_status, order_type, inventory_ref, account_id,
-         login_id, password, profile_number, profile_name, profile_pin, device_type, device_count, tv_count, release_eligible_at, fulfilled_at, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'FULFILLED', 'NEW', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'node')`,
-      [subId, o.order_id, o.phone, o.phone_norm, o.email, o.service, o.plan, asNum(o.duration_days) || 30,
-        fmtDt(start), fmtDt(expiry), alloc.inventoryRef, alloc.accountId || alloc.inventoryRef,
-        acc.user || '', acc.pass || '', acc.profileNumber || '', acc.profileName || '', acc.profilePin || '', dt,
-        deviceCount, (policy === 'CAPACITY' ? tvCount : null), fmtDt(release)]);
-    await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
+    // One transaction: if marking the order FULFILLED fails, the subscription row is rolled back too — otherwise the
+    // checkout page's next poll allocates again (how FF0215802 got 54 subscriptions).
+    await _inTransaction(conn, async () => {
+      await conn.query(
+        `INSERT INTO subscriptions (sub_id, order_id, phone, phone_norm, email, service, plan, duration_days,
+           start_date, expiry_date, status, fulfillment_status, order_type, inventory_ref, account_id,
+           login_id, password, profile_number, profile_name, profile_pin, device_type, device_count, tv_count, release_eligible_at, fulfilled_at, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'FULFILLED', 'NEW', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'node')`,
+        [subId, o.order_id, o.phone, o.phone_norm, o.email, o.service, o.plan, asNum(o.duration_days) || 30,
+          fmtDt(start), fmtDt(expiry), alloc.inventoryRef, alloc.accountId || alloc.inventoryRef,
+          acc.user || '', acc.pass || '', acc.profileNumber || '', acc.profileName || '', acc.profilePin || '', dt,
+          deviceCount, (policy === 'CAPACITY' ? tvCount : null), fmtDt(release)]);
+      await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
+    });
     afterFulfillHook({
       event: 'NEW_PURCHASE',
       orderId: o.order_id, phone: o.phone, email: o.email, name: o.name,
@@ -546,6 +554,27 @@ async function _allocateAndFinish(o, policy, ppm) {
       subId, expiry: fmtDt(expiry),
     };
   });
+}
+
+/**
+ * Duplicate-subscription guard (caller holds the ff_alloc lock).
+ * Test order FF0215802 (Prime ₹39, 2026-07-16/17 staging) got 54 subscriptions on ~30 accounts: the July code inserted
+ * the subscription and then ran "UPDATE orders SET … inventory_ref = ?" — a column orders does not have — so the order
+ * never became FULFILLED, the error went back to the checkout page, and every poll (every few seconds for 14 minutes)
+ * allocated another account. Fixed on 2026-07-17 (7e9e5fd), but nothing stopped it happening again with any other
+ * failing write. Now: if this NEW order already has a delivered row (login or FULFILLED), nothing is inserted — the
+ * order is marked FULFILLED and the existing login is shown. A complete delivery writes all its rows (one per login
+ * for separate logins) in one transaction, so one delivered row means the order is done.
+ */
+async function _deliveredRowsGuard(conn, orderId) {
+  const [have] = await conn.query('SELECT sub_id, login_id, fulfillment_status FROM subscriptions WHERE order_id = ?', [orderId]);
+  const rows = (have || []).filter((x) => String(x.fulfillment_status || '').toUpperCase() === 'FULFILLED' || String(x.login_id || '').trim());
+  if (!rows.length) return null;
+  console.log('[fulfill] duplicate guard:', orderId, 'already has', rows.length, 'delivered subscription row(s) — not allocating again');
+  await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = COALESCE(fulfilled_at, NOW()) WHERE order_id = ?", [orderId])
+    .catch((e) => console.log('[fulfill] duplicate guard could not mark', orderId, 'FULFILLED:', e.message));
+  const ex = await _existingAccess(orderId);
+  return { ok: true, found: true, orderId, fulfillment: 'FULFILLED', message: '✅ Showing your credentials.', access: (ex && ex.access) || {}, duplicateGuard: true };
 }
 
 // All writes of one delivery succeed or none do (fake test connections without transactions just run in order).
@@ -621,6 +650,13 @@ async function _finishDeviceLogins(conn, o, policy, ppm, deviceCount, tvCount) {
 // Manual services: log a MANUAL_PENDING subscription (visible in the admin panel)
 // and tell the customer we'll activate shortly. No credentials to hand out.
 async function _fulfillManual(o, ppm) {
+  // Duplicate guard: a manual order already logged (e.g. the status update failed last time) is not logged twice.
+  const [have] = await db.getPool().query('SELECT sub_id, expiry_date FROM subscriptions WHERE order_id = ? LIMIT 1', [o.order_id]);
+  if (have && have.length) {
+    await db.getPool().query("UPDATE orders SET fulfillment_status = 'MANUAL_PENDING', fulfilled_at = COALESCE(fulfilled_at, NOW()) WHERE order_id = ? AND UPPER(COALESCE(fulfillment_status, '')) NOT IN ('FULFILLED', 'MANUAL_PENDING')", [o.order_id])
+      .catch((e) => console.log('[fulfill] manual guard could not update', o.order_id, e.message));
+    return { ok: true, found: true, orderId: o.order_id, fulfillment: 'MANUAL_PENDING', message: ppm || "✅ Payment received! We'll activate your subscription within a few hours and email you the details.", postPaymentMessage: ppm || '', subId: have[0].sub_id, duplicateGuard: true };
+  }
   const subId = await freeSubId();
   const start = new Date();
   const expiry = addDays(start, asNum(o.duration_days) || 30);
@@ -1073,4 +1109,4 @@ async function fulfillAndGetAccess(orderId, proof) {
 /** Admin endpoint only (key-protected): full result including credentials. opts.allowLegacy: old-site order. */
 async function fulfillForAdmin(orderId, opts) { return _fulfillSafe(orderId, opts && opts.allowLegacy ? { allowLegacy: true } : undefined); }
 
-module.exports = { fulfillAndGetAccess, fulfillForAdmin, planRenewal, checkDeviceLogins, pickDeviceLogins, allocatePrimeSeparate, allocateProfileSeparate, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, freeSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE } };
+module.exports = { fulfillAndGetAccess, fulfillForAdmin, planRenewal, checkDeviceLogins, pickDeviceLogins, allocatePrimeSeparate, allocateProfileSeparate, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, freeSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE, _deliveredRowsGuard } };
