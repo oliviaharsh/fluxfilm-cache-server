@@ -308,8 +308,18 @@ async function getBackupPayment(orderId, proof) {
   const amount = num(o.final_amount);
   let last = null;
   try { const rows = await db.query('SELECT id, order_id, payer_name, status, reason, created_at FROM payment_claims WHERE order_id = ? ORDER BY id DESC LIMIT 1', [o.order_id]); if (rows[0] && rows[0].status !== 'REPLACED') last = publicOf(rows[0]); } catch (e) { if (!missingTable(e)) throw e; }
+  // The name this customer paid with last time (so the form can say "Paying as …? Yes / change" instead of asking again).
+  let knownName = '';
+  try {
+    const typed = await db.query("SELECT payer_name FROM payment_claims WHERE phone_norm = ? AND source = 'CUSTOMER' AND status IN ('MATCHED', 'APPROVED') ORDER BY id DESC LIMIT 1", [o.phone_norm]);
+    if (typed[0] && s(typed[0].payer_name)) knownName = s(typed[0].payer_name);
+    else {
+      const learned = await db.query('SELECT name_display FROM customer_payer_names WHERE phone_norm = ? ORDER BY last_used DESC, times_used DESC LIMIT 1', [o.phone_norm]);
+      if (learned[0]) knownName = displayName(learned[0].name_display);
+    }
+  } catch (e) { if (!missingTable(e)) throw e; }
   return {
-    ok: true, enabled: true, orderId: o.order_id, amount, paid: s(o.status).toUpperCase() === 'PAID',
+    ok: true, enabled: true, orderId: o.order_id, amount, paid: s(o.status).toUpperCase() === 'PAID', knownName,
     vpa: cfg.backupVpa, payee: cfg.backupPayee, qrImage: await getQr(),
     // No amount / note in the backup link: those are what some apps refuse. The customer types the amount.
     upiLink: 'upi://pay?pa=' + encodeURIComponent(cfg.backupVpa) + '&pn=' + encodeURIComponent(cfg.backupPayee) + '&cu=INR',

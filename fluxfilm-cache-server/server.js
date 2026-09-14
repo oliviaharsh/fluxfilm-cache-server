@@ -356,3 +356,5 @@ if (referrals && db.ENABLED) referrals.startReconcileTimer();
 if (coinsMod && db.ENABLED) coinsMod.startTimer();
 // Payment fallback: re-check "I've paid" claims every minute (bank mail also triggers a check, see payments.js).
 if (paymatch && db.ENABLED) paymatch.startTimer();
+// Mark plans EXPIRED once expiry + release date have passed (every hour; replaces the old Apps Script job).
+try { if (db.ENABLED) require('./subexpiry').startTimer(); } catch (e) { console.log('[subexpiry] not started:', e.message); }
