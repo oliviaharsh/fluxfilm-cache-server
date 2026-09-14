@@ -100,20 +100,20 @@ ok('reduced motion hides it in CSS too', /@media \(prefers-reduced-motion: reduc
 const kf = [...css.matchAll(/@keyframes (ffSp\w+|ffSplashOut) \{([\s\S]*?)\} \}/g)];
 ok('splash keyframes only animate transform / opacity / visibility (GPU friendly)', kf.length === 6 && kf.every((m) => (m[2].match(/([a-z-]+)\s*:/g) || []).every((p) => /^(transform|opacity|visibility)\s*:$/.test(p))), kf.map((m) => m[1]));
 const outM = css.match(/#ff-splash \{[^}]*animation: ffSplashOut ([\d.]+)s ease-in ([\d.]+)s forwards;/);
-ok('whole intro stays under 1.6 s (ribbon reveal, owner 2026-09-15)', outM && Number(outM[1]) + Number(outM[2]) <= 1.6, outM && outM.slice(1));
+ok('whole intro is about 2.2 s (longer with sound, owner 2026-09-15)', outM && Math.abs(Number(outM[1]) + Number(outM[2]) - 2.2) < 0.05, outM && outM.slice(1));
 ok('ribbon reveal: 7 ribbons, inline logo, 18 light streaks', (html.match(/<div class="ff-sp-rib">((?:<span><\/span>)+)<\/div>/) || ['', ''])[1].length === 7 * 13 && /<div class="ff-sp-logo"><svg[^>]*>[\s\S]*?ffsp-bg/.test(html) && (html.match(/<div class="ff-sp-streaks">(.*?)<\/div><div class="ff-sp-stage">/) || ['', ''])[1].split('<i ').length - 1 === 18);
 ok('React app still renders underneath (root after splash, no delay)', /<\/script>\n<div id="root"><\/div>/.test(html));
 const spScript = (html.match(/<body>\n<div id="ff-splash"[^\n]*\n<script>([\s\S]*?)<\/script>/) || ['', ''])[1];
-function runSplash({ reduce, seen, storageThrows }) {
+function runSplash({ reduce, seen, storageThrows, audio }) {
   const S = { removed: false, hidden: true, listeners: {}, timers: [], store: seen ? { ff_splash: '1' } : {} };
   const node = { get hidden() { return S.hidden; }, set hidden(v) { S.hidden = v; }, addEventListener: (k, f) => { S.listeners[k] = f; }, parentNode: { removeChild: () => { S.removed = true; node.parentNode = null; } } };
   const sessionStorage = { getItem: (k) => { if (storageThrows) throw new Error('blocked'); return S.store[k] || null; }, setItem: (k, v) => { if (storageThrows) throw new Error('blocked'); S.store[k] = v; } };
-  const window = { matchMedia: () => ({ matches: !!reduce }) };
+  const window = { matchMedia: () => ({ matches: !!reduce }), AudioContext: audio };
   new Function('document', 'window', 'sessionStorage', 'setTimeout', spScript)({ getElementById: () => node }, window, sessionStorage, (f, ms) => S.timers.push([f, ms]));
   return S;
 }
 let S = runSplash({});
-ok('first open: shown, remembered for the session, auto-removed by 1.8 s', !S.hidden && !S.removed && S.store.ff_splash === '1' && S.timers.length === 1 && S.timers[0][1] <= 1800);
+ok('first open: shown, remembered for the session, auto-removed by 2.6 s', !S.hidden && !S.removed && S.store.ff_splash === '1' && S.timers.length === 1 && S.timers[0][1] <= 2600);
 S.timers[0][0]();
 ok('timer removes it', S.removed);
 S = runSplash({}); S.listeners.click();
@@ -127,6 +127,78 @@ ok('reduced motion: removed at once, never shown', S.removed && S.hidden && !S.s
 S = runSplash({ storageThrows: true });
 ok('storage blocked: still works (shown, removed by timer)', !S.hidden && S.timers.length === 1);
 
-console.log('\n---------------------------------------');
-console.log('PASS ' + pass + '   FAIL ' + fail);
-process.exitCode = fail ? 1 : 0;
+section('admin panel splash (rose ribbon reveal)');
+const admin = fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8').replace(/\r\n/g, '\n');
+const aCss = (admin.match(/<style>([\s\S]*?)<\/style>/) || ['', ''])[1];
+ok('admin: splash hidden by default, right after <body>, before #app', /<body>\n<div id="ff-splash" hidden aria-hidden="true">/.test(admin) && admin.indexOf('id="ff-splash"') < admin.indexOf('<div id="app">'));
+ok('admin: reduced motion hides it in CSS', /@media \(prefers-reduced-motion: reduce\) \{ #ff-splash \{ display: none !important; \} \}/.test(aCss));
+const aKf = [...aCss.matchAll(/@keyframes (ffSp\w+|ffSplashOut) \{([\s\S]*?)\} \}/g)];
+ok('admin: keyframes only animate transform / opacity / visibility', aKf.length === 6 && aKf.every((m) => (m[2].match(/([a-z-]+)\s*:/g) || []).every((p) => /^(transform|opacity|visibility)\s*:$/.test(p))), aKf.map((m) => m[1]));
+const aOut = aCss.match(/#ff-splash \{[^}]*animation: ffSplashOut ([\d.]+)s ease-in ([\d.]+)s forwards;/);
+ok('admin: whole intro about 2.2 s, wine background', aOut && Math.abs(Number(aOut[1]) + Number(aOut[2]) - 2.2) < 0.05 && /#ff-splash \{[^}]*#12040a/.test(aCss));
+ok('admin: 7 rose ribbons, inline admin logo (own ids), 18 streaks', (admin.match(/<div class="ff-sp-rib">((?:<span><\/span>)+)<\/div>/) || ['', ''])[1].length === 7 * 13 && /\.ff-sp-rib span:nth-child\(1\) \{ background: #be123c; \}/.test(aCss) && /<div class="ff-sp-logo"><svg[^>]*>[\s\S]*?ffasp-bg/.test(admin) && !/id="ffa-/.test(admin) && (admin.match(/<div class="ff-sp-streaks">(.*?)<\/div><div class="ff-sp-stage">/) || ['', ''])[1].split('<i ').length - 1 === 18);
+const aScript = (admin.match(/<body>\n<div id="ff-splash"[^\n]*\n<script>([\s\S]*?)<\/script>\n<div id="app"><\/div>/) || ['', ''])[1];
+function runAdminSplash({ reduce, seen, storageThrows, audio }) {
+  const S = { removed: false, hidden: true, listeners: {}, timers: [], store: seen ? { ff_admin_splash: '1' } : {} };
+  const node = { get hidden() { return S.hidden; }, set hidden(v) { S.hidden = v; }, addEventListener: (k, f) => { S.listeners[k] = f; }, parentNode: { removeChild: () => { S.removed = true; node.parentNode = null; } } };
+  const sessionStorage = { getItem: (k) => { if (storageThrows) throw new Error('blocked'); return S.store[k] || null; }, setItem: (k, v) => { if (storageThrows) throw new Error('blocked'); S.store[k] = v; } };
+  new Function('document', 'window', 'sessionStorage', 'setTimeout', aScript)({ getElementById: () => node }, { matchMedia: () => ({ matches: !!reduce }), AudioContext: audio }, sessionStorage, (f, ms) => S.timers.push([f, ms]));
+  return S;
+}
+S = runAdminSplash({});
+ok('admin: first open shown, remembered (own key), removed by 2.6 s', aScript && !S.hidden && S.store.ff_admin_splash === '1' && !S.store.ff_splash && S.timers.length === 1 && S.timers[0][1] <= 2600);
+S = runAdminSplash({}); S.listeners.click();
+ok('admin: tap skips it', S.removed);
+S = runAdminSplash({ seen: true });
+ok('admin: not shown again in the same session', S.hidden && S.removed);
+S = runAdminSplash({ reduce: true });
+ok('admin: reduced motion never shows it', S.removed && S.hidden);
+S = runAdminSplash({ storageThrows: true });
+ok('admin: storage blocked still works', !S.hidden && S.timers.length === 1);
+
+// Fake Web Audio: records scheduled sounds, fades and close. state 'running' = browser allows sound; 'suspended' = blocked.
+function fakeAudio(state, { resumeTo = state } = {}) {
+  const log = { created: 0, starts: 0, faded: false, closed: false, resumed: 0 };
+  const param = () => ({ value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {}, setTargetAtTime() { log.faded = true; } });
+  const node = () => ({ connect() {}, start() { log.starts++; }, stop() {}, gain: param(), frequency: param(), Q: param(), delayTime: param(), type: '', buffer: null });
+  class Ctx {
+    constructor() { log.created++; this.state = state; this.currentTime = 0; this.sampleRate = 8000; this.destination = {}; }
+    createGain() { return node(); } createDynamicsCompressor() { return node(); } createBiquadFilter() { return node(); }
+    createDelay() { return node(); } createOscillator() { return node(); } createBufferSource() { return node(); }
+    createBuffer(c, len) { return { getChannelData: () => new Float32Array(len) }; }
+    resume() { log.resumed++; this.state = resumeTo; return Promise.resolve(); }
+    close() { log.closed = true; }
+  }
+  return { Ctx, log };
+}
+const tick = () => new Promise((r) => setImmediate(r));
+
+(async () => {
+  for (const [label, run, script] of [['storefront', runSplash, spScript], ['admin', runAdminSplash, aScript]]) {
+    section(label + ' splash sound (whoosh + chime)');
+    ok(label + ': no audio file is loaded (synthesized)', !/\.mp3|\.ogg|\.wav|new Audio\(/.test(script));
+    let A = fakeAudio('running'); S = run({ audio: A.Ctx });
+    ok(label + ': sound allowed → 2 whooshes + 2 three-part chimes scheduled', A.log.created === 1 && A.log.starts === 8, A.log);
+    S.listeners.click({ type: 'click' });
+    ok(label + ': tap skips the splash and fades the sound quickly', S.removed && A.log.faded);
+    S.timers.filter(([, ms]) => ms <= 300).forEach(([f]) => f());
+    ok(label + ': audio closed after a skip', A.log.closed);
+    A = fakeAudio('running'); S = run({ audio: A.Ctx }); S.timers[0][0]();
+    ok(label + ': natural end lets the chime tail ring, then closes', S.removed && !A.log.faded && S.timers.some(([f, ms]) => ms === 1200 && (f(), A.log.closed)));
+    A = fakeAudio('suspended'); S = run({ audio: A.Ctx }); await tick();
+    ok(label + ': browser blocks sound → splash still plays silently', !S.hidden && A.log.resumed === 1 && A.log.starts === 0);
+    A = fakeAudio('suspended', { resumeTo: 'running' }); S = run({ audio: A.Ctx }); await tick();
+    ok(label + ': sound unlocked on resume → plays', A.log.starts === 8);
+    A = fakeAudio('running'); S = run({ audio: A.Ctx, reduce: true });
+    ok(label + ': reduced motion → no sound', A.log.created === 0);
+    A = fakeAudio('running'); S = run({ audio: A.Ctx, seen: true });
+    ok(label + ': already seen this session → no sound', A.log.created === 0);
+    const Throws = class { constructor() { throw new Error('no audio'); } };
+    S = run({ audio: Throws });
+    ok(label + ': audio unavailable/throws → splash still works', !S.hidden && S.timers.length === 1);
+  }
+
+  console.log('\n---------------------------------------');
+  console.log('PASS ' + pass + '   FAIL ' + fail);
+  process.exitCode = fail ? 1 : 0;
+})();

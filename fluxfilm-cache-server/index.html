@@ -34,7 +34,7 @@ html, body { background: #f5f7fb; }
 .ff-help:hover { background: rgba(22,163,74,.14); }
 .ff-help-long { display: none; }
 @media (max-width: 899px) { .ff-help-deskonly { display: none; } }
-.ff-bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 2px; background: rgba(255,255,255,.97); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid rgba(15,23,42,.08); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px rgba(15,23,42,.06); }
+.ff-bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 2px; background: rgba(255,255,255,.97); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid rgba(15,23,42,.08); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px rgba(15,23,42,.06); }
 .ff-bnav-btn { border: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; white-space: nowrap; font-weight: 700; color: #64748b; padding: 7px 0 6px; border-radius: 14px; cursor: pointer; }
 .ff-bnav-ic { font-size: 20px; line-height: 1; }
 .ff-bnav-btn.on { color: #15803d; background: rgba(22,163,74,.09); }
@@ -293,22 +293,22 @@ input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; 
 .ff-subfilter button.on span { background: rgba(255,255,255,.25); color: #fff; }
 /* ── Splash: "ribbon reveal" intro, once per session (see #ff-splash script) ──
    Mint ribbons unfurl into the play button, the logo locks in, then the camera dives through it past light streaks. */
-#ff-splash { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; overflow: hidden; background: radial-gradient(120% 70% at 50% 42%, #0b2a1f 0%, #04140e 60%, #020a07 100%); animation: ffSplashOut .25s ease-in 1.3s forwards; -webkit-tap-highlight-color: transparent; }
+#ff-splash { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; overflow: hidden; background: radial-gradient(120% 70% at 50% 42%, #0b2a1f 0%, #04140e 60%, #020a07 100%); animation: ffSplashOut .3s ease-in 1.9s forwards; -webkit-tap-highlight-color: transparent; }
 #ff-splash[hidden] { display: none; }
 .ff-sp-stage { position: relative; width: 104px; height: 104px; margin-top: -6vh; }
 .ff-sp-rib, .ff-sp-logo { position: absolute; inset: 0; }
-.ff-sp-rib { display: flex; clip-path: polygon(28% 19%, 28% 81%, 87% 50%); animation: ffSpFade .2s ease .78s forwards; }
-.ff-sp-rib span { flex: 1; transform: scaleY(0); transform-origin: 50% 0; box-shadow: inset -3px 0 5px rgba(4,20,14,.35); animation: ffSpRib .42s cubic-bezier(.2,.85,.25,1) forwards; }
+.ff-sp-rib { display: flex; clip-path: polygon(28% 19%, 28% 81%, 87% 50%); animation: ffSpFade .25s ease .95s forwards; }
+.ff-sp-rib span { flex: 1; transform: scaleY(0); transform-origin: 50% 0; box-shadow: inset -3px 0 5px rgba(4,20,14,.35); animation: ffSpRib .5s cubic-bezier(.2,.85,.25,1) forwards; }
 .ff-sp-rib span:nth-child(even) { transform-origin: 50% 100%; }
-.ff-sp-rib span:nth-child(1) { background: #1fae78; } .ff-sp-rib span:nth-child(2) { background: #2cc38a; animation-delay: .05s; }
-.ff-sp-rib span:nth-child(3) { background: #43d69b; animation-delay: .1s; } .ff-sp-rib span:nth-child(4) { background: #6ee7b7; animation-delay: .15s; }
-.ff-sp-rib span:nth-child(5) { background: #8ef0c8; animation-delay: .2s; } .ff-sp-rib span:nth-child(6) { background: #a7f3d0; animation-delay: .25s; }
-.ff-sp-rib span:nth-child(7) { background: #c9f8e3; animation-delay: .3s; }
-.ff-sp-logo { opacity: 0; animation: ffSpLogoIn .3s ease-out .62s forwards, ffSpDive .5s cubic-bezier(.7,0,.9,.2) 1.1s forwards; }
+.ff-sp-rib span:nth-child(1) { background: #1fae78; } .ff-sp-rib span:nth-child(2) { background: #2cc38a; animation-delay: .06s; }
+.ff-sp-rib span:nth-child(3) { background: #43d69b; animation-delay: .12s; } .ff-sp-rib span:nth-child(4) { background: #6ee7b7; animation-delay: .18s; }
+.ff-sp-rib span:nth-child(5) { background: #8ef0c8; animation-delay: .24s; } .ff-sp-rib span:nth-child(6) { background: #a7f3d0; animation-delay: .3s; }
+.ff-sp-rib span:nth-child(7) { background: #c9f8e3; animation-delay: .36s; }
+.ff-sp-logo { opacity: 0; animation: ffSpLogoIn .35s ease-out .82s forwards, ffSpDive .55s cubic-bezier(.7,0,.9,.2) 1.55s forwards; }
 .ff-sp-logo svg { display: block; width: 100%; height: 100%; }
 .ff-sp-streaks { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
 .ff-sp-streaks i { position: absolute; left: 0; top: 0; width: 0; height: 0; }
-.ff-sp-streaks b { position: absolute; left: 0; top: -1.5px; width: 12px; height: 3px; border-radius: 3px; opacity: 0; transform-origin: 0 50%; animation: ffSpStreak .55s cubic-bezier(.3,.7,.2,1) 1.08s forwards; }
+.ff-sp-streaks b { position: absolute; left: 0; top: -1.5px; width: 12px; height: 3px; border-radius: 3px; opacity: 0; transform-origin: 0 50%; animation: ffSpStreak .6s cubic-bezier(.3,.7,.2,1) 1.52s forwards; }
 @keyframes ffSpRib { to { transform: scaleY(1); } }
 @keyframes ffSpFade { to { opacity: 0; } }
 @keyframes ffSpLogoIn { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: none; } }
@@ -402,6 +402,61 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 @keyframes ffPromoBounce { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-6px) rotate(4deg); } }
 @keyframes ffPromoGlow { from { transform: translateX(0); opacity: .6; } to { transform: translateX(-30%); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ff-promo-pop, .ff-promo-big, .ff-promo-glow, .ff-promo-bg { animation: none; } }
+/* ── 🍿 What's new feed (Instagram-style posts; images keep a fixed 4:5 box so nothing jumps) ── */
+.ff-feed { max-width: 520px; margin: 0 auto; }
+.ff-feed-sub { margin: -4px 0 12px; font-size: 13px; font-weight: 600; color: #64748b; }
+.ff-feed-chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 12px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.ff-feed-chips::-webkit-scrollbar { display: none; }
+.ff-feed-chips button { flex: none; min-height: 38px; padding: 0 14px; border-radius: 999px; border: 1.5px solid rgba(15,23,42,.12); background: #fff; font: inherit; font-size: 13px; font-weight: 700; color: #334155; cursor: pointer; white-space: nowrap; }
+.ff-feed-chips button.on { background: #0f172a; border-color: #0f172a; color: #fff; }
+.ff-feed-post { background: #fff; border: 1px solid rgba(15,23,42,.09); border-radius: 22px; overflow: hidden; margin: 0 0 16px; box-shadow: 0 1px 3px rgba(15,23,42,.05); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+.ff-feed-post.hl { box-shadow: 0 0 0 3px rgba(22,163,74,.35), 0 8px 24px rgba(15,23,42,.1); }
+.ff-feed-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.ff-feed-av { width: 38px; height: 38px; border-radius: 50%; flex: none; overflow: hidden; padding: 2px; background: linear-gradient(135deg,#f59e0b,#db2777,#7c3aed); }
+.ff-feed-av img, .ff-feed-av span { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: #fff; display: grid; place-items: center; color: #0f172a; font-size: 15px; font-weight: 900; }
+.ff-feed-name { min-width: 0; flex: 1; line-height: 1.25; }
+.ff-feed-name b { display: block; font-size: 14px; font-weight: 800; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ff-feed-name span { font-size: 12px; font-weight: 600; color: #64748b; }
+.ff-feed-pin { flex: none; font-size: 12px; font-weight: 700; color: #b45309; }
+.ff-feed-media { position: relative; aspect-ratio: 4 / 5; overflow: hidden; background: linear-gradient(110deg,#eef2f7 30%,#f8fafc 50%,#eef2f7 70%); background-size: 200% 100%; user-select: none; -webkit-user-select: none; }
+.ff-feed-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ff-feed-noimg { position: absolute; inset: 0; display: grid; place-items: center; font-size: 64px; background: linear-gradient(135deg,#0f172a,#1e293b); }
+.ff-feed-burst { position: absolute; left: 50%; top: 50%; font-size: 90px; line-height: 1; margin: -45px 0 0 -45px; opacity: 0; pointer-events: none; animation: ffFeedBurst .7s ease both; }
+@keyframes ffFeedBurst { 0% { transform: scale(0); opacity: 0; } 30% { transform: scale(1.15); opacity: 1; } 70% { transform: scale(1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
+.ff-feed-acts { display: flex; align-items: center; gap: 2px; padding: 6px 6px 0; }
+.ff-feed-acts button { min-width: 44px; min-height: 44px; border: 0; background: none; border-radius: 12px; font: inherit; font-size: 14px; font-weight: 800; color: #0f172a; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; }
+.ff-feed-acts button span { font-size: 22px; line-height: 1; }
+.ff-feed-acts .ff-feed-trailer { margin-left: auto; min-height: 36px; background: #fee2e2; color: #b91c1c; font-size: 13px; }
+.ff-feed-body { padding: 4px 14px 14px; }
+.ff-feed-title { font-size: 16px; font-weight: 900; color: #0f172a; line-height: 1.25; }
+.ff-feed-rel { margin-top: 3px; font-size: 12.5px; font-weight: 700; color: #15803d; }
+.ff-feed-cap { margin-top: 6px; font-size: 14px; font-weight: 500; color: #334155; line-height: 1.5; white-space: pre-line; }
+.ff-feed-cap.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ff-feed-more { border: 0; background: none; padding: 2px 0; font: inherit; font-size: 13.5px; font-weight: 800; color: #64748b; cursor: pointer; }
+.ff-feed-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ff-feed-tags span { padding: 3px 9px; border-radius: 999px; background: #f1f5f9; font-size: 11.5px; font-weight: 700; color: #475569; }
+.ff-feed-cta { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; margin-top: 12px; min-height: 50px; padding: 10px 16px; border: 0; border-radius: 16px; background: linear-gradient(135deg,#16a34a,#22c55e); color: #fff; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; text-align: left; box-shadow: 0 6px 16px rgba(22,163,74,.25); }
+.ff-feed-cta small { display: block; font-size: 11.5px; font-weight: 600; opacity: .92; }
+.ff-feed-cta > span:last-child { font-size: 24px; }
+.ff-feed-cta.renew { background: linear-gradient(135deg,#7c3aed,#a855f7); box-shadow: 0 6px 16px rgba(124,58,237,.25); }
+.ff-feed-note { margin-top: 8px; font-size: 12.5px; font-weight: 700; color: #15803d; }
+.ff-feed-skel .ff-feed-media { animation: ffFeedShimmer 1.2s linear infinite; }
+.ff-feed-skel i { display: block; height: 12px; margin: 10px 14px; border-radius: 6px; background: #eef2f7; }
+@keyframes ffFeedShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.ff-feed-attr { margin: 8px 0 0; font-size: 11px; font-weight: 600; color: #94a3b8; text-align: center; line-height: 1.5; }
+.ff-feed-strip { margin: 4px 0 16px; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+.ff-feed-strip-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.ff-feed-strip-h b { font-size: 15px; font-weight: 800; color: #0f172a; }
+.ff-feed-strip-h button { border: 0; background: none; font: inherit; font-size: 13px; font-weight: 800; color: #15803d; cursor: pointer; min-height: 40px; }
+.ff-feed-strip-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+.ff-feed-strip-row::-webkit-scrollbar { display: none; }
+.ff-feed-tile { flex: none; width: 104px; border: 0; background: none; padding: 0; text-align: left; font: inherit; cursor: pointer; scroll-snap-align: start; }
+.ff-feed-tile-img { position: relative; display: block; width: 104px; height: 130px; border-radius: 16px; overflow: hidden; background: #eef2f7; }
+.ff-feed-tile-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ff-feed-tile-img i { position: absolute; inset: 0; display: grid; place-items: center; font-style: normal; font-size: 34px; background: linear-gradient(135deg,#0f172a,#334155); }
+.ff-feed-tile-t { margin-top: 6px; font-size: 12.5px; font-weight: 800; color: #0f172a; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ff-feed-tile-s { display: block; font-size: 11px; font-weight: 600; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (prefers-reduced-motion: reduce) { .ff-feed-burst, .ff-feed-skel .ff-feed-media { animation: none; } }
 /* ── Install app pop-up (fixed, outside any animated screen) ── */
 .ff-install-bg { position: fixed; inset: 0; z-index: 70; display: flex; align-items: flex-end; justify-content: center; background: rgba(15,23,42,.28); padding: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom)); animation: ffInstallFade .2s ease both; }
 .ff-install { width: 100%; max-width: 440px; background: #fff; border-radius: 22px; padding: 16px; box-shadow: 0 20px 50px rgba(15,23,42,.25); animation: ffInstallUp .28s cubic-bezier(.2,.9,.3,1.2) both; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
@@ -531,14 +586,21 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
 </script>
 </head>
 <body>
-<div id="ff-splash" hidden aria-hidden="true"><div class="ff-sp-streaks"><i style="transform:rotate(0deg)"><b style="background:#a7f3d0;animation-delay:1.08s"></b></i><i style="transform:rotate(27deg)"><b style="background:#6ee7b7;animation-delay:1.10s"></b></i><i style="transform:rotate(54deg)"><b style="background:#34d399;animation-delay:1.12s"></b></i><i style="transform:rotate(60deg)"><b style="background:#2dd4bf;animation-delay:1.14s"></b></i><i style="transform:rotate(87deg)"><b style="background:#bef264;animation-delay:1.16s"></b></i><i style="transform:rotate(114deg)"><b style="background:#ffffff;animation-delay:1.08s"></b></i><i style="transform:rotate(120deg)"><b style="background:#5eead4;animation-delay:1.10s"></b></i><i style="transform:rotate(147deg)"><b style="background:#a7f3d0;animation-delay:1.12s"></b></i><i style="transform:rotate(174deg)"><b style="background:#6ee7b7;animation-delay:1.14s"></b></i><i style="transform:rotate(180deg)"><b style="background:#34d399;animation-delay:1.16s"></b></i><i style="transform:rotate(207deg)"><b style="background:#2dd4bf;animation-delay:1.08s"></b></i><i style="transform:rotate(234deg)"><b style="background:#bef264;animation-delay:1.10s"></b></i><i style="transform:rotate(240deg)"><b style="background:#ffffff;animation-delay:1.12s"></b></i><i style="transform:rotate(267deg)"><b style="background:#5eead4;animation-delay:1.14s"></b></i><i style="transform:rotate(294deg)"><b style="background:#a7f3d0;animation-delay:1.16s"></b></i><i style="transform:rotate(300deg)"><b style="background:#6ee7b7;animation-delay:1.08s"></b></i><i style="transform:rotate(327deg)"><b style="background:#34d399;animation-delay:1.10s"></b></i><i style="transform:rotate(354deg)"><b style="background:#2dd4bf;animation-delay:1.12s"></b></i></div><div class="ff-sp-stage"><div class="ff-sp-rib"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="ff-sp-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="ffsp-bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#12382a"/><stop offset="1" stop-color="#04140e"/></linearGradient><radialGradient id="ffsp-hi" cx="143" cy="61" r="460" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset=".55" stop-color="#ffffff" stop-opacity="0"/></radialGradient><linearGradient id="ffsp-mk" x1="0" y1="96" x2="0" y2="416" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#a7f3d0"/><stop offset="1" stop-color="#34d399"/></linearGradient><filter id="ffsp-sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity=".45"/></filter><mask id="ffsp-f" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect width="512" height="512" fill="#fff"/><g fill="#000"><rect x="198" y="186" width="36" height="148" rx="6"/><rect x="198" y="186" width="98" height="32" rx="6"/><rect x="198" y="244" width="78" height="30" rx="6"/></g></mask></defs><rect width="512" height="512" rx="112" fill="url(#ffsp-bg)"/><rect width="512" height="512" rx="112" fill="url(#ffsp-hi)"/><g filter="url(#ffsp-sh)"><path transform="translate(8 0)" d="M170 128V384L392 256Z" fill="url(#ffsp-mk)" stroke="url(#ffsp-mk)" stroke-width="64" stroke-linejoin="round" mask="url(#ffsp-f)"/></g></svg></div></div></div>
+<div id="ff-splash" hidden aria-hidden="true"><div class="ff-sp-streaks"><i style="transform:rotate(0deg)"><b style="background:#a7f3d0;animation-delay:1.52s"></b></i><i style="transform:rotate(27deg)"><b style="background:#6ee7b7;animation-delay:1.54s"></b></i><i style="transform:rotate(54deg)"><b style="background:#34d399;animation-delay:1.56s"></b></i><i style="transform:rotate(60deg)"><b style="background:#2dd4bf;animation-delay:1.58s"></b></i><i style="transform:rotate(87deg)"><b style="background:#bef264;animation-delay:1.60s"></b></i><i style="transform:rotate(114deg)"><b style="background:#ffffff;animation-delay:1.52s"></b></i><i style="transform:rotate(120deg)"><b style="background:#5eead4;animation-delay:1.54s"></b></i><i style="transform:rotate(147deg)"><b style="background:#a7f3d0;animation-delay:1.56s"></b></i><i style="transform:rotate(174deg)"><b style="background:#6ee7b7;animation-delay:1.58s"></b></i><i style="transform:rotate(180deg)"><b style="background:#34d399;animation-delay:1.60s"></b></i><i style="transform:rotate(207deg)"><b style="background:#2dd4bf;animation-delay:1.52s"></b></i><i style="transform:rotate(234deg)"><b style="background:#bef264;animation-delay:1.54s"></b></i><i style="transform:rotate(240deg)"><b style="background:#ffffff;animation-delay:1.56s"></b></i><i style="transform:rotate(267deg)"><b style="background:#5eead4;animation-delay:1.58s"></b></i><i style="transform:rotate(294deg)"><b style="background:#a7f3d0;animation-delay:1.60s"></b></i><i style="transform:rotate(300deg)"><b style="background:#6ee7b7;animation-delay:1.52s"></b></i><i style="transform:rotate(327deg)"><b style="background:#34d399;animation-delay:1.54s"></b></i><i style="transform:rotate(354deg)"><b style="background:#2dd4bf;animation-delay:1.56s"></b></i></div><div class="ff-sp-stage"><div class="ff-sp-rib"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="ff-sp-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="ffsp-bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#12382a"/><stop offset="1" stop-color="#04140e"/></linearGradient><radialGradient id="ffsp-hi" cx="143" cy="61" r="460" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset=".55" stop-color="#ffffff" stop-opacity="0"/></radialGradient><linearGradient id="ffsp-mk" x1="0" y1="96" x2="0" y2="416" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#a7f3d0"/><stop offset="1" stop-color="#34d399"/></linearGradient><filter id="ffsp-sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity=".45"/></filter><mask id="ffsp-f" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect width="512" height="512" fill="#fff"/><g fill="#000"><rect x="198" y="186" width="36" height="148" rx="6"/><rect x="198" y="186" width="98" height="32" rx="6"/><rect x="198" y="244" width="78" height="30" rx="6"/></g></mask></defs><rect width="512" height="512" rx="112" fill="url(#ffsp-bg)"/><rect width="512" height="512" rx="112" fill="url(#ffsp-hi)"/><g filter="url(#ffsp-sh)"><path transform="translate(8 0)" d="M170 128V384L392 256Z" fill="url(#ffsp-mk)" stroke="url(#ffsp-mk)" stroke-width="64" stroke-linejoin="round" mask="url(#ffsp-f)"/></g></svg></div></div></div>
 <script>
 // Splash: once per browser session (app open / new tab), skipped for reduced motion, tap to skip,
-// removed by 1.8 s at the latest. The app renders underneath.
+// removed by 2.6 s at the latest. The app renders underneath.
+// Sound: a whoosh as the ribbons unfurl, a soft two-note chime when the logo locks in, a short whoosh on the dive.
+// Synthesized with Web Audio (no file). Browsers only allow it once the site may play sound (e.g. installed app or
+// a returning visitor); otherwise the splash just plays silently.
 (function () {
   var el = document.getElementById('ff-splash');
   if (!el) return;
-  var done = function () { if (el.parentNode) el.parentNode.removeChild(el); };
+  var stopSound = null;
+  var done = function (e) {
+    if (stopSound) { var s = stopSound; stopSound = null; try { s(!!(e && e.type === 'click')); } catch (x) {} }
+    if (el.parentNode) el.parentNode.removeChild(el);
+  };
   try {
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
   } catch (e) {}
@@ -549,7 +611,51 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
   el.hidden = false;
   el.addEventListener('click', done);
   el.addEventListener('animationend', function (e) { if (e.target === el) done(); });
-  setTimeout(done, 1800);
+  setTimeout(done, 2600);
+  try { stopSound = splashSound(); } catch (e) {}
+
+  function splashSound() {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    var ctx = new AC(), master = null, stopped = false;
+    function play() {
+      if (stopped || ctx.state !== 'running') return;
+      var t0 = ctx.currentTime + 0.03;
+      master = ctx.createGain(); master.gain.value = 0.8;
+      var comp = ctx.createDynamicsCompressor(); master.connect(comp); comp.connect(ctx.destination);
+      var len = Math.floor(ctx.sampleRate * 1.2), noise = ctx.createBuffer(1, len, ctx.sampleRate), d = noise.getChannelData(0);
+      for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      var echo = ctx.createDelay(1), fb = ctx.createGain(), warm = ctx.createBiquadFilter();
+      echo.delayTime.value = 0.19; fb.gain.value = 0.28; warm.type = 'lowpass'; warm.frequency.value = 3200;
+      echo.connect(fb); fb.connect(warm); warm.connect(echo); echo.connect(master);
+      function whoosh(at, dur, f1, f2, peak) {
+        var src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+        src.buffer = noise; bp.type = 'bandpass'; bp.Q.value = 0.9;
+        bp.frequency.setValueAtTime(f1, at); bp.frequency.exponentialRampToValueAtTime(f2, at + dur);
+        g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(peak, at + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+        src.connect(bp); bp.connect(g); g.connect(master); src.start(at); src.stop(at + dur + 0.05);
+      }
+      function chime(at, freq, peak) {
+        [[1, 'sine', 1], [2, 'triangle', 0.18], [3.01, 'sine', 0.06]].forEach(function (p) {
+          var o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = p[1]; o.frequency.value = freq * p[0];
+          g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(peak * p[2], at + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, at + 1.3);
+          o.connect(g); g.connect(master); g.connect(echo); o.start(at); o.stop(at + 1.35);
+        });
+      }
+      whoosh(t0, 0.95, 260, 2600, 0.9);
+      chime(t0 + 0.84, 659.25, 0.22);
+      chime(t0 + 0.98, 987.77, 0.18);
+      whoosh(t0 + 1.5, 0.5, 2200, 380, 0.7);
+    }
+    if (ctx.state === 'running') play();
+    else { var r = ctx.resume(); if (r && r.then) r.then(play, function () {}); }
+    return function stop(quick) {
+      stopped = true;
+      try { if (master && quick) master.gain.setTargetAtTime(0, ctx.currentTime, 0.03); } catch (e) {}
+      setTimeout(function () { try { ctx.close(); } catch (e) {} }, quick ? 300 : 1200);
+    };
+  }
 })();
 </script>
 <div id="root"></div>
@@ -9545,6 +9651,483 @@ function PromoPopup({
     onClick: close
   }, "Maybe later")));
 }
+// ── 🍿 What's new feed (admin → 🍿 Feed, feed.js): Instagram-style posts that lead to buying / renewing ──
+const feedStore_ = {
+  at: 0,
+  data: null,
+  wait: []
+};
+function feedLoad_(cb, force) {
+  if (!force && feedStore_.data && Date.now() - feedStore_.at < 60000) return cb(feedStore_.data);
+  feedStore_.wait.push(cb);
+  if (feedStore_.wait.length > 1) return;
+  const done = r => {
+    const good = !!(r && r.ok && Array.isArray(r.posts));
+    if (good) {
+      feedStore_.data = r;
+      feedStore_.at = Date.now();
+    }
+    const data = good ? r : feedStore_.data || {
+      ok: false,
+      posts: [],
+      tmdb: false
+    };
+    const w = feedStore_.wait;
+    feedStore_.wait = [];
+    w.forEach(f => {
+      try {
+        f(data);
+      } catch (e) {}
+    });
+  };
+  try {
+    API.getFeed(done, () => done(null));
+  } catch (e) {
+    done(null);
+  }
+}
+function feedDevice_() {
+  try {
+    let d = localStorage.getItem('ff_dev');
+    if (!d) {
+      d = Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+      localStorage.setItem('ff_dev', d);
+    }
+    return d;
+  } catch (e) {
+    return '';
+  }
+}
+function feedLiked_() {
+  try {
+    const x = JSON.parse(localStorage.getItem('ff_feed_likes') || '[]');
+    return Array.isArray(x) ? x : [];
+  } catch (e) {
+    return [];
+  }
+}
+function feedSetLiked_(id, on) {
+  try {
+    const l = feedLiked_().filter(x => x !== id);
+    if (on) l.push(id);
+    localStorage.setItem('ff_feed_likes', JSON.stringify(l.slice(-300)));
+  } catch (e) {}
+}
+const feedSeen_ = {};
+function feedEvent_(id, kind) {
+  if (kind === 'view') {
+    if (feedSeen_[id]) return;
+    feedSeen_[id] = 1;
+  }
+  try {
+    API.feedEvent(id, kind, feedDevice_(), () => {}, () => {});
+  } catch (e) {}
+}
+function feedPostFromUrl_(search) {
+  try {
+    const id = new URLSearchParams(search || '').get('post') || '';
+    return /^fp[0-9a-f]{10}$/.test(id) ? id : '';
+  } catch (e) {
+    return '';
+  }
+}
+function feedClearUrl_() {
+  try {
+    const u = new URL(window.location.href);
+    if (!u.searchParams.has('post')) return;
+    u.searchParams.delete('post');
+    window.history.replaceState(null, '', u.pathname + u.search + u.hash);
+  } catch (e) {}
+}
+// Catalog match: the exact service name, else one that starts with it ("Netflix" → "Netflix (Group Offer)"). Cheapest active plan.
+function feedServiceInfo_(service, plans) {
+  const all = Array.isArray(plans) ? plans : [];
+  const name = String(service || '').trim();
+  if (!name) return null;
+  let list = all.filter(p => p.service === name);
+  if (!list.length) {
+    const lc = name.toLowerCase();
+    list = all.filter(p => String(p.service || '').toLowerCase().startsWith(lc));
+  }
+  if (!list.length) return null;
+  const cheapest = list.reduce((a, b) => Number(b.price) < Number(a.price) ? b : a);
+  return {
+    service: cheapest.service,
+    price: Number(cheapest.price) || 0,
+    logoUrl: list.map(p => p.logoUrl).find(Boolean) || ''
+  };
+}
+function feedWhen_(iso, now) {
+  const t = Date.parse(iso || '');
+  if (!t) return '';
+  const m = Math.max(0, Math.round(((now || Date.now()) - t) / 60000));
+  if (m < 60) return m <= 1 ? 'just now' : m + 'm ago';
+  if (m < 1440) return Math.round(m / 60) + 'h ago';
+  if (m < 10080) return Math.round(m / 1440) + 'd ago';
+  return new Date(t).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short'
+  });
+}
+function feedRelease_(ymd, type, now) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd || '')) return '';
+  const t = Date.parse(ymd + 'T00:00:00+05:30');
+  const nice = new Date(t).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'Asia/Kolkata'
+  });
+  return t > (now || Date.now()) ? '📅 Streaming from ' + nice : (type === 'series' ? '📺 Out since ' : '🎬 Released ') + nice;
+}
+function feedThumb_(url) {
+  return /^https:\/\/image\.tmdb\.org\/t\/p\/w780\//.test(url || '') ? url.replace('/w780/', '/w342/') : url || '';
+}
+function feedShare_(p, done) {
+  const url = window.location.origin + '/?post=' + encodeURIComponent(p.id);
+  feedEvent_(p.id, 'share');
+  if (navigator.share) {
+    navigator.share({
+      title: p.title,
+      text: p.title + (p.service ? ' — now on ' + p.service : '') + ' 🍿',
+      url
+    }).then(() => done && done('shared'), () => {});
+    return;
+  }
+  copyText_(url, () => done && done('copied'));
+}
+function FeedStrip({
+  nav
+}) {
+  const [posts, setPosts] = useState(null);
+  useEffect(() => {
+    let live = true;
+    feedLoad_(r => {
+      if (live) setPosts(r.posts || []);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (!posts || !posts.length) return null;
+  return React.createElement("section", {
+    className: "ff-feed-strip",
+    "aria-label": "New this week"
+  }, React.createElement("div", {
+    className: "ff-feed-strip-h"
+  }, React.createElement("b", null, "🍿 New this week"), React.createElement("button", {
+    type: "button",
+    onClick: () => nav('feed', {})
+  }, "See all ›")), React.createElement("div", {
+    className: "ff-feed-strip-row"
+  }, posts.slice(0, 5).map(p => React.createElement("button", {
+    key: p.id,
+    type: "button",
+    className: "ff-feed-tile",
+    onClick: () => nav('feed', {
+      postId: p.id
+    })
+  }, React.createElement("span", {
+    className: "ff-feed-tile-img"
+  }, p.image ? React.createElement("img", {
+    src: feedThumb_(p.image),
+    alt: "",
+    loading: "lazy",
+    decoding: "async",
+    width: 104,
+    height: 130
+  }) : React.createElement("i", {
+    "aria-hidden": "true"
+  }, "🍿")), React.createElement("span", {
+    className: "ff-feed-tile-t"
+  }, p.title), React.createElement("span", {
+    className: "ff-feed-tile-s"
+  }, p.service || 'FluxFilm')))));
+}
+function FeedPost({
+  p,
+  info,
+  renewSub,
+  highlight,
+  onCta
+}) {
+  const [liked, setLiked] = useState(() => feedLiked_().includes(p.id));
+  const [likes, setLikes] = useState(Number(p.likes) || 0);
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState('');
+  const [burst, setBurst] = useState(0);
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      feedEvent_(p.id, 'view');
+      return;
+    }
+    const io = new IntersectionObserver(es => {
+      if (es.some(e => e.isIntersecting)) {
+        feedEvent_(p.id, 'view');
+        io.disconnect();
+      }
+    }, {
+      threshold: 0.5
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [p.id]);
+  function like(force) {
+    const on = force === true ? true : !liked;
+    if (on) setBurst(b => b + 1);
+    if (on === liked) return;
+    setLiked(on);
+    setLikes(n => Math.max(0, n + (on ? 1 : -1)));
+    feedSetLiked_(p.id, on);
+    feedEvent_(p.id, on ? 'like' : 'unlike');
+  }
+  const caption = String(p.caption || '');
+  const long = caption.length > 140 || caption.split('\n').length > 3;
+  const rel = feedRelease_(p.releaseDate, p.type);
+  const typeLabel = {
+    movie: '🎬 Movie',
+    series: '📺 Series',
+    announcement: '📣 News'
+  }[p.type] || '';
+  const name = info ? info.service : p.service || 'FluxFilm';
+  const tags = (p.languages || []).concat(p.genres || []);
+  return React.createElement("article", {
+    ref: ref,
+    className: "ff-feed-post" + (highlight ? ' hl' : ''),
+    id: 'post-' + p.id
+  }, React.createElement("div", {
+    className: "ff-feed-head"
+  }, React.createElement("div", {
+    className: "ff-feed-av",
+    "aria-hidden": "true"
+  }, info && info.logoUrl ? React.createElement("img", {
+    src: info.logoUrl,
+    alt: "",
+    loading: "lazy",
+    width: 32,
+    height: 32
+  }) : React.createElement("span", null, String(name).charAt(0).toUpperCase())), React.createElement("div", {
+    className: "ff-feed-name"
+  }, React.createElement("b", null, name), React.createElement("span", null, typeLabel, typeLabel && p.date ? ' · ' : '', feedWhen_(p.date))), p.pinned && React.createElement("span", {
+    className: "ff-feed-pin"
+  }, "📌 Pinned")), React.createElement("div", {
+    className: "ff-feed-media",
+    onDoubleClick: () => like(true)
+  }, p.image ? React.createElement("img", {
+    src: p.image,
+    alt: p.title + (p.type === 'announcement' ? '' : ' poster'),
+    loading: "lazy",
+    decoding: "async",
+    width: 520,
+    height: 650
+  }) : React.createElement("div", {
+    className: "ff-feed-noimg",
+    "aria-hidden": "true"
+  }, "🍿"), burst > 0 && React.createElement("span", {
+    key: burst,
+    className: "ff-feed-burst",
+    "aria-hidden": "true"
+  }, "❤️")), React.createElement("div", {
+    className: "ff-feed-acts"
+  }, React.createElement("button", {
+    type: "button",
+    "aria-pressed": liked,
+    "aria-label": liked ? 'Unlike' : 'Like',
+    onClick: () => like()
+  }, React.createElement("span", {
+    "aria-hidden": "true"
+  }, liked ? '❤️' : '🤍'), likes > 0 ? likes : ''), React.createElement("button", {
+    type: "button",
+    "aria-label": "Share",
+    onClick: () => feedShare_(p, how => {
+      if (how === 'copied') {
+        setNote('🔗 Link copied — paste it in WhatsApp');
+        setTimeout(() => setNote(''), 2500);
+      }
+    })
+  }, React.createElement("span", {
+    "aria-hidden": "true"
+  }, "📤"), "Share"), p.trailerUrl && React.createElement("button", {
+    type: "button",
+    className: "ff-feed-trailer",
+    onClick: () => openExternal_(p.trailerUrl)
+  }, "▶ Trailer")), React.createElement("div", {
+    className: "ff-feed-body"
+  }, React.createElement("div", {
+    className: "ff-feed-title"
+  }, p.title), rel && React.createElement("div", {
+    className: "ff-feed-rel"
+  }, rel), caption && React.createElement("div", {
+    className: "ff-feed-cap" + (long && !open ? ' clamp' : '')
+  }, caption), long && React.createElement("button", {
+    type: "button",
+    className: "ff-feed-more",
+    onClick: () => setOpen(o => !o)
+  }, open ? 'less' : 'more'), tags.length > 0 && React.createElement("div", {
+    className: "ff-feed-tags"
+  }, tags.map(t => React.createElement("span", {
+    key: t
+  }, t))), note && React.createElement("div", {
+    className: "ff-feed-note",
+    role: "status"
+  }, note), p.cta === 'service' && info && React.createElement("button", {
+    type: "button",
+    className: "ff-feed-cta" + (renewSub ? ' renew' : ''),
+    onClick: () => {
+      feedEvent_(p.id, 'click');
+      onCta(p, info, renewSub);
+    }
+  }, React.createElement("span", null, renewSub ? '🔁 Renew ' + info.service : 'Get ' + info.service + ' from ₹' + info.price, React.createElement("small", null, renewSub ? 'Keep watching — renew your plan' : 'Streaming on ' + info.service)), React.createElement("span", {
+    "aria-hidden": "true"
+  }, "›"))));
+}
+function FeedSkeleton() {
+  return React.createElement("div", {
+    className: "ff-feed-post ff-feed-skel",
+    "aria-hidden": "true"
+  }, React.createElement("div", {
+    className: "ff-feed-head"
+  }, React.createElement("div", {
+    className: "ff-feed-av"
+  }), React.createElement("i", {
+    style: {
+      flex: 1,
+      margin: 0
+    }
+  })), React.createElement("div", {
+    className: "ff-feed-media"
+  }), React.createElement("i", {
+    style: {
+      width: '60%'
+    }
+  }), React.createElement("i", null));
+}
+function FeedScreen({
+  nav,
+  boot,
+  postId,
+  manageResp
+}) {
+  const [data, setData] = useState(feedStore_.data);
+  const [filter, setFilter] = useState('all');
+  const [shown, setShown] = useState(6);
+  const moreRef = useRef(null);
+  function load(force) {
+    feedLoad_(r => setData(r), force);
+  }
+  useEffect(() => {
+    load(false);
+  }, []);
+  const posts = data && data.posts || [];
+  const platforms = [...new Set(posts.map(p => p.service).filter(Boolean))];
+  const list = filter === 'all' ? posts : posts.filter(p => p.service === filter);
+  const target = postId && list.find(p => p.id === postId);
+  const ordered = target ? [target].concat(list.filter(p => p !== target)) : list;
+  useEffect(() => {
+    const el = moreRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(es => {
+      if (es.some(e => e.isIntersecting)) setShown(n => n + 6);
+    }, {
+      rootMargin: '800px 0px'
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ordered.length, shown]);
+  const plans = boot && boot.plans || [];
+  const subs = manageResp && manageResp.actionable || [];
+  function onCta(p, info, renewSub) {
+    if (renewSub) nav('renewStart', {
+      sub: renewSub
+    });else nav('buy2', {
+      service: info.service
+    });
+  }
+  let body;
+  if (!data) body = [React.createElement(FeedSkeleton, {
+    key: 's1'
+  }), React.createElement(FeedSkeleton, {
+    key: 's2'
+  })];else if (!posts.length) body = React.createElement(Card, {
+    style: {
+      textAlign: 'center',
+      padding: '32px 20px'
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 44,
+      marginBottom: 10
+    }
+  }, "🍿"), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 15,
+      fontWeight: 800,
+      color: C.text
+    }
+  }, data.ok === false ? 'Could not load the feed' : 'Nothing new yet'), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13,
+      fontWeight: 600,
+      color: C.muted,
+      margin: '6px 0 14px'
+    }
+  }, data.ok === false ? 'Check your internet and try again.' : 'New movies and shows will show up here soon.'), data.ok === false && React.createElement(Btn, {
+    variant: "ghost",
+    onClick: () => {
+      setData(null);
+      load(true);
+    }
+  }, "🔄 Try again"));else body = ordered.slice(0, shown).map(p => {
+    const info = p.cta === 'service' ? feedServiceInfo_(p.service, plans) : null;
+    const renewSub = info ? subs.find(s => s && s.service === info.service && s.showRenewButton !== false) || null : null;
+    return React.createElement(FeedPost, {
+      key: p.id,
+      p: p,
+      info: info,
+      renewSub: renewSub,
+      highlight: !!target && p === target,
+      onCta: onCta
+    });
+  });
+  return React.createElement(Slide, null, React.createElement("div", {
+    className: "ff-feed",
+    style: {
+      paddingBottom: 90
+    }
+  }, React.createElement(SectionHead, null, "🍿 What's new"), React.createElement("p", {
+    className: "ff-feed-sub"
+  }, "New movies & shows on the apps you can get from FluxFilm."), platforms.length > 1 && React.createElement("div", {
+    className: "ff-feed-chips",
+    role: "tablist",
+    "aria-label": "Filter by platform"
+  }, ['all'].concat(platforms).map(k => React.createElement("button", {
+    key: k,
+    type: "button",
+    role: "tab",
+    "aria-selected": filter === k,
+    className: filter === k ? 'on' : '',
+    onClick: () => {
+      setFilter(k);
+      setShown(6);
+    }
+  }, k === 'all' ? 'All' : k))), body, data && ordered.length > shown && React.createElement("div", {
+    ref: moreRef,
+    style: {
+      textAlign: 'center',
+      padding: '4px 0 16px'
+    }
+  }, React.createElement(Btn, {
+    variant: "ghost",
+    onClick: () => setShown(n => n + 6)
+  }, "Show more")), data && data.tmdb && React.createElement("p", {
+    className: "ff-feed-attr"
+  }, "Movie & show details and posters from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.")));
+}
 function RestoringScreen({
   trending,
   trendIndex
@@ -10626,7 +11209,8 @@ const TOPBAR_META = {
   recover: ['Recover Access', 'OTP secured · Fast 🔒', null],
   otpScreen: ['Get OTP', 'SMS OTP · Fast & secure', '📲'],
   account: ['My Account', 'Profile · Coupons · Refer & earn · Wallet', null],
-  renewStart: ['Renew', 'Early discount available', null]
+  renewStart: ['Renew', 'Early discount available', null],
+  feed: ["What's new", 'Latest movies & shows 🍿', null]
 };
 const BOOT_CACHE_KEY = 'ff_boot_v2';
 const BOOT_CACHE_TTL = 5 * 60 * 1000;
@@ -11042,6 +11626,17 @@ function App() {
     const t = setInterval(() => setTrendIndex(i => (i + 1) % trending.length), 2200);
     return () => clearInterval(t);
   }, [trending]);
+  // Shared post link /?post=<id>: open the feed at that post (after a saved login has been restored).
+  const feedLink = useRef(feedPostFromUrl_(window.location.search));
+  useEffect(() => {
+    const id = feedLink.current;
+    if (!id || restoring || getFFSession().phone && screen === 'home') return;
+    feedLink.current = '';
+    feedClearUrl_();
+    nav('feed', {
+      postId: id
+    });
+  }, [restoring, screen]);
   function goLoggedHome() {
     const saved = getFFSession(),
       ph = normPhone_(screenData.phone || saved.phone || localStorage.getItem('ff_phone') || '');
@@ -11146,12 +11741,14 @@ function App() {
     home: 1,
     dashboard: 1,
     buy1: 1,
+    feed: 1,
     account: 1
   };
   const showBnav = !!BNAV_SCREENS[screen];
   const activeKey = {
     home: 'home',
     dashboard: 'home',
+    feed: 'feed',
     account: 'account',
     buy1: 'buy',
     buy2: 'buy',
@@ -11168,6 +11765,13 @@ function App() {
     label: 'Buy',
     onClick: () => {
       if (screen !== 'buy1') nav('buy1', {});
+    }
+  }, {
+    key: 'feed',
+    icon: '🍿',
+    label: 'New',
+    onClick: () => {
+      if (screen !== 'feed') nav('feed', {});
     }
   }, {
     key: 'recover',
@@ -11244,7 +11848,9 @@ function App() {
       p: card,
       nav: nav
     }) : null;
-  })(), storeBlocked && React.createElement(MaintenanceScreen, {
+  })(), screen === 'dashboard' && React.createElement(FeedStrip, {
+    nav: nav
+  }),storeBlocked && React.createElement(MaintenanceScreen, {
     status: storeStatus,
     nav: navReset,
     phone: sessionPhone,
@@ -11395,7 +12001,14 @@ function App() {
     phone: d.phone || getFFSession().phone,
     otpQuotaCache: otpQuotaCache,
     setOtpQuotaCache: setOtpQuotaCache
-  })), !restoring && showBnav && React.createElement(BottomNav, {
+  }), screen === 'feed' && React.createElement(FeedScreen, {
+    nav: nav,
+    boot: boot,
+    postId: d.postId,
+    manageResp: d.manageResp
+  }), screen === 'home' && React.createElement(FeedStrip, {
+    nav: nav
+  })),!restoring && showBnav && React.createElement(BottomNav, {
     items: navItems,
     activeKey: activeKey
   }), showRecoverModal && React.createElement(RecoverPickerModal, {
@@ -11483,6 +12096,12 @@ const API = {
   },
   getTrendingItems(onSuccess, onFailure) {
     apiCall_('getTrendingItems', [], onSuccess, onFailure);
+  },
+  getFeed(onSuccess, onFailure) {
+    apiCall_('getFeed', [], onSuccess, onFailure);
+  },
+  feedEvent(id, kind, device, onSuccess, onFailure) {
+    apiCall_('feedEvent', [id, kind, device], onSuccess, onFailure);
   },
   getMySubscriptions(phone, onSuccess, onFailure) {
     apiCall_('getMySubscriptions', [phone], onSuccess, onFailure);
