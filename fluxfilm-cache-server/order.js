@@ -9,6 +9,7 @@ const db = require('./db');
 const pay = require('./payments');
 const referrals = require('./referrals');
 const coins = require('./coins');
+const deviceLogins = require('./devicelogins');
 
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -159,6 +160,23 @@ async function createOrder(p, opts) {
   }
   if (tvCount != null) tvCount = Math.min(tvCount, deviceCount);
 
+  // F1: "Same login on all devices, or a separate login for each device?" — only for NEW 2+ device Netflix /
+  // Prime plans, and only once schema-v19 has been run (before that: one login, exactly as before). The plan
+  // name decides the device count (a client-sent deviceCount can only raise it, never skip the question).
+  let loginMode = ''; let loginNotice = '';
+  if (orderType === 'NEW' && deviceLogins.isEligible({ service, plan, policy: praw.AllocationPolicy, fulfillmentMode: praw.FulfillmentMode }) &&
+      await deviceLogins.groupsReady(db.query)) {
+    const m = deviceLogins.normalizeMode(p.loginMode);
+    if (m === null) return { ok: false, message: 'Please choose: the same login on all devices, or a separate login for each device.' };
+    loginMode = m;
+    // Stock can't take this order in either mode → say so BEFORE any payment (admin quick orders skip this).
+    if (!(opts.amountOverride != null && opts.amountOverride !== '')) {
+      const chk = await require('./fulfill').checkDeviceLogins({ policy: praw.AllocationPolicy, service, plan, durationDays, deviceCount: deviceCount, tvCount: tvCount || 0, mode: loginMode });
+      if (!chk.ok) return { ok: false, outOfStock: true, message: deviceLogins.MESSAGES.outOfStock(deviceCount) };
+      loginNotice = chk.message || '';
+    }
+  }
+
   // Per-device pricing: base plan price covers 1 device; each EXTRA device adds a
   // fixed amount from the PLANS `ExtraDevicePrice` column. OTP has no device count.
   const extraDevicePrice = asNum(praw.ExtraDevicePrice);
@@ -217,18 +235,19 @@ async function createOrder(p, opts) {
   };
   if (referral) { orderRaw.ReferralCode = referral.code; orderRaw.ReferralDiscount = referralDiscount; }
   if (coinsUsed) { orderRaw.CoinsUsed = coinsUsed; orderRaw.CoinsDiscount = coinsRupees; }
+  if (loginMode) orderRaw.LoginMode = loginMode; // the typed column orders.login_mode holds the same value
   if (opts.rawExtra && typeof opts.rawExtra === 'object') Object.assign(orderRaw, opts.rawExtra);
 
   try {
   await db.query(
     `INSERT INTO orders (order_id, created_at_sheet, service, plan, duration_days, name, email, phone, phone_norm,
        coupon_code, discount, price, final_amount, currency, notes, extra_field_key, extra_field_value,
-       status, fulfillment_status, order_type, renew_sub_id, device_count, tv_count, group_join_required, group_join_link, source, raw_json)
-     VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, 'CREATED', 'PENDING', ?, ?, ?, ?, ?, ?, 'node', ?)`,
+       status, fulfillment_status, order_type, renew_sub_id, device_count, tv_count, group_join_required, group_join_link, source, raw_json` + (loginMode ? ', login_mode' : '') + `)
+     VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, 'CREATED', 'PENDING', ?, ?, ?, ?, ?, ?, 'node', ?` + (loginMode ? ', ?' : '') + ')',
     [orderId, service, plan, durationDays, name, email, p.phone || phone, phone,
       couponCode, totalDiscount, listPrice, finalAmount, notes, extraKey, extraVal,
       orderType, renewSubId, deviceCount, tvCount, groupJoinRequired ? 'TRUE' : 'FALSE', groupJoinLink,
-      JSON.stringify(orderRaw)]);
+      JSON.stringify(orderRaw)].concat(loginMode ? [loginMode] : []));
   } catch (e) {
     // The order was not saved: give the held coins straight back.
     if (coinsUsed) await coins.releaseSpend(orderId, 'order could not be saved').catch((x) => console.log('[coins] release failed', orderId, x.message));
@@ -270,6 +289,7 @@ async function createOrder(p, opts) {
     couponCode: couponCode || '', currency: 'INR', upiVpa, payee, upiLink,
     paymentNote: orderId, groupJoinRequired, groupJoinLink,
     deviceCount, tvCount,
+    loginMode, loginNotice,
     referralApplied: !!referral && !couponCode, referralDiscount, referralMessage: referral ? '' : referralMessage,
     accessToken,
   };
@@ -410,12 +430,14 @@ async function createRenewOrder(subId, planOverride, couponCode, opts) {
     service: sub.service, plan, name, email: sub.email, phone: sub.phone,
     couponCode: cc, notes: opts.notes || ('RENEW:' + sub.sub_id), useCoins: opts.useCoins === true,
   }, {
-    action: 'RENEW', renewSubId: sub.sub_id, discountOverride: q.earlyDiscount,
+    // F1: a purchase with separate logins always renews through its first row, so every row renews together.
+    action: 'RENEW', renewSubId: renewal.leadSubId || sub.sub_id, discountOverride: q.earlyDiscount,
     amountOverride: opts.amountOverride, allowNoEmail: true, rawExtra: opts.rawExtra,
   });
   if (out && out.ok) {
-    out.renew = true; out.renewSubId = sub.sub_id;
-    if (renewal.mode === 'MOVE') { out.accountChange = true; out.renewNotice = renewal.message; }
+    out.renew = true; out.renewSubId = renewal.leadSubId || sub.sub_id;
+    if (renewal.mode === 'MOVE' || renewal.mode === 'SPLIT') { out.accountChange = true; out.renewNotice = renewal.message; }
+    if (renewal.logins > 1 || renewal.mode === 'SPLIT') out.renewDevices = renewal.devices;
     if (renewal.preview) out.renewPreview = renewal.preview;
   }
   return out;

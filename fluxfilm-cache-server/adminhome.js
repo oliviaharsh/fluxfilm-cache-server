@@ -116,12 +116,16 @@ function mount(app, deps) {
     if (q.length < 2) return res.json({ ok: true, customers: [], orders: [], subs: [] });
     const like = '%' + q + '%';
     const digits = q.replace(/\D/g, '');
-    const phoneLike = digits.length >= 3 ? '%' + digits + '%' : '__no_match__';
+    // Phone parts only when the text has 3+ digits. Decided here in JS: comparing a parameter with a text literal in
+    // SQL (? <> '...') failed live with "Illegal mix of collations" and broke the whole search.
+    const phoneLike = digits.length >= 3 ? '%' + digits + '%' : null;
+    const orPhone = (col) => (phoneLike ? ' OR ' + col + ' LIKE ?' : '');
+    const withPhone = (arr) => (phoneLike ? arr.concat([phoneLike]) : arr);
     try {
       const [customers, orders, subs] = await Promise.all([
-        db.query('SELECT customer_id, name, email, phone_norm FROM customers WHERE name LIKE ? OR email LIKE ? OR phone_norm LIKE ? OR customer_id LIKE ? ORDER BY (name LIKE ?) DESC, name LIMIT 6', [like, like, phoneLike, like, q + '%']),
-        db.query('SELECT order_id, name, phone_norm, service, plan, final_amount, status, created_at_sheet FROM orders WHERE order_id LIKE ? OR txn_ref LIKE ? OR (? <> \'__no_match__\' AND phone_norm LIKE ?) ORDER BY created_at_sheet DESC LIMIT 6', [like, like, phoneLike, phoneLike]),
-        db.query('SELECT sub_id, phone_norm, service, plan, expiry_date, status, inventory_ref FROM subscriptions WHERE sub_id LIKE ? OR login_id LIKE ? OR inventory_ref LIKE ? ORDER BY expiry_date DESC LIMIT 6', [like, like, like]),
+        db.query('SELECT customer_id, name, email, phone_norm FROM customers WHERE name LIKE ? OR email LIKE ? OR customer_id LIKE ?' + orPhone('phone_norm') + ' ORDER BY (name LIKE ?) DESC, name LIMIT 6', withPhone([like, like, like]).concat([q + '%'])),
+        db.query('SELECT order_id, name, phone_norm, service, plan, final_amount, status, created_at_sheet FROM orders WHERE order_id LIKE ? OR txn_ref LIKE ? OR name LIKE ? OR email LIKE ?' + orPhone('phone_norm') + ' ORDER BY created_at_sheet DESC LIMIT 6', withPhone([like, like, like, like])),
+        db.query('SELECT sub_id, phone_norm, service, plan, expiry_date, status, inventory_ref FROM subscriptions WHERE sub_id LIKE ? OR login_id LIKE ? OR inventory_ref LIKE ? OR email LIKE ?' + orPhone('phone_norm') + ' ORDER BY expiry_date DESC LIMIT 6', withPhone([like, like, like, like])),
       ]);
       res.json({ ok: true, customers, orders, subs });
     } catch (e) { fail(res, e); }

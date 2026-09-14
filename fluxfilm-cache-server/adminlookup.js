@@ -66,10 +66,13 @@ function mount(app, deps) {
       const o = rows[0];
       const raw = rawOf(o.raw_json); delete o.raw_json;
       const subIds = [s(o.renew_sub_id)].filter(Boolean);
+      // F1: an order with separate logins has one subscription per login (up to 10 devices) — list them all, Device 1 first.
+      const groupsOn = await require('./devicelogins').groupsReady(db.query);
       const [subs, credits, coupons, cust] = await Promise.all([
         db.query(
-          'SELECT sub_id, order_id, service, plan, start_date, expiry_date, status, fulfillment_status, inventory_ref, login_id, password, profile_name, profile_number, profile_pin, device_type, device_count, tv_count, source FROM subscriptions WHERE order_id = ?' +
-          (subIds.length ? ' OR sub_id = ?' : '') + ' LIMIT 5', subIds.length ? [id, subIds[0]] : [id]),
+          'SELECT sub_id, order_id, service, plan, start_date, expiry_date, status, fulfillment_status, inventory_ref, login_id, password, profile_name, profile_number, profile_pin, device_type, device_count, tv_count, source' + (groupsOn ? ', group_id, group_size, group_index' : '') + ' FROM subscriptions WHERE order_id = ?' +
+          (subIds.length ? ' OR sub_id = ?' : '') +
+          (groupsOn ? ' ORDER BY group_id, group_index' : '') + ' LIMIT 12', subIds.length ? [id, subIds[0]] : [id]),
         db.query('SELECT id, upi_ref, amount, received_at FROM bank_credits WHERE consumed_order_id = ? ORDER BY id DESC LIMIT 3', [id]),
         db.query('SELECT coupon_code, discount, action, ts FROM coupon_usage WHERE order_id = ? ORDER BY ts', [id]),
         db.query('SELECT name, email, customer_id FROM customers WHERE phone_norm = ? LIMIT 1', [o.phone_norm]),
@@ -77,7 +80,7 @@ function mount(app, deps) {
       res.json({
         ok: true, order: o, subs, bankCredits: credits, couponUsage: coupons, customer: cust[0] || null,
         // Who/how it was created (admin quick orders tag these); never the access-token hash.
-        meta: { createdVia: s(raw.CreatedVia) || (o.source === 'node' ? 'WEBSITE' : 'SHEET'), paymentMethod: s(raw.PaymentMethod), adminNote: s(raw.AdminNote) },
+        meta: { createdVia: s(raw.CreatedVia) || (o.source === 'node' ? 'WEBSITE' : 'SHEET'), paymentMethod: s(raw.PaymentMethod), adminNote: s(raw.AdminNote), loginMode: s(raw.LoginMode) },
       });
     } catch (e) { fail(res, e); }
   });

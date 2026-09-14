@@ -215,7 +215,7 @@ ok('AudioContext constructor throws: silent', (() => { try { W.fire('pointerdown
   const pollSrc = admin.slice(admin.indexOf('/* ---------- new-order bell'), admin.indexOf('function bellStart()'));
   const startSrc = admin.slice(admin.indexOf('function bellStart()'), admin.indexOf('\n}\n', admin.indexOf('function bellStart()')) + 3);
   ok('poll + start blocks found', pollSrc.length > 200 && /setInterval\(bellPoll, 60000\)/.test(startSrc));
-  ok('bell starts with the signed-in shell', /adminInstallRefresh\(\);\n\s*bellStart\(\);\n\}/.test(admin));
+  ok('bell starts with the signed-in shell', /refreshPauseBar\(\);\n\s*bellStart\(\);\n\s*adminInstallRefresh\(\);/.test(admin));
   ok('Today header has the toggle + test button', /id="tbell" role="switch"/.test(admin) && /id="tbelltest">▶ Test sound/.test(admin) && /\$\('#tref'\)\.onclick = loadToday;\n\s*bellWire\(\);/.test(admin));
   function runPoll(responses) {
     const calls = []; const toasts = []; const intervals = []; let cleared = 0; const docL = {};
