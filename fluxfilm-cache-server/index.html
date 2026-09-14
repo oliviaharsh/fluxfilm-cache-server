@@ -1896,9 +1896,18 @@ function BottomNav({
       const doc = document.scrollingElement || root;
       const vv = window.visualViewport;
       const visH = vv ? Math.min(window.innerHeight, vv.height + vv.offsetTop) : window.innerHeight;
-      if (doc.scrollTop + visH < doc.scrollHeight - 4) return; // only at the very end
-      let last = page.lastElementChild;
-      while (last && last.getBoundingClientRect().height === 0) last = last.previousElementSibling;
+      // "At the very end" uses the LAYOUT height: on edge-to-edge Android the visible height (visualViewport) can be smaller,
+      // so checking with it never saw the end and the heal never ran (still cut on the owner's Nord 5 after PR #68).
+      const layoutH = Math.max(window.innerHeight, doc.clientHeight || 0);
+      if (doc.scrollTop + layoutH < doc.scrollHeight - 4) return;
+      // Last real content = the lowest in-flow child (pop-ups, update bar and other fixed layers are ignored).
+      let last = null; let lastBottom = -Infinity;
+      for (const c of page.children) {
+        const pos = getComputedStyle(c).position;
+        if (pos === 'fixed' || pos === 'absolute' || pos === 'sticky') continue;
+        const r = c.getBoundingClientRect();
+        if (r.height > 0 && r.bottom > lastBottom) { last = c; lastBottom = r.bottom; }
+      }
       if (!last) return;
       const limit = Math.min(el.getBoundingClientRect().top, visH);
       const missing = Math.ceil(last.getBoundingClientRect().bottom - limit + 20);
@@ -1911,9 +1920,16 @@ function BottomNav({
     let healT = 0;
     const onScroll = () => { clearTimeout(healT); healT = setTimeout(heal, 120); };
     window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('touchend', onScroll, { passive: true });
     if (window.visualViewport) window.visualViewport.addEventListener('resize', onScroll);
+    // Also when a screen opens or its content changes (a short page may never fire a scroll event).
+    let ro2 = null;
+    try { ro2 = new ResizeObserver(onScroll); ro2.observe(document.body); } catch (e) {}
+    onScroll();
     return () => {
       if (ro) ro.disconnect();
+      if (ro2) ro2.disconnect();
+      window.removeEventListener('touchend', onScroll);
       clearTimeout(healT);
       window.removeEventListener('resize', update);
       window.removeEventListener('orientationchange', update);
