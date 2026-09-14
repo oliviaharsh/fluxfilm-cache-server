@@ -58,6 +58,7 @@ const GLOBAL_FIELDS = [
   B('requirePaidOrder', 'Prizes only for paying customers', true, 'A customer needs at least one paid order to win coins or coupons. Others play for fun (practice).'),
   B('requireVerify', 'Confirm the phone by email code before prizes', true, 'Stops people typing someone else\'s number to collect coins. Same code as Get OTP (once per device, 30 days).'),
   B('practiceEnabled', 'Let non-customers play for fun (no prizes)', true),
+  B('soundsEnabled', 'Game sounds (crowd, hits, cheers, win music)', true, 'Players can still mute on their own phone with the 🔊 button.'),
   B('paidPlaysEnabled', 'Extra plays for coins (after the free play)', false, '⚖️ Keep OFF until your lawyer / CA says OK. Extra plays always need the email-code check.'),
   B('prizesOnPaidPlays', 'Extra (coin) plays can also win prizes', true, 'Off = extra plays are just for fun and score.'),
   F('dailyCoinCap', 'Max coins a customer can win per day', 40, 0, 10000, 1, '0 = no daily limit'),
@@ -115,6 +116,37 @@ const GAME_FIELDS = {
     F('couponAllGoals', 'Coupon if every kick is a goal', 10, 0, 500, 1, '₹ off (0 = no coupon)'),
   ],
 };
+// One-tap difficulty levels (admin → 🎮 Games → ⚡ Difficulty). Only speed / timing / target values change; prizes stay.
+// "normal" is also the default (made harder on 2026-09-15 after the owner found the first version easy).
+const PRESETS = {
+  quiz: { easy: { seconds: 20 }, normal: { seconds: 12 }, hard: { seconds: 8 }, pro: { seconds: 6 } },
+  emoji: { easy: { seconds: 10 }, normal: { seconds: 6 }, hard: { seconds: 4 }, pro: { seconds: 3 } },
+  popcorn: { easy: { speed: 0.9, lives: 4 }, normal: { speed: 1.2, lives: 3 }, hard: { speed: 1.6, lives: 3 }, pro: { speed: 2.1, lives: 2 } },
+  cricket: {
+    easy: { speedMin: 650, speedMax: 950, slowerBallPct: 15, swing: 20, windowSix: 22, windowFour: 50, windowTwo: 85, windowOne: 125, targetMin: 12, targetMax: 16, wickets: 3 },
+    normal: { speedMin: 850, speedMax: 1250, slowerBallPct: 30, swing: 50, windowSix: 14, windowFour: 34, windowTwo: 60, windowOne: 95, targetMin: 16, targetMax: 22, wickets: 2 },
+    hard: { speedMin: 1050, speedMax: 1500, slowerBallPct: 40, swing: 80, windowSix: 10, windowFour: 26, windowTwo: 48, windowOne: 80, targetMin: 20, targetMax: 26, wickets: 2 },
+    pro: { speedMin: 1250, speedMax: 1800, slowerBallPct: 50, swing: 110, windowSix: 7, windowFour: 20, windowTwo: 38, windowOne: 65, targetMin: 24, targetMax: 30, wickets: 1 },
+  },
+  yorker: {
+    easy: { speedMin: 600, speedMax: 900, yorkerWindow: 70, goodWindow: 170, winWickets: 2 },
+    normal: { speedMin: 850, speedMax: 1250, yorkerWindow: 42, goodWindow: 120, winWickets: 3 },
+    hard: { speedMin: 1050, speedMax: 1550, yorkerWindow: 30, goodWindow: 90, winWickets: 4 },
+    pro: { speedMin: 1300, speedMax: 1900, yorkerWindow: 20, goodWindow: 64, winWickets: 5 },
+  },
+  penalty: {
+    easy: { keeperSkill: 20, meterSpeed: 1, powerBand: 280, winGoals: 3 },
+    normal: { keeperSkill: 45, meterSpeed: 1.6, powerBand: 190, winGoals: 4 },
+    hard: { keeperSkill: 60, meterSpeed: 2.2, powerBand: 140, winGoals: 4 },
+    pro: { keeperSkill: 75, meterSpeed: 2.8, powerBand: 100, winGoals: 5 },
+  },
+};
+const LEVELS = ['easy', 'normal', 'hard', 'pro'];
+// Which level a game's current settings match ('custom' when the owner changed single values).
+function levelOf(game, g) {
+  const p = PRESETS[game]; if (!p) return '';
+  return LEVELS.find((lv) => Object.keys(p[lv]).every((k) => Number(g[k]) === Number(p[lv][k]))) || 'custom';
+}
 const DEFAULT_SLICES = [
   { label: '5', coins: 5, coupon: 0, weight: 18 }, { label: '1', coins: 1, coupon: 0, weight: 20 },
   { label: '10', coins: 10, coupon: 0, weight: 8 }, { label: 'Try again', coins: 0, coupon: 0, weight: 18 },
@@ -130,6 +162,7 @@ function defaults() {
     const o = {};
     for (const f of COMMON_FIELDS.concat(GAME_FIELDS[g])) o[f.k] = f.d;
     if (g === 'spin') o.slices = DEFAULT_SLICES.map((x) => Object.assign({}, x));
+    if (PRESETS[g]) Object.assign(o, PRESETS[g].normal);
     out.games[g] = o;
   }
   return out;
@@ -483,12 +516,13 @@ async function getHome(phone, token) {
   const ready = await schemaReady();
   const ph = norm(phone);
   const base = {
-    ok: true, enabled: !!(cfg.enabled && ready), comingSoon: !ready, paidPlaysEnabled: cfg.paidPlaysEnabled, prizesOnPaidPlays: cfg.prizesOnPaidPlays,
+    ok: true, enabled: !!(cfg.enabled && ready), comingSoon: !ready, paidPlaysEnabled: cfg.paidPlaysEnabled, prizesOnPaidPlays: cfg.prizesOnPaidPlays, soundsEnabled: cfg.soundsEnabled !== false,
     limits: { dailyCoinCap: cfg.dailyCoinCap, monthlyCoinCap: cfg.monthlyCoinCap, monthlyCouponCap: cfg.monthlyCouponCap, couponDays: cfg.couponDays, couponMinOrder: cfg.couponMinOrder },
     games: GAME_KEYS.filter((k) => cfg.games[k].enabled).map((k) => {
       const g = cfg.games[k];
       const pub = { key: k, name: GAMES[k].name, icon: GAMES[k].icon, freePerDay: g.freePerDay, extraCost: g.extraCost, maxExtraPerDay: g.maxExtraPerDay };
       for (const f of GAME_FIELDS[k]) pub[f.k] = g[f.k];
+      if (PRESETS[k]) pub.level = levelOf(k, g);
       if (k === 'spin') { const tw = g.slices.reduce((a, x) => a + Math.max(0, x.weight), 0) || 1; pub.slices = g.slices.map((x) => ({ label: x.label, coins: x.coins, coupon: x.coupon, chance: Math.round((Math.max(0, x.weight) / tw) * 1000) / 10 })); }
       return pub;
     }),
@@ -679,7 +713,7 @@ async function sendCode(phone) {
 }
 
 module.exports = {
-  GAMES, GAME_KEYS, GLOBAL_FIELDS, COMMON_FIELDS, GAME_FIELDS, DEFAULT_SLICES,
+  GAMES, GAME_KEYS, GLOBAL_FIELDS, COMMON_FIELDS, GAME_FIELDS, DEFAULT_SLICES, PRESETS, LEVELS, levelOf,
   defaults, validateSettings, getSettings, saveSettings, schemaReady,
   getStatus, getHome, start, step, finish, sendCode,
   // pure rules (tests + admin previews)

@@ -36,7 +36,7 @@ function mount(app, deps) {
       let ready = true; try { ready = await games.schemaReady(); } catch (_) { ready = false; }
       const settings = JSON.parse(JSON.stringify(cfg)); delete settings.settingsReady;
       res.json({ ok: true, settings, defaults: games.defaults(), needsSchema: !ready,
-        fields: { global: games.GLOBAL_FIELDS, common: games.COMMON_FIELDS, games: games.GAME_FIELDS, meta: games.GAMES } });
+        fields: { global: games.GLOBAL_FIELDS, common: games.COMMON_FIELDS, games: games.GAME_FIELDS, meta: games.GAMES, presets: games.PRESETS, levels: games.LEVELS } });
     } catch (e) { res.status(500).json({ ok: false, message: String(e.message || e) }); }
   });
 
