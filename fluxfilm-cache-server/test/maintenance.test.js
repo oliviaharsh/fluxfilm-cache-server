@@ -82,6 +82,7 @@ const store = require('../store');
   ok('admin GET returns the settings', x.body.ok && x.body.settings.paused === false);
 
   const admin = fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8');
+  ok('hidden pause bar really hides (a display rule must not override [hidden])', /\[hidden\]\{display:none!important\}/.test(admin) && admin.indexOf('[hidden]{display:none!important}') < admin.indexOf('.pausebar{'));
   ok('admin menu + view + red "Shop is PAUSED" bar + confirm before pausing', /\['maintenance', '🚧', 'Maintenance'\]/.test(admin) && /maintenance: maintenanceView/.test(admin) && /id="pausebar"/.test(admin) && /confirm\('Pause new orders now\?/.test(admin));
 
   // Storefront.

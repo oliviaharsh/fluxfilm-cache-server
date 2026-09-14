@@ -43,6 +43,7 @@ Wordmark font: Plus Jakarta Sans ExtraBold (800), converted to outlines, so the 
 
 | File | Size | Notes |
 |---|---|---|
+| `admin-logo.svg` | 512×512 viewBox | Admin icon mark, rounded square — used in the admin panel sidebar + login |
 | `admin-icon-192.png` | 192×192 | `purpose: "any"`, transparent corners |
 | `admin-icon-512.png` | 512×512 | `purpose: "any"`, transparent corners |
 | `admin-icon-maskable-512.png` | 512×512 | `purpose: "maskable"`, full-bleed, mark at 84%; RGB, no alpha |

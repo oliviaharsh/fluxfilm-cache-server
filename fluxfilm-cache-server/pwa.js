@@ -8,6 +8,7 @@
  *                               internet. /api, /admin and /panel are never cached.
  *                               Also shows push notifications and opens the right page when one is tapped.
  *   GET /icons/<file>           icons/ (the new logo, design/logo PR) first, else icons-default/ (placeholders)
+ *   GET /version                current version id (appversion.js); the service worker cache name uses it too
  */
 const fs = require('fs');
 const path = require('path');
@@ -15,8 +16,10 @@ const path = require('path');
 const ICON_DIRS = [path.join(__dirname, 'icons'), path.join(__dirname, 'icons-default')];
 const ICON_NAME = /^[a-z0-9-]+\.(png|svg|ico)$/;
 const TYPES = { png: 'image/png', svg: 'image/svg+xml', ico: 'image/x-icon' };
-// Changes on every deploy/restart, so the browser picks up the new service worker straight away.
-const VERSION = process.env.APP_VERSION || String(Date.now());
+// Same id as GET /version (appversion.js): changes whenever the pages, this file or the icons change, so the browser
+// picks up the new service worker (and a fresh icon cache) with every real update.
+const appversion = require('./appversion');
+const VERSION = appversion.version();
 
 function storeManifest() {
   return {
@@ -51,8 +54,9 @@ const OFFLINE_HTML = '<!doctype html><html lang="en"><head><meta charset="utf-8"
   '<button onclick="location.reload()">🔄 Try again</button></div></body></html>';
 
 function serviceWorker() {
-  return `/* FluxFilm service worker ${VERSION} — network first, never caches customer data */
-const VERSION = ${JSON.stringify(VERSION)};
+  const v = appversion.version();
+  return `/* FluxFilm service worker ${v} — network first, never caches customer data */
+const VERSION = ${JSON.stringify(v)};
 const OFFLINE = ${JSON.stringify(OFFLINE_HTML)};
 const ASSETS = 'ff-assets-' + VERSION;
 self.addEventListener('install', () => self.skipWaiting());
@@ -110,6 +114,7 @@ function iconPath(file) {
 }
 
 function mount(app) {
+  appversion.mount(app); // GET /version — the installed apps check it to show "new version ready"
   app.get('/manifest.webmanifest', (req, res) => { res.set('Cache-Control', 'no-cache'); res.type('application/manifest+json').send(JSON.stringify(storeManifest())); });
   app.get('/panel.webmanifest', (req, res) => { res.set('Cache-Control', 'no-cache'); res.type('application/manifest+json').send(JSON.stringify(adminManifest())); });
   app.get('/sw.js', (req, res) => {
