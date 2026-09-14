@@ -9781,7 +9781,7 @@ function feedRelease_(ymd, type, now) {
   return t > (now || Date.now()) ? '📅 Streaming from ' + nice : (type === 'series' ? '📺 Out since ' : '🎬 Released ') + nice;
 }
 function feedThumb_(url) {
-  return /^https:\/\/image\.tmdb\.org\/t\/p\/w780\//.test(url || '') ? url.replace('/w780/', '/w342/') : url || '';
+  return /^(https:\/\/image\.tmdb\.org|\/tmdb-img)\/t\/p\/w780\//.test(url || '') ? url.replace('/w780/', '/w342/') : url || '';
 }
 function feedShare_(p, done) {
   const url = window.location.origin + '/?post=' + encodeURIComponent(p.id);

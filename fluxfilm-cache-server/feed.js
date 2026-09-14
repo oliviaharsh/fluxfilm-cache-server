@@ -35,6 +35,8 @@ const IMG_MAX = 450000; // ~330 KB picture; the admin page shrinks uploads first
 const IMG_HOSTS = ['image.tmdb.org', 'i.ytimg.com', 'img.youtube.com'];
 const TRAILER_HOSTS = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'];
 const TMDB_API = 'https://api.themoviedb.org/3';
+// TMDB's official second address — used when the first is blocked or down.
+const TMDB_API_ALT = 'https://api.tmdb.org/3';
 const TMDB_IMG = 'https://image.tmdb.org/t/p/w780';
 /**
  * Default TMDB watch-provider ids for India (watch_region=IN). Matched against catalog service names
@@ -165,6 +167,27 @@ async function image(id) {
   return m ? { type: m[1], buf: Buffer.from(m[2], 'base64') } : null;
 }
 
+// TMDB posters are served through the shop (/tmdb-img/t/p/<size>/<file>): customers on Indian networks that block
+// image.tmdb.org still see them. Only real TMDB poster files and sizes are allowed (not an open proxy).
+const POSTER_SIZES = ['w185', 'w342', 'w500', 'w780'];
+function posterPath(url) {
+  const m = s(url).match(/^https:\/\/image\.tmdb\.org\/t\/p\/(w\d+)\/([A-Za-z0-9_-]+\.(?:jpg|jpeg|png|webp))$/);
+  return m ? '/tmdb-img/t/p/' + m[1] + '/' + m[2] : s(url);
+}
+const posterCache = new Map(); // key → { type, buf } ; newest last, max 120 files
+async function posterImage(size, file) {
+  if (!POSTER_SIZES.includes(size) || !/^[A-Za-z0-9_-]{5,60}\.(jpg|jpeg|png|webp)$/.test(s(file))) return null;
+  const k = size + '/' + file;
+  if (posterCache.has(k)) { const v = posterCache.get(k); posterCache.delete(k); posterCache.set(k, v); return v; }
+  const r = await require('./tmdbnet').getBuffer('https://image.tmdb.org/t/p/' + k, { timeoutMs: 10000, maxBytes: 2 * 1024 * 1024 });
+  const type = s(r.headers && r.headers['content-type']).split(';')[0];
+  if (r.status !== 200 || !/^image\/(jpeg|png|webp)$/.test(type)) return null;
+  const v = { type, buf: r.body };
+  posterCache.set(k, v);
+  while (posterCache.size > 120) posterCache.delete(posterCache.keys().next().value);
+  return v;
+}
+
 function statusOf(p, now) {
   const t = (now || new Date()).toISOString();
   if (!p.active) return 'OFF';
@@ -190,7 +213,7 @@ async function publicList(now) {
       id: p.id, type: p.type, title: p.title, service: p.service, caption: p.caption, releaseDate: p.releaseDate,
       languages: p.languages || [], genres: p.genres || [], trailerUrl: p.trailerUrl, cta: p.cta, pinned: !!p.pinned,
       date: sortDate(p), likes: (st[p.id] || {}).likes || 0, tmdb: p.source === 'tmdb',
-      image: p.hasImage ? '/feed-img/' + p.id + '?v=' + encodeURIComponent(p.updatedAt || '') : (p.imageUrl || ''),
+      image: p.hasImage ? '/feed-img/' + p.id + '?v=' + encodeURIComponent(p.updatedAt || '') : posterPath(p.imageUrl),
     })),
   };
   if (!now) { cache = out; cacheAt = Date.now(); }
@@ -311,17 +334,22 @@ async function saveSettings(input) {
 }
 
 // ---- TMDB ----
-let fetchImpl = (...a) => fetch(...a);
+// tmdbnet: retries through public DNS where Indian networks block TMDB (the shop server is in Mumbai).
+let fetchImpl = (url, opts) => require('./tmdbnet').fetchJson(url, opts);
 const isV4 = (k) => /^eyJ/.test(k) && k.length > 60;
 async function tmdbGet(key, pathQ, params) {
   if (!key) { const e = new Error('Add your TMDB key in 🍿 What\'s new → Settings first.'); e.code = 'NOKEY'; throw e; }
-  const u = new URL(TMDB_API + pathQ);
-  for (const [k, v] of Object.entries(params || {})) if (v !== '' && v != null) u.searchParams.set(k, String(v));
   const headers = { Accept: 'application/json' };
-  if (isV4(key)) headers.Authorization = 'Bearer ' + key; else u.searchParams.set('api_key', key);
-  let r;
-  try { r = await fetchImpl(u.toString(), { headers, signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined }); }
-  catch (e) { throw new Error('Could not reach TMDB — try again later.'); }
+  let r; const reasons = [];
+  for (const base of [TMDB_API, TMDB_API_ALT]) {
+    const u = new URL(base + pathQ);
+    for (const [k, v] of Object.entries(params || {})) if (v !== '' && v != null) u.searchParams.set(k, String(v));
+    if (isV4(key)) headers.Authorization = 'Bearer ' + key; else u.searchParams.set('api_key', key);
+    try { r = await fetchImpl(u.toString(), { headers }); break; }
+    catch (e) { reasons.push(u.hostname + ': ' + String((e && (e.reason || e.code || e.message)) || 'error').slice(0, 60)); }
+  }
+  // The reason (never the key) is shown in admin so a blocked network can be told apart from TMDB being down.
+  if (!r) throw new Error('Could not reach TMDB (' + reasons.join('; ') + ') — try again later.');
   if (r.status === 401) throw new Error('TMDB did not accept the key — check it in Settings.');
   if (r.status === 429) throw new Error('TMDB is busy (too many requests) — try again in a minute.');
   if (!r.ok) throw new Error('TMDB error ' + r.status + '.');
@@ -565,6 +593,7 @@ function startTimer(deps) {
 }
 
 module.exports = {
+  posterPath, posterImage,
   TYPES, CTAS, IMG_HOSTS, TRAILER_HOSTS, DEFAULT_PROVIDERS, DEFAULT_LANGS, MAX_POSTS,
   validate, list, save, remove, setImage, image, statusOf, sortPosts, publicList, trendingLines, record, flushStats, stats,
   getSettings, publicSettings, saveSettings, tmdbSearch, tmdbCreate, tmdbSuggest, tmdbProviders, providersFor, draftFrom, catalogServices,
