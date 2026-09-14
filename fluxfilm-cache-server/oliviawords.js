@@ -221,6 +221,61 @@ const T = {
     hinglish: () => 'Accha sawaal hai 🙏 Iska sahi jawab hamari team WhatsApp par degi. Chahein to neeche ke options se yahin aage badhiye.',
     hi: () => 'अच्छा सवाल है 🙏 इसका सही जवाब हमारी टीम WhatsApp पर देगी। चाहें तो नीचे के विकल्पों से यहीं आगे बढ़िए।',
   },
+  RENEW_NONE: {
+    en: () => 'I could not find a plan on your number that can be renewed right now. Would you like to buy a new plan?',
+    hinglish: () => 'Aapke number par abhi renew karne layak koi plan nahi mila. Naya plan lena chahenge?',
+    hi: () => 'आपके नंबर पर अभी रिन्यू करने लायक कोई प्लान नहीं मिला। नया प्लान लेना चाहेंगे?',
+  },
+  RENEW_PICK: {
+    en: () => 'Which plan do you want to renew?',
+    hinglish: () => 'Kaunsa plan renew karna hai?',
+    hi: () => 'कौन सा प्लान रिन्यू करना है?',
+  },
+  RENEW_DURATION: {
+    en: (f) => 'Your ' + f.title + ' (' + f.days + '). For how long do you want to renew? ✓ is your current plan.',
+    hinglish: (f) => 'Aapka ' + f.title + ' (' + f.days + '). Kitne time ke liye renew karna hai? ✓ wala aapka abhi ka plan hai.',
+    hi: (f) => 'आपका ' + f.title + ' (' + f.days + ')। कितने समय के लिए रिन्यू करना है? ✓ वाला आपका अभी का प्लान है।',
+  },
+  RENEW_CONFIRM: {
+    en: (f) => 'Renew ' + f.title + ': ' + (f.early ? 'price ' + rupees(f.price) + ', early-renew discount ' + rupees(f.early) + ', you pay ' + rupees(f.amount) : rupees(f.amount)) + '.' + (f.newExpiry ? ' After payment your plan runs until ' + f.newExpiry + '.' : '') + (f.accountChange ? ' Your old account is no longer available, so you will get a new login after payment.' : ' Your login stays the same.') + ' Shall I send the payment QR?',
+    hinglish: (f) => f.title + ' renew: ' + (f.early ? 'price ' + rupees(f.price) + ', early renew discount ' + rupees(f.early) + ', aapko ' + rupees(f.amount) + ' dena hai' : rupees(f.amount)) + '.' + (f.newExpiry ? ' Payment ke baad plan ' + f.newExpiry + ' tak chalega.' : '') + (f.accountChange ? ' Purana account ab available nahi hai, isliye payment ke baad naya login milega.' : ' Login wahi rahega.') + ' Payment QR bhej doon?',
+    hi: (f) => f.title + ' रिन्यू: ' + (f.early ? 'कीमत ' + rupees(f.price) + ', जल्दी रिन्यू छूट ' + rupees(f.early) + ', आपको ' + rupees(f.amount) + ' देना है' : rupees(f.amount)) + '।' + (f.newExpiry ? ' पेमेंट के बाद प्लान ' + f.newExpiry + ' तक चलेगा।' : '') + (f.accountChange ? ' पुराना अकाउंट अब उपलब्ध नहीं है, इसलिए पेमेंट के बाद नया लॉगिन मिलेगा।' : ' लॉगिन वही रहेगा।') + ' पेमेंट QR भेज दूँ?',
+  },
+  RENEW_CONFIRM_COUPON: {
+    en: (f) => 'Renew ' + f.title + ': price ' + rupees(f.price) + ', coupon ' + f.code + ' saves ' + rupees(f.discount) + ', you pay ' + rupees(f.final) + '.' + (f.newExpiry ? ' After payment your plan runs until ' + f.newExpiry + '.' : '') + (f.accountChange ? ' You will get a new login after payment.' : ' Your login stays the same.') + ' Shall I send the payment QR?',
+    hinglish: (f) => f.title + ' renew: price ' + rupees(f.price) + ', coupon ' + f.code + ' se ' + rupees(f.discount) + ' kam, aapko ' + rupees(f.final) + ' dena hai.' + (f.newExpiry ? ' Payment ke baad plan ' + f.newExpiry + ' tak chalega.' : '') + (f.accountChange ? ' Payment ke baad naya login milega.' : ' Login wahi rahega.') + ' Payment QR bhej doon?',
+    hi: (f) => f.title + ' रिन्यू: कीमत ' + rupees(f.price) + ', कूपन ' + f.code + ' से ' + rupees(f.discount) + ' कम, आपको ' + rupees(f.final) + ' देना है।' + (f.newExpiry ? ' पेमेंट के बाद प्लान ' + f.newExpiry + ' तक चलेगा।' : '') + (f.accountChange ? ' पेमेंट के बाद नया लॉगिन मिलेगा।' : ' लॉगिन वही रहेगा।') + ' पेमेंट QR भेज दूँ?',
+  },
+  COUPON_NOT_BETTER: {
+    en: (f) => 'Coupon ' + f.code + ' saves ' + rupees(f.discount) + ', but your early-renew discount already saves ' + rupees(f.early) + ', so I kept the better one for you 😊',
+    hinglish: (f) => 'Coupon ' + f.code + ' se ' + rupees(f.discount) + ' bachte, par aapka early renew discount already ' + rupees(f.early) + ' ka hai, isliye behtar wala rakha hai 😊',
+    hi: (f) => 'कूपन ' + f.code + ' से ' + rupees(f.discount) + ' बचते, पर आपकी जल्दी रिन्यू छूट पहले से ' + rupees(f.early) + ' की है, इसलिए बेहतर वाली रखी है 😊',
+  },
+  RENEW_BLOCKED: {
+    en: () => 'Sorry, your old account is no longer available and no other account is free right now, so this renewal cannot be paid yet. Please message our team on WhatsApp and we will sort it out.',
+    hinglish: () => 'Sorry, aapka purana account ab available nahi hai aur abhi koi aur account free nahi hai, isliye abhi renew ka payment nahi ho sakta. WhatsApp par team ko message kijiye, hum theek kar denge.',
+    hi: () => 'माफ़ कीजिए, आपका पुराना अकाउंट अब उपलब्ध नहीं है और अभी कोई दूसरा अकाउंट खाली नहीं है, इसलिए अभी रिन्यू का पेमेंट नहीं हो सकता। WhatsApp पर टीम को मैसेज कीजिए, हम ठीक कर देंगे।',
+  },
+  RENEW_PLAN_GONE: {
+    en: (f) => f.title + ' is not sold any more, so it cannot be renewed here. Our team will help you on WhatsApp.',
+    hinglish: (f) => f.title + ' ab nahi bikta, isliye yahan renew nahi ho sakta. WhatsApp par team madad karegi.',
+    hi: (f) => f.title + ' अब नहीं बिकता, इसलिए यहाँ रिन्यू नहीं हो सकता। WhatsApp पर टीम मदद करेगी।',
+  },
+  RENEW_DONE: {
+    en: (f) => 'Payment received ✅ Your ' + f.title + ' is renewed' + (f.newExpiry ? ' until ' + f.newExpiry : '') + '. Keep using the same login 😊',
+    hinglish: (f) => 'Payment mil gaya ✅ Aapka ' + f.title + ' renew ho gaya' + (f.newExpiry ? ', ' + f.newExpiry + ' tak' : '') + '. Wahi login chalate rahiye 😊',
+    hi: (f) => 'पेमेंट मिल गया ✅ आपका ' + f.title + ' रिन्यू हो गया' + (f.newExpiry ? ', ' + f.newExpiry + ' तक' : '') + '। वही लॉगिन चलाते रहिए 😊',
+  },
+  RENEW_DONE_NEW_LOGIN_IN_CHAT: {
+    en: (f) => 'Payment received ✅ Your ' + f.title + ' is renewed' + (f.newExpiry ? ' until ' + f.newExpiry : '') + '. You have a NEW login, it is below and also sent to your email.',
+    hinglish: (f) => 'Payment mil gaya ✅ Aapka ' + f.title + ' renew ho gaya' + (f.newExpiry ? ', ' + f.newExpiry + ' tak' : '') + '. Aapka NAYA login neeche hai, email par bhi bheja hai.',
+    hi: (f) => 'पेमेंट मिल गया ✅ आपका ' + f.title + ' रिन्यू हो गया' + (f.newExpiry ? ', ' + f.newExpiry + ' तक' : '') + '। आपका नया लॉगिन नीचे है, ईमेल पर भी भेजा है।',
+  },
+  RENEW_DONE_NEW_LOGIN_EMAILED: {
+    en: (f) => 'Payment received ✅ Your ' + f.title + ' is renewed' + (f.newExpiry ? ' until ' + f.newExpiry : '') + '. You have a NEW login, sent to your email and shown in My plans.',
+    hinglish: (f) => 'Payment mil gaya ✅ Aapka ' + f.title + ' renew ho gaya' + (f.newExpiry ? ', ' + f.newExpiry + ' tak' : '') + '. Aapka NAYA login email par bheja hai, My plans mein bhi dikhega.',
+    hi: (f) => 'पेमेंट मिल गया ✅ आपका ' + f.title + ' रिन्यू हो गया' + (f.newExpiry ? ', ' + f.newExpiry + ' तक' : '') + '। आपका नया लॉगिन ईमेल पर भेजा है, My plans में भी दिखेगा।',
+  },
   DIDNT_UNDERSTAND: {
     en: () => 'Sorry, I did not understand that 🙏 Please tap one of the options below.',
     hinglish: () => 'Sorry, samajh nahi aaya 🙏 Neeche diye options mein se ek dabaiye.',
@@ -268,6 +323,7 @@ const B = {
   backpay: { en: '💳 Back to payment', hinglish: '💳 Payment par wapas', hi: '💳 पेमेंट पर वापस' },
   twin: { en: '👥 Group Offer', hinglish: '👥 Group Offer', hi: '👥 Group Offer' },
   keep: { en: '👍 Keep this plan', hinglish: '👍 Yahi plan theek hai', hi: '👍 यही प्लान ठीक है' },
+  rchange: { en: '↩️ Change duration', hinglish: '↩️ Time badlo', hi: '↩️ समय बदलो' },
   menu: { en: '🏠 Main menu', hinglish: '🏠 Main menu', hi: '🏠 मेन मेन्यू' },
   whatsapp: { en: '💬 WhatsApp our team', hinglish: '💬 WhatsApp par team', hi: '💬 WhatsApp पर टीम' },
   helper: { en: '🏠 Open Household Helper', hinglish: '🏠 Household Helper kholo', hi: '🏠 Household Helper खोलो' },
@@ -275,6 +331,16 @@ const B = {
 function buttonLabel(id, lang, fallback) {
   const b = B[id];
   return b ? b[normLang(lang)] : (fallback || id);
+}
+
+/** "5 days left" / "expires today" / "ended 2 days ago" (button labels, fixed text). */
+function daysLeftLabel(days, lang) {
+  const d = Number(days); const L = normLang(lang);
+  if (!Number.isFinite(d)) return L === 'hi' ? 'तारीख पता नहीं' : L === 'hinglish' ? 'date pata nahi' : 'date unknown';
+  if (d > 0) return L === 'hi' ? d + ' दिन बाकी' : L === 'hinglish' ? d + ' din baaki' : d + (d === 1 ? ' day left' : ' days left');
+  if (d === 0) return L === 'hi' ? 'आज खत्म' : L === 'hinglish' ? 'aaj khatam' : 'ends today';
+  const a = -d;
+  return L === 'hi' ? a + ' दिन पहले खत्म' : L === 'hinglish' ? a + ' din pehle khatam' : 'ended ' + a + (a === 1 ? ' day ago' : ' days ago');
 }
 
 function template(intent, facts, lang) {
@@ -292,6 +358,7 @@ function check(rewrite, base) {
   const r = s(rewrite);
   if (!r || r.length > Math.max(400, base.length * 2 + 80)) return false;
   if (/https?:|www\.|@|password|passcode|\botp\b|\butr\b/i.test(r)) return false;
+  if (/,\s*[?!.]|[{}]/.test(r.replace(/\{NAME\}|\{PAYER\}/g, 'X'))) return false; // a dropped word ("renew, ?") or a broken placeholder
   const allowed = new Set(numbersIn(base));
   if (numbersIn(r).some((n) => !allowed.has(n))) return false;
   // Every rupee amount and every placeholder in the template must survive unchanged.
@@ -397,4 +464,4 @@ async function answer(question, facts, knowledge, lang, settings, deps) {
   return { text, handoff: res.json.handoff === true, tokens: res.tokens || 0 };
 }
 
-module.exports = { LANGS, normLang, template, say, classify, answer, check, buttonLabel, durationLabel, rupees, INTENTS: Object.keys(T), _internal: { T, B, fill } };
+module.exports = { LANGS, normLang, template, say, classify, answer, check, daysLeftLabel, buttonLabel, durationLabel, rupees, INTENTS: Object.keys(T), _internal: { T, B, fill } };

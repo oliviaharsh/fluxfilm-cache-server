@@ -47,7 +47,7 @@ const PLANS = [
 ];
 const STOCK = { 'JioHotstar|||1 Month': { stockLevel: 'OUT' } };
 const calls = [];
-const shop = { paid: false, paused: false, fulfillment: 'FULFILLED', profile: { ok: true, name: 'Ramesh Kumar', email: 'ramesh@example.com' }, claim: 'WAITING', backupOk: true };
+const shop = { subs: [], renewMode: 'SAME', paid: false, paused: false, fulfillment: 'FULFILLED', profile: { ok: true, name: 'Ramesh Kumar', email: 'ramesh@example.com' }, claim: 'WAITING', backupOk: true };
 const tools = {
   catalogFor: async () => ({ plans: PLANS, stock: STOCK }),
   profile: async (ph) => (ph === '9876543210' || ph === '9000000001' ? shop.profile : { ok: false }),
@@ -56,11 +56,30 @@ const tools = {
     if (shop.paused) return { ok: false, paused: true, message: 'paused' };
     return { ok: true, orderId: 'FF' + (1234567 + calls.filter((c) => c[0] === 'createOrder').length), amount: PLANS.find((x) => x.service === p.service && x.plan === p.plan).price - (extra.couponCode === 'FLUX20' ? 20 : 0), upiLink: 'upi://pay?pa=x@upi&am=139&tn=FF1234567' };
   },
-  validateCoupon: async (phone, code, p) => {
-    calls.push(['validateCoupon', phone, code, p.service, p.plan, p.price]);
+  validateCoupon: async (phone, code, p, scope) => {
+    calls.push(['validateCoupon', phone, code, p.service, p.plan, p.price, scope]);
     if (code === 'FLUX20') return { ok: true, code, discount: 20, finalAmount: p.price - 20 };
     if (code === 'OLD5') return { ok: false, message: 'Coupon expired.' };
     return { ok: false, message: 'Invalid coupon.' };
+  },
+  mySubscriptions: async (phone) => {
+    calls.push(['mySubscriptions', phone]);
+    return { ok: true, actionable: shop.subs.map((x) => Object.assign({}, x)) };
+  },
+  renewQuote: async (subId, plan) => {
+    calls.push(['renewQuote', subId, plan]);
+    const sub = shop.subs.find((x) => x.subId === subId);
+    const pl = PLANS.find((x) => x.service === sub.service && x.plan === (plan || sub.plan));
+    const early = sub.daysLeft >= 8 ? 15 : 0;
+    return { ok: true, price: pl.price, earlyDiscount: early, amount: pl.price - early, renewal: { mode: shop.renewMode, preview: { newExpiryText: '20 Oct 2026' } } };
+  },
+  createRenewOrder: async (subId, planOverride, couponCode) => {
+    calls.push(['createRenewOrder', subId, planOverride, couponCode]);
+    if (shop.renewMode === 'NONE') return { ok: false, renewBlocked: true, message: 'blocked' };
+    const sub = shop.subs.find((x) => x.subId === subId);
+    const pl = PLANS.find((x) => x.service === sub.service && x.plan === (planOverride || sub.plan));
+    const early = sub.daysLeft >= 8 ? 15 : 0;
+    return { ok: true, orderId: 'FFR' + calls.length, amount: couponCode === 'FLUX20' ? pl.price - 20 : pl.price - early, upiLink: 'upi://pay?pa=x@upi', renew: true, accountChange: shop.renewMode === 'MOVE' };
   },
   checkPayment: async (id) => { calls.push(['checkPayment', id]); return { ok: true, paid: shop.paid }; },
   deliver: async (id, phone) => {
@@ -232,7 +251,57 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   r = await olivia.handle(PH, { conversationId: conv, text: 'netflix household problem hai' });
   ok('household → Household Helper link (auto-fix comes in the next PR)', last(r).intent === 'HOUSEHOLD_HELPER' && last(r).buttons.some((b) => b.link === 'helper'), last(r));
   r = await olivia.handle(PH, { conversationId: conv, text: 'renew karna hai' });
-  ok('renew → how to renew in My plans', last(r).intent === 'RENEW_ON_SITE');
+  ok('renew with no renewable plan → "none found", offers buying', last(r).intent === 'RENEW_NONE' && ids(last(r)).includes('buy') && calls.some((c) => c[0] === 'mySubscriptions' && c[1] === PH), last(r));
+
+  // ── renew in chat ──
+  shop.subs = [{ subId: 'S1', service: 'Netflix', plan: 'Sharing 1M', daysLeft: 12 }, { subId: 'S2', service: 'JioHotstar', plan: '1 Month', daysLeft: -2 }];
+  calls.length = 0; shop.paid = false; shop.renewMode = 'SAME';
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'renew' });
+  ok('renew → lists ONLY this phone\'s plans with days left', last(r).intent === 'RENEW_PICK' && last(r).buttons.some((b) => /Netflix Sharing 1M · 12 din baaki/.test(b.label)) && last(r).buttons.some((b) => /JioHotstar 1 Month · 2 din pehle khatam/.test(b.label)), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix wala' });
+  const rd = last(r);
+  ok('"netflix wala" → that plan; lengths of the SAME kind (Sharing) with ✓ on current', rd.intent === 'RENEW_DURATION' && rd.buttons.some((b) => /1 mahina · ₹139 ✓/.test(b.label)) && rd.buttons.some((b) => /3 mahine · ₹399/.test(b.label)) && !rd.buttons.some((b) => /169|499/.test(b.label)), rd);
+  r = await olivia.handle(PH, { conversationId: conv, text: '3 months' });
+  const rc = last(r);
+  ok('"3 months" → the shop\'s renewQuote for S1 → Sharing 3M', calls.some((c) => c[0] === 'renewQuote' && c[1] === 'S1' && c[2] === 'Sharing 3M'));
+  ok('confirm shows price, early-renew discount, amount, new expiry, same login', rc.intent === 'RENEW_CONFIRM' && /₹399/.test(rc.text) && /₹15/.test(rc.text) && /₹384/.test(rc.text) && /20 Oct 2026/.test(rc.text) && /Login wahi/.test(rc.text), rc);
+  r = await olivia.handle(PH, { conversationId: conv, text: 'coupon FLUX20' });
+  ok('renew coupon checked with scope RENEW; FLUX20 (₹20) beats early discount (₹15) → confirm with coupon', calls.some((c) => c[0] === 'validateCoupon' && c[2] === 'FLUX20' && c[4] === 'Sharing 3M') && last(r).intent === 'RENEW_CONFIRM_COUPON' && /₹379/.test(last(r).text), r.messages);
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'nocoupon' });
+  ok('without coupon → back to the early-discount confirm', last(r).intent === 'RENEW_CONFIRM' && /₹384/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'yes' });
+  const cro = calls.find((c) => c[0] === 'createRenewOrder');
+  ok('"yes" → the shop\'s createRenewOrder(S1, Sharing 3M, no coupon) → QR', cro && cro[1] === 'S1' && cro[2] === 'Sharing 3M' && cro[3] === '' && last(r).intent === 'SEND_PAYMENT' && last(r).card.amount === 384, last(r));
+  ok('no normal createOrder for a renewal', !calls.some((c) => c[0] === 'createOrder'));
+  shop.paid = true;
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'poll', installedApp: true });
+  ok('paid, same account → "renewed until…, keep the same login" (no login card needed)', last(r).intent === 'RENEW_DONE' && /20 Oct 2026/.test(last(r).text) && !last(r).card, last(r));
+  shop.paid = false;
+
+  // account moved → new login; blocked renewal; same plan = no override
+  shop.renewMode = 'MOVE'; calls.length = 0;
+  r = await olivia.handle(PH, { conversationId: conv, text: 'renew hotstar' });
+  ok('"renew hotstar" goes straight to that plan', last(r).intent === 'RENEW_DURATION' && /JioHotstar/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: findBtn(last(r), /✓/).id });
+  ok('account no longer available → confirm says a NEW login comes after payment', last(r).intent === 'RENEW_CONFIRM' && /naya login/i.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'pay' });
+  ok('same plan renewed without a plan override', calls.some((c) => c[0] === 'createRenewOrder' && c[1] === 'S2' && c[2] === ''));
+  shop.paid = true;
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'paid', installedApp: true });
+  ok('new login after renewal → login card in the installed app', last(r).intent === 'RENEW_DONE_NEW_LOGIN_IN_CHAT' && last(r).card && last(r).card.type === 'access', last(r));
+  shop.paid = false;
+  shop.renewMode = 'NONE';
+  r = await olivia.handle(PH, { conversationId: conv, text: 'renew netflix' });
+  r = await olivia.handle(PH, { conversationId: conv, choice: findBtn(last(r), /✓/).id });
+  ok('no account can take the renewal → blocked BEFORE any payment, WhatsApp', last(r).intent === 'RENEW_BLOCKED' && !r.messages.some((m) => m.card) && ids(last(r)).includes('whatsapp'), last(r));
+  shop.renewMode = 'SAME';
+  const early2 = await olivia.handle(PH, { conversationId: conv, text: 'renew netflix' });
+  await olivia.handle(PH, { conversationId: conv, choice: findBtn(last(early2), /✓/).id });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'coupon SMALL' });
+  ok('a renewal coupon is never worse than the early discount (unknown code → invalid)', last(r).intent === 'COUPON_INVALID', last(r));
+  await olivia.handle(PH, { conversationId: conv, choice: 'nocoupon' }); // while a code is awaited, any word is tried as a code
+  shop.subs = [];
   r = await olivia.handle(PH, { conversationId: conv, text: 'asdfgh' });
   ok('gibberish → did not understand, same buttons again', last(r).intent === 'DIDNT_UNDERSTAND' && last(r).buttons.length > 0);
   r = await olivia.handle(PH, { conversationId: conv, choice: 'lang:hi' });
@@ -330,6 +399,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('check: faithful rewrite accepted', words.check('Great choice! Netflix Sharing 1 month is ₹139. Shall I send you the payment QR?', base));
   ok('check: changed price rejected', !words.check('Netflix Sharing 1 month is just ₹129! Send QR?', base));
   ok('check: new number rejected', !words.check('Netflix Sharing 1 month for ₹139, valid 45 days!', base));
+  ok('check: a rewrite with a dropped word ("renew, ?") rejected', !words.check('Which plan would you like to renew, ?', words.template('RENEW_PICK', {}, 'en')));
   ok('check: link / email / password rejected', !words.check('Pay ₹139 at https://x.co', base) && !words.check('₹139, mail help@x.com', base) && !words.check('₹139 and your password', base));
   const seen = [];
   const good = { model: async (m) => { seen.push(m); return { json: { text: 'Hello {NAME} ji 😊 Bataiye, kya madad karoon?' }, tokens: 42 }; } };
