@@ -1626,7 +1626,11 @@ function goliveView() {
     '<label class="rf-tog"><input type="checkbox" id="glwallet"/> Also copy coin balances from go (skips anyone who used coins on shop)</label>' +
     '<div class="row" style="margin-top:10px"><button class="btn dark" id="glprev">🔍 Preview</button><span class="rf-state" id="glpst"></span></div><div id="glres"></div></div>' +
     '<div class="card"><h3>2️⃣ Import</h3><div id="glpause"></div>' +
-    '<div class="gl-go"><input class="inp" id="glconfirm" placeholder="Type IMPORT" autocomplete="off" autocapitalize="characters"/><button class="btn green" id="glrun" disabled>🚚 Import now</button></div><span class="rf-state" id="glrst"></span><div id="gldone"></div></div>';
+    '<div class="gl-go"><input class="inp" id="glconfirm" placeholder="Type IMPORT" autocomplete="off" autocapitalize="characters"/><button class="btn green" id="glrun" disabled>🚚 Import now</button></div><span class="rf-state" id="glrst"></span><div id="gldone"></div></div>' +
+    '<div class="card" style="margin-top:16px"><h3>3️⃣ Tidy up IDs <span class="muted" style="font-weight:500">— once, right after the import</span></h3>' +
+    '<p class="muted" style="margin:4px 0 10px">Gives every subscription the regular SUB-######### ID (SUB-LG / SUB-YT / SUB-PR / long ones), adds order records for plans whose order is missing (MIG… → FF…, ₹0), adds missing customers and expires old test clutter. After this the import is locked.</p>' +
+    '<div class="row"><button class="btn dark" id="clprev">🔍 Preview</button><span class="rf-state" id="clpst"></span></div><div id="clres"></div>' +
+    '<div class="gl-go"><input class="inp" id="clconfirm" placeholder="Type CLEANUP" autocomplete="off" autocapitalize="characters"/><button class="btn green" id="clrun" disabled>🧹 Tidy up now</button></div><span class="rf-state" id="clrst"></span></div>';
   api('/admin/api/store').then(function (r) { GL.paused = !!(r && r.ok && r.settings.paused); glPauseNote(); glEnable(); });
   $('#glprev').onclick = function () { glStart('preview'); };
   $('#glrun').onclick = function () {
@@ -1634,7 +1638,46 @@ function goliveView() {
     glStart('run');
   };
   $('#glconfirm').oninput = glEnable;
+  $('#clprev').onclick = clPreview;
+  $('#clconfirm').oninput = clEnable;
+  $('#clrun').onclick = function () {
+    if (!confirm('Tidy up IDs now?\n\nSubscription IDs will be renamed everywhere, missing orders and customers added. This runs once and locks the import.')) return;
+    var b = this; b.disabled = true; $('#clrst').className = 'rf-state dirty'; $('#clrst').textContent = '⏳ Tidying up…';
+    post('/admin/api/cleanup/apply', { confirm: 'CLEANUP' }).then(function (r) {
+      if (!r.ok) { $('#clrst').className = 'rf-state bad'; $('#clrst').textContent = '⚠️ ' + (r.message || 'error'); clEnable(); return; }
+      var c = r.counts; GL.clean = { done: true };
+      $('#clrst').className = 'rf-state ok'; $('#clrst').textContent = '✅ Done: ' + c.subsRenamed + ' IDs renamed (' + c.references + ' links updated), ' + c.ordersCreated + ' orders added, ' + c.customersCreated + ' customers added, ' + c.clutterExpired + ' test plans expired';
+      $('#clres').innerHTML = clTables(r, true); clEnable();
+    });
+  };
   glPoll();
+}
+function clEnable() { var b = $('#clrun'); if (b) b.disabled = !(GL.paused && GL.clean && !GL.clean.done && GL.clean.importDone && ($('#clconfirm').value || '').trim().toUpperCase() === 'CLEANUP'); }
+function clPreview() {
+  $('#clpst').className = 'rf-state dirty'; $('#clpst').textContent = '⏳ Checking…';
+  post('/admin/api/cleanup/preview', {}).then(function (r) {
+    if (!r.ok) { $('#clpst').className = 'rf-state bad'; $('#clpst').textContent = '⚠️ ' + (r.message || 'error'); return; }
+    GL.clean = { done: !!r.done, importDone: !!r.importDone };
+    $('#clpst').className = 'rf-state ' + (r.done ? 'ok' : r.importDone ? 'ok' : 'bad');
+    $('#clpst').textContent = r.done ? '✅ Already done ' + prettyDate(r.done.at, true) : r.importDone ? '✅ Preview ready' : '⚠️ Run the import (step 2) first';
+    $('#clres').innerHTML = clTables(r, false); clEnable();
+  });
+}
+function clTables(r, done) {
+  var n = function (x) { return Number(x || 0).toLocaleString('en-IN'); };
+  var shapes = Object.keys(r.renames.byShape || {}).map(function (k) { return esc(k) + ' × ' + r.renames.byShape[k]; }).join(' · ');
+  var h = '<div class="gl-grid">' +
+    '<div class="gl-card"><b>🆔 Subscription IDs</b><div class="gl-row"><span>To rename</span><b>' + n(r.renames.count) + '</b></div><div class="muted" style="font-size:.75rem;margin-top:4px">' + shapes + '</div></div>' +
+    '<div class="gl-card"><b>🧾 Missing orders</b><div class="gl-row"><span>Order records to add</span><b>' + n(r.orders.count) + '</b></div><div class="gl-row"><span>MIG… → new FF ID</span><b>' + n(r.orders.newIds) + '</b></div><div class="gl-row"><span>Plans linked</span><b>' + n(r.orders.subs) + '</b></div></div>' +
+    '<div class="gl-card"><b>👤 Missing customers</b><div class="gl-row"><span>To add</span><b>' + n(r.customers.count) + '</b></div>' + r.customers.list.map(function (c) { return '<div class="gl-row"><span>' + esc(c.phone) + '</span><b>' + esc(c.name || '—') + '</b></div>'; }).join('') + '</div>' +
+    '<div class="gl-card"><b>🧹 Test clutter</b>' + (r.clutter.length ? r.clutter.map(function (c) { return '<div class="gl-row"><span>' + esc(c.orderId) + ' · ' + esc(c.phone) + '</span><b>' + c.subs + ' plans</b></div>'; }).join('') : '<div class="gl-row"><span>None</span><b>✓</b></div>') + '</div></div>';
+  if (r.renames.sample && r.renames.sample.length) h += '<div style="overflow-x:auto;margin-top:10px"><table class="rf-ex"><tr><th>Old ID</th><th>New ID</th><th>Service</th><th>Phone</th></tr>' + r.renames.sample.map(function (x) { return '<tr><td>' + esc(x.from) + '</td><td>' + esc(x.to) + '</td><td>' + esc(x.service) + '</td><td>' + esc(x.phone) + '</td></tr>'; }).join('') + '</table></div>' + (done ? '' : '<p class="muted" style="font-size:.75rem">New IDs are picked again when you tidy up (these are examples).</p>');
+  var rep = r.report || {};
+  h += '<div class="qnote warn" style="margin-top:10px"><b>For you to check (not changed):</b><br>' +
+    n(rep.phoneMismatchCount) + ' plan(s) where the order phone differs from the plan phone (typo at checkout)' + (rep.phoneMismatch && rep.phoneMismatch.length ? ': ' + rep.phoneMismatch.slice(0, 8).map(function (x) { return esc(x.orderId) + ' ' + esc(x.orderPhone) + '→' + esc(x.planPhone); }).join(', ') : '') + '<br>' +
+    n(rep.paidNoPlanCount) + ' paid order(s) with no plan for that phone + service' + (rep.paidNoPlan && rep.paidNoPlan.length ? ': ' + rep.paidNoPlan.slice(0, 12).map(esc).join(', ') : '') + '<br>' +
+    n(rep.staleActive) + ' plan(s) still marked ACTIVE after they ended (harmless — stock uses the dates)</div>';
+  return h;
 }
 function glPauseNote() {
   var el = $('#glpause'); if (!el) return;

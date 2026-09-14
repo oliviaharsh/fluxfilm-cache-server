@@ -10,7 +10,16 @@ const { computeRenewal } = require('./renewal');
 
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
-function genSubId() { return 'SUB-' + Date.now() + Math.floor(Math.random() * 90 + 10); }
+// One ID style for every subscription: SUB- + 9 digits (same as go's). Checked so it never reuses an existing ID.
+function genSubId() { return 'SUB-' + String(require('crypto').randomInt(0, 1e9)).padStart(9, '0'); }
+async function freeSubId() {
+  for (let i = 0; i < 8; i++) {
+    const id = genSubId();
+    const [rows] = await db.getPool().query('SELECT 1 FROM subscriptions WHERE sub_id = ? LIMIT 1', [id]);
+    if (!rows || !rows.length) return id;
+  }
+  return 'SUB-' + String(Date.now()).slice(-9);
+}
 function fmtDt(d) { const p = (x) => String(x).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()); }
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + (n || 0)); return x; }
 
@@ -351,7 +360,7 @@ async function _allocateAndFinish(o, policy, ppm) {
     }
 
     const acc = alloc.access || {};
-    const subId = genSubId();
+    const subId = await freeSubId();
     const start = new Date();
     const expiry = addDays(start, asNum(o.duration_days) || 30);
     const release = addDays(expiry, COOLDOWN_DAYS);
@@ -383,7 +392,7 @@ async function _allocateAndFinish(o, policy, ppm) {
 // Manual services: log a MANUAL_PENDING subscription (visible in the admin panel)
 // and tell the customer we'll activate shortly. No credentials to hand out.
 async function _fulfillManual(o, ppm) {
-  const subId = genSubId();
+  const subId = await freeSubId();
   const start = new Date();
   const expiry = addDays(start, asNum(o.duration_days) || 30);
   await db.getPool().query(
@@ -678,4 +687,4 @@ async function fulfillAndGetAccess(orderId, proof) {
 /** Admin endpoint only (key-protected): full result including credentials. */
 async function fulfillForAdmin(orderId) { return _fulfillSafe(orderId); }
 
-module.exports = { fulfillAndGetAccess, fulfillForAdmin, planRenewal, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE } };
+module.exports = { fulfillAndGetAccess, fulfillForAdmin, planRenewal, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, freeSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE } };

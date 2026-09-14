@@ -231,6 +231,7 @@ function snapOf(fx) {
       if (/FROM inventory_accounts/.test(sql)) return [accounts];
       if (/FROM inventory_capacity/.test(sql)) return [caps];
       if (/FROM subscriptions WHERE LOWER\(service\) LIKE '%prime%'/.test(sql)) return [occ];
+      if (/^SELECT 1 FROM subscriptions WHERE sub_id = \?/.test(sql)) return [[]]; // new SUB-######### ID is free
       if (/^INSERT INTO subscriptions/.test(sql)) { inserted = params; return [{ affectedRows: 1 }]; }
       if (/^UPDATE orders SET fulfillment_status/.test(sql)) return [{ affectedRows: 1 }];
       throw new Error('unexpected SQL ' + sql.slice(0, 90));
