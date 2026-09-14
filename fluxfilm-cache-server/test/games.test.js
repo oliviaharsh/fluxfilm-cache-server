@@ -58,6 +58,8 @@ function run(sqlIn, p) {
   if (/^INSERT IGNORE INTO wallet/.test(sql)) { if (DB.wallet[p[1]] == null) DB.wallet[p[1]] = 0; return { affectedRows: 1 }; }
   if (/^UPDATE wallet SET coins_balance = coins_balance \+ \?/.test(sql)) { DB.wallet[p[p.length - 1]] += p[0]; return { affectedRows: 1 }; }
   if (/^UPDATE wallet SET coins_balance = coins_balance - \?/.test(sql)) { DB.wallet[p[p.length - 1]] -= p[0]; return { affectedRows: 1 }; }
+  if (/^SELECT COUNT\(\*\) n FROM game_plays WHERE phone_norm = \? AND game = \? AND play_date = \? AND kind = 'PAID'/.test(sql)) return [{ n: DB.plays.filter((x) => x.phone_norm === p[0] && x.game === p[1] && x.play_date === p[2] && x.kind === 'PAID').length }];
+  if (/^INSERT INTO coins_ledger/.test(sql) && DB.failLedger) throw new Error('Lock wait timeout exceeded');
   if (/^INSERT INTO coins_ledger/.test(sql)) { DB.ledger.push({ event: p[0], orderId: p[1], phone: p[2], delta: p[6], after: p[7] }); return { affectedRows: 1 }; }
   if (/^SELECT 1 FROM app_settings LIMIT 1/.test(sql)) return [];
   if (/^INSERT IGNORE INTO quiz_questions/.test(sql)) { if (DB.questions.some((q) => q.kind === p[0] && q.question === p[1])) return { affectedRows: 0 }; DB.questions.push({ id: nextId++, kind: p[0], question: p[1], opt_a: p[2], opt_b: p[3], opt_c: p[4], opt_d: p[5], answer: p[6], category: p[7], active: 1, source: p[8] }); return { affectedRows: 1 }; }
@@ -65,7 +67,14 @@ function run(sqlIn, p) {
   if (/FROM game_plays|FROM coins_ledger/.test(sql)) return [];
   throw new Error('unmocked SQL: ' + sql);
 }
-const conn = { beginTransaction: async () => {}, commit: async () => {}, rollback: async () => {}, release: () => {}, query: async (sql, p) => [run(sql, p)] };
+// A real transaction: rollback puts back everything written since beginTransaction.
+let snap = null;
+const conn = {
+  beginTransaction: async () => { snap = JSON.stringify({ wallet: DB.wallet, ledger: DB.ledger, plays: DB.plays, coupons: DB.coupons, nextId }); },
+  commit: async () => { snap = null; },
+  rollback: async () => { if (snap) { const o = JSON.parse(snap); DB.wallet = o.wallet; DB.ledger = o.ledger; DB.plays = o.plays; DB.coupons = o.coupons; snap = null; } },
+  release: () => {}, query: async (sql, p) => [run(sql, p)],
+};
 const mockDb = { ENABLED: true, query: async (sql, p) => run(sql, p), getPool: () => ({ getConnection: async () => conn }), ping: async () => ({ ok: true }) };
 Module._load = (function (orig) { return function (req) { if (req === './db') return mockDb; return orig.apply(this, arguments); }; })(Module._load);
 
@@ -186,6 +195,28 @@ Module._load = (function (orig) { return function (req) { if (req === './db') re
   st = await games.start(PH, TOKEN, 'spin', {}, {});
   const cp = DB.coupons[0];
   ok('spin decides on the server and gives a coupon locked to the phone (1 use, expiry, raw_json)', st.ok && st.spin && st.spin.coupon && cp && cp.allowed === PH && cp.raw.PerUserLimit === 1 && cp.raw.GlobalLimit === 1 && cp.raw.Active === 'TRUE' && /^FG[A-Z2-9]{7}$/.test(cp.code) && /^\d{4}-\d{2}-\d{2} 23:59:59$/.test(cp.expiry), { st, cp });
+
+  // a prize is saved together with "game finished" (no lost prizes)
+  const P2 = '9876500001'; DB.paid.add(P2); const T2x = otpaccess.makeToken(P2).token;
+  await save((s) => { s.games.spin.slices = [{ label: '5', coins: 5, coupon: 0, weight: 1 }, { label: 'x', coins: 0, coupon: 0, weight: 0 }]; s.streakDays = 0; });
+  st = await games.start(P2, T2x, 'quiz', {}, {});
+  const qa = JSON.parse(DB.plays.find((x) => String(x.id) === st.playId).seed_json).a;
+  for (let i = 0; i < 5; i++) await games.step(P2, T2x, st.playId, { i, choice: qa[i] });
+  DB.failLedger = true; let threw = false;
+  try { await games.finish(P2, T2x, st.playId, {}); } catch (e) { threw = true; }
+  const rowAfter = DB.plays.find((x) => String(x.id) === st.playId);
+  ok('database error while paying → nothing half-saved: play still STARTED, no coins, no ledger row', threw && rowAfter.status === 'STARTED' && !DB.wallet[P2] && !DB.ledger.some((l) => l.phone === P2), rowAfter);
+  DB.failLedger = false;
+  fin = await games.finish(P2, T2x, st.playId, {});
+  const again2 = await games.finish(P2, T2x, st.playId, {});
+  ok('sending the score again pays the prize exactly once', fin.ok && fin.coins === 7 && DB.wallet[P2] === 7 && DB.ledger.filter((l) => l.phone === P2 && l.event === 'GAME_WIN').length === 1 && again2.already, fin);
+  DB.failLedger = true;
+  st = await games.start(P2, T2x, 'spin', {}, {});
+  DB.failLedger = false;
+  ok('spin prize not saved at first → spinPending (the spin is kept, not lost)', st.ok && st.spinPending && !st.spin && DB.plays.find((x) => String(x.id) === st.playId).status === 'STARTED', st);
+  fin = await games.finish(P2, T2x, st.playId, {});
+  ok('page retries the spin → same slice paid once (5 coins)', fin.ok && fin.coins === 5 && fin.detail.index === 0 && DB.wallet[P2] === 12, fin);
+  ok('page: retries a failed score save, keeps the game with a Try again button, retries a pending spin', /function saveWithRetry\(/.test(html) && /id="saveAgain"/.test(html) && /r\.spinPending/.test(html));
 
   // practice + verification
   const NEW = '9000000001';

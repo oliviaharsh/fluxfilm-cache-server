@@ -565,7 +565,34 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
     if (!S.phone) { location.href = '/'; return; }
     S.spinning = true; var b = $('spinBtn'); b.disabled = true; b.textContent = 'Spinning…'; $('spinResult').textContent = '';
     startPlay('spin', false).then(function (r) {
+      if (r && r.spinPending) {
+        // The server couldn't save the prize at the first try: ask it again (same spin, same slice).
+        return saveWithRetry(r.playId, {}).then(function (f) {
+          if (!f || !f.ok || !f.detail) { S.spinning = false; toast((f && f.message) || 'Couldn\'t save your spin — please try again in a minute.'); loadHome(); return; }
+          r.spin = Object.assign({ index: f.detail.index }, f); spinAnimate(r);
+        });
+      }
       if (!r || !r.spin) { S.spinning = false; spinLabel(); return; }
+      spinAnimate(r);
+    });
+  }
+  // Send a finished game's score; if the save fails (network / database hiccup) try twice more. The server never pays twice.
+  function saveWithRetry(playId, input) {
+    var tries = 0;
+    var attempt = function () {
+      tries++;
+      return api('gameFinish', [S.phone, S.token, playId, input || {}]).then(function (r) {
+        // Only connection / server hiccups are retried (not "game not found", "expired", "confirm it's you").
+        var retryable = !r.ok && !r.already && (r.offline || r.rateLimited || /database|went wrong|internet|temporarily/i.test(r.message || ''));
+        if (retryable && tries < 3) return new Promise(function (res) { setTimeout(res, 1200 * tries); }).then(attempt);
+        if (r.already && tries > 1) r.message = 'Your score was saved — your coins are in your wallet.'; // an earlier try got through
+        return r;
+      });
+    };
+    return attempt();
+  }
+  function spinAnimate(r) {
+    {
       var g = gameCfg('spin'), n = g.slices.length, step = 360 / n, i = r.spin.index;
       var target = 360 - (i * step + step / 2) + (Math.random() - .5) * step * .6;
       var oldRot = S.rot;
@@ -587,7 +614,7 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
         else SND.play('lose');
         loadHome().then(function () { var el = $('spinResult'); if (el) el.textContent = msg; toast(msg); if (sp.streakBonus) toast('🔥 Streak bonus +' + sp.streakBonus.coins + ' coins!'); });
       }, reduced ? 80 : 3700);
-    });
+    }
   }
 
   // ---------- game screen ----------
@@ -632,8 +659,14 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
     if (S.current) S.current.running = false;
     SND.crowdStop();
     $('stage').innerHTML = '<div class="card"><div class="big">⏳</div><p>Counting your score…</p></div>';
-    api('gameFinish', [S.phone, S.token, play.playId, input || {}]).then(function (r) {
+    saveWithRetry(play.playId, input).then(function (r) {
       if (!r.ok && r.needsVerify) { openVerify(); }
+      // Still not saved after 3 tries (no internet / server busy): keep the score on screen with a Try again button.
+      if (!r.ok && !r.already && (r.offline || r.rateLimited || /database|went wrong|internet|temporarily/i.test(r.message || ''))) {
+        $('stage').innerHTML = '<div class="card"><div class="big">📡</div><h3 class="disp">Score not saved yet</h3><p>' + esc(r.message || 'Connection problem.') + ' Your game is kept — tap Try again.</p><button class="cta" id="saveAgain">Try again</button></div>';
+        $('saveAgain').onclick = function () { finishPlay(k, play, input, sub); };
+        return;
+      }
       showResult(k, play, r, sub);
     });
   }

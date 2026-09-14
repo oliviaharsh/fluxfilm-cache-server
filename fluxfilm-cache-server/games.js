@@ -296,7 +296,8 @@ async function makePlan(game, g) {
   const now = Date.now();
   if (game === 'spin') {
     const i = pickSlice(g.slices);
-    return { seed: { index: i }, data: { slices: g.slices.map((x) => ({ label: x.label, coins: x.coins, coupon: x.coupon })) } };
+    const sl = g.slices[i];
+    return { seed: { index: i, slice: { label: sl.label, coins: sl.coins, coupon: sl.coupon } }, data: { slices: g.slices.map((x) => ({ label: x.label, coins: x.coins, coupon: x.coupon })) } };
   }
   if (game === 'quiz' || game === 'emoji') {
     const n = game === 'quiz' ? g.questions : g.rounds;
@@ -410,6 +411,10 @@ function scorePenalty(seed) {
   if (seed.fast) res.flag = 'kicks too fast';
   return res;
 }
+function spinResult(seed) {
+  const sl = seed.slice || { label: '', coins: 0, coupon: 0 };
+  return { score: sl.coins, won: !!(sl.coins || sl.coupon), coins: sl.coins, coupon: sl.coupon, detail: { index: seed.index, label: sl.label } };
+}
 function scoreQuiz(seed) {
   const c = seed.cfg; const right = seed.got.reduce((a, x) => a + (x ? 1 : 0), 0);
   const perfect = right === c.n && seed.got.length === c.n;
@@ -441,28 +446,30 @@ async function wonSoFar(conn, ph, today) {
   return { day: int(r.day), month: int(r.month), coupons: int(r.coupons) };
 }
 
-// Give coins for a finished play, inside the wallet lock so the day / month limits can't be passed twice at once.
-async function giveCoins(ph, playId, want, cfg, today, event, note) {
+// Give coins for a finished play. Runs on `conn` INSIDE the caller's wallet-lock transaction (coins.withWallet), together
+// with marking the play DONE, so a prize can never be lost half-way and the day / month limits can't be passed twice.
+// w = the locked wallet ({ phone, balance }); w.balance is kept up to date for a coupon / later step in the same transaction.
+async function giveCoins(conn, w, ph, playId, want, cfg, today, event, note) {
   if (want <= 0) return { coins: 0 };
-  return coins.withWallet(ph, async (conn, w) => {
-    const so = await wonSoFar(conn, ph, today);
-    let give = want; let capped = '';
-    if (cfg.dailyCoinCap > 0 && so.day + give > cfg.dailyCoinCap) { give = Math.max(0, cfg.dailyCoinCap - so.day); capped = 'daily'; }
-    if (cfg.monthlyCoinCap > 0 && so.month + give > cfg.monthlyCoinCap) { give = Math.max(0, cfg.monthlyCoinCap - so.month); capped = 'monthly'; }
-    await conn.query('UPDATE game_plays SET coins_won = ? WHERE id = ?', [give, playId]);
-    if (give <= 0) return { coins: 0, capped, balanceAfter: w.balance };
-    const after = w.balance + give;
-    await conn.query('UPDATE wallet SET coins_balance = coins_balance + ?, coins_lifetime = coins_lifetime + ?, last_earned_at = NOW(), last_event = ? WHERE phone = ?', [give, give, (event + ':GP' + playId).slice(0, 150), w.phone]);
-    await coins.writeLedger(conn, { event, orderId: 'GP' + playId, phone: ph, service: 'Games', plan: note, delta: give, balanceAfter: after, note: note + (capped ? ' (limit reached: ' + capped + ')' : '') });
-    return { coins: give, capped, balanceAfter: after };
-  });
+  const so = await wonSoFar(conn, ph, today);
+  let give = want; let capped = '';
+  if (cfg.dailyCoinCap > 0 && so.day + give > cfg.dailyCoinCap) { give = Math.max(0, cfg.dailyCoinCap - so.day); capped = 'daily'; }
+  if (cfg.monthlyCoinCap > 0 && so.month + give > cfg.monthlyCoinCap) { give = Math.max(0, cfg.monthlyCoinCap - so.month); capped = 'monthly'; }
+  await conn.query('UPDATE game_plays SET coins_won = ? WHERE id = ?', [give, playId]);
+  if (give <= 0) return { coins: 0, capped, balanceAfter: w.balance };
+  const after = w.balance + give;
+  await conn.query('UPDATE wallet SET coins_balance = coins_balance + ?, coins_lifetime = coins_lifetime + ?, last_earned_at = NOW(), last_event = ? WHERE phone = ?', [give, give, (event + ':GP' + playId).slice(0, 150), w.phone]);
+  await coins.writeLedger(conn, { event, orderId: 'GP' + playId, phone: ph, service: 'Games', plan: note, delta: give, balanceAfter: after, note: note + (capped ? ' (limit reached: ' + capped + ')' : '') });
+  w.balance = after;
+  return { coins: give, capped, balanceAfter: after };
 }
 
 const COUPON_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-async function giveCoupon(ph, playId, value, cfg, today, gameName) {
+// Same transaction rule as giveCoins: the month's coupon count is checked under the wallet lock.
+async function giveCoupon(conn, ph, playId, value, cfg, today, gameName) {
   if (value <= 0) return null;
   if (cfg.monthlyCouponCap <= 0) return { capped: 'off' };
-  const so = await wonSoFar(null, ph, today);
+  const so = await wonSoFar(conn, ph, today);
   if (so.coupons >= cfg.monthlyCouponCap) return { capped: 'monthly' };
   let code = 'FG'; for (let i = 0; i < 7; i++) code += COUPON_CHARS[crypto.randomInt(0, COUPON_CHARS.length)];
   const expiry = addDays(today, cfg.couponDays) + ' 23:59:59';
@@ -472,11 +479,11 @@ async function giveCoupon(ph, playId, value, cfg, today, gameName) {
     MinAmount: cfg.couponMinOrder, MaxDiscount: 0, Expiry: expiry, PerUserLimit: 1, GlobalLimit: 1, Active: 'TRUE', ShowInProfile: 'TRUE',
     AllowedPhones: ph, FirstTimeOnly: 'FALSE', Source: 'GAMES', PlayId: playId,
   };
-  await db.query(
+  await conn.query(
     'INSERT INTO coupons (code, description, scope, type, value, min_amount, max_discount, expiry, per_user_limit, global_limit, active, show_in_profile, allowed_phones, first_time_only, raw_json)' +
     ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     [code, raw.Description, raw.Scope, raw.Type, raw.Value, raw.MinAmount, raw.MaxDiscount, expiry, raw.PerUserLimit, raw.GlobalLimit, raw.Active, raw.ShowInProfile, raw.AllowedPhones, raw.FirstTimeOnly, JSON.stringify(raw)]);
-  await db.query('UPDATE game_plays SET coupon_code = ?, coupon_value = ? WHERE id = ?', [code, value, playId]);
+  await conn.query('UPDATE game_plays SET coupon_code = ?, coupon_value = ? WHERE id = ?', [code, value, playId]);
   return { code, value, expiry, minOrder: cfg.couponMinOrder };
 }
 
@@ -495,13 +502,14 @@ async function maybeStreakBonus(ph, today, cfg) {
   if (st.days < cfg.streakDays) return null;
   const recent = await db.query("SELECT 1 FROM game_plays WHERE phone_norm = ? AND game = 'streak' AND play_date > ? LIMIT 1", [ph, addDays(today, -cfg.streakDays)]);
   if (recent.length) return null;
-  let id;
+  // The bonus row and its coins are saved together (one transaction), so a bonus is never marked given without coins.
   try {
-    const r = await db.query("INSERT INTO game_plays (phone_norm, game, play_date, kind, free_slot, status, score, started_ms, finished_at) VALUES (?, 'streak', ?, 'BONUS', 1, 'DONE', ?, ?, NOW())", [ph, today, st.days, Date.now()]);
-    id = r.insertId;
+    const g = await coins.withWallet(ph, async (conn, w) => {
+      const [ins] = await conn.query("INSERT INTO game_plays (phone_norm, game, play_date, kind, free_slot, status, score, started_ms, finished_at) VALUES (?, 'streak', ?, 'BONUS', 1, 'DONE', ?, ?, NOW())", [ph, today, st.days, Date.now()]);
+      return giveCoins(conn, w, ph, ins.insertId, cfg.streakCoins, cfg, today, 'GAME_STREAK', st.days + '-day streak');
+    });
+    return { days: st.days, coins: g.coins, capped: g.capped };
   } catch (e) { if (/Duplicate|ER_DUP_ENTRY/i.test(e.message)) return null; throw e; }
-  const g = await giveCoins(ph, id, cfg.streakCoins, cfg, today, 'GAME_STREAK', st.days + '-day streak');
-  return { days: st.days, coins: g.coins, capped: g.capped };
 }
 
 // ---------------- storefront actions ----------------
@@ -583,6 +591,9 @@ async function start(phone, token, game, opts, meta) {
   let playId; let balance = null;
   if (kind === 'PAID') {
     const r = await coins.withWallet(ph, async (conn, w) => {
+      // Counted again under the wallet lock: two taps at once can't pass "max extra plays per day".
+      const [cnt] = await conn.query("SELECT COUNT(*) n FROM game_plays WHERE phone_norm = ? AND game = ? AND play_date = ? AND kind = 'PAID'", [ph, game, today]);
+      if (int((cnt[0] || {}).n) >= g.maxExtraPerDay) return { ok: false, maxed: true };
       if (w.balance < g.extraCost) return { ok: false, notEnough: true, balance: Math.floor(w.balance) };
       const [ins] = await conn.query(insertSql, [ph, game, today, 'PAID', null, g.extraCost, JSON.stringify(plan.seed), ip, now]);
       const after = w.balance - g.extraCost;
@@ -592,6 +603,7 @@ async function start(phone, token, game, opts, meta) {
       }
       return { ok: true, id: ins.insertId, balance: Math.floor(after) };
     });
+    if (r.maxed) return { ok: false, noFreeLeft: true, message: 'That\'s all the plays for today. Come back tomorrow! 🌙' };
     if (!r.ok) return { ok: false, notEnough: true, balance: r.balance, message: 'You need ' + g.extraCost + ' coins for an extra play (you have ' + r.balance + ').' };
     playId = r.id; balance = r.balance;
   } else {
@@ -605,10 +617,15 @@ async function start(phone, token, game, opts, meta) {
   }
   const out = { ok: true, playId: String(playId), game, kind, cost: kind === 'PAID' ? g.extraCost : 0, balance, data: plan.data, prizes: kind === 'FREE' || (kind === 'PAID' && cfg.prizesOnPaidPlays) };
   if (game === 'spin') {
-    // The wheel result is decided now; the page only animates to it.
-    const sl = g.slices[plan.seed.index];
-    const fin = await settle({ id: playId, phone_norm: ph, game, kind, play_date: today }, cfg, { score: sl.coins, won: !!(sl.coins || sl.coupon), coins: sl.coins, coupon: sl.coupon, detail: { index: plan.seed.index, label: sl.label } });
-    out.spin = Object.assign({ index: plan.seed.index }, fin);
+    // The wheel result is decided now; the page only animates to it. If saving the prize fails, the spin stays STARTED
+    // and the page sends gameFinish for it (same slice, from the saved round data) instead of losing the spin.
+    try {
+      const fin = await settle({ id: playId, phone_norm: ph, game, kind, play_date: today }, cfg, spinResult(plan.seed));
+      out.spin = Object.assign({ index: plan.seed.index }, fin);
+    } catch (e) {
+      console.log('[games] spin prize not saved yet (page will retry):', e.message);
+      out.spinPending = true;
+    }
   }
   return out;
 }
@@ -656,22 +673,32 @@ async function settle(row, cfg, r) {
   const today = row.play_date || istDate();
   const prizes = row.kind === 'FREE' || (row.kind === 'PAID' && cfg.prizesOnPaidPlays);
   const result = { score: r.score, won: !!r.won, detail: r.detail || {}, wouldWin: { coins: Math.max(0, int(r.coins)), coupon: Math.max(0, int(r.coupon)) } };
-  const upd = await db.query("UPDATE game_plays SET status = 'DONE', score = ?, result_json = ?, flagged = ?, finished_at = NOW() WHERE id = ? AND status = 'STARTED'",
-    [int(r.score), JSON.stringify(result), r.flag ? s(r.flag).slice(0, 120) : null, row.id]);
-  if (!upd || !upd.affectedRows) return { ok: false, already: true, message: 'This game has already finished.' };
+  const markSql = "UPDATE game_plays SET status = 'DONE', score = ?, result_json = ?, flagged = ?, finished_at = NOW() WHERE id = ? AND status = 'STARTED'";
+  const markArgs = [int(r.score), JSON.stringify(result), r.flag ? s(r.flag).slice(0, 120) : null, row.id];
+  const already = { ok: false, already: true, message: 'This game has already finished.' };
   const out = { ok: true, kind: row.kind, score: result.score, won: result.won, detail: result.detail, coins: 0, coupon: null, practice: row.kind === 'PRACTICE', wouldWin: result.wouldWin };
-  if (r.flag) { out.flagged = true; out.message = 'We couldn\'t count this game. Please play normally and try again.'; return out; }
-  if (!prizes) return out;
-  const name = (GAMES[row.game] || {}).name || row.game;
   const ph = row.phone_norm;
-  if (result.wouldWin.coins > 0) {
-    const g = await giveCoins(ph, row.id, result.wouldWin.coins, cfg, today, 'GAME_WIN', name);
-    out.coins = g.coins; if (g.capped) out.capped = g.capped; if (g.balanceAfter != null) out.balance = Math.floor(g.balanceAfter);
+  const hasPrize = prizes && !r.flag && (result.wouldWin.coins > 0 || result.wouldWin.coupon > 0);
+  if (!hasPrize) {
+    const upd = await db.query(markSql, markArgs);
+    if (!upd || !upd.affectedRows) return already;
+    if (r.flag) { out.flagged = true; out.message = 'We couldn\'t count this game. Please play normally and try again.'; }
+    return out;
   }
-  if (result.wouldWin.coupon > 0) {
-    const cp = await giveCoupon(ph, row.id, result.wouldWin.coupon, cfg, today, name);
-    if (cp && cp.code) out.coupon = cp; else if (cp && cp.capped) out.couponCapped = cp.capped;
-  }
+  // Finishing the play and giving its prize happen in ONE transaction under the wallet lock: if anything fails, nothing
+  // is saved (the play stays STARTED and the page can simply send the score again) — a prize can't be lost half-way.
+  const name = (GAMES[row.game] || {}).name || row.game;
+  const got = await coins.withWallet(ph, async (conn, w) => {
+    const [upd] = await conn.query(markSql, markArgs);
+    if (!upd || !upd.affectedRows) return { already: true };
+    const o = {};
+    if (result.wouldWin.coins > 0) o.coins = await giveCoins(conn, w, ph, row.id, result.wouldWin.coins, cfg, today, 'GAME_WIN', name);
+    if (result.wouldWin.coupon > 0) o.coupon = await giveCoupon(conn, ph, row.id, result.wouldWin.coupon, cfg, today, name);
+    return o;
+  });
+  if (got.already) return already;
+  if (got.coins) { out.coins = got.coins.coins; if (got.coins.capped) out.capped = got.coins.capped; if (got.coins.balanceAfter != null) out.balance = Math.floor(got.coins.balanceAfter); }
+  if (got.coupon && got.coupon.code) out.coupon = got.coupon; else if (got.coupon && got.coupon.capped) out.couponCapped = got.coupon.capped;
   try { const st = await maybeStreakBonus(ph, today, cfg); if (st && st.coins) out.streakBonus = st; } catch (e) { console.log('[games] streak bonus failed:', e.message); }
   return out;
 }
@@ -699,6 +726,7 @@ async function finish(phone, token, playId, input) {
   else if (row.game === 'cricket') r = scoreCricket(seed, input, elapsed);
   else if (row.game === 'yorker') r = scoreYorker(seed, input, elapsed);
   else if (row.game === 'penalty') r = scorePenalty(seed);
+  else if (row.game === 'spin') r = spinResult(seed);
   else return { ok: false, message: 'This game finishes by itself.' };
   return settle(row, cfg, r);
 }
