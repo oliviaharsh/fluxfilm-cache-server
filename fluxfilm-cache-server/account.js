@@ -75,6 +75,14 @@ async function createOrUpdateCustomerProfile(payload) {
     " VALUES (?, ?, ?, ?, '', NOW(), NOW(), 'ACTIVE', ?, ?)",
     [s(p.phone) || phone, phone, name, email, customerId, JSON.stringify(raw)]);
 
+  // Signed up from a friend's invite link: record the link now (not only at the first order).
+  if (s(p.referralCode)) {
+    try {
+      const r = await require('./referrals').attachOnSignup({ code: p.referralCode, friendPhone: phone });
+      if (r && r.ok === false && !r.disabled) console.log('[referral] not linked at signup:', r.skipped);
+    } catch (e) { console.log('[referral] signup link failed:', e.message); }
+  }
+
   return { ok: true, message: 'Account created', profile: await _profile(phone) };
 }
 

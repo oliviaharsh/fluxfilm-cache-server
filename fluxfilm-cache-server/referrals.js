@@ -156,13 +156,16 @@ async function getReferralInfo(phone) {
       if (s(r.kind).toUpperCase() === 'LEVEL2') level2Coins += num(r.coins);
       else byFriend.set(r.friend_phone, (byFriend.get(r.friend_phone) || 0) + num(r.coins));
     }
+    const st = (f) => s(f.status).toUpperCase();
     return {
       ok: true, code,
       link: cfg.site.replace(/\/+$/, '') + '/?ref=' + code,
       rules: publicRules(cfg),
       friendDiscount: cfg.friendDiscount,
       invited: friends.length,
-      joined: friends.filter((f) => s(f.status).toUpperCase() === 'REWARDED').length,
+      // joined = new customers who came through the link (signed up or ordered); bought = first order paid.
+      joined: friends.filter((f) => st(f) !== 'NOT_NEW').length,
+      bought: friends.filter((f) => st(f) === 'REWARDED' || st(f) === 'CAPPED').length,
       coinsEarned: total, level2Coins,
       friends: friends.map((f) => ({ phone: maskPhone(f.friend_phone), status: s(f.status).toUpperCase(), coins: byFriend.get(f.friend_phone) || 0, joinedAt: f.created_at })),
     };
@@ -210,6 +213,25 @@ async function attachToOrder({ code, referrerPhone, friendPhone, orderId, discou
       "friend_order_id = IF(status = 'PENDING', VALUES(friend_order_id), friend_order_id), discount = IF(status = 'PENDING', VALUES(discount), discount), updated_at = NOW()",
       [normCode(code), norm(referrerPhone), norm(friendPhone), s(orderId), Math.max(0, Math.round(num(discount)))]);
     return { ok: true };
+  } catch (e) {
+    if (missingTable(e)) return { ok: false, disabled: true };
+    throw e;
+  }
+}
+
+// A brand-new customer created their account with a saved invite code: link them to the referrer right away,
+// so the referrer sees them as joined before they buy. Same checks as checkout (valid code, not their own,
+// no paid order yet). INSERT IGNORE: an existing link is never replaced. Rewards still wait for a paid order.
+async function attachOnSignup({ code, friendPhone }) {
+  const c = normCode(code); const ph = norm(friendPhone);
+  if (c.length < 4 || ph.length !== 10) return { ok: false, skipped: 'no invite code' };
+  const rq = await checkReferral(c, ph);
+  if (!rq.ok) return { ok: false, skipped: rq.message || 'invite not usable' };
+  try {
+    const ins = await db.query(
+      "INSERT IGNORE INTO referrals (code, referrer_phone, friend_phone, status, discount, created_at) VALUES (?, ?, ?, 'PENDING', 0, NOW())",
+      [rq.code, norm(rq.referrerPhone), ph]);
+    return { ok: true, linked: !!(ins && ins.affectedRows) };
   } catch (e) {
     if (missingTable(e)) return { ok: false, disabled: true };
     throw e;
@@ -358,7 +380,7 @@ function startReconcileTimer() {
 }
 
 module.exports = {
-  getReferralInfo, checkReferral, attachToOrder, onOrderPaid, reconcile, startReconcileTimer,
+  getReferralInfo, checkReferral, attachToOrder, attachOnSignup, onOrderPaid, reconcile, startReconcileTimer,
   getSettings, saveSettings, validateSettings, coinsFor, DEFAULTS,
   _internal: { genCode, normCode, maskPhone, ensureCode, resetCache: () => { cache = null; } },
 };
