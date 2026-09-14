@@ -39,7 +39,7 @@ async function q(sql, p) {
   }
   if (/^INSERT INTO referrals/.test(sql)) { // attachToOrder (checkout)
     const ex = T.refs.find((r) => r.friend_phone === p[2]);
-    if (ex) { if (ex.status === 'PENDING') Object.assign(ex, { code: p[0], referrer_phone: p[1], friend_order_id: p[3], discount: p[4] }); return { affectedRows: 2 }; }
+    if (ex) { if (ex.status === 'PENDING') Object.assign(ex, /code = IF\(/.test(sql) ? { code: p[0], referrer_phone: p[1] } : {}, { friend_order_id: p[3], discount: p[4] }); return { affectedRows: 2 }; }
     T.refs.push({ id: nextId++, code: p[0], referrer_phone: p[1], friend_phone: p[2], status: 'PENDING', friend_order_id: p[3], discount: p[4] }); return { affectedRows: 1 };
   }
   throw new Error('unexpected SQL in test: ' + sql);
@@ -85,6 +85,12 @@ const quiet = (fn) => async (...a) => { const l = console.log; console.log = () 
   const codeD = (await referrals.getReferralInfo(D)).code;
   r = await referrals.attachOnSignup({ code: codeD, friendPhone: B });
   ok("B stays A's friend", T.refs.filter((x) => x.friend_phone === B).length === 1 && T.refs.find((x) => x.friend_phone === B).referrer_phone === A && r.linked === false, r);
+
+  section('first link wins: ordering later with another invite code keeps the first referrer');
+  await referrals.attachToOrder({ code: codeD, referrerPhone: D, friendPhone: B, orderId: 'FF2', discount: 20 });
+  const bLink = T.refs.filter((x) => x.friend_phone === B);
+  ok("B still A's friend after ordering with D's code (order id updated)", bLink.length === 1 && bLink[0].referrer_phone === A && bLink[0].code === CODE && bLink[0].friend_order_id === 'FF2', bLink);
+  ok('checkout SQL never rewrites code / referrer of an existing link', !/code = IF\(|referrer_phone = IF\(/.test(fs.readFileSync(path.join(__dirname, '..', 'referrals.js'), 'utf8')));
 
   section('not linked: own code, bad code, no code, already paid, existing account');
   r = await quiet(referrals.attachOnSignup)({ code: CODE, friendPhone: A });

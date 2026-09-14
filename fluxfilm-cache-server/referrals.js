@@ -205,11 +205,13 @@ async function checkReferral(code, phone, amount) {
 }
 
 // Checkout created an order with an invite code: remember who invited this friend.
+// First link wins (owner 2026-09-14): a friend already linked to someone (at sign-up or an earlier order) stays with
+// that person even if they later order with another invite code; only the order id / discount are updated.
 async function attachToOrder({ code, referrerPhone, friendPhone, orderId, discount }) {
   try {
     await db.query(
       "INSERT INTO referrals (code, referrer_phone, friend_phone, status, friend_order_id, discount, created_at) VALUES (?, ?, ?, 'PENDING', ?, ?, NOW()) " +
-      "ON DUPLICATE KEY UPDATE code = IF(status = 'PENDING', VALUES(code), code), referrer_phone = IF(status = 'PENDING', VALUES(referrer_phone), referrer_phone), " +
+      "ON DUPLICATE KEY UPDATE " +
       "friend_order_id = IF(status = 'PENDING', VALUES(friend_order_id), friend_order_id), discount = IF(status = 'PENDING', VALUES(discount), discount), updated_at = NOW()",
       [normCode(code), norm(referrerPhone), norm(friendPhone), s(orderId), Math.max(0, Math.round(num(discount)))]);
     return { ok: true };

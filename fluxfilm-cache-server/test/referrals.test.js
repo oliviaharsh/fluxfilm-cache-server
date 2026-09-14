@@ -51,7 +51,7 @@ async function q(sql, p) {
   if (/^SELECT friend_phone, status, created_at, rewarded_at FROM referrals WHERE referrer_phone = \?/.test(sql)) return T.refs.filter((r) => r.referrer_phone === p[0]);
   if (/^INSERT INTO referrals/.test(sql)) {
     const ex = T.refs.find((r) => r.friend_phone === p[2]);
-    if (ex) { if (ex.status === 'PENDING') Object.assign(ex, { code: p[0], referrer_phone: p[1], friend_order_id: p[3], discount: p[4] }); return { affectedRows: 2 }; }
+    if (ex) { if (ex.status === 'PENDING') Object.assign(ex, /code = IF\(/.test(sql) ? { code: p[0], referrer_phone: p[1] } : {}, { friend_order_id: p[3], discount: p[4] }); return { affectedRows: 2 }; }
     T.refs.push({ id: nextId++, code: p[0], referrer_phone: p[1], friend_phone: p[2], status: 'PENDING', friend_order_id: p[3], discount: p[4], created_at: nowStr() }); return { affectedRows: 1 };
   }
   if (/^UPDATE referrals SET status = 'NOT_NEW'/.test(sql)) { const r = T.refs.find((x) => x.id === p[0] && x.status === 'PENDING'); if (r) r.status = 'NOT_NEW'; return { affectedRows: r ? 1 : 0 }; }
