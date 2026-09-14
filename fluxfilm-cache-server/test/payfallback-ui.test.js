@@ -156,6 +156,12 @@ const INFO = { ok: true, enabled: true, orderId: 'FF9123456', amount: 139, vpa: 
   ok('decided card has no action buttons', !/data-act=/.test(card) && /Approved/.test(card) && /seen in bank/.test(card));
   ok('settings: QR upload shrinks big photos, Save bar above bottom menu', /function uploadQr\(file\)/.test(admin) && /720 \/ Math\.max/.test(admin) && /id="pmsave"/.test(admin) && /class="rf-save"><button class="btn green" id="pmsave"/.test(admin));
 
+  section('run 6 browser-walk fixes');
+  ok('pay-help screen has its own header title', /payhelp: \['Backup Payment', /.test(html));
+  const toastAt = html.indexOf('}, toast && React.createElement("div"');
+  const toastSrc = html.slice(toastAt, toastAt + 900);
+  ok('toast is centred without translateX (fadeSlide keyframes override transform)', toastAt > 0 && !/translateX/.test(toastSrc) && /margin: '0 auto'/.test(toastSrc) && /fadeSlide/.test(toastSrc));
+
   console.log('\n---------------------------------------');
   console.log('PASS ' + pass + '   FAIL ' + fail);
   process.exitCode = fail ? 1 : 0;
