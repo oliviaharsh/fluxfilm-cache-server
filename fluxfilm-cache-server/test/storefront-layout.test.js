@@ -50,7 +50,8 @@ ok('multi-device Prime asks how many are TVs; nothing picked by default', /How m
 ok('invite link ?ref= saved (30 days) and removed from the address bar', /function captureRefFromUrl_\(\)/.test(html) && /searchParams\.delete\('ref'\)/.test(html) && /30 \* 86400000/.test(html));
 ok('new orders send the invite code; checkout shows the invite discount unless a coupon is applied', /referralCode: getRefCode_\(\),/.test(html) && /const refDiscount = !couponState\.applied && refState && refState\.ok/.test(html) && /'🎁 Invite discount'/.test(html));
 ok('Account → Refer & earn and Wallet are real pages (not "coming soon")', /section === 'referral' && React\.createElement\(ReferralPanel/.test(html) && /section === 'wallet' && React\.createElement\(WalletPanel/.test(html) && /Share on WhatsApp/.test(html));
-ok('own / used / invalid codes are forgotten', (html.match(/r\.invalid \|\| r\.own \|\| r\.notNew\)\) clearRefCode_\(\)/g) || []).length === 2);
+ok('only invalid codes are forgotten (an old number keeps the link for a new number on the same phone)', (html.match(/if \(r && r\.invalid\) clearRefCode_\(\);/g) || []).length === 2 && !/r\.notNew\)\) clearRefCode_/.test(html));
+ok('invite banner re-checks when the signed-in number changes and hides for an existing customer', /\}, \[refPhone\]\);/.test(html) && /setRefInfo\(r && r\.ok \? r : null\);/.test(html) && /const refPhone = screenData && screenData\.phone \|\| getFFSession\(\)\.phone \|\| '';/.test(html));
 
 // Paying with coins.
 ok('coins toggle at checkout and on renew; totals subtract coins', /function CoinToggle\(/.test(html) && (html.match(/React\.createElement\(CoinToggle, \{/g) || []).length === 2 && /kind: 'NEW'/.test(html) && /kind: 'RENEW'/.test(html) && /\['🪙 Coins', `− ₹\$\{coinRupees\}`\]/.test(html) && /Math\.max\(0, finalPrice - coinRupees\)/.test(html));

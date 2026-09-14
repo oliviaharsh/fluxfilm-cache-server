@@ -4007,7 +4007,7 @@ function DetailsScreen({
     if (!code || !form.phone) return;
     API.checkReferral(code, form.phone, r => {
       setRefState(r || null);
-      if (r && (r.invalid || r.own || r.notNew)) clearRefCode_();
+      if (r && r.invalid) clearRefCode_();
     }, () => {});
   }, [form.phone]);
   const refDiscount = !couponState.applied && refState && refState.ok ? Math.min(baseAmount, Number(refState.friendDiscount || 0)) : 0;
@@ -8540,13 +8540,21 @@ function App() {
       checkCriticalDone();
     });
   }
+  const refPhone = screenData && screenData.phone || getFFSession().phone || '';
   useEffect(() => {
     captureRefFromUrl_();
     const code = getRefCode_();
-    if (code) API.checkReferral(code, getFFSession().phone || '', r => {
-      if (r && r.ok) setRefInfo(r);else if (r && (r.invalid || r.own || r.notNew)) clearRefCode_();
+    if (!code) return setRefInfo(null);
+    let live = true;
+    API.checkReferral(code, refPhone, r => {
+      if (!live) return;
+      setRefInfo(r && r.ok ? r : null);
+      if (r && r.invalid) clearRefCode_();
     }, () => {});
-  }, []);
+    return () => {
+      live = false;
+    };
+  }, [refPhone]);
   useEffect(() => {
     const saved = getFFSession();
     const cachedBoot = getCachedBoot();
