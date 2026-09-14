@@ -83,19 +83,24 @@ function computeCoins(event, amount, cfg) {
   return Math.max(0, Math.floor(base * mult));
 }
 
+// Locks this customer's wallet row (created if missing) on a connection that is already inside a transaction.
+async function lockWalletOn(conn, ph) {
+  const lock = () => conn.query('SELECT phone, coins_balance FROM wallet WHERE phone_norm = ? ' + WALLET_ORDER + ' LIMIT 1 FOR UPDATE', [ph]);
+  let [w] = await lock();
+  if (!w.length) {
+    await conn.query('INSERT IGNORE INTO wallet (phone, phone_norm, coins_balance, coins_lifetime) VALUES (?, ?, 0, 0)', [ph, ph]);
+    [w] = await lock();
+  }
+  if (!w.length) throw new Error('wallet row could not be created');
+  return { phone: w[0].phone, balance: asNum(w[0].coins_balance) };
+}
+
 // Runs fn(conn, wallet) inside a transaction holding the lock on this customer's wallet row (created if missing).
 async function withWallet(ph, fn) {
   const conn = await db.getPool().getConnection();
   try {
     await conn.beginTransaction();
-    const lock = () => conn.query('SELECT phone, coins_balance FROM wallet WHERE phone_norm = ? ' + WALLET_ORDER + ' LIMIT 1 FOR UPDATE', [ph]);
-    let [w] = await lock();
-    if (!w.length) {
-      await conn.query('INSERT IGNORE INTO wallet (phone, phone_norm, coins_balance, coins_lifetime) VALUES (?, ?, 0, 0)', [ph, ph]);
-      [w] = await lock();
-    }
-    if (!w.length) throw new Error('wallet row could not be created');
-    const out = await fn(conn, { phone: w[0].phone, balance: asNum(w[0].coins_balance) });
+    const out = await fn(conn, await lockWalletOn(conn, ph));
     await conn.commit();
     return out;
   } catch (e) {
@@ -263,11 +268,69 @@ async function adjust({ phone, delta, reason }) {
   });
 }
 
+// ---------------- refunded / erased orders (admin order actions) ----------------
+// Both run on the caller's connection INSIDE its transaction, so the order's new state and the coins change
+// commit together or not at all. Both are idempotent (safe to run again on the same order).
+
+// An order is refunded or erased: give back coins used on it (HELD or SPENT → RELEASED) and take back coins earned
+// on it (fulfilment awards NEW_PURCHASE / RENEW, e.g. manual plans). Earned coins are never taken below 0; what could
+// not be taken is reported as `reverseShort`.
+async function undoOrderCoinsOn(conn, orderId, phone, reason) {
+  const oid = s(orderId); const why = s(reason) || 'order cancelled';
+  const out = { returned: 0, reversed: 0, reverseShort: 0 };
+  if (!oid) return out;
+  let spend = null;
+  try {
+    const [rows] = await conn.query("SELECT order_id, phone_norm, coins, status FROM coin_spends WHERE order_id = ? AND status IN ('HELD', 'SPENT') LIMIT 1 FOR UPDATE", [oid]);
+    spend = rows[0] || null;
+  } catch (e) { if (!missingTable(e)) throw e; }
+  const [earnRows] = await conn.query("SELECT event, phone_norm, coins_delta FROM coins_ledger WHERE order_id = ? AND event IN ('NEW_PURCHASE', 'RENEW', 'EARN_REVERSE')", [oid]);
+  const alreadyReversed = earnRows.some((r) => s(r.event) === 'EARN_REVERSE');
+  const earned = alreadyReversed ? 0 : earnRows.filter((r) => s(r.event) !== 'EARN_REVERSE').reduce((n, r) => n + Math.max(0, asNum(r.coins_delta)), 0);
+  const earnPhone = (earnRows.find((r) => s(r.event) !== 'EARN_REVERSE') || {}).phone_norm;
+  if (!spend && earned <= 0) return out;
+  const ph = norm((spend && spend.phone_norm) || earnPhone || phone);
+  if (!ph) return out;
+  const w = await lockWalletOn(conn, ph);
+  let bal = w.balance;
+  if (spend) {
+    const [upd] = await conn.query("UPDATE coin_spends SET status = 'RELEASED', note = ?, updated_at = NOW() WHERE order_id = ? AND status = ?", [why.slice(0, 200), oid, spend.status]);
+    if (upd && upd.affectedRows) {
+      const c = asNum(spend.coins); bal += c;
+      await conn.query('UPDATE wallet SET coins_balance = coins_balance + ? WHERE phone = ?', [c, w.phone]);
+      await ledger(conn, { event: 'SPEND_RELEASE', orderId: oid, phone: ph, delta: c, balanceAfter: bal, note: 'Coins back: ' + why });
+      out.returned = c;
+    }
+  }
+  if (earned > 0) {
+    const take = Math.min(earned, Math.max(0, Math.floor(bal)));
+    bal -= take;
+    if (take) await conn.query('UPDATE wallet SET coins_balance = coins_balance - ?, coins_lifetime = GREATEST(coins_lifetime - ?, 0) WHERE phone = ?', [take, take, w.phone]);
+    // Written even when 0 could be taken, so a second run never takes them again.
+    await ledger(conn, { event: 'EARN_REVERSE', orderId: oid, phone: ph, delta: -take, balanceAfter: bal, note: ('Coins earned on this order taken back: ' + why + (take < earned ? ' (' + (earned - take) + ' already spent)' : '')) });
+    out.reversed = take; out.reverseShort = earned - take;
+  }
+  return out;
+}
+
+// Refund paid as coins: add `coins` to the customer's wallet, once per order (ledger event REFUND).
+async function creditRefundOn(conn, { orderId, phone, coins, note, service, plan, amount }) {
+  const oid = s(orderId); const ph = norm(phone); const c = Math.max(0, Math.round(asNum(coins)));
+  if (!oid || !ph || !c) return { ok: false, coins: 0 };
+  const w = await lockWalletOn(conn, ph);
+  const [dup] = await conn.query("SELECT id FROM coins_ledger WHERE order_id = ? AND event = 'REFUND' LIMIT 1", [oid]);
+  if (dup.length) return { ok: true, already: true, coins: 0 };
+  const after = w.balance + c;
+  await conn.query('UPDATE wallet SET coins_balance = coins_balance + ?, last_event = ? WHERE phone = ?', [c, ('REFUND:' + oid).slice(0, 150), w.phone]);
+  await ledger(conn, { event: 'REFUND', orderId: oid, phone: ph, service, plan, amount, delta: c, balanceAfter: after, note: s(note) || 'Refund for order ' + oid });
+  return { ok: true, coins: c, balanceAfter: after };
+}
+
 // Customer's recent coin history (Wallet page). Order ids are shown; no other people's data.
 async function history(phone) {
   const ph = norm(phone);
   if (!ph) return { ok: false, message: 'Phone required.' };
-  const LABEL = { NEW_PURCHASE: 'Earned on your order', RENEW: 'Earned on your renewal', REFERRAL: 'Invite reward', REFERRAL_REPEAT: 'Invite reward (friend ordered again)', REFERRAL_L2: "Invite reward (friend's friend)", SPEND: 'Used at checkout', SPEND_RELEASE: 'Coins given back', ADMIN_ADJUST: 'Adjusted by FluxFilm', GAME_WIN: '🎮 Won in Games', GAME_STREAK: '🔥 Games streak bonus', GAME_PLAY: '🎮 Extra game play' };
+  const LABEL = { NEW_PURCHASE: 'Earned on your order', RENEW: 'Earned on your renewal', REFERRAL: 'Invite reward', REFERRAL_REPEAT: 'Invite reward (friend ordered again)', REFERRAL_L2: "Invite reward (friend's friend)", SPEND: 'Used at checkout', SPEND_RELEASE: 'Coins given back', ADMIN_ADJUST: 'Adjusted by FluxFilm', REFUND: 'Refund for your order', EARN_REVERSE: 'Order refunded: earned coins taken back', GAME_WIN: '🎮 Won in Games', GAME_STREAK: '🔥 Games streak bonus', GAME_PLAY: '🎮 Extra game play' };
   const rows = await db.query('SELECT ts, event, order_id, coins_delta, balance_after FROM coins_ledger WHERE phone_norm = ? ORDER BY id DESC LIMIT 25', [ph]);
   return { ok: true, items: rows.map((r) => ({ at: r.ts, label: LABEL[s(r.event).toUpperCase()] || s(r.event), coins: asNum(r.coins_delta), orderId: /^(ADJ|GP)/.test(s(r.order_id)) ? '' : s(r.order_id), balanceAfter: asNum(r.balance_after) })) };
 }
@@ -276,6 +339,7 @@ module.exports = {
   awardCoins, computeCoins, WALLET_ORDER,
   getSettings, saveSettings, validateSettings, defaults,
   spendAllowed, quoteSpend, holdSpend, releaseSpend, onOrderPaid, maintain, startTimer, adjust, history,
+  undoOrderCoinsOn, creditRefundOn,
   // Games (games.js) change balances with its own caps inside the same wallet lock + ledger.
   withWallet, writeLedger: ledger,
   _internal: { resetCache: () => { cache = null; } },

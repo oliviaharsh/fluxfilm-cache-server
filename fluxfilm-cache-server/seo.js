@@ -369,7 +369,7 @@ async function faqPage() {
 
 function postImage(src) {
   const v = s(src);
-  return /^\/(tmdb-img\/t\/p\/w\d+\/[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)|feed-img\/fp[0-9a-f]{10}(\?v=[\w%.:-]*)?)$/.test(v) ? v.replace(/^\/tmdb-img\/t\/p\/w\d+\//, '/tmdb-img/t/p/w185/') : '';
+  return /^\/((?:poster|tmdb-img\/t\/p)\/w\d+\/[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)|feed-img\/fp[0-9a-f]{10}(\?v=[\w%.:-]*)?)$/.test(v) ? v.replace(/^\/(?:poster|tmdb-img\/t\/p)\/w\d+\//, '/poster/w185/') : '';
 }
 async function whatsNewPage() {
   const [data, feed] = await Promise.all([catalogData({ waitMs: 4000 }), feedData()]);
@@ -385,8 +385,8 @@ async function whatsNewPage() {
       (cap ? '<p>' + esc(cap.length > 180 ? cap.slice(0, 177).replace(/\s+\S*$/, '') + '…' : cap) + '</p>' : '') +
       (svc ? '<a href="/plans/' + svc.slug + '">' + esc(svc.name) + ' plans from ' + inr(svc.minPrice) + '</a>' : '') + '</div></article>';
   }).join('');
-  const body = (items ? '<div class="grid">' + items + '</div>' : '<div class="card"><p>No new posts right now. <a href="/plans">See all plans &amp; prices</a>.</p></div>') +
-    (posts.some((p) => p.tmdb) ? '<p class="muted" style="margin-top:18px">Movie and show details and posters come from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>' : '');
+  // Data-source credit lives on /about (Credits), not on this page (owner 2026-09-15).
+  const body = (items ? '<div class="grid">' + items + '</div>' : '<div class="card"><p>No new posts right now. <a href="/plans">See all plans &amp; prices</a>.</p></div>');
   return layout({
     path: '/whats-new', services,
     title: 'What\'s New on Netflix, Prime Video & JioHotstar | FluxFilm',
@@ -402,7 +402,9 @@ async function aboutPage() {
   const body = '<div class="card"><p>FluxFilm helps people in India watch more for less. We sell subscription plans for ' + esc(services.map((x) => x.name).join(', ') || 'popular streaming services') + ', priced in rupees and paid by UPI.</p>' +
     '<p>Most plans are delivered instantly: your login appears on screen as soon as the payment is confirmed, with a copy by email. Your phone number is your account — sign in any time to renew, recover your details or get an OTP.</p>' +
     '<p>Need help? Tap Help in the app to reach FluxFilm support on WhatsApp.</p></div>' +
-    '<p style="margin-top:20px"><a class="btn" href="/plans">See plans &amp; prices</a> <a class="btn ghost" href="/faq">Read the FAQ</a></p>';
+    '<p style="margin-top:20px"><a class="btn" href="/plans">See plans &amp; prices</a> <a class="btn ghost" href="/faq">Read the FAQ</a></p>' +
+    // Credits (required by the movie data provider's terms; kept here instead of on the feed).
+    '<p class="muted" style="margin-top:28px;font-size:12px">Credits: some movie and show information and images are provided by TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>';
   return layout({
     path: '/about', services,
     title: 'About FluxFilm — Streaming Subscriptions for Less in India',

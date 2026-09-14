@@ -47,7 +47,7 @@ const webp = Buffer.concat([Buffer.from('RIFF', 'latin1'), Buffer.from([10, 0, 0
   let parsed = true;
   for (const s of scripts) { try { new Function(s); } catch (e) { parsed = false; console.log('   parse error:', e.message); } }
   ok('every storefront <script> parses', parsed && scripts.length > 0);
-  ok('one Help action (ffOpenHelp_) — the only thing to change to swap what Help opens', (html.match(/function ffOpenHelp_\(\)/g) || []).length === 1 && /function ffOpenHelp_\(\) \{\s*API\.openWhatsApp\(\);\s*\}/.test(html));
+  ok('one Help action (ffOpenHelp_) — the only thing to change to swap what Help opens', (html.match(/function ffOpenHelp_\(\)/g) || []).length === 1 && /function ffOpenHelp_\(\) \{(\s*\/\/[^\n]*)?(\s*if \(window\.ffOlivia && window\.ffOlivia\.open\(\)\) return;)?\s*API\.openWhatsApp\(\);\s*\}/.test(html)); // Olivia (olivia.test.js) may go first
   ok('one reusable HelpButton, rendered by the header on every screen (no phone/desktop switch)', /function HelpButton\(\)/.test(html) && /onClick: ffOpenHelp_,/.test(html) && /React\.createElement\(HelpButton, null\)\)\);\s*\}/.test(html) && !/showHelpMobile|ff-help-deskonly/.test(html));
   ok('Help is not in the bottom menu any more', !/key: 'help'/.test((html.match(/const navItems = \[[\s\S]*?\}\];/) || [''])[0]));
   ok('header respects the notch; Help is a 44 px tap target pushed to the right', /\.ff-topbar \{[^}]*padding-top: env\(safe-area-inset-top\)/.test(html) && /\.ff-help \{[^}]*min-height: 44px; min-width: 44px; margin-left: auto;/.test(html));

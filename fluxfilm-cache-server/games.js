@@ -1,7 +1,7 @@
 /**
  * FluxFilm - 🎮 Games (shop.fluxfilm.in/games): free daily mini-games that win coins or coupons.
  * Everything the owner controls (on/off, free plays, extra-play price, prizes, difficulty, limits) is in
- * app_settings['games'], edited in admin → 🎮 Games. Tables: game_plays + quiz_questions (db/schema-v21.sql).
+ * app_settings['games'], edited in admin → 🎮 Games. Tables: game_plays + quiz_questions (db/schema-v22.sql).
  *
  * Rules (GAMES-PLAN.md):
  *  - Each game has N free plays a day. Extra plays cost coins, only when "paidPlaysEnabled" is ON (default OFF until

@@ -19,7 +19,7 @@ function mount(app, deps) {
   const audit = deps.audit || { record: () => {} };
   const games = deps.games || require('./games');
   const questions = deps.questions || require('./gamequestions');
-  const needsSchema = (res) => res.status(409).json({ ok: false, needsSchema: true, message: 'Run db/schema-v21.sql in phpMyAdmin first.' });
+  const needsSchema = (res) => res.status(409).json({ ok: false, needsSchema: true, message: 'Run db/schema-v22.sql in phpMyAdmin first.' });
 
   // Flatten { a, games: { spin: { b } } } → { a, 'spin.b' } to list what changed in the change log.
   const flat = (o) => {

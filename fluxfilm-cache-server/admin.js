@@ -140,6 +140,8 @@ function mountAdmin(app, deps) {
   require('./quickorders').mount(app, Object.assign({ db, auth, audit }, deps.quick || {}));
   // Order lookup + stock levels (adminlookup.js).
   require('./adminlookup').mount(app, Object.assign({ db, auth, audit }, deps.lookup || {}));
+  // Stuck orders: fulfil / re-fulfil, deliver manually, refund, erase (adminorderactions.js).
+  require('./adminorderactions').mount(app, Object.assign({ db, auth, audit }, deps.orderActions || {}));
   // Today screen, to-dos, global search, change log viewer (adminhome.js).
   require('./adminhome').mount(app, Object.assign({ db, auth, audit }, deps.home || {}));
   // Password change (F5) + renewal reminders (accounttools.js).
@@ -156,6 +158,8 @@ function mountAdmin(app, deps) {
   require('./adminpayments').mount(app, Object.assign({ db, auth, audit }, deps.payments || {}));
   // Maintenance: pause / resume new orders (adminstore.js).
   require('./adminstore').mount(app, Object.assign({ db, auth, audit }, deps.store || {}));
+  // 🤖 Olivia, the AI store manager: on/off, test phones, voice, recent chats (adminolivia.js).
+  require('./adminolivia').mount(app, Object.assign({ db, auth, audit }, deps.olivia || {}));
   // Offers, banners, pop-ups (adminpromos.js).
   require('./adminpromos').mount(app, Object.assign({ db, auth, audit }, deps.promos || {}));
   // 🍿 What's new feed: posts, pictures, TMDB search / suggestions (adminfeed.js).

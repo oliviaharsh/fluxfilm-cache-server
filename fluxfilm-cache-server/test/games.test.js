@@ -185,11 +185,11 @@ Module._load = (function (orig) { return function (req) { if (req === './db') re
   const other = await games.finish('9111111111', T2, st.playId, { taps: [] });
   ok('someone else can\'t finish your game', !other.ok);
 
-  // before schema-v21
+  // before schema-v22
   DB.schema = false; games._internal.resetCache();
   home = await games.getHome(PH, TOKEN);
   const stat = await games.getStatus();
-  ok('before schema-v21: page says coming soon, shop tile hidden', home.ok && !home.enabled && home.comingSoon && stat.enabled === false);
+  ok('before schema-v22: page says coming soon, shop tile hidden', home.ok && !home.enabled && home.comingSoon && stat.enabled === false);
   DB.schema = true; games._internal.resetCache();
 
   // ---- admin API ----
@@ -234,8 +234,8 @@ Module._load = (function (orig) { return function (req) { if (req === './db') re
   ok('server.js: /games page + storefront actions + limits', /app\.get\(\['\/games', '\/games\/'\]/.test(serverSrc) && /'getGamesStatus', 'getGamesHome', 'gameStart', 'gameStep', 'gameFinish', 'gamesSendCode'/.test(serverSrc) && /gameStart: security\.rateLimiter/.test(serverSrc));
   const idx = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   ok('shop Tools: Games chip only when games are on, opens /games', /"data-tool": "games"/.test(idx) && /getGamesStatus/.test(idx) && /gamesOn && React\.createElement/.test(idx));
-  const sql = fs.readFileSync(path.join(__dirname, '..', 'db', 'schema-v21.sql'), 'utf8');
-  ok('schema-v21: plays (free slot unique) + questions', /CREATE TABLE IF NOT EXISTS game_plays/.test(sql) && /UNIQUE KEY uq_game_free \(phone_norm, game, play_date, free_slot\)/.test(sql) && /CREATE TABLE IF NOT EXISTS quiz_questions/.test(sql));
+  const sql = fs.readFileSync(path.join(__dirname, '..', 'db', 'schema-v22.sql'), 'utf8');
+  ok('schema-v22: plays (free slot unique) + questions', /CREATE TABLE IF NOT EXISTS game_plays/.test(sql) && /UNIQUE KEY uq_game_free \(phone_norm, game, play_date, free_slot\)/.test(sql) && /CREATE TABLE IF NOT EXISTS quiz_questions/.test(sql));
   const q = require('../gamequestions');
   ok('starter pack: 100+ quiz questions with 4 different answers, emoji categories have 4+ titles', q.QUIZ.length >= 100 && q.QUIZ.every((x) => new Set(x.slice(1, 5)).size === 4) && ['bollywood', 'series', 'hollywood', 'anime', 'sports'].every((c) => q.EMOJI.filter((e) => e[2] === c).length >= 4));
 
