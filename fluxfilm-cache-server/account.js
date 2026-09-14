@@ -141,6 +141,7 @@ async function getOrderStatus(orderId) {
     fulfilled: fulfillStatus === 'FULFILLED',
     manual: fulfillStatus === 'MANUAL_PENDING',
     processing: fulfillStatus === 'PROCESSING',
+    refunded: status === 'REFUNDED',
     status, fulfillStatus, found: true,
   };
 }

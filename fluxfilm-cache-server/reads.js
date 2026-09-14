@@ -175,20 +175,27 @@ async function getCustomerOrders(phone, limit) {
   const max = Number(limit) || 15;
   const rows = await db.query(
     `SELECT order_id, created_at_sheet, service, plan, status, fulfillment_status,
-            final_amount, discount, currency
+            final_amount, discount, currency, raw_json
      FROM orders WHERE phone_norm = ?
      ORDER BY created_at_sheet DESC LIMIT ?`, [ph, max]);
-  const orders = rows.map((r) => ({
-    orderId: String(r.order_id || '').trim(),
-    createdAt: isoOrRaw(r.created_at_sheet),
-    service: String(r.service || '').trim(),
-    plan: String(r.plan || '').trim(),
-    status: String(r.status || '').trim(),
-    fulfillmentStatus: String(r.fulfillment_status || '').trim(),
-    amount: asNum(r.final_amount),
-    discount: asNum(r.discount),
-    currency: String(r.currency || 'INR').trim(),
-  }));
+  const orders = rows.map((r) => {
+    const raw = rawOf(r.raw_json);
+    const o = {
+      orderId: String(r.order_id || '').trim(),
+      createdAt: isoOrRaw(r.created_at_sheet),
+      service: String(r.service || '').trim(),
+      plan: String(r.plan || '').trim(),
+      status: String(r.status || '').trim(),
+      fulfillmentStatus: String(r.fulfillment_status || '').trim(),
+      amount: asNum(r.final_amount),
+      discount: asNum(r.discount),
+      currency: String(r.currency || 'INR').trim(),
+    };
+    // Admin order actions: refund details and "delivered again after a failed attempt" for the Orders badges.
+    if (o.status.toUpperCase() === 'REFUNDED') Object.assign(o, { refundAmount: asNum(raw.RefundAmount != null ? raw.RefundAmount : r.final_amount), refundMethod: String(raw.RefundMethod || '').trim(), refundedAt: isoOrRaw(raw.RefundedAt) });
+    if (raw.Refulfilled === true || String(raw.Refulfilled || '').toUpperCase() === 'TRUE') o.redelivered = true;
+    return o;
+  });
   return { ok: true, orders };
 }
 

@@ -308,7 +308,8 @@ async function _markPaid(orderId, txnRef) {
       'SELECT status, coupon_code, phone, phone_norm, email, discount FROM orders WHERE order_id = ? FOR UPDATE', [orderId]);
     const o = rows[0];
     if (!o) throw new Error('Order not found.');
-    if (String(o.status || '').toUpperCase() !== 'PAID') {
+    // A refunded order stays refunded: a late bank credit or a second "mark paid" never turns it back into PAID.
+    if (String(o.status || '').toUpperCase() !== 'PAID' && String(o.status || '').toUpperCase() !== 'REFUNDED') {
       await conn.query('UPDATE orders SET status = ?, txn_ref = ?, verified_at = NOW() WHERE order_id = ?', ['PAID', txnRef || '', orderId]);
       becamePaid = true;
       const code = String(o.coupon_code || '').trim().toUpperCase();
@@ -342,10 +343,14 @@ async function _markPaid(orderId, txnRef) {
   }
 }
 
+// Refunded by the owner: the checkout page stops waiting and says so (no bank credit is taken for it).
+const REFUNDED_VERIFY = { ok: true, found: false, paid: false, refunded: true, fulfillment: 'REFUNDED', message: '💸 This order was refunded. Please contact WhatsApp support if this looks wrong.' };
+
 async function verifyPayment(orderId) {
   const o = await _order(orderId);
   if (!o) return { ok: false, found: false, message: 'Order not found in the FluxFilm database.' };
   if (o.source !== 'node') return { ok: false, found: false, message: 'This legacy order cannot be verified on the new checkout. Please contact support.' };
+  if (String(o.status || '').toUpperCase() === 'REFUNDED') return REFUNDED_VERIFY;
   if (String(o.status || '').toUpperCase() === 'PAID') return { ok: true, found: true, paid: true, message: '✅ Payment confirmed.' };
   const credit = await pay.findByOrder(orderId, o.final_amount);
   if (credit) { await _markPaid(orderId, credit.upi_ref); return { ok: true, found: true, paid: true }; }
@@ -361,6 +366,7 @@ async function verifyPaymentByRef(orderId, ref) {
   const o = await _order(orderId);
   if (!o) return { ok: false, found: false, message: 'Order not found in the FluxFilm database.' };
   if (o.source !== 'node') return { ok: false, found: false, message: 'This legacy order cannot be verified on the new checkout. Please contact support.' };
+  if (String(o.status || '').toUpperCase() === 'REFUNDED') return REFUNDED_VERIFY;
   if (String(o.status || '').toUpperCase() === 'PAID') return { ok: true, found: true, paid: true, message: '✅ Payment confirmed.' };
   const credit = await pay.findByRef(orderId, ref, o.final_amount);
   if (credit) { await _markPaid(orderId, credit.upi_ref); return { ok: true, found: true, paid: true }; }
@@ -466,6 +472,7 @@ async function adminMarkPaid(orderId, txnRef) {
   const o = await _order(orderId);
   if (!o) return { ok: false, message: 'Order not found.' };
   if (o.source !== 'node') return { ok: false, message: 'Legacy (Sheet) orders cannot be marked paid here.' };
+  if (String(o.status || '').toUpperCase() === 'REFUNDED') return { ok: false, message: 'This order was refunded — it cannot be marked paid again. Create a new order instead.' };
   await _markPaid(orderId, txnRef);
   return { ok: true };
 }

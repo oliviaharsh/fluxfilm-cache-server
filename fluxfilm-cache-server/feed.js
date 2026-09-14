@@ -167,12 +167,12 @@ async function image(id) {
   return m ? { type: m[1], buf: Buffer.from(m[2], 'base64') } : null;
 }
 
-// TMDB posters are served through the shop (/tmdb-img/t/p/<size>/<file>): customers on Indian networks that block
+// Posters are served through the shop (/poster/<size>/<file>; old /tmdb-img/t/p/… links still work): customers on Indian networks that block
 // image.tmdb.org still see them. Only real TMDB poster files and sizes are allowed (not an open proxy).
 const POSTER_SIZES = ['w185', 'w342', 'w500', 'w780'];
 function posterPath(url) {
   const m = s(url).match(/^https:\/\/image\.tmdb\.org\/t\/p\/(w\d+)\/([A-Za-z0-9_-]+\.(?:jpg|jpeg|png|webp))$/);
-  return m ? '/tmdb-img/t/p/' + m[1] + '/' + m[2] : s(url);
+  return m ? '/poster/' + m[1] + '/' + m[2] : s(url);
 }
 const posterCache = new Map(); // key → { type, buf } ; newest last, max 120 files
 async function posterImage(size, file) {
@@ -208,11 +208,10 @@ async function publicList(now) {
   const live = sortPosts(items.filter((p) => statusOf(p, now) === 'LIVE')).slice(0, 60);
   const out = {
     ok: true,
-    tmdb: live.some((p) => p.source === 'tmdb'),
     posts: live.map((p) => ({
       id: p.id, type: p.type, title: p.title, service: p.service, caption: p.caption, releaseDate: p.releaseDate,
       languages: p.languages || [], genres: p.genres || [], trailerUrl: p.trailerUrl, cta: p.cta, pinned: !!p.pinned,
-      date: sortDate(p), likes: (st[p.id] || {}).likes || 0, tmdb: p.source === 'tmdb',
+      date: sortDate(p), likes: (st[p.id] || {}).likes || 0,
       image: p.hasImage ? '/feed-img/' + p.id + '?v=' + encodeURIComponent(p.updatedAt || '') : posterPath(p.imageUrl),
     })),
   };

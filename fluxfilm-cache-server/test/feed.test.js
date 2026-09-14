@@ -87,7 +87,7 @@ feed._internal.setFetch(fakeFetch);
   feed._internal.reset();
   let pub = await feed.publicList();
   ok('customers get LIVE posts only: pinned first, then newest', pub.posts.map((p) => p.title).join('|') === 'Old Pinned|Newest Show|Middle', pub.posts.map((p) => p.title));
-  ok('no admin fields in the public list', pub.posts.every((p) => !('active' in p) && !('publishAt' in p) && !('hideAfter' in p) && !('tmdbKey' in p) && !('edited' in p)) && pub.tmdb === false);
+  ok('no admin fields in the public list', pub.posts.every((p) => !('active' in p) && !('publishAt' in p) && !('hideAfter' in p) && !('tmdbKey' in p) && !('edited' in p) && !('tmdb' in p)) && !('tmdb' in pub));
   ok('scheduled post goes live by itself', (await feed.publicList(new Date(now + 2 * 3600e3))).posts.some((p) => p.title === 'Later'));
   ok('unknown id cannot be "updated" into a new post', !(await feed.save({ id: 'fpdeadbeef00', title: 'x', service: 'N' })).ok);
   writes = 0;
@@ -197,7 +197,7 @@ feed._internal.setFetch(fakeFetch);
   const glass = (await feed.list()).find((p) => p.title === 'Glass River');
   ok('auto-publish OFF: new imports wait as drafts (OFF)', r.result.drafts === 1 && r.result.published === 0 && glass && glass.active === false && feed.statusOf(glass) === 'OFF');
   feed._internal.reset();
-  ok('drafts are not shown to customers; TMDB attribution flag when TMDB posts are live', !(await feed.publicList()).posts.some((p) => p.title === 'Glass River') && (await feed.publicList()).tmdb === true);
+  ok('drafts are not shown to customers; public feed does not reveal the data source', !(await feed.publicList()).posts.some((p) => p.title === 'Glass River') && !/tmdb/i.test(JSON.stringify(await feed.publicList())));
 
   // TMDB down → fail soft
   tmdbDown = true;
@@ -212,13 +212,13 @@ feed._internal.setFetch(fakeFetch);
   ok('api.themoviedb.org blocked → same call succeeds through api.tmdb.org', sr.ok && sr.results.length === 2 && calls.some((c) => c.url.hostname === 'api.tmdb.org' && c.url.pathname === '/3/search/multi'), sr);
   blockMainHost = false;
   // Posters through the shop.
-  ok('poster links become /tmdb-img/… (image.tmdb.org is blocked for many customers)', feed.posterPath('https://image.tmdb.org/t/p/w780/p101.jpg') === '/tmdb-img/t/p/w780/p101.jpg' && feed.posterPath('https://i.ytimg.com/vi/x/hq.jpg') === 'https://i.ytimg.com/vi/x/hq.jpg' && feed.posterPath('https://image.tmdb.org/t/p/w780/../x.jpg') === 'https://image.tmdb.org/t/p/w780/../x.jpg');
-  ok('customers get /tmdb-img posters in the feed', (await feed.publicList()).posts.filter((p) => p.tmdb).every((p) => /^\/tmdb-img\/t\/p\/w780\//.test(p.image)));
+  ok('poster links become neutral /poster/… (source host blocked for many customers, and not revealed)', feed.posterPath('https://image.tmdb.org/t/p/w780/p101.jpg') === '/poster/w780/p101.jpg' && feed.posterPath('https://i.ytimg.com/vi/x/hq.jpg') === 'https://i.ytimg.com/vi/x/hq.jpg' && feed.posterPath('https://image.tmdb.org/t/p/w780/../x.jpg') === 'https://image.tmdb.org/t/p/w780/../x.jpg');
+  ok('customers get /poster/ images in the feed', (await feed.publicList()).posts.filter((p) => /poster/.test(p.image)).length > 0 && (await feed.publicList()).posts.every((p) => !/tmdb/i.test(p.image)));
   ok('poster proxy is not an open proxy: odd sizes / paths refused', (await feed.posterImage('w9999', 'abcde.jpg')) === null && (await feed.posterImage('w342', '../server.js')) === null && (await feed.posterImage('w342', 'abcde.exe')) === null);
   const net = require('../tmdbnet')._internal;
   ok('block-page DNS answers (0.0.0.0, 127.x, private) are treated as blocked', net.bogus('0.0.0.0') && net.bogus('127.0.0.1') && net.bogus('10.1.2.3') && net.bogus('172.20.0.1') && !net.bogus('13.227.1.2') && !net.bogus('172.32.0.1'));
   const srvSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
-  ok('/tmdb-img route mounted before the storefront catch-all', srvSrc.indexOf("app.get('/tmdb-img/t/p/:size/:file'") > 0 && srvSrc.indexOf("app.get('/tmdb-img/t/p/:size/:file'") < srvSrc.indexOf("app.get('*'"));
+  ok('/poster route (old /tmdb-img links still work) mounted before the storefront catch-all', srvSrc.indexOf("app.get(['/poster/:size/:file', '/tmdb-img/t/p/:size/:file']") > 0 && srvSrc.indexOf("app.get(['/poster/:size/:file', '/tmdb-img/t/p/:size/:file']") < srvSrc.indexOf("app.get('*'"));
   let threw = false; try { await feed.runImport({ force: true }); } catch (e) { threw = true; }
   ok('next run clears the error', !threw && job().lastError === '');
 
@@ -274,7 +274,7 @@ feed._internal.setFetch(fakeFetch);
   ok('menu: 🍿 New entry opens the feed; bottom menu shows on the feed', /key: 'feed',\s*icon: '🍿',\s*label: 'New'/.test(navBlock) && /nav\('feed', \{\}\)/.test(navBlock) && /feed: 1,/.test(html) && /feed: \["What's new"/.test(html));
   ok('feed screen rendered for guests and customers (not blocked by maintenance); strip on Home and My plans', /screen === 'feed' && React\.createElement\(FeedScreen, \{/.test(html) && /screen === 'home' && React\.createElement\(FeedStrip,/.test(html) && /screen === 'dashboard' && React\.createElement\(FeedStrip,/.test(html) && !/storeBlocked && screen === 'feed'/.test(html));
   ok('post: lazy image in a fixed 4:5 box, like / share / trailer, caption "more", tags, CTA → plans or renew', /loading: "lazy",\s*decoding: "async"/.test(html) && /\.ff-feed-media \{[^}]*aspect-ratio: 4 \/ 5/.test(html) && /"aria-pressed": liked/.test(html) && /navigator\.share/.test(html) && /openExternal_\(p\.trailerUrl\)/.test(html) && /open \? 'less' : 'more'/.test(html) && /nav\('buy2', \{\s*service: info\.service\s*\}\)/.test(html) && /nav\('renewStart', \{\s*sub: renewSub\s*\}\)/.test(html));
-  ok('filter chips only for platforms that have posts; skeletons while loading; TMDB attribution', /const platforms = \[\.\.\.new Set\(posts\.map\(p => p\.service\)\.filter\(Boolean\)\)\];/.test(html) && /function FeedSkeleton\(/.test(html) && /This product uses the TMDB API but is not endorsed or certified by TMDB\./.test(html));
+  ok('filter chips only for platforms that have posts; skeletons while loading; TMDB attribution', /const platforms = \[\.\.\.new Set\(posts\.map\(p => p\.service\)\.filter\(Boolean\)\)\];/.test(html) && /function FeedSkeleton\(/.test(html) && !/not endorsed or certified by TMDB/.test(html));
   ok('shared link opens the post after login restore; link removed from the address bar', /const feedLink = useRef\(feedPostFromUrl_\(window\.location\.search\)\);/.test(html) && /nav\('feed', \{\s*postId: id\s*\}\)/.test(html) && /searchParams\.delete\('post'\)/.test(html));
   ok('API: getFeed + feedEvent', /apiCall_\('getFeed', \[\]/.test(html) && /apiCall_\('feedEvent', \[id, kind, device\]/.test(html));
   ok('feed animations are transform/opacity only and stop for reduced motion', /@keyframes ffFeedBurst \{[^@]*\} \}/.test(html) && !/@keyframes ffFeedBurst \{[^@]*(width|height|top|left)\s*:/.test(html.match(/@keyframes ffFeedBurst \{[^\n]*/)[0]) && /prefers-reduced-motion: reduce\) \{ \.ff-feed-burst, \.ff-feed-skel \.ff-feed-media \{ animation: none; \} \}/.test(html));

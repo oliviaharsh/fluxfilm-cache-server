@@ -236,6 +236,19 @@ table.sheet{border-collapse:separate;border-spacing:0;table-layout:fixed;font-si
 .rf-f .inp{padding:8px 10px;font-size:.9rem;font-weight:600;color:var(--ink);width:100%}
 .rf-tog{display:flex;align-items:center;gap:10px;font-size:.84rem;font-weight:600;cursor:pointer;margin-bottom:10px}
 .rf-tog input{width:20px;height:20px;accent-color:#16a34a}
+.gm-game{border:1px solid var(--line);border-radius:14px;background:#fff;margin-bottom:10px}
+.gm-game>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:12px 14px;font-weight:700}
+.gm-game>summary::-webkit-details-marker{display:none}
+.gm-game>summary .muted{font-weight:500;font-size:.76rem;margin-left:auto;text-align:right}
+.gm-game[open]>summary{border-bottom:1px solid var(--line)}
+.gm-in{padding:12px 14px}
+.gm-help{font-size:.68rem;font-weight:500;color:var(--mut);line-height:1.35}
+.gm-warn{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:12px;padding:10px 12px;font-size:.78rem;margin:4px 0 10px}
+.gm-slices{width:100%;border-collapse:collapse;font-size:.8rem}.gm-slices th{text-align:left;color:var(--mut);font-weight:600;padding:4px}.gm-slices td{padding:4px}
+.gm-slices .inp{width:100%;min-width:56px;padding:7px 8px}
+.gm-q{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.gm-q .grow{min-width:0}.gm-q .ok{color:#15803d;font-weight:700}
+.gm-emoji{font-size:1.5rem;line-height:1.2}
 .rf-ex{width:100%;border-collapse:collapse;font-size:.8rem}.rf-ex th,.rf-ex td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right}.rf-ex th:first-child,.rf-ex td:first-child{text-align:left}.rf-ex th{color:var(--mut);font-weight:600;font-size:.72rem}
 .rf-save{position:sticky;bottom:0;background:linear-gradient(rgba(243,245,249,0),var(--bg) 35%);padding:14px 0 8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;z-index:31}
 .pausebar{display:block;width:100%;border:0;text-align:left;cursor:pointer;background:#fef2f2;color:#991b1b;padding:10px 18px;font:inherit;font-size:.85rem;border-bottom:1px solid #fecaca}
@@ -335,6 +348,13 @@ table.sheet{border-collapse:separate;border-spacing:0;table-layout:fixed;font-si
 .pmqr{border:1px dashed var(--line);border-radius:12px;text-align:center;background:#fafafa}.pmqr img{max-width:220px;width:100%;display:block;margin:8px auto;border-radius:10px}
 .qnote{margin-top:10px;padding:9px 12px;border-radius:10px;background:#f1f5f9;font-size:.8rem;color:var(--ink2)}
 .qnote.warn{background:#fef3c7;color:#92400e}.qnote.bad{background:#fee2e2;color:#991b1b}
+/* Stuck-order actions (order modal): big phone-friendly buttons, danger zone at the bottom */
+.oact{margin-top:16px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fafbfd}.oact h4{margin:0 0 4px}
+.oabtns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.oabtns .btn{flex:1 1 150px;justify-content:center;padding:12px 14px}
+.oaform{margin-top:10px;display:grid;gap:8px}.oaform label{font-size:.78rem;font-weight:600;color:var(--ink2);display:grid;gap:4px}.oaform .inp{width:100%}
+.oaform .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}@media(max-width:560px){.oaform .row2{grid-template-columns:1fr}}
+.oadanger{margin-top:14px;padding-top:10px;border-top:1px dashed #fca5a5;font-size:.78rem}
+.tstuck{display:block;margin-top:4px;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.7);font-size:.75rem;text-align:left;cursor:pointer}.tstuck:hover{background:#fff}
 .qsubs{display:flex;flex-direction:column;gap:8px}
 .qsub{display:flex;align-items:center;gap:10px;border:2px solid var(--line);background:#fff;border-radius:12px;padding:10px 12px;cursor:pointer;font-size:.88rem}
 .qsub small{display:block;color:var(--mut);font-size:.72rem}.qsub.on{border-color:var(--brand);background:var(--brandbg)}
@@ -517,7 +537,7 @@ function istDate(v) { if (!v) return null; var s = String(v); var d = /Z$|[+-]\d
 var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function prettyDate(v, withTime) { var m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/); if (!m) return v ? esc(v) : '—'; return +m[3] + ' ' + MON[+m[2] - 1] + ' ' + m[1] + (withTime && m[4] ? ', ' + m[4] + ':' + m[5] : ''); }
 function daysLeft(v) { var d = istDate(v); return d ? Math.ceil((d.getTime() - Date.now()) / 86400000) : null; }
-function statusPill(v) { if (v == null || v === '') return ''; var u = String(v).toUpperCase(); var c = /ACTIVE|PAID|FULFILLED|SUCCESS|TRUE|DONE/.test(u) ? 'p-ok' : /PENDING|CREATED|WAIT|MANUAL/.test(u) ? 'p-warn' : /FAIL|CANCEL|EXPIRED|FALSE|ERROR|BLOCK/.test(u) ? 'p-bad' : 'p-grey'; return '<span class="pill ' + c + '">' + esc(v) + '</span>'; }
+function statusPill(v) { if (v == null || v === '') return ''; var u = String(v).toUpperCase(); var c = /REFUND/.test(u) ? 'p-blue' : /ACTIVE|PAID|FULFILLED|SUCCESS|TRUE|DONE/.test(u) ? 'p-ok' : /PENDING|CREATED|WAIT|MANUAL/.test(u) ? 'p-warn' : /FAIL|CANCEL|EXPIRED|FALSE|ERROR|BLOCK/.test(u) ? 'p-bad' : 'p-grey'; return '<span class="pill ' + c + '">' + esc(v) + '</span>'; }
 function svcIcon(s) { var k = String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); for (var n in ICONS) if (k.indexOf(n) > -1) return ICONS[n]; return '🎞️'; }
 function waLink(phone, text) { var p = String(phone || '').replace(/\D/g, ''); if (p.length === 10) p = '91' + p; return 'https://wa.me/' + p + '?text=' + encodeURIComponent(text); }
 
@@ -533,7 +553,7 @@ function logout() { post('/admin/api/logout', {}).then(function () { loginView('
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
   ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
-  ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'],
+  ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
   ['DATA'], ['golive', '🚚', 'Go-live import'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
 function shell() {
@@ -577,7 +597,7 @@ function nav(v) {
   route();
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, payments: paymentsView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -805,9 +825,12 @@ function renderCustomer() {
       : '<div class="card muted">No subscriptions here.</div>') +
     '<div class="subhead"><h3>🧾 Orders (' + orders.length + ')</h3></div><div class="card list" style="padding:6px 16px">' +
     (orders.length ? orders.map(function (o) {
-      return '<div class="li"><span style="font-size:1.1rem">' + svcIcon(o.service) + '</span><div class="grow"><b>' + esc(o.service || '—') + '</b> <span class="muted">· ' + esc(o.plan || '') + '</span><div class="muted" style="font-size:.72rem">' + esc(o.order_id) + ' · ' + prettyDate(o.created_at_sheet, true) + '</div></div>' +
-        '<b>' + money(o.final_amount) + '</b>' + statusPill(o.status) + (o.fulfillment_status ? statusPill(o.fulfillment_status) : '') + '</div>';
+      // Paid but not delivered → a Fix button; every order row opens the order (with its actions).
+      var stuck = /^PAID$/i.test(o.status || '') && !/FULFILLED|MANUAL_PENDING/i.test(o.fulfillment_status || '');
+      return '<div class="li orow" data-oid="' + esc(o.order_id) + '" style="cursor:pointer"><span style="font-size:1.1rem">' + svcIcon(o.service) + '</span><div class="grow"><b>' + esc(o.service || '—') + '</b> <span class="muted">· ' + esc(o.plan || '') + '</span><div class="muted" style="font-size:.72rem">' + esc(o.order_id) + ' · ' + prettyDate(o.created_at_sheet, true) + '</div></div>' +
+        '<b>' + money(o.final_amount) + '</b>' + statusPill(o.status) + (o.fulfillment_status ? statusPill(o.fulfillment_status) : '') + (stuck ? ' <button class="btn red sm" data-oid="' + esc(o.order_id) + '">⚡ Fix</button>' : '') + '</div>';
     }).join('') : '<p class="muted">No orders</p>') + '</div>';
+  var olist = $$('#c360 .orow'); olist.forEach(function (row) { row.onclick = function () { openOrder(row.getAttribute('data-oid')); }; });
 }
 function subCard(s) {
   var d = daysLeft(s.expiry_date), st = istDate(s.start_date), ex = istDate(s.expiry_date);
@@ -1589,7 +1612,7 @@ function loadOrders() {
     }).join('') + (r.orders.length >= 60 ? '<p class="muted" style="font-size:.75rem">Showing the newest 60 — search to narrow down.</p>' : '') : '<p class="muted">No orders' + (q ? ' matching “' + esc(q) + '”' : '') + '.</p>';
   });
 }
-function openOrder(id) {
+function openOrder(id, flash) {
   modal('Order ' + esc(id), '<p class="muted">Loading…</p>', '', '');
   api('/admin/api/orders/detail', { id: id }).then(function (r) {
     if (!$('#modal')) return;
@@ -1599,14 +1622,17 @@ function openOrder(id) {
     var kv = function (k, v) { return v == null || v === '' ? '' : '<div class="okv"><span>' + k + '</span><b>' + v + '</b></div>'; };
     var paid = String(o.status).toUpperCase() === 'PAID';
     var delivered = /FULFILLED|MANUAL_PENDING/i.test(o.fulfillment_status || '');
-    var steps = '<div class="osteps"><span class="' + 'on">🧾 Created<small>' + prettyDate(o.created_at_sheet, true) + '</small></span><span class="' + (paid ? 'on' : '') + '">💳 Paid<small>' + (paid ? prettyDate(o.verified_at, true) || '✓' : 'not yet') + '</small></span><span class="' + (delivered ? 'on' : paid ? 'bad' : '') + '">📦 Delivered<small>' + (delivered ? (/MANUAL/i.test(o.fulfillment_status) ? 'manual' : prettyDate(o.fulfilled_at, true) || '✓') : paid ? 'not yet ⚠️' : '—') + '</small></span></div>';
+    var refundedOrder = String(o.status).toUpperCase() === 'REFUNDED';
+    var steps = '<div class="osteps"><span class="' + 'on">🧾 Created<small>' + prettyDate(o.created_at_sheet, true) + '</small></span><span class="' + (paid || refundedOrder ? 'on' : '') + '">💳 Paid<small>' + (paid || refundedOrder ? prettyDate(o.verified_at, true) || '✓' : 'not yet') + '</small></span>' +
+      (refundedOrder ? '<span class="on">💸 Refunded<small>not delivered</small></span></div>' :
+      '<span class="' + (delivered ? 'on' : paid ? 'bad' : '') + '">📦 Delivered<small>' + (delivered ? (/MANUAL/i.test(o.fulfillment_status) ? 'manual' : prettyDate(o.fulfilled_at, true) || '✓') : paid ? 'not yet ⚠️' : '—') + '</small></span></div>');
     var subs = (r.subs || []).map(function (s) {
       var cred = function (label, v) { return v ? '<div class="cr"><span>' + label + '</span><code>' + esc(v) + '</code><button class="copy" data-copy="' + esc(v) + '">Copy</button></div>' : ''; };
       return '<div class="card" style="padding:12px;margin-top:10px"><div class="row" style="justify-content:space-between"><b>' + svcIcon(s.service) + ' ' + esc(s.service) + ' · ' + esc(s.plan) + '</b>' + statusPill(s.status) + '</div>' +
         '<div class="muted" style="font-size:.75rem;margin:4px 0 8px">' + esc(s.sub_id) + ' · ' + esc(s.inventory_ref || 'no account') + ' · ends ' + prettyDate(s.expiry_date, true) + (s.device_type ? ' · ' + esc(s.device_type) : '') + (Number(s.group_size) > 1 ? ' · <b>Device ' + esc(s.group_index) + ' of ' + esc(s.group_size) + '</b>' : Number(s.device_count) > 1 ? ' · same login on ' + esc(s.device_count) + ' devices' : '') + '</div>' +
         '<div class="creds">' + cred('Login', s.login_id) + cred('Password', s.password) + cred('Profile', [s.profile_name, s.profile_number ? '#' + s.profile_number : ''].filter(Boolean).join(' ')) + cred('PIN', s.profile_pin) + '</div></div>';
     }).join('');
-    var body = steps +
+    var body = (flash || '') + steps +
       '<div class="okvs">' + kv('Customer', esc(o.name || '') + (r.customer && r.customer.customer_id ? ' · ' + esc(r.customer.customer_id) : '')) + kv('Phone', esc(o.phone_norm || o.phone)) + kv('Email', esc(o.email || '')) +
       kv('Service', esc(o.service) + ' · ' + esc(o.plan)) + kv('Type', esc(o.order_type || 'NEW') + (o.renew_sub_id ? ' of ' + esc(o.renew_sub_id) : '')) +
       kv('Amount', money(o.final_amount) + (asNumber(o.discount) > 0 ? ' <span class="muted">(list ' + money(o.price) + ', −' + money(o.discount) + (o.coupon_code ? ' ' + esc(o.coupon_code) : '') + ')</span>' : '')) +
@@ -1614,11 +1640,12 @@ function openOrder(id) {
       kv('Bank credit', (r.bankCredits || []).map(function (b) { return money(b.amount) + ' · ' + esc(b.upi_ref) + ' · ' + prettyDate(b.received_at, true); }).join('<br>')) +
       kv('Coupon', (r.couponUsage || []).map(function (c) { return esc(c.coupon_code) + ' −' + money(c.discount) + ' (' + esc(c.action) + ')'; }).join(', ')) +
       kv('Devices', o.device_count ? esc(o.device_count) + (o.tv_count != null ? ' (' + esc(o.tv_count) + ' TV)' : '') + (m.loginMode ? ' · asked for ' + (m.loginMode === 'separate' ? 'separate logins' : 'the same login') : '') : '') + kv('Note', esc(m.adminNote || o.notes || '')) + '</div>' +
-      (subs ? '<h4 style="margin:14px 0 0">Subscription' + ((r.subs || []).length > 1 ? 's (' + r.subs.length + ' logins)' : '') + '</h4>' + subs : (paid ? '<div class="qnote bad" style="margin-top:12px">No subscription was created for this paid order.</div>' : ''));
+      (subs ? '<h4 style="margin:14px 0 0">Subscription' + ((r.subs || []).length > 1 ? 's (' + r.subs.length + ' logins)' : '') + '</h4>' + subs : (paid ? '<div class="qnote bad" style="margin-top:12px">No subscription was created for this paid order.</div>' : '')) +
+      // Fulfil / Re-fulfil, Deliver manually, Refund, Erase — whichever fit this order (adminorderactions.js).
+      '<div id="od_actions"></div>';
     var foot = '';
-    if (!paid && o.source === 'node') foot += '<button class="btn green" id="od_paid">✅ Mark paid</button>';
-    if (paid && !delivered && o.source === 'node') foot += '<button class="btn" id="od_retry">🔁 Try delivering again</button>';
-    foot += '<button class="btn ghost" id="od_c360">👤 Customer 360</button><a class="btn wa" target="_blank" href="' + waLink(o.phone_norm || o.phone, 'Hi ' + (o.name || '') + ', about your FluxFilm order ' + o.order_id + ': ') + '">💬 WhatsApp</a><span id="od_msg" class="muted"></span>';
+    if (!paid && o.source === 'node' && String(o.status).toUpperCase() !== 'REFUNDED') foot += '<button class="btn green" id="od_paid">✅ Mark paid</button>';
+    foot +='<button class="btn ghost" id="od_c360">👤 Customer 360</button><a class="btn wa" target="_blank" href="' + waLink(o.phone_norm || o.phone, 'Hi ' + (o.name || '') + ', about your FluxFilm order ' + o.order_id + ': ') + '">💬 WhatsApp</a><span id="od_msg" class="muted"></span>';
     $('#modal .mbody').innerHTML = body;
     $('#modal .mft').innerHTML = foot;
     $('#od_c360').onclick = function () { closeModal(); store('ff_last_phone', o.phone_norm); nav('customer'); };
@@ -1628,13 +1655,126 @@ function openOrder(id) {
       mp.disabled = true; $('#od_msg').textContent = 'Working…';
       post('/admin/api/quick/mark-paid', { orderId: o.order_id, payMethod: method, txnRef: ref }).then(function (x) { $('#od_msg').textContent = x.ok ? '✅ ' + ((x.fulfillment && x.fulfillment.message) || 'Paid') : '⚠️ ' + (x.message || 'failed'); if (x.ok) { openOrder(o.order_id); loadOrders(); } else mp.disabled = false; });
     };
-    var rt = $('#od_retry'); if (rt) rt.onclick = function () {
-      rt.disabled = true; $('#od_msg').textContent = 'Working…';
-      post('/admin/api/orders/retry-fulfil', { orderId: o.order_id }).then(function (x) { var f = x.fulfillment || {}; $('#od_msg').textContent = x.ok ? (f.message || f.fulfillment || 'done') : '⚠️ ' + (x.message || 'failed'); if (x.ok && /FULFILLED|MANUAL/.test(f.fulfillment || '')) { openOrder(o.order_id); loadOrders(); } else rt.disabled = false; });
-    };
+    loadOrderActions(o.order_id);
   });
 }
 function asNumber(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+
+/* ================= stuck orders: fulfil / re-fulfil · deliver manually · refund · erase ================= */
+// Shown inside the order modal, which the Orders list, the Today "Paid but not delivered" card and Customer 360 all open.
+function loadOrderActions(id) {
+  var box = $('#od_actions'); if (!box) return;
+  box.innerHTML = '<p class="muted" style="font-size:.8rem;margin-top:12px">Loading actions…</p>';
+  api('/admin/api/order/actions', { id: id }).then(function (r) {
+    box = $('#od_actions'); if (!box) return;
+    if (!r.ok) { box.innerHTML = '<div class="qnote bad">' + esc(r.message || 'Could not load actions') + '</div>'; return; }
+    box.innerHTML = orderActionsHtml(r);
+    wireOrderActions(r);
+  });
+}
+function oaStockText(st) { if (!st) return ''; if (st.source === 'manual' && st.stock == null) return 'manual plan (no stock count)'; return st.stock == null ? String(st.stockLevel || '') : st.stock + ' free right now'; }
+function orderActionsHtml(r) {
+  var a = r.actions, h = '<div class="oact"><h4>⚡ Actions</h4>';
+  if (a.refunded && r.refund) h += '<div class="qnote">💸 <b>Refunded ' + money(r.refund.amount) + '</b> by ' + esc(r.refund.method || '—') + (r.refund.coins ? ' (' + esc(r.refund.coins) + ' coins)' : '') + (r.refund.reference ? ' · ref ' + esc(r.refund.reference) : '') + ' · ' + prettyDate(r.refund.at, true) + (r.refund.note ? '<br>' + esc(r.refund.note) : '') + '</div>';
+  if (r.refulfilled) h += '<div class="qnote">🔁 Delivered again after a failed attempt · ' + prettyDate(r.refulfilledAt, true) + (r.manualDelivered ? ' (by hand)' : '') + '</div>';
+  var any = a.fulfil.allowed || a.manual.allowed || a.refund.allowed || a.erase.allowed;
+  if (!any) return h + '<div class="muted" style="font-size:.85rem">' + (a.refunded ? 'Nothing else to do for a refunded order.' : a.delivered ? '✅ Delivered — nothing to fix.' : esc(a.refund.reason || a.fulfil.reason || '')) + '</div></div>';
+  if (r.lastError && !a.delivered && a.status === 'PAID') h += '<div class="qnote bad">⚠️ Last delivery error: ' + esc(r.lastError) + (r.lastErrorAt ? ' <span class="muted">(' + prettyDate(r.lastErrorAt, true) + ')</span>' : '') + '</div>';
+  if (r.stock && a.status === 'PAID') h += '<div class="qnote ' + (r.stock.stockLevel === 'OUT' ? 'bad' : r.stock.stockLevel === 'LOW' ? 'warn' : '') + '">📦 Stock for ' + esc(r.service) + ' · ' + esc(r.plan) + ': <b>' + esc(oaStockText(r.stock)) + '</b>' + (r.stock.stockLevel === 'OUT' ? ' — add an account in 📦 Stock first, or deliver manually / refund.' : '') + '</div>';
+  h += '<div class="oabtns">';
+  if (a.fulfil.allowed) h += '<button class="btn" data-oa="fulfil">' + esc(a.fulfil.label) + '</button>';
+  if (a.manual.allowed) h += '<button class="btn dark" data-oa="manual">✍️ Deliver manually</button>';
+  if (a.refund.allowed) h += '<button class="btn purple" data-oa="refund">💸 Refund</button>';
+  h += '</div>';
+  if (!a.fulfil.allowed && a.status === 'PAID' && !a.delivered && a.fulfil.reason) h += '<div class="muted" style="font-size:.75rem;margin-top:6px">' + esc(a.fulfil.label) + ' not available: ' + esc(a.fulfil.reason) + '</div>';
+  h += '<div id="oa_form"></div><div id="oa_msg"></div>';
+  if (a.erase.allowed) h += '<div class="oadanger"><button class="btn red sm" data-oa="erase">🗑 Erase from system</button> <span class="muted">Only if it was marked paid by mistake. A backup copy is kept.</span></div>';
+  return h + '</div>';
+}
+function oaMsg(html) { var m = $('#oa_msg'); if (m) m.innerHTML = html; }
+function oaNotes(x) { return (x.notes || []).map(function (n) { return '<div class="qnote">ℹ️ ' + esc(n) + '</div>'; }).join(''); }
+// After a change: reopen the order (fresh state) and refresh whatever list is behind the modal.
+function oaAfter(id, flash, erased) {
+  if (erased) { closeModal(); toast('🗑 Order erased'); } else openOrder(id, flash);
+  if ($('#olist') && typeof loadOrders === 'function') loadOrders();
+  if ($('#titems') && typeof loadToday === 'function') loadToday();
+  if ($('#c360') && S.cust && $('#cp')) lookup(true);
+}
+function wireOrderActions(r) {
+  var id = r.orderId, a = r.actions, box = $('#od_actions');
+  box.onclick = function (e) {
+    var b = e.target.closest('[data-oa]'); if (!b) return;
+    var act = b.getAttribute('data-oa'), form = $('#oa_form'); oaMsg('');
+    if (act === 'fulfil') {
+      if (!confirm(a.fulfil.label.replace(/^\S+\s/, '') + ' ' + id + ' now? It picks a free account exactly like a website order and emails the customer.')) return;
+      b.disabled = true; oaMsg('<div class="qnote">Working…</div>');
+      post('/admin/api/order/fulfil', { orderId: id }).then(function (x) {
+        b.disabled = false;
+        if (!x.ok) { oaMsg('<div class="qnote bad">⚠️ ' + esc(x.message || 'failed') + '</div>'); return; }
+        if (x.already || x.delivered) { toast(x.refulfilled ? '🔁 Re-fulfilled' : '✅ Delivered'); oaAfter(id, '<div class="qnote" style="margin-bottom:10px">' + esc(x.message || '✅ Delivered') + '</div>'); return; }
+        oaMsg('<div class="qnote bad">😔 Still not delivered: ' + esc(x.message || x.fulfillment || '') + (x.stock ? '<br>📦 ' + esc(oaStockText(x.stock)) : '') + '<br>Add stock, or use Deliver manually / Refund.</div>');
+      });
+    }
+    if (act === 'manual') {
+      form.innerHTML = '<div class="oaform" data-nodirty><b>✍️ Deliver manually</b><span class="muted" style="font-size:.75rem">Type the login you set up for this customer. It is saved as their subscription (' + esc(r.service) + ' · ' + esc(r.plan) + ', starting today) and emailed to them.</span>' +
+        '<div class="row2"><label>Login (email / phone) *<input class="inp" id="oa_login" autocomplete="off"/></label><label>Password<input class="inp" id="oa_pass" autocomplete="off"/></label></div>' +
+        '<div class="row2"><label>Profile name<input class="inp" id="oa_prof" autocomplete="off"/></label><label>Profile PIN<input class="inp" id="oa_pin" autocomplete="off" inputmode="numeric"/></label></div>' +
+        '<label>Account ID (optional — counts the slot as used, e.g. NFLX-D4#P2)<input class="inp" id="oa_ref" autocomplete="off"/></label>' +
+        '<label>Note (optional)<input class="inp" id="oa_note" autocomplete="off"/></label>' +
+        '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="oa_notify" checked/> Email + notify the customer</label>' +
+        '<button class="btn green" id="oa_go">✅ Save and deliver</button></div>';
+      $('#oa_go').onclick = function () {
+        var body = { orderId: id, login: $('#oa_login').value, password: $('#oa_pass').value, profile: $('#oa_prof').value, pin: $('#oa_pin').value, accountRef: $('#oa_ref').value, note: $('#oa_note').value, notify: $('#oa_notify').checked };
+        if (!body.login.trim()) { $('#oa_login').focus(); oaMsg('<div class="qnote bad">Type the login first.</div>'); return; }
+        this.disabled = true; var go = this;
+        post('/admin/api/order/manual-deliver', body).then(function (x) {
+          go.disabled = false;
+          if (!x.ok) { oaMsg('<div class="qnote bad">⚠️ ' + esc(x.message || 'failed') + '</div>'); return; }
+          var m = $('#modal'); if (m) m.removeAttribute('data-dirty');
+          toast('✅ Delivered'); oaAfter(id, '<div class="qnote" style="margin-bottom:10px">' + esc(x.message || '✅ Delivered') + '</div>');
+        });
+      };
+      $('#oa_login').focus();
+    }
+    if (act === 'refund') {
+      form.innerHTML = '<div class="oaform" data-nodirty><b>💸 Refund</b><span class="muted" style="font-size:.75rem">Send the money yourself first (UPI etc.), then record it here. The order becomes <b>Refunded</b> for you and the customer; coins used on it go back to them and unpaid referral rewards are cancelled. Nothing is deleted.</span>' +
+        '<div class="row2"><label>Amount (₹, max ' + money(a.refund.maxAmount) + ')<input class="inp" id="oa_amt" type="number" min="1" step="1" max="' + esc(a.refund.maxAmount) + '" value="' + esc(a.refund.maxAmount) + '"/></label>' +
+        '<label>Refunded by<select class="inp" id="oa_method"><option value="UPI">UPI / bank</option><option value="Coins">FluxFilm coins (added to wallet)</option><option value="Other">Other</option></select></label></div>' +
+        '<label>UPI reference / UTR (optional)<input class="inp" id="oa_rref" autocomplete="off"/></label>' +
+        '<label>Note (optional)<input class="inp" id="oa_rnote" placeholder="e.g. no stock for Zee5" autocomplete="off"/></label>' +
+        '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="oa_rnotify" checked/> Tell the customer (push + email)</label>' +
+        '<button class="btn purple" id="oa_rgo">💸 Mark as refunded</button></div>';
+      $('#oa_rgo').onclick = function () {
+        var body = { orderId: id, amount: $('#oa_amt').value, method: $('#oa_method').value, reference: $('#oa_rref').value, note: $('#oa_rnote').value, notify: $('#oa_rnotify').checked };
+        if (!confirm('Mark ' + id + ' as refunded: ' + money(body.amount) + ' by ' + body.method + '?' + (body.method === 'Coins' ? '\n\nThe coins are added to the customer’s wallet now.' : '\n\nMake sure you have already sent the money.'))) return;
+        this.disabled = true; var go = this;
+        post('/admin/api/order/refund', body).then(function (x) {
+          go.disabled = false;
+          if (!x.ok) { oaMsg('<div class="qnote bad">⚠️ ' + esc(x.message || 'failed') + '</div>'); return; }
+          var m = $('#modal'); if (m) m.removeAttribute('data-dirty');
+          toast('💸 Refund recorded'); oaAfter(id, '<div class="qnote" style="margin-bottom:10px">' + esc(x.message || 'Refunded') + '</div>' + oaNotes(x));
+        });
+      };
+    }
+    if (act === 'erase') {
+      form.innerHTML = '<div class="oaform" data-nodirty style="border:1px solid #fca5a5;border-radius:12px;padding:10px;background:#fff5f5"><b style="color:#991b1b">🗑 Erase ' + esc(id) + ' from the system</b><span style="font-size:.78rem;color:#991b1b">Use this only if the order was marked paid by mistake. The order disappears for you and the customer, its bank payment becomes unmatched again (so it can match the right order), coins used on it go back and unpaid referral rewards are cancelled. A full copy is kept in the change log backup.</span>' +
+        '<label>Why? *<input class="inp" id="oa_ereason" placeholder="e.g. marked paid on the wrong order" autocomplete="off"/></label>' +
+        '<label><span>Type the order ID <b>' + esc(id) + '</b> to confirm</span><input class="inp" id="oa_econfirm" autocomplete="off" autocapitalize="characters"/></label>' +
+        '<button class="btn red" id="oa_ego" disabled>🗑 Erase permanently</button></div>';
+      var check = function () { $('#oa_ego').disabled = !($('#oa_econfirm').value.trim().toUpperCase() === String(id).toUpperCase() && $('#oa_ereason').value.trim()); };
+      $('#oa_econfirm').oninput = check; $('#oa_ereason').oninput = check;
+      $('#oa_ego').onclick = function () {
+        var go = this; go.disabled = true;
+        post('/admin/api/order/erase', { orderId: id, confirm: $('#oa_econfirm').value.trim(), reason: $('#oa_ereason').value.trim() }).then(function (x) {
+          if (!x.ok) { go.disabled = false; oaMsg('<div class="qnote bad">⚠️ ' + esc(x.message || 'failed') + '</div>'); return; }
+          var m = $('#modal'); if (m) m.removeAttribute('data-dirty');
+          toast(x.message || 'Erased'); oaAfter(id, '', true);
+        });
+      };
+      $('#oa_ereason').focus();
+    }
+  };
+}
 
 /* ================= stock levels ================= */
 var K = { data: null, filter: 'all', q: '', open: {} };
@@ -1754,9 +1894,11 @@ function renderTodayItems() {
       var extra = '';
       if (it.names && it.names.length) extra = '<div class="tnames">' + it.names.slice(0, 4).map(esc).join('<br>') + (it.names.length > 4 ? '<br>+' + (it.names.length - 4) + ' more' : '') + '</div>';
       if (it.list && it.list.length) extra = '<div class="tnames">' + it.list.map(function (s) { return svcIcon(s.service) + ' ' + esc(s.service) + ' · ' + esc(s.phone_norm) + ' · ' + prettyDate(s.expiry_date, true); }).join('<br>') + '</div>';
+      // Paid but not delivered: each stuck order opens straight into its actions (Fulfil / Refund / Erase).
+      if (it.orders && it.orders.length && it.count > 0) extra = '<span class="tnames">' + it.orders.filter(function (o) { return o && o.order_id; }).map(function (o) { return '<span class="tstuck" role="button" data-toid="' + esc(o.order_id) + '">' + svcIcon(o.service) + ' <b>' + esc(o.order_id) + '</b> · ' + esc(o.name || '') + ' · ' + esc(o.service) + ' ' + esc(o.plan) + ' · ' + money(o.final_amount) + ' ' + statusPill(o.fulfillment_status || 'PENDING') + ' <u>Fix ›</u></span>'; }).join('') + '</span>';
       return '<button class="tcard ' + (it.count > 0 ? it.tone : 'clear') + '" data-i="' + i + '"><span class="tic">' + it.icon + '</span><span class="tbody"><b>' + esc(it.title) + '</b>' + extra + '</span><span class="tcount">' + (it.count > 0 ? it.count : '✓') + '</span></button>';
     }).join('') + '</div>';
-  $('#titems').onclick = function (e) { var b = e.target.closest('.tcard'); if (b) todayGo(items[+b.getAttribute('data-i')].go); };
+  $('#titems').onclick = function (e) { var so = e.target.closest('[data-toid]'); if (so) { openOrder(so.getAttribute('data-toid')); return; } var b = e.target.closest('.tcard'); if (b) todayGo(items[+b.getAttribute('data-i')].go); };
 }
 function todayGo(go) {
   if (!go) return;
@@ -2353,9 +2495,9 @@ function fdType(t) { return (FD_TYPES.filter(function (x) { return x[0] === t; }
 function fdTags(v) { return (Array.isArray(v) ? v : String(v || '').split(',')).map(function (x) { return String(x).trim(); }).filter(Boolean).slice(0, 6); }
 function fdImg(p, size) {
   var u = p._img || (p.hasImage && p.id ? '/feed-img/' + p.id + '?v=' + encodeURIComponent(p.updatedAt || '') : (p.imageUrl || ''));
-  // Posters go through the shop (/tmdb-img/…): image.tmdb.org is blocked on many Indian networks.
-  u = String(u || '').replace(/^https:\/\/image\.tmdb\.org\/t\/p\//, '/tmdb-img/t/p/');
-  return size && /^\/tmdb-img\/t\/p\/w780\//.test(u) ? u.replace('/w780/', '/' + size + '/') : u;
+  // Posters go through the shop (/poster/…): the source host is blocked on many Indian networks.
+  u = String(u || '').replace(/^https:\/\/image\.tmdb\.org\/t\/p\//, '/poster/');
+  return size && /^\/poster\/w780\//.test(u) ? u.replace('/w780/', '/' + size + '/') : u;
 }
 function fdSvcOpts(sel, allLabel) {
   var list = FD.services.slice(); if (sel && list.indexOf(sel) < 0) list.unshift(sel);
@@ -3291,6 +3433,157 @@ function renderReferrals(st, ov) {
   body.addEventListener('input', onChange); body.addEventListener('change', onChange);
   $('#rfsave').onclick = function () {
     saveSettingsBtn($('#rfsave'), '/admin/api/referrals/settings', RF.s, rfState, function (r) { RF.s = r.settings; RF.dirty = false; $('#rfex').innerHTML = rfExamples(); });
+  };
+}
+
+/* ================= 🎮 games (admingames.js) ================= */
+var GM = { s: null, f: null, qkind: 'QUIZ', qs: [], editing: null };
+var GM_KIND = { FREE: ['Free', 'p-ok'], PAID: ['Coins', 'p-warn'], PRACTICE: ['Practice', 'p-grey'], BONUS: ['Streak', 'p-blue'] };
+function gamesView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🎮 Games</h1><p>Free daily games on <b>shop.fluxfilm.in/games</b>. Everything is controlled here: free plays, coin prices, prizes, difficulty and limits. Changes are live straight away.</p></div>' +
+    '<a class="btn ghost sm" href="/games" target="_blank" rel="noopener">Open Games ↗</a></div><div id="gmbody"><p class="muted">Loading…</p></div>';
+  gmLoad();
+}
+function gmLoad() {
+  Promise.all([api('/admin/api/games/settings'), api('/admin/api/games/overview')]).then(function (res) {
+    if (!$('#gmbody')) return;
+    var st = res[0], ov = res[1];
+    if (!st.ok) { $('#gmbody').innerHTML = '<div class="card muted">' + esc(st.message || 'error') + '</div>'; return; }
+    GM.s = st.settings; GM.f = st.fields;
+    gmRender(st, ov && ov.ok ? ov : null);
+    gmLoadQuestions();
+  });
+}
+// Chance of each wheel slice in % (same maths as games.js pickSlice).
+function gmChance(slices, i) { var t = 0; slices.forEach(function (x) { t += Math.max(0, Number(x.weight) || 0); }); return t ? Math.round(Math.max(0, Number(slices[i].weight) || 0) / t * 1000) / 10 : 0; }
+function gmField(f, obj, path) {
+  var v = obj[f.k];
+  if (f.step === 'bool') return '<label class="rf-tog" style="grid-column:1/-1"><input type="checkbox" data-gm="' + path + '"' + (v ? ' checked' : '') + '/> ' + esc(f.label) + (f.help ? ' <span class="gm-help">' + esc(f.help) + '</span>' : '') + '</label>';
+  return '<label>' + esc(f.label) + '<input class="inp" type="number" inputmode="decimal" min="' + f.min + '" max="' + f.max + '" step="' + f.step + '" data-gm="' + path + '" value="' + esc(v) + '"/>' + (f.help ? '<span class="gm-help">' + esc(f.help) + '</span>' : '') + '</label>';
+}
+function gmSlices() {
+  var sl = GM.s.games.spin.slices;
+  return '<table class="gm-slices"><tr><th>Slice text</th><th>Coins</th><th>Coupon ₹</th><th>Chance weight</th><th>= chance</th><th></th></tr>' + sl.map(function (x, i) {
+    return '<tr><td><input class="inp" maxlength="14" data-gs="' + i + '.label" value="' + esc(x.label) + '"/></td><td><input class="inp" type="number" min="0" max="1000" data-gs="' + i + '.coins" value="' + esc(x.coins) + '"/></td>' +
+      '<td><input class="inp" type="number" min="0" max="500" data-gs="' + i + '.coupon" value="' + esc(x.coupon) + '"/></td><td><input class="inp" type="number" min="0" max="1000" data-gs="' + i + '.weight" value="' + esc(x.weight) + '"/></td>' +
+      '<td><b data-gchance="' + i + '">' + gmChance(sl, i) + '%</b></td><td><button class="btn ghost sm" data-gsdel="' + i + '" title="Remove slice">✕</button></td></tr>';
+  }).join('') + '</table><button class="btn ghost sm" id="gsadd" style="margin-top:8px"' + (sl.length >= 12 ? ' disabled' : '') + '>➕ Add slice</button>' +
+    '<p class="gm-help" style="margin-top:6px">Average prize per spin: <b id="gsavg">' + gmSpinAvg() + '</b>. A slice with coins 0 and coupon 0 = "Try again".</p>';
+}
+function gmSpinAvg() { var sl = GM.s.games.spin.slices, c = 0, cp = 0; sl.forEach(function (x, i) { var p = gmChance(sl, i) / 100; c += p * (Number(x.coins) || 0); if (Number(x.coupon) > 0) cp += p; }); return (Math.round(c * 10) / 10) + ' coins · coupon ' + (Math.round(cp * 1000) / 10) + '% of spins'; }
+function gmRender(st, ov) {
+  var s = GM.s, F = GM.f, h = '';
+  if (st.needsSchema) h += '<div class="qnote warn" style="margin:0 0 14px">Run <b>db/schema-v22.sql</b> in phpMyAdmin to switch Games on. Until then /games says "coming soon" and the shop shows no Games tile.</div>';
+  if (ov && !ov.needsSchema) {
+    var t = ov.today || {}, m = ov.month || {};
+    h += '<div class="kpis"><div class="kpi"><div class="ic">🕹️</div><div><div class="n">' + (t.players || 0) + '</div><div class="l">Players today · ' + (t.plays || 0) + ' plays</div></div></div>' +
+      '<div class="kpi"><div class="ic">🪙</div><div><div class="n">' + (m.coins || 0) + '</div><div class="l">Coins won this month · ' + (t.coins || 0) + ' today</div></div></div>' +
+      '<div class="kpi"><div class="ic">🔥</div><div><div class="n">' + (m.spentLedger || 0) + '</div><div class="l">Coins spent on extra plays (month)</div></div></div>' +
+      '<div class="kpi"><div class="ic">🎟️</div><div><div class="n">' + (m.coupons || 0) + '</div><div class="l">Coupons won (month) · ' + money(m.couponRupees) + ' off in total</div></div></div></div>';
+  }
+  h += '<div class="card" style="margin-bottom:16px"><h3>⚙️ Main switches &amp; limits</h3>' +
+    (s.paidPlaysEnabled ? '<div class="gm-warn">⚖️ <b>Extra plays for coins are ON.</b> Customers can spend coins to play again' + (s.prizesOnPaidPlays ? ' and win prizes' : '') + '. Keep this only if your lawyer / CA has approved it.</div>' : '') +
+    '<div class="rf-f">' + F.global.map(function (f) { return gmField(f, s, f.k); }).join('') + '</div></div>';
+  h += '<h3 style="margin:0 0 8px">🕹️ Games</h3>';
+  Object.keys(F.meta).forEach(function (k) {
+    var g = s.games[k], meta = F.meta[k];
+    h += '<details class="gm-game" id="gm-' + k + '"><summary><span style="font-size:1.3rem">' + meta.icon + '</span>' + esc(meta.name) + ' ' + (g.enabled ? '<span class="pill p-ok">ON</span>' : '<span class="pill p-grey">OFF</span>') +
+      '<span class="muted">' + g.freePerDay + ' free / day · extra ' + g.extraCost + ' coins</span></summary><div class="gm-in">' +
+      '<div class="rf-f">' + F.common.map(function (f) { return gmField(f, g, 'games.' + k + '.' + f.k); }).join('') + '</div>' +
+      (k === 'spin' ? '<h4 style="margin:14px 0 6px">🎡 Wheel slices</h4><div id="gmslices" style="overflow-x:auto">' + gmSlices() + '</div>' :
+        '<h4 style="margin:14px 0 6px">🏆 Prizes &amp; difficulty</h4><div class="rf-f">' + F.games[k].map(function (f) { return gmField(f, g, 'games.' + k + '.' + f.k); }).join('') + '</div>') +
+      '</div></details>';
+  });
+  h += '<div class="rf-save"><button class="btn green" id="gmsave">💾 Save games settings</button><span class="rf-state" id="rfstate"></span></div>';
+  h += '<div class="card" style="margin:16px 0"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h3 style="margin:0">❓ Questions</h3><div class="row" style="gap:6px">' +
+    '<button class="chip" data-qk="QUIZ">🎬 Movie Quiz</button><button class="chip" data-qk="EMOJI">🎭 Emoji Guess</button></div></div><div id="gmq"><p class="muted">Loading…</p></div></div>';
+  if (ov && !ov.needsSchema) {
+    h += '<div class="card" style="margin-bottom:16px"><h3>📊 This month by game</h3><div style="overflow-x:auto"><table class="rf-ex"><tr><th>Game</th><th>Plays</th><th>Free</th><th>Extra</th><th>Practice</th><th>Coins won</th><th>Coins spent</th><th>Coupons</th></tr>' +
+      (ov.perGame.length ? ov.perGame.map(function (r) { var mt = F.meta[r.game] || { icon: '🔥', name: r.game === 'streak' ? 'Streak bonus' : r.game }; return '<tr><td>' + mt.icon + ' ' + esc(mt.name) + '</td><td>' + r.plays + '</td><td>' + (r.free || 0) + '</td><td>' + (r.paid || 0) + '</td><td>' + (r.practice || 0) + '</td><td>' + r.coins + '</td><td>' + r.spent + '</td><td>' + r.coupons + '</td></tr>'; }).join('') : '<tr><td colspan="8" class="muted">No plays yet this month.</td></tr>') + '</table></div></div>';
+    if (ov.flagged.length) h += '<div class="card" style="margin-bottom:16px;border-color:#fecaca"><h3>🚩 Games that looked like cheating (no prize given)</h3><div class="list">' + ov.flagged.map(function (p) { return '<div class="li"><div class="grow"><b>' + esc(p.phone) + '</b> · ' + esc((F.meta[p.game] || {}).name || p.game) + ' · score ' + p.score + '<div class="muted" style="font-size:.72rem">' + esc(p.flagged) + ' · ' + prettyDate(p.started_at, true) + '</div></div></div>'; }).join('') + '</div></div>';
+    h += '<div class="g2"><div class="card"><h3>🕘 Recent plays</h3><div class="list">' + (ov.recent.length ? ov.recent.map(function (p) {
+      var kd = GM_KIND[p.kind] || [p.kind, 'p-grey'], mt = F.meta[p.game] || { icon: '🔥', name: 'Streak bonus' };
+      return '<div class="li"><span>' + mt.icon + '</span><div class="grow" style="min-width:0"><b>' + esc(p.phone) + '</b> <span class="pill ' + kd[1] + '">' + kd[0] + '</span><div class="muted" style="font-size:.72rem">' + esc(mt.name) + ' · score ' + p.score + ' · ' + esc(p.status) + ' · ' + prettyDate(p.started_at, true) + (p.flagged ? ' · 🚩' : '') + '</div></div>' +
+        '<div style="text-align:right"><b>' + (p.coins ? '+' + p.coins : '0') + '</b> <span class="muted" style="font-size:.72rem">coins</span>' + (p.cost ? '<div class="muted" style="font-size:.72rem">paid ' + p.cost + '</div>' : '') + (p.coupon_code ? '<div><span class="pill p-warn">₹' + p.coupon_value + ' ' + esc(p.coupon_code) + '</span></div>' : '') + '</div></div>';
+    }).join('') : '<p class="muted">No plays yet.</p>') + '</div></div>' +
+      '<div class="card"><h3>🏆 Top players (month)</h3><div class="list">' + (ov.top.length ? ov.top.map(function (x, i) {
+        return '<div class="li"><span>' + (['🥇', '🥈', '🥉'][i] || (i + 1) + '.') + '</span><div class="grow"><b>' + esc(x.name || x.phone) + '</b><div class="muted" style="font-size:.72rem">' + esc(x.phone) + ' · ' + x.plays + ' plays · spent ' + x.spent + '</div></div><b>+' + x.coins + '</b></div>';
+      }).join('') : '<p class="muted">Nobody yet.</p>') + '</div></div></div>';
+  }
+  $('#gmbody').innerHTML = h;
+  var body = $('#gmbody');
+  var mark = function () { rfState('dirty', '● Not saved yet'); };
+  var onChange = function (e) {
+    var el = e.target.closest('[data-gm],[data-gs]'); if (!el) return;
+    if (el.hasAttribute('data-gs')) {
+      var p = el.getAttribute('data-gs').split('.'), sl = GM.s.games.spin.slices[+p[0]];
+      sl[p[1]] = p[1] === 'label' ? el.value : (el.value === '' ? '' : Number(el.value));
+      GM.s.games.spin.slices.forEach(function (x, i) { var c = $('[data-gchance="' + i + '"]'); if (c) c.textContent = gmChance(GM.s.games.spin.slices, i) + '%'; });
+      var av = $('#gsavg'); if (av) av.textContent = gmSpinAvg();
+    } else {
+      var path = el.getAttribute('data-gm').split('.'), o = GM.s;
+      for (var i = 0; i < path.length - 1; i++) o = o[path[i]];
+      o[path[path.length - 1]] = el.type === 'checkbox' ? el.checked : (el.value === '' ? '' : Number(el.value));
+    }
+    mark();
+  };
+  body.addEventListener('input', onChange); body.addEventListener('change', onChange);
+  body.addEventListener('click', function (e) {
+    var d = e.target.closest('[data-gsdel]');
+    if (d) { if (GM.s.games.spin.slices.length <= 2) { toast('The wheel needs at least 2 slices'); return; } GM.s.games.spin.slices.splice(+d.getAttribute('data-gsdel'), 1); $('#gmslices').innerHTML = gmSlices(); mark(); return; }
+    if (e.target.id === 'gsadd') { GM.s.games.spin.slices.push({ label: 'Try again', coins: 0, coupon: 0, weight: 10 }); $('#gmslices').innerHTML = gmSlices(); mark(); return; }
+    var qk = e.target.closest('[data-qk]'); if (qk) { GM.qkind = qk.getAttribute('data-qk'); gmLoadQuestions(); }
+  });
+  $('#gmsave').onclick = function () {
+    saveSettingsBtn($('#gmsave'), '/admin/api/games/settings', GM.s, rfState, function (r) { GM.s = r.settings; });
+  };
+}
+function gmLoadQuestions() {
+  $$('[data-qk]').forEach(function (b) { b.className = 'chip' + (b.getAttribute('data-qk') === GM.qkind ? ' on' : ''); });
+  api('/admin/api/games/questions', { kind: GM.qkind }).then(function (r) {
+    var el = $('#gmq'); if (!el) return;
+    if (!r.ok) { el.innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
+    GM.qs = r.questions;
+    var emoji = GM.qkind === 'EMOJI', active = r.questions.filter(function (q) { return q.active; }).length;
+    var h = r.needsSchema ? '<p class="muted">Run db/schema-v22.sql first. Until then games use the built-in starter pack (' + r.starterCount + ' ' + (emoji ? 'emoji clues' : 'questions') + ').</p>' :
+      '<p class="muted" style="font-size:.8rem;margin:8px 0">' + active + ' switched on · ' + r.questions.length + ' in total. ' + (r.questions.length < 15 ? 'While there are too few, the game uses the built-in starter pack. ' : '') + 'Starter pack drafted by Claude from public facts — please check them.</p>' +
+      '<div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:6px"><button class="btn sm" id="gqadd">➕ Add ' + (emoji ? 'emoji clue' : 'question') + '</button><button class="btn ghost sm" id="gqstarter">📦 Load starter pack (' + r.starterCount + ')</button></div>';
+    h += r.questions.map(function (q) {
+      return '<div class="gm-q"><div class="grow"><div class="' + (emoji ? 'gm-emoji' : '') + '" style="' + (emoji ? '' : 'font-weight:600') + '">' + esc(q.question) + '</div><div class="muted" style="font-size:.76rem">' +
+        q.options.map(function (o, i) { return i === q.answer ? '<span class="ok">✓ ' + esc(o) + '</span>' : esc(o); }).join(' · ') + (q.category ? ' · <i>' + esc(q.category) + '</i>' : '') + '</div></div>' +
+        (q.active ? '<span class="pill p-ok">ON</span>' : '<span class="pill p-grey">OFF</span>') + '<button class="btn ghost sm" data-gqe="' + q.id + '">Edit</button></div>';
+    }).join('');
+    el.innerHTML = h;
+    var add = $('#gqadd'); if (add) add.onclick = function () { gmQuestionForm(null); };
+    var st = $('#gqstarter'); if (st) st.onclick = function () {
+      st.disabled = true; st.textContent = 'Adding…';
+      post('/admin/api/games/questions/starter', { kind: GM.qkind }).then(function (x) { toast(x.ok ? '✅ Added ' + x.added + ' (already there were skipped)' : '⚠️ ' + (x.message || 'failed')); gmLoadQuestions(); });
+    };
+    el.onclick = function (e) { var b = e.target.closest('[data-gqe]'); if (!b) return; var id = +b.getAttribute('data-gqe'); gmQuestionForm(GM.qs.find(function (q) { return q.id === id; })); };
+  });
+}
+function gmQuestionForm(q) {
+  var emoji = GM.qkind === 'EMOJI';
+  q = q || { id: 0, question: '', options: ['', '', '', ''], answer: 0, category: '', active: true };
+  modal((q.id ? 'Edit ' : 'Add ') + (emoji ? 'emoji clue' : 'question'),
+    '<div class="fld"><label>' + (emoji ? 'Emoji clue (e.g. 🦁👑)' : 'Question') + '</label><input class="inp" id="gqq" maxlength="255" value="' + esc(q.question) + '"/></div>' +
+    [0, 1, 2, 3].map(function (i) { return '<div class="fld"><label><input type="radio" name="gqa" value="' + i + '"' + (q.answer === i ? ' checked' : '') + '/> Answer ' + (i + 1) + (i === q.answer ? ' (right)' : '') + '</label><input class="inp" id="gqo' + i + '" maxlength="120" value="' + esc(q.options[i] || '') + '"/></div>'; }).join('') +
+    '<p class="muted" style="font-size:.76rem;margin:0 0 8px">Tick the circle next to the RIGHT answer. The order is shuffled for players.</p>' +
+    '<div class="fld"><label>Category (optional)</label><input class="inp" id="gqc" maxlength="40" value="' + esc(q.category) + '" placeholder="bollywood, series, anime, sports…"/></div>' +
+    '<label class="rf-tog"><input type="checkbox" id="gqon"' + (q.active ? ' checked' : '') + '/> Use this ' + (emoji ? 'clue' : 'question') + ' in the game</label>',
+    (q.id ? '<button class="btn ghost" id="gqdel" style="margin-right:auto;color:var(--bad)">🗑 Delete</button>' : '') + '<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn green" id="gqsave">💾 Save</button>');
+  $('#gqsave').onclick = function () {
+    var b = $('#gqsave'); b.disabled = true;
+    var ans = $$('input[name="gqa"]').filter(function (x) { return x.checked; })[0];
+    post('/admin/api/games/question', { id: q.id, kind: GM.qkind, question: $('#gqq').value, options: [0, 1, 2, 3].map(function (i) { return $('#gqo' + i).value; }), answer: ans ? +ans.value : -1, category: $('#gqc').value, active: $('#gqon').checked }).then(function (r) {
+      b.disabled = false;
+      if (!r.ok) { toast('⚠️ ' + (r.message || 'Not saved')); return; }
+      closeModal(); toast('✅ Saved'); gmLoadQuestions();
+    });
+  };
+  var del = $('#gqdel'); if (del) del.onclick = function () {
+    if (!confirm('Delete this ' + (emoji ? 'clue' : 'question') + '? (Tip: untick "Use this" to just switch it off.)')) return;
+    post('/admin/api/games/question/delete', { id: q.id }).then(function (r) { if (!r.ok) { toast('⚠️ ' + (r.message || 'failed')); return; } closeModal(); toast('🗑 Deleted'); gmLoadQuestions(); });
   };
 }
 

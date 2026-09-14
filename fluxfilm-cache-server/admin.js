@@ -140,6 +140,8 @@ function mountAdmin(app, deps) {
   require('./quickorders').mount(app, Object.assign({ db, auth, audit }, deps.quick || {}));
   // Order lookup + stock levels (adminlookup.js).
   require('./adminlookup').mount(app, Object.assign({ db, auth, audit }, deps.lookup || {}));
+  // Stuck orders: fulfil / re-fulfil, deliver manually, refund, erase (adminorderactions.js).
+  require('./adminorderactions').mount(app, Object.assign({ db, auth, audit }, deps.orderActions || {}));
   // Today screen, to-dos, global search, change log viewer (adminhome.js).
   require('./adminhome').mount(app, Object.assign({ db, auth, audit }, deps.home || {}));
   // Password change (F5) + renewal reminders (accounttools.js).
@@ -150,6 +152,8 @@ function mountAdmin(app, deps) {
   require('./adminreferrals').mount(app, Object.assign({ db, auth, audit }, deps.referrals || {}));
   // Coins: earning + paying with coins settings, overview, add/remove coins (admincoins.js).
   require('./admincoins').mount(app, Object.assign({ db, auth, audit }, deps.coins || {}));
+  // 🎮 Games: free plays, prices, prizes, difficulty, questions, stats (admingames.js).
+  require('./admingames').mount(app, Object.assign({ db, auth, audit }, deps.games || {}));
   // Payment fallback: backup UPI ID / QR settings + "I've paid" review queue (adminpayments.js).
   require('./adminpayments').mount(app, Object.assign({ db, auth, audit }, deps.payments || {}));
   // Maintenance: pause / resume new orders (adminstore.js).
