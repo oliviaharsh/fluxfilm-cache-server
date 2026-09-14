@@ -64,13 +64,16 @@ async function _logOtp(service, otp, phone, message) {
   try { await db.query('INSERT INTO sms_otp_log (ts, service, otp, phone_norm, message) VALUES (NOW(),?,?,?,?)', [service, otp, phone, String(message || '').slice(0, 300)]); } catch (_) {}
 }
 
-async function getLatestOtp(service, phone) {
+async function getLatestOtp(service, phone, token, deps) {
   const svc = String(service || '').trim();
   if (!svc) return { ok: false, message: 'Service is required.' };
   const svcKey = svcKeyOf(svc);
   const keywords = (keywordMap()[svcKey] || [svc.toLowerCase()]).map((k) => k.toLowerCase());
   const ph = norm(phone);
   if (!ph || ph.length < 10) return { ok: false, message: 'Enter the phone number you bought with.' };
+  // A phone number is not a secret: the device must have confirmed the account email (otpaccess.js).
+  const access = await ((deps && deps.access) || require('./otpaccess')).check(ph, token);
+  if (!access.ok) return Object.assign({ ok: true, found: false }, access);
   // Only customers with a live plan for this service may read its login OTP, and only
   // within their monthly quota (the storefront showed the quota but never enforced it).
   const subs = await db.query("SELECT service FROM subscriptions WHERE phone_norm = ? AND UPPER(status) = 'ACTIVE' AND (expiry_date IS NULL OR expiry_date > NOW())", [ph]);

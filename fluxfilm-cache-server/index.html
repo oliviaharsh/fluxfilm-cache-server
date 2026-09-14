@@ -7575,6 +7575,165 @@ function OtpPickerModal({
     }
   }, "Cancel")));
 }
+// Get OTP: this device proved it belongs to the customer (email code) -> signed token kept for 30 days.
+function getOtpToken_(phone) {
+  try {
+    const r = JSON.parse(localStorage.getItem('ff_otp_access_' + normPhone_(phone)) || 'null');
+    return r && r.token && Date.parse(r.expiresAt) > Date.now() ? r.token : '';
+  } catch (e) {
+    return '';
+  }
+}
+function setOtpToken_(phone, r) {
+  try {
+    localStorage.setItem('ff_otp_access_' + normPhone_(phone), JSON.stringify({
+      token: r.token,
+      expiresAt: r.expiresAt
+    }));
+  } catch (e) {}
+}
+function OtpVerifyCard({
+  phone,
+  info,
+  onVerified
+}) {
+  const [step, setStep] = useState('send');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [email, setEmail] = useState(info && info.maskedEmail || '');
+  if (info && info.hasEmail === false) return React.createElement(Card, {
+    style: {
+      marginBottom: 14,
+      border: '1.5px solid rgba(245,158,11,.35)',
+      background: '#fffbeb'
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 15,
+      fontWeight: 800,
+      color: '#78350f',
+      marginBottom: 6
+    }
+  }, "🔒 Confirm it’s you"), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13.5,
+      fontWeight: 600,
+      color: '#92400e',
+      lineHeight: 1.5
+    }
+  }, info.message), React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    style: {
+      marginTop: 12
+    },
+    onClick: () => API.openWhatsApp()
+  }, "💬 WhatsApp support"));
+  function send() {
+    setBusy(true);
+    setMsg('');
+    API.otpSendCode(phone, r => {
+      setBusy(false);
+      if (r && r.ok) {
+        setEmail(r.maskedEmail || email);
+        setStep('code');
+        setMsg(r.message || '');
+      } else setMsg('⚠️ ' + (r && r.message || 'Could not send the code.'));
+    }, () => {
+      setBusy(false);
+      setMsg('⚠️ Could not send the code. Please try again.');
+    });
+  }
+  function verify() {
+    if (code.replace(/\D/g, '').length !== 6) return setMsg('⚠️ Enter the 6-digit code from the email.');
+    setBusy(true);
+    setMsg('');
+    API.otpVerifyCode(phone, code, r => {
+      setBusy(false);
+      if (r && r.ok && r.token) {
+        setOtpToken_(phone, r);
+        onVerified && onVerified();
+      } else {
+        setMsg('⚠️ ' + (r && r.message || 'That code did not work.'));
+        if (r && r.expired) {
+          setStep('send');
+          setCode('');
+        }
+      }
+    }, () => {
+      setBusy(false);
+      setMsg('⚠️ Could not check the code. Please try again.');
+    });
+  }
+  return React.createElement(Card, {
+    style: {
+      marginBottom: 14,
+      border: '1.5px solid rgba(37,99,235,.28)',
+      background: 'linear-gradient(135deg,#eff6ff,#fff)'
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 16,
+      fontWeight: 800,
+      color: C.text,
+      marginBottom: 4
+    }
+  }, "🔒 Confirm it’s you"), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13.5,
+      fontWeight: 600,
+      color: C.muted,
+      lineHeight: 1.5,
+      marginBottom: 12
+    }
+  }, step === 'send' ? React.createElement(React.Fragment, null, "To keep your account safe, we email a 6-digit code to ", React.createElement("b", null, email || 'your email'), " the first time you use Get OTP on this phone. You won’t be asked again for 30 days.") : React.createElement(React.Fragment, null, "Enter the 6-digit code we sent to ", React.createElement("b", null, email), ". Check spam if you don’t see it.")), step === 'send' ? React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    disabled: busy,
+    onClick: send
+  }, busy ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), " Sending…") : '📧 Email me a code') : React.createElement(React.Fragment, null, React.createElement(Input, {
+    label: "Code from email",
+    type: "tel",
+    placeholder: "6-digit code",
+    value: code,
+    onChange: e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))
+  }), React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    disabled: busy,
+    style: {
+      marginTop: 10
+    },
+    onClick: verify
+  }, busy ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), " Checking…") : '✅ Confirm & get OTP'), React.createElement("button", {
+    onClick: send,
+    disabled: busy,
+    style: {
+      marginTop: 10,
+      width: '100%',
+      border: 0,
+      background: 'none',
+      color: C.blue,
+      fontFamily: PJS,
+      fontWeight: 700,
+      fontSize: 13,
+      cursor: 'pointer'
+    }
+  }, "Send the code again")), msg && React.createElement("div", {
+    style: {
+      marginTop: 10,
+      fontFamily: PJS,
+      fontSize: 13,
+      fontWeight: 700,
+      color: msg.indexOf('⚠️') === 0 ? C.red : C.muted
+    }
+  }, msg));
+}
 function OtpScreen({
   nav,
   sub,
@@ -7592,6 +7751,7 @@ function OtpScreen({
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState('');
+  const [verifyInfo, setVerifyInfo] = useState(null);
   useEffect(() => {
     const cached = otpQuotaCache && otpQuotaCache[cacheKey];
     if (cached) {
@@ -7635,6 +7795,11 @@ function OtpScreen({
       if (!r) {
         setPhase('confirm');
         setError('No response from server.');
+        return;
+      }
+      if (r.needsVerify) {
+        setPhase('confirm');
+        setVerifyInfo(r);
         return;
       }
       if (r.found && r.otp) {
@@ -7706,7 +7871,19 @@ function OtpScreen({
       maxWidth: 'calc(100vw - 32px)',
       textAlign: 'center'
     }
-  }, toast), React.createElement("div", {
+  }, toast), verifyInfo && React.createElement("div", {
+    style: {
+      marginTop: 16
+    }
+  }, React.createElement(OtpVerifyCard, {
+    phone: phone,
+    info: verifyInfo,
+    onVerified: () => {
+      setVerifyInfo(null);
+      showToast('✅ Confirmed — getting your OTP…');
+      setTimeout(doGetOtp, 300);
+    }
+  })), React.createElement("div", {
     style: {
       textAlign: 'center',
       padding: '24px 0 20px'
@@ -8860,7 +9037,13 @@ const API = {
     apiCall_('getResumePaymentByPhone', [phone], onSuccess, onFailure);
   },
   getLatestOtp(service, phone, onSuccess, onFailure) {
-    apiCall_('getLatestOtp', [service, phone], onSuccess, onFailure);
+    apiCall_('getLatestOtp', [service, phone, getOtpToken_(phone)], onSuccess, onFailure);
+  },
+  otpSendCode(phone, onSuccess, onFailure) {
+    apiCall_('otpSendCode', [phone], onSuccess, onFailure);
+  },
+  otpVerifyCode(phone, code, onSuccess, onFailure) {
+    apiCall_('otpVerifyCode', [phone, code], onSuccess, onFailure);
   },
   getOtpQuota(phone, service, onSuccess, onFailure) {
     apiCall_('getOtpQuota', [phone, service], onSuccess, onFailure);

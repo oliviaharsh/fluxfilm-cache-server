@@ -105,4 +105,4 @@ async function sendPasswordChanged(p) {
   return send(p.email, '🔑 New password for your FluxFilm ' + (p.service || '') + ' account', html);
 }
 
-module.exports = { sendAccessEmail, sendRenewalReminder, sendPasswordChanged };
+module.exports = { send, sendAccessEmail, sendRenewalReminder, sendPasswordChanged };
