@@ -177,8 +177,8 @@ table.sheet{border-collapse:separate;border-spacing:0;table-layout:fixed;font-si
 .stats{display:flex;gap:26px;margin-top:10px;flex-wrap:wrap}.stats b{display:block;font-size:1.2rem}.stats small{color:var(--mut);font-size:.72rem}
 .subhead{display:flex;align-items:center;justify-content:space-between;margin:22px 0 10px;flex-wrap:wrap;gap:8px}
 .subhead h3{margin:0;font-size:1rem}
-.subs{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px}@media(max-width:520px){.subs{grid-template-columns:1fr}}
-.sc{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.subs{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));gap:14px}@media(max-width:520px){.subs{grid-template-columns:minmax(0,1fr)}}
+.sc{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
 .sc.exp{background:#fcfcfd}
 .sc .hd{display:flex;gap:12px;align-items:flex-start}
 .sc .sic{width:40px;height:40px;border-radius:11px;background:#f5f7fa;display:grid;place-items:center;font-size:1.15rem;flex-shrink:0}
@@ -188,7 +188,19 @@ table.sheet{border-collapse:separate;border-spacing:0;table-layout:fixed;font-si
 .bar.w i{background:linear-gradient(90deg,#f59e0b,#d97706)}.bar.b i{background:#ef4444}
 .creds{background:#f8fafc;border:1px solid var(--line);border-radius:11px;padding:4px 12px}
 .cr{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:.8rem;border-bottom:1px dashed #e5e9f0}.cr:last-child{border-bottom:0}
-.cr span{color:var(--mut);width:74px;flex-shrink:0}.cr code{flex:1;font-family:Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cr span{color:var(--mut);width:74px;flex-shrink:0}.cr code{flex:1;min-width:0;font-family:Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cr .copy{flex-shrink:0}
+/* Customer 360 on phones: no sideways scroll, 2×2 stats, full-width actions (owner report 2026-09-15) */
+.prof .pinfo{flex:1;min-width:220px}.prof .pinfo .muted{overflow-wrap:anywhere}
+@media(max-width:600px){
+  .prof{align-items:flex-start;gap:14px}.prof .avatar{width:52px;height:52px;font-size:1.1rem}
+  .prof .pinfo{min-width:0;flex-basis:calc(100% - 66px)}
+  .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+  .pact{width:100%;display:grid !important;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .pact .btn{justify-content:center;min-height:44px;padding:10px 8px}.pact .wa{grid-column:1/-1}
+  .sc{padding:14px}.sc .hd{flex-wrap:wrap}.sc .rt{margin-left:auto}
+  .cr span{width:64px}
+}
 .copy{border:1px solid var(--line);background:#fff;border-radius:7px;font-size:.7rem;padding:2px 8px;cursor:pointer}
 .rmbox{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;border-radius:11px;background:#fff7ed;border:1px solid #fed7aa;font-size:.8rem}
 .rmbox.off{background:#f8fafc;border-color:var(--line)}
@@ -779,11 +791,11 @@ function renderCustomer() {
   var filter = S.subFilter || 'all';
   var shown = subs.filter(function (s) { var d = daysLeft(s.expiry_date); var act = /ACTIVE/i.test(s.status) && (d == null || d > 0); return filter === 'all' || (filter === 'active' ? act : !act); });
   $('#c360').innerHTML =
-    '<div class="card"><div class="prof"><div class="avatar">' + esc(initials) + '</div><div style="flex:1;min-width:220px"><h2>' + esc(name) + '</h2>' +
+    '<div class="card"><div class="prof"><div class="avatar">' + esc(initials) + '</div><div class="pinfo"><h2>' + esc(name) + '</h2>' +
     '<div class="muted" style="font-size:.85rem">' + esc(pr.phone || r.phone) + (pr.email ? ' · ' + esc(pr.email) : '') + '</div>' +
     '<div class="muted" style="font-size:.8rem;margin-top:2px">Member since ' + prettyDate(pr.member_since) + ' ' + (active.length ? '<span class="pill p-ok">ACTIVE</span>' : '<span class="pill p-grey">NO ACTIVE PLAN</span>') + '</div>' +
     '<div class="stats"><div><b>' + money(spent) + '</b><small>Total spent</small></div><div><b>' + paid.length + '</b><small>Paid orders</small></div><div><b>' + active.length + ' / ' + subs.length + '</b><small>Active subscriptions</small></div><div><b>' + (r.wallet ? esc(r.wallet.coins_balance) : 0) + '</b><small>Coins</small></div></div></div>' +
-    '<div class="row" style="flex-direction:column;align-items:stretch"><a class="btn wa" target="_blank" href="' + waLink(pr.phone || r.phone, 'Hi ' + (pr.name || '') + ', ') + '">💬 WhatsApp</a>' +
+    '<div class="row pact" style="flex-direction:column;align-items:stretch"><a class="btn wa" target="_blank" href="' + waLink(pr.phone || r.phone, 'Hi ' + (pr.name || '') + ', ') + '">💬 WhatsApp</a>' +
     '<button class="btn dark" onclick="openQuick(\'new\')">🆕 New order</button><button class="btn dark" onclick="openQuick(\'renew\')">🔁 Renew</button></div></div></div>' +
     '<div class="subhead"><h3>🎬 Subscriptions (' + subs.length + ')</h3><div class="row">' +
     ['all', 'active', 'expired'].map(function (f) { return '<button class="btn ghost sm' + (filter === f ? ' on' : '') + '" onclick="S.subFilter=\'' + f + '\';S.showAllCards=false;renderCustomer()">' + f[0].toUpperCase() + f.slice(1) + '</button>'; }).join('') + '</div></div>' +

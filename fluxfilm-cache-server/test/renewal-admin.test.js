@@ -88,6 +88,9 @@ Module._load = function (req) {
   for (const sc of scripts) { try { new Function(sc); } catch (e) { parsed = false; console.log('   parse error:', e.message); } }
   ok('every inline script parses', scripts.length > 0 && parsed);
   ok('panel has the Customer 360 tick box and save handler', /function subCard\(/.test(html) && /function saveRemoved\(/.test(html) && /id="rm_' \+ id/.test(html));
+  // Phone layout (owner report 2026-09-15): long logins made subscription cards wider than the screen.
+  ok('Customer 360 phone layout: cards can shrink (no sideways scroll from long logins)', /\.subs\{[^}]*minmax\(min\(100%,420px\),1fr\)/.test(html) && /@media\(max-width:520px\)\{\.subs\{grid-template-columns:minmax\(0,1fr\)\}\}/.test(html) && /\.sc\{[^}]*min-width:0/.test(html) && /\.cr code\{[^}]*min-width:0/.test(html));
+  ok('Customer 360 phone layout: 2×2 stats + full-width actions', /class="pinfo"/.test(html) && /class="row pact"/.test(html) && /@media\(max-width:600px\)\{[\s\S]*?\.stats\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/.test(html) && /\.pact \.wa\{grid-column:1\/-1\}/.test(html));
   ok('Sheets grid renders removed as a tick box with an editable time', /data-act="rm"/.test(html) && /function gridRemoved\(/.test(html) && /function removedDialog\(/.test(html));
   ok('grid has resizable columns and a column picker', /class="rz"/.test(html) && /function autofit\(/.test(html) && /function toggleCols\(/.test(html));
 
