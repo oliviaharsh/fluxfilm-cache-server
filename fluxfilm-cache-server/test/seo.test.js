@@ -139,7 +139,7 @@ function checkPage(name, html, pathName) {
   const wn = await seo.whatsNewPage();
   r = checkPage('/whats-new', wn, '/whats-new');
   ok('/whats-new: live posts link to /?post=<id>, bad ids skipped', wn.includes('href="/?post=fpa3a00152db"') && wn.includes('href="/?post=fp0123456789"') && !/Bad id/.test(wn));
-  ok('/whats-new: small TMDB poster via /tmdb-img, outside images dropped, TMDB attribution, caption shortened', wn.includes('src="/tmdb-img/t/p/w185/kPKAigYUlWRpnfo4Ptiwlz4FWXU.jpg"') && !/evil\.example/.test(wn) && /not endorsed or certified by TMDB/.test(wn) && /Harbour &lt;Lights&gt;/.test(wn) && /…<\/p>/.test(wn));
+  ok('/whats-new: small TMDB poster via /tmdb-img, outside images dropped, TMDB attribution, caption shortened', wn.includes('src="/poster/w185/kPKAigYUlWRpnfo4Ptiwlz4FWXU.jpg"') && !/evil\.example/.test(wn) && !/TMDB/.test(wn) && /Harbour &lt;Lights&gt;/.test(wn) && /…<\/p>/.test(wn));
   ok('/whats-new: links to the plan page of the platform', wn.includes('href="/plans/jiohotstar">JioHotstar plans from ₹69'));
   checkPage('/about', await seo.aboutPage(), '/about');
 

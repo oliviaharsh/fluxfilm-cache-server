@@ -386,7 +386,7 @@ app.get('/promo-img/:id', async (req, res) => {
 });
 
 // TMDB posters for the feed, fetched by the server (Indian networks often block image.tmdb.org) and cached.
-app.get('/tmdb-img/t/p/:size/:file', async (req, res) => {
+app.get(['/poster/:size/:file', '/tmdb-img/t/p/:size/:file'], async (req, res) => {
   try {
     const img = feedMod && await feedMod.posterImage(req.params.size, req.params.file);
     if (!img) return res.status(404).type('text/plain').send('not found');
