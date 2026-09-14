@@ -11,62 +11,71 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; min-height: 100dvh; -webkit-font-smoothing: antialiased; background: #ffffff; }
 
-/* ── Mobile: full-bleed white, no chrome ── */
-#root { max-width: 520px; margin: 0 auto; background: #ffffff; min-height: 100dvh; box-shadow: 0 0 0 1px rgba(15,23,42,.07), 0 8px 60px rgba(15,23,42,.14); }
-
-/* ── Desktop: proper two-panel layout ── */
+/* ── Layout shell (responsive: phone · tablet · computer) ── */
+html, body { background: #f5f7fb; }
+#root { min-height: 100dvh; }
+.page-inner { padding: 0 16px; margin: 0 auto; width: 100%; }
+.ff-w-wide { max-width: 1120px; }
+.ff-w-flow { max-width: 620px; }
+.ff-has-bnav { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+.ff-topbar { position: sticky; top: 0; z-index: 20; background: rgba(255,255,255,.92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid rgba(15,23,42,.08); }
+.ff-topbar-in { max-width: 1120px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
+.ff-desk-nav { display: none; }
+.ff-help { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(22,163,74,.28); background: rgba(22,163,74,.08); color: #15803d; font-size: 13px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.ff-help:hover { background: rgba(22,163,74,.14); }
+.ff-help-long { display: none; }
+@media (max-width: 899px) { .ff-help-deskonly { display: none; } }
+.ff-bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 4px; background: rgba(255,255,255,.97); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid rgba(15,23,42,.08); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px rgba(15,23,42,.06); }
+.ff-bnav-btn { border: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 700; color: #64748b; padding: 7px 0 6px; border-radius: 14px; cursor: pointer; }
+.ff-bnav-ic { font-size: 20px; line-height: 1; }
+.ff-bnav-btn.on { color: #15803d; background: rgba(22,163,74,.09); }
+.ff-grid-svc { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+.ff-cards { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; }
+.ff-cards > * { margin: 0 !important; }
+.ff-home { display: flex; flex-direction: column; }
+.ff-home-left, .ff-home-right { display: contents; }
+.ff-o1 { order: 1; } .ff-o2 { order: 2; } .ff-o3 { order: 3; } .ff-o4 { order: 4; } .ff-o5 { order: 5; } .ff-o6 { order: 6; }
+.ff-home-points { display: none; }
+@media (min-width: 640px) {
+  .ff-grid-svc { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+}
+@media (min-width: 700px) {
+  .ff-cards { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
+}
+@media (max-width: 899px) {
+  .ff-home { max-width: 620px; margin: 0 auto; }
+}
 @media (min-width: 900px) {
-  body {
-    background: #f0f4f8;
-    background-image:
-      radial-gradient(circle at 20% 20%, rgba(22,163,74,.07) 0%, transparent 50%),
-      radial-gradient(circle at 80% 80%, rgba(37,99,235,.06) 0%, transparent 50%);
-    display: flex;
-    align-items: stretch;
-    min-height: 100dvh;
-  }
-
-  /* Left sidebar — branding panel */
-  body::before {
-    content: '';
-    flex: 1;
-    min-width: 0;
-  }
-
-  #root {
-    flex-shrink: 0;
-    width: 420px;
-    max-width: 420px;
-    min-height: 100dvh;
-    border-radius: 0;
-    box-shadow: 0 0 0 1px rgba(15,23,42,.09), 0 24px 80px rgba(15,23,42,.18);
-    position: relative;
-    z-index: 1;
-  }
-
-  /* Right info panel */
-  body::after {
-    content: '🍿 FluxFilm\A Premium subscriptions\A at better prices.\A\A ✅  Instant access\A 💸  Cheaper than official\A 🔒  No passwords\A 📱  Phone login only\A\A Use on mobile for\A the best experience.';
-    white-space: pre;
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    padding: 48px 40px;
-    font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
-    font-size: 15px;
-    font-weight: 600;
-    color: #334155;
-    line-height: 1.9;
-  }
+  .page-inner { padding: 0 28px; }
+  .ff-topbar-in { padding: 12px 28px; gap: 14px; }
+  .ff-desk-nav { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+  .ff-desk-nav button { border: 0; background: none; padding: 9px 14px; border-radius: 12px; font-size: 14px; font-weight: 700; color: #334155; cursor: pointer; }
+  .ff-desk-nav button:hover { background: #f1f5f9; }
+  .ff-desk-nav button.on { background: rgba(22,163,74,.10); color: #15803d; }
+  .ff-help { padding: 9px 16px; font-size: 14px; }
+  .ff-help-long { display: inline; }
+  .ff-help-short { display: none; }
+  .ff-bnav { display: none; }
+  .ff-has-bnav { padding-bottom: 32px; }
+  .ff-topbar-pill { display: none !important; }
+  .ff-cards { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+  .ff-dash-actions, .ff-dash-stats { display: inline-grid !important; width: calc(50% - 8px); vertical-align: top; margin-bottom: 14px !important; }
+  .ff-dash-actions { margin-right: 16px; }
+  .ff-home { display: grid; grid-template-columns: minmax(0,1.1fr) minmax(0,1fr); column-gap: 56px; align-items: start; padding-top: 28px; }
+  .ff-home-left, .ff-home-right { display: block; }
+  .ff-home-left { position: sticky; top: 96px; }
+  .ff-home-hero { text-align: left !important; padding: 36px 0 28px !important; }
+  .ff-home-logo { margin: 0 0 22px !important; width: 76px !important; height: 76px !important; font-size: 34px !important; }
+  .ff-home-h1 { font-size: 46px !important; line-height: 1.05 !important; letter-spacing: -1.2px !important; }
+  .ff-home-tag { font-size: 18px !important; max-width: 460px; }
+  .ff-home-tag br { display: none; }
+  .ff-home-points { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+  .ff-home-points span { padding: 8px 14px; border-radius: 999px; background: #fff; border: 1px solid rgba(15,23,42,.09); font-size: 13.5px; font-weight: 700; color: #334155; }
+  .ff-home-right > * + * { margin-top: 14px; }
 }
-
-@media (min-width: 1280px) {
-  #root { width: 460px; max-width: 460px; }
-  body::after { font-size: 16px; padding: 64px 56px; }
+@media (min-width: 1100px) {
+  .ff-grid-svc { grid-template-columns: repeat(4, minmax(0,1fr)); }
 }
-
-.page-inner { padding: 0 16px; }
 @keyframes popcornFloat { 0%,100%{transform:translateY(0) rotate(0) scale(1)} 25%{transform:translateY(-2px) rotate(-1deg) scale(1.02)} 50%{transform:translateY(-4px) rotate(0) scale(1.03)} 75%{transform:translateY(-2px) rotate(1deg) scale(1.02)} }
 @keyframes popcornGlow { 0%,100%{box-shadow:0 6px 18px rgba(22,163,74,.22)} 50%{box-shadow:0 10px 28px rgba(22,163,74,.36)} }
 @keyframes popcornPop { 0%{transform:scale(1)} 40%{transform:scale(1.10)} 100%{transform:scale(1)} }
@@ -86,6 +95,7 @@ input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; 
 #root input,#root select,#root textarea,#root button{max-width:100%}
 #root{overflow-wrap:break-word}
 @media (max-width:380px){ .page-inner{padding:0 12px} }
+@media (max-width:330px){ .ff-help-short{display:none} }
 </style>
 </head>
 <body>
@@ -277,10 +287,12 @@ function Card({
   children,
   style = {},
   pad = 18,
-  onClick
+  onClick,
+  className
 }) {
   return React.createElement("div", {
     onClick: onClick,
+    className: className,
     style: {
       background: '#fff',
       border: `1px solid ${C.border}`,
@@ -728,24 +740,20 @@ function Topbar({
   canGoBack,
   onBack,
   onHome,
-  pill
+  pill,
+  navItems,
+  activeKey,
+  showHelpMobile
 }) {
+  const items = navItems || [];
+  const help = items.find(i => i.key === 'help');
   return React.createElement("div", {
-    style: {
-      position: 'sticky',
-      top: 0,
-      zIndex: 20,
-      background: 'rgba(255,255,255,.92)',
-      backdropFilter: 'blur(16px)',
-      WebkitBackdropFilter: 'blur(16px)',
-      borderBottom: `1px solid ${C.border}`,
-      padding: '10px 16px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 10
-    }
+    className: "ff-topbar"
+  }, React.createElement("div", {
+    className: "ff-topbar-in"
   }, canGoBack && React.createElement("button", {
     onClick: onBack,
+    "aria-label": "Back",
     style: {
       width: 36,
       height: 36,
@@ -794,6 +802,7 @@ function Topbar({
       textOverflow: 'ellipsis'
     }
   }, sub)), pill && React.createElement("div", {
+    className: "ff-topbar-pill",
     style: {
       flexShrink: 0,
       fontSize: 11.5,
@@ -806,37 +815,35 @@ function Topbar({
       fontFamily: PJS,
       whiteSpace: 'nowrap'
     }
-  }, pill));
+  }, pill), items.length > 0 && React.createElement("nav", {
+    className: "ff-desk-nav"
+  }, items.filter(i => i.key !== 'help').map(i => React.createElement("button", {
+    key: i.key,
+    className: i.key === activeKey ? 'on' : '',
+    onClick: i.onClick
+  }, i.icon, " ", i.label))), help && React.createElement("button", {
+    className: "ff-help" + (showHelpMobile ? '' : ' ff-help-deskonly'),
+    onClick: help.onClick,
+    "aria-label": "WhatsApp support"
+  }, React.createElement("span", null, "💬"), React.createElement("span", {
+    className: "ff-help-short"
+  }, "Help"), React.createElement("span", {
+    className: "ff-help-long"
+  }, "WhatsApp support"))));
 }
-function WABar() {
-  return React.createElement("div", {
-    style: {
-      position: 'fixed',
-      bottom: 16,
-      left: '50%',
-      transform: 'translateX(-50%)',
-      width: 'min(calc(100vw - 32px), 400px)',
-      zIndex: 30
-    }
-  }, React.createElement("button", {
-    onClick: () => API.openWhatsApp(),
-    style: {
-      width: '100%',
-      padding: 13,
-      borderRadius: 16,
-      border: `1px solid ${C.borderMd}`,
-      background: 'rgba(255,255,255,.96)',
-      backdropFilter: 'blur(10px)',
-      WebkitBackdropFilter: 'blur(10px)',
-      cursor: 'pointer',
-      fontFamily: PJS,
-      fontWeight: 700,
-      fontSize: 13.5,
-      color: C.text,
-      boxShadow: '0 4px 20px rgba(15,23,42,.14)',
-      display: 'block'
-    }
-  }, "💬 WhatsApp Support"));
+function BottomNav({
+  items,
+  activeKey
+}) {
+  return React.createElement("nav", {
+    className: "ff-bnav"
+  }, items.map(i => React.createElement("button", {
+    key: i.key,
+    className: "ff-bnav-btn" + (i.key === activeKey ? ' on' : ''),
+    onClick: i.onClick
+  }, React.createElement("span", {
+    className: "ff-bnav-ic"
+  }, i.icon), React.createElement("span", null, i.label))));
 }
 function CredCard({
   access,
@@ -1323,18 +1330,40 @@ function HomeScreen({
       });
     });
   }
+  const trust = [{
+    icon: '⚡',
+    title: 'Instant Access',
+    sub: 'After payment verify'
+  }, {
+    icon: '💸',
+    title: 'Cheaper Plans',
+    sub: 'Than official pricing'
+  }, {
+    icon: '🔒',
+    title: 'Phone Login',
+    sub: 'No passwords ever'
+  }, {
+    icon: '✅',
+    title: 'WhatsApp Verified',
+    sub: 'Blue tick support'
+  }];
   return React.createElement(Slide, {
     dir: -1
   }, React.createElement("div", {
+    className: "ff-home",
     style: {
-      paddingBottom: 90
+      paddingBottom: 24
     }
   }, React.createElement("div", {
+    className: "ff-home-left"
+  }, React.createElement("div", {
+    className: "ff-home-hero ff-o1",
     style: {
       padding: '32px 0 24px',
       textAlign: 'center'
     }
   }, React.createElement("div", {
+    className: "ff-home-logo",
     style: {
       width: 64,
       height: 64,
@@ -1352,6 +1381,7 @@ function HomeScreen({
       animation: 'popcornShake 5s ease-in-out infinite'
     }
   }, "🍿")), React.createElement("h1", {
+    className: "ff-home-h1",
     style: {
       fontFamily: PJS,
       fontSize: 28,
@@ -1361,6 +1391,7 @@ function HomeScreen({
       letterSpacing: '-.5px'
     }
   }, "FluxFilm"), React.createElement("p", {
+    className: "ff-home-tag",
     style: {
       fontFamily: PJS,
       fontSize: 14,
@@ -1369,7 +1400,48 @@ function HomeScreen({
       margin: 0,
       lineHeight: 1.5
     }
-  }, "Premium subscriptions, instant access,", React.createElement("br", null), "easy renewals.")), React.createElement(Card, null, React.createElement("div", {
+  }, "Premium subscriptions, instant access,", React.createElement("br", null), " easy renewals.")), React.createElement("div", {
+    className: "ff-grid-trust ff-o6",
+    style: {
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      gap: 10,
+      margin: '12px 0 6px'
+    }
+  }, trust.map((t, i) => React.createElement(Card, {
+    key: t.title,
+    pad: 14,
+    style: {
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: 10,
+      animation: 'fadeSlide .28s ease both',
+      animationDelay: `${i * 40}ms`
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 20
+    }
+  }, t.icon), React.createElement("div", null, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13,
+      fontWeight: 800,
+      color: C.text
+    }
+  }, t.title), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11.5,
+      color: C.muted,
+      fontWeight: 500,
+      marginTop: 2
+    }
+  }, t.sub)))))), React.createElement("div", {
+    className: "ff-home-right"
+  }, React.createElement(Card, {
+    className: "ff-o2"
+  }, React.createElement("div", {
     style: {
       marginBottom: 16
     }
@@ -1417,11 +1489,12 @@ function HomeScreen({
       textAlign: 'center'
     }
   }, "🔒 No password needed · New? We create your account before checkout.")), React.createElement("div", {
+    className: "ff-o3",
     style: {
       display: 'flex',
       alignItems: 'center',
       gap: 12,
-      margin: '6px 0'
+      margin: '14px 0'
     }
   }, React.createElement("div", {
     style: {
@@ -1443,6 +1516,7 @@ function HomeScreen({
       background: C.border
     }
   })), React.createElement(Card, {
+    className: "ff-o4",
     style: {
       background: 'linear-gradient(135deg,rgba(37,99,235,.03),rgba(96,165,250,.05))',
       border: '1px solid rgba(37,99,235,.12)'
@@ -1469,6 +1543,7 @@ function HomeScreen({
     full: true,
     onClick: () => nav('buy1', {})
   }, "🛒 Buy New Subscription")), React.createElement(Card, {
+    className: "ff-o5",
     style: {
       marginTop: 12
     }
@@ -1518,59 +1593,7 @@ function HomeScreen({
       color: C.muted,
       marginTop: 2
     }
-  }, "Fix household / device issues")))), React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gap: 10,
-      margin: '12px 0 6px'
-    }
-  }, [{
-    icon: '⚡',
-    title: 'Instant Access',
-    sub: 'After payment verify'
-  }, {
-    icon: '💸',
-    title: 'Cheaper Plans',
-    sub: 'Than official pricing'
-  }, {
-    icon: '🔒',
-    title: 'Phone Login',
-    sub: 'No passwords ever'
-  }, {
-    icon: '✅',
-    title: 'WhatsApp Verified',
-    sub: 'Blue tick support'
-  }].map((t, i) => React.createElement(Card, {
-    key: t.title,
-    pad: 14,
-    style: {
-      display: 'flex',
-      alignItems: 'flex-start',
-      gap: 10,
-      animation: 'fadeSlide .28s ease both',
-      animationDelay: `${i * 40}ms`
-    }
-  }, React.createElement("span", {
-    style: {
-      fontSize: 20
-    }
-  }, t.icon), React.createElement("div", null, React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 13,
-      fontWeight: 800,
-      color: C.text
-    }
-  }, t.title), React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 11.5,
-      color: C.muted,
-      fontWeight: 500,
-      marginTop: 2
-    }
-  }, t.sub)))))));
+  }, "Fix household / device issues")))))));
 }
 function SubCard({
   sub,
@@ -2037,6 +2060,7 @@ function DashboardScreen({
       objectFit: 'cover'
     }
   }) : name ? name[0].toUpperCase() : '👤')), React.createElement("div", {
+    className: "ff-dash-actions",
     style: {
       display: 'grid',
       gridTemplateColumns: '1fr 1fr 1fr',
@@ -2089,6 +2113,7 @@ function DashboardScreen({
       }
     }, a.desc));
   })), React.createElement("div", {
+    className: "ff-dash-stats",
     style: {
       display: 'grid',
       gridTemplateColumns: '1fr 1fr 1fr',
@@ -2457,7 +2482,9 @@ function DashboardScreen({
     onClick: () => setTab('orders')
   }, "🧾 Orders")), tab === 'subs' && React.createElement(React.Fragment, null, React.createElement(SectionHead, {
     right: `${allSubs.length} total`
-  }, "Subscriptions"), actionable.map((sub, i) => React.createElement(SubCard, {
+  }, "Subscriptions"), React.createElement("div", {
+    className: "ff-cards"
+  }, actionable.map((sub, i) => React.createElement(SubCard, {
     key: sub.subId || i,
     sub: sub,
     boot: boot,
@@ -2466,7 +2493,9 @@ function DashboardScreen({
       phone
     }),
     onRecover: s => onRecoverCard ? onRecoverCard(s) : nav('recover', {})
-  })), history.length > 0 && React.createElement(React.Fragment, null, React.createElement(SectionHead, null, "History"), history.map((sub, i) => React.createElement(SubCard, {
+  }))), history.length > 0 && React.createElement(React.Fragment, null, React.createElement(SectionHead, null, "History"), React.createElement("div", {
+    className: "ff-cards"
+  }, history.map((sub, i) => React.createElement(SubCard, {
     key: sub.subId || 'h' + i,
     sub: sub,
     boot: boot,
@@ -2475,7 +2504,7 @@ function DashboardScreen({
       phone
     }),
     onRecover: s => onRecoverCard ? onRecoverCard(s) : nav('recover', {})
-  }))), allSubs.length === 0 && React.createElement(Card, {
+  })))), allSubs.length === 0 && React.createElement(Card, {
     style: {
       textAlign: 'center',
       padding: '28px 20px'
@@ -2641,12 +2670,19 @@ function Buy1Screen({
       lineHeight: 1.5
     }
   }, "All plans include instant activation after payment verify."), React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gap: 10
-    }
-  }, services.map(svc => {
+    className: "ff-grid-svc"
+  }, services.map(svc => React.createElement(ServiceTile, {
+    key: svc,
+    svc: svc,
+    plans: plans,
+    nav: nav
+  })))));
+}
+function ServiceTile({
+  svc,
+  plans,
+  nav
+}) {
     const svcPlans = plans.filter(p => p.service === svc);
     const hasManual = svcPlans.some(p => String(p.fulfillmentMode || '').toUpperCase() === 'MANUAL');
     const minPrice = Math.min(...svcPlans.map(p => Number(p.price || 999)));
@@ -2714,7 +2750,6 @@ function Buy1Screen({
     }, "From ₹", minPrice, "/mo"), React.createElement(Badge, {
       tone: hasManual ? 'warn' : 'ok'
     }, hasManual ? '🕒 Manual' : '⚡ Instant'));
-  }))));
 }
 function OutOfStockModal({
   open,
@@ -7777,6 +7812,52 @@ function App() {
     sessionPhone = d.phone || getFFSession().phone || '';
   const canGoBack = history.length > 0 && screen !== 'home' && screen !== 'dashboard' || screen === 'account';
   const [title, sub2, pill] = TOPBAR_META[screen] || TOPBAR_META.home;
+  // Home / plans / my subscriptions use the wide layout; step-by-step screens stay narrow and focused.
+  const WIDE_SCREENS = {
+    home: 1,
+    dashboard: 1,
+    buy1: 1
+  };
+  const BNAV_SCREENS = {
+    home: 1,
+    dashboard: 1,
+    buy1: 1,
+    account: 1
+  };
+  const showBnav = !!BNAV_SCREENS[screen];
+  const activeKey = {
+    home: 'home',
+    dashboard: 'home',
+    account: 'home',
+    buy1: 'buy',
+    buy2: 'buy',
+    recover: 'recover'
+  }[screen] || '';
+  const navItems = [{
+    key: 'home',
+    icon: sessionPhone ? '🎬' : '🏠',
+    label: sessionPhone ? 'My plans' : 'Home',
+    onClick: goLoggedHome
+  }, {
+    key: 'buy',
+    icon: '🛒',
+    label: 'Buy plans',
+    onClick: () => {
+      if (screen !== 'buy1') nav('buy1', {});
+    }
+  }, {
+    key: 'recover',
+    icon: '🔐',
+    label: 'Recover',
+    onClick: () => {
+      if (screen !== 'recover') recoverFromTop();
+    }
+  }, {
+    key: 'help',
+    icon: '💬',
+    label: 'Help',
+    onClick: () => API.openWhatsApp()
+  }];
   const tStyles = [{
     bg: 'linear-gradient(135deg,rgba(34,197,94,.10),rgba(16,185,129,.05))',
     bd: 'rgba(34,197,94,.22)',
@@ -7807,9 +7888,12 @@ function App() {
     pill: pill,
     canGoBack: canGoBack,
     onBack: goBack,
-    onHome: goLoggedHome
+    onHome: goLoggedHome,
+    navItems: navItems,
+    activeKey: activeKey,
+    showHelpMobile: !showBnav
   }), !restoring && React.createElement("div", {
-    className: "page-inner",
+    className: "page-inner " + (WIDE_SCREENS[screen] ? 'ff-w-wide' : 'ff-w-flow') + (showBnav ? ' ff-has-bnav' : ''),
     key: screen
   }, screen === 'home' && React.createElement(HomeScreen, {
     nav: nav,
@@ -7945,7 +8029,10 @@ function App() {
     phone: d.phone || getFFSession().phone,
     otpQuotaCache: otpQuotaCache,
     setOtpQuotaCache: setOtpQuotaCache
-  })), !restoring && React.createElement(WABar, null), showRecoverModal && React.createElement(RecoverPickerModal, {
+  })), !restoring && showBnav && React.createElement(BottomNav, {
+    items: navItems,
+    activeKey: activeKey
+  }), showRecoverModal && React.createElement(RecoverPickerModal, {
     subs: recoverSubs,
     onSelect: sub => {
       setShowRecoverModal(false);
