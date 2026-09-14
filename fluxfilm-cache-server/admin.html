@@ -328,6 +328,12 @@ textarea.inp{resize:vertical}
 .todo input[type=checkbox]{width:18px;height:18px;accent-color:var(--ok)}.todo.done .ttitle{text-decoration:line-through;color:var(--mut)}
 .adet{width:100%;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:10px;font-size:.72rem;overflow:auto;max-height:260px;margin:6px 0 0}
 .rmbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;margin-bottom:10px;position:sticky;top:62px;z-index:15}
+/* ---------- ← back arrows (phone Back button support) + new-version bar ---------- */
+.gback{min-width:44px;min-height:40px;justify-content:center;font-size:1.25rem;padding:4px 10px}.gback[hidden]{display:none}
+.mttl{display:flex;align-items:center;gap:8px;min-width:0}.mback{display:none}
+@media(max-width:900px){.mback{display:inline-flex;min-width:44px;min-height:40px;justify-content:center;font-size:1.2rem;padding:4px 10px}.mhd{padding:10px 14px}}
+.updbar{position:fixed;left:50%;top:calc(10px + env(safe-area-inset-top));transform:translateX(-50%);z-index:95;display:flex;align-items:center;gap:10px;background:#0f172a;color:#fff;border-radius:999px;padding:6px 6px 6px 16px;font-size:.85rem;box-shadow:0 10px 30px rgba(15,23,42,.3);width:max-content;max-width:calc(100vw - 24px);white-space:nowrap}
+.updbar[hidden]{display:none}.updbar .btn{padding:7px 14px;border-radius:999px}.updbar .x{background:none;border:0;color:#cbd5e1;font-size:1rem;cursor:pointer;padding:4px 8px}
 .login{max-width:380px;margin:14vh auto;background:#fff;padding:34px;border-radius:20px;box-shadow:0 20px 60px rgba(15,23,42,.12);text-align:center}
 </style></head><body>
 <div id="app"></div>
@@ -378,7 +384,7 @@ function shell() {
   $('#app').innerHTML = '<aside class="side" id="side"><div class="brand"><div class="logo">🎬</div><div><b>FluxFilm</b><small>ADMIN PANEL</small></div></div><nav class="menu">' +
     MENU.map(function (m) { return m.length === 1 ? '<h6>' + m[0] + '</h6>' : '<a id="nav-' + m[0] + '" onclick="nav(\'' + m[0] + '\')"><span>' + m[1] + '</span>' + m[2] + '</a>'; }).join('') +
     '</nav><button class="side-install" id="adminInstall" hidden onclick="adminInstall()">📲 Install admin app</button><div class="sidefoot"><span class="muted">MySQL · live</span><button class="btn ghost sm" onclick="logout()">Log out</button></div></aside>' +
-    '<div class="main">' + (S.weak ? '<div style="background:#fef3c7;color:#92400e;padding:9px 18px;font-size:.8rem;border-bottom:1px solid #fde68a">⚠️ Security: set a strong <b>ADMIN_PASSWORD</b> (12+ characters) in Hostinger → Environment variables. Until then the panel is protected only by the old admin key (or a short password).</div>' : '') + '<div class="gbar"><button class="btn ghost sm gmenu" onclick="$(\'#side\').classList.toggle(\'open\')">☰</button>' +
+    '<div class="main">' + (S.weak ? '<div style="background:#fef3c7;color:#92400e;padding:9px 18px;font-size:.8rem;border-bottom:1px solid #fde68a">⚠️ Security: set a strong <b>ADMIN_PASSWORD</b> (12+ characters) in Hostinger → Environment variables. Until then the panel is protected only by the old admin key (or a short password).</div>' : '') + '<div class="gbar"><button class="btn ghost sm gback" id="gback" hidden onclick="hBack()" aria-label="Back" title="Back">←</button><button class="btn ghost sm gmenu" onclick="toggleSide()">☰</button>' +
     '<div class="gwrap"><input id="gsearch" class="inp" placeholder="🔎 Search customers, orders, subscriptions…  ( / )" autocomplete="off"/><div class="qdrop" id="gdrop" hidden></div></div></div>' +
     '<button id="pausebar" class="pausebar" hidden onclick="nav(\'maintenance\')">🚧 <b>Shop is PAUSED</b> — customers can\'t place new orders. <u>Open Maintenance</u></button>' +
     '<div class="page" id="view"></div></div>' +
@@ -387,6 +393,7 @@ function shell() {
   wireGlobalSearch();
   refreshPauseBar();
   adminInstallRefresh();
+  hInit();
 }
 function refreshPauseBar(st) {
   var show = function (s) { var b = $('#pausebar'); if (b) b.hidden = !(s && s.paused); };
@@ -401,13 +408,177 @@ function adminInstall() {
   if (e) { e.prompt(); (e.userChoice || Promise.resolve({})).then(function () { window.ffInstall.evt = null; adminInstallRefresh(); }); return; }
   alert('On iPhone: tap Share ⬆️ in Safari → Add to Home Screen → Add.\nOn Android: Chrome menu ⋮ → Install app.');
 }
-function nav(v) { S.view = v; store('ff_view', v); var sd = $('#side'); if (sd) sd.classList.remove('open'); route(); }
+function nav(v) {
+  if (hLeaveBlocked()) return;
+  S.view = v; store('ff_view', v);
+  var sd = $('#side'); if (sd) sd.classList.remove('open');
+  // A new screen = a new history entry (phone Back returns here). From the side menu / a modal, or tapping the
+  // screen you are already on, the top entry is reused so Back doesn't stop at an empty step.
+  if (H.cur && H.cur.sub && !H.cur.layer && H.cur.ffv === v) hDropTop(); // same screen from inside its editor = back to its list
+  else if (H.cur && (H.cur.layer || H.cur.ffv === v)) hReplace({ ffv: v }); else hPush({ ffv: v });
+  H.subClose = null;
+  route();
+}
+function viewMap() {
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, payments: paymentsView, maintenance: maintenanceView, golive: goliveView, promos: promosView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
+}
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
   $$('.bnav a').forEach(function (a) { a.className = a.id === 'bnav-' + S.view ? 'on' : ''; });
   window.scrollTo(0, 0);
-  ({ today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, payments: paymentsView, maintenance: maintenanceView, golive: goliveView, promos: promosView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
+  (viewMap()[S.view] || todayView)();
+  hHeader();
 }
+
+/* ================= phone Back button + ← arrows (History API) ================= */
+// Every screen is a browser history entry, so the phone's Back button (and the ← arrow) goes to the previous screen
+// instead of closing the installed app. A modal or the side menu adds a light entry, so Back closes it first.
+// Editors (Plans, Offers) add an entry too. Unsaved changes ask before they are thrown away.
+// In the installed app a "Today" entry sits at the bottom: Back there says "Press back again to exit".
+var H = { cur: null, skip: 0, queue: [], subClose: null, inited: false, exitTimer: null };
+function hCopy(a, b) { var o = {}, k; for (k in a || {}) if (k !== 'n' && k !== 'root') o[k] = a[k]; for (k in b || {}) o[k] = b[k]; return o; }
+function hUrl(st) { var u = new URL(location.href); u.searchParams.delete('v'); u.hash = st.ffv || ''; return u.pathname + u.search + u.hash; }
+function hPush(st) {
+  if (H.skip) { H.queue.push(function () { hPush(st); }); return; }
+  st.n = (H.cur ? H.cur.n || 0 : 0) + 1; H.cur = st;
+  try { history.pushState(st, '', hUrl(st)); } catch (e) {}
+}
+function hReplace(st) {
+  if (H.skip) { H.queue.push(function () { hReplace(st); }); return; }
+  st.n = H.cur ? H.cur.n || 0 : 0; if (H.cur && H.cur.root && !st.layer && st.ffv === 'today') st.root = 1; H.cur = st;
+  try { history.replaceState(st, '', hUrl(st)); } catch (e) {}
+}
+// Remove the top entry (a modal / menu / editor closed by its own button) without that Back doing anything else.
+function hDropTop() {
+  if (!H.cur || !H.cur.n) return;
+  H.skip++; H.cur = hCopy(H.cur, { layer: null, sub: null }); H.cur.n = Math.max(0, (H.cur.n || 1) - 1);
+  clearTimeout(H.skipT); H.skipT = setTimeout(function () { hFlush(null); }, 900);
+  try { history.back(); } catch (e) { hFlush(null); }
+}
+function hFlush(st) {
+  H.skip = 0; clearTimeout(H.skipT);
+  if (st && st.ffv) H.cur = st;
+  var q = H.queue; H.queue = []; q.forEach(function (f) { f(); });
+}
+function hInit() {
+  if (H.inited) return; H.inited = true;
+  if (adminStandalone()) {
+    H.cur = { ffv: 'today', n: 0, root: 1 };
+    try { history.replaceState(H.cur, '', hUrl(H.cur)); } catch (e) {}
+    hPush({ ffv: S.view });
+  } else hReplace({ ffv: S.view });
+}
+function modalDirty() { var m = $('#modal'); return !!(m && m.getAttribute('data-dirty') === '1'); }
+function viewDirty() { return $$('#view .rf-state.dirty').some(function (el) { return /not saved/i.test(el.textContent); }); }
+function hLeaveBlocked(onlyModal) {
+  var dirty = onlyModal ? modalDirty() : (modalDirty() || viewDirty());
+  return dirty && !confirm('Leave without saving?\n\nYour changes on this screen will be lost.');
+}
+// ← arrow in the header and the ← Back buttons inside editors.
+function hBack() {
+  if (H.cur && H.cur.n > 0) { history.back(); return; }
+  if (H.subClose) { if (hLeaveBlocked()) return; var f = H.subClose; H.subClose = null; f(); hHeader(); return; }
+  if (S.view !== 'today') nav('today');
+}
+function hHeader() { var b = $('#gback'); if (b) b.hidden = S.view === 'today' && !(H.cur && H.cur.sub); }
+// An editor (sub-screen) opened inside the current view.
+function hSub(name, close) {
+  H.subClose = close;
+  if (!(H.cur && H.cur.sub === name && H.cur.ffv === S.view && !H.cur.layer)) hPush(hCopy(H.cur, { ffv: S.view, sub: name, layer: null }));
+  hHeader();
+}
+// The editor closed by itself (deleted, list re-shown): forget its entry.
+function hSubDone(name) {
+  if (H.cur && H.cur.sub === name && !H.cur.layer) { H.subClose = null; hDropTop(); }
+  hHeader();
+}
+function toggleSide(open) {
+  var sd = $('#side'); if (!sd) return;
+  var on = open == null ? !sd.classList.contains('open') : !!open;
+  if (on === sd.classList.contains('open')) return;
+  sd.classList.toggle('open', on);
+  if (on) hPush(hCopy(H.cur, { layer: 'side' })); else if (H.cur && H.cur.layer === 'side') hDropTop();
+}
+window.addEventListener('popstate', function (e) {
+  var st = e.state;
+  if (H.skip) { hFlush(st); return; }
+  if (!H.inited || !$('#view')) return; // signed out: nothing to show
+  if (!st || !st.ffv) { // typed /panel#orders into the address bar
+    var dv = hDeepLink(); if (dv) { H.cur = H.cur || { ffv: S.view, n: 0 }; if (!hLeaveBlocked()) { S.view = dv; store('ff_view', dv); hReplace({ ffv: dv }); route(); } }
+    return;
+  }
+  var cur = H.cur || { ffv: S.view, n: 0 };
+  var back = (st.n || 0) < (cur.n || 0);
+  var closingModal = cur.layer === 'modal' && st.layer !== 'modal';
+  var leavingScreen = st.ffv !== cur.ffv || (cur.sub && st.sub !== cur.sub);
+  if ((closingModal && hLeaveBlocked(true)) || (!closingModal && leavingScreen && hLeaveBlocked())) {
+    try { history.pushState(cur, '', hUrl(cur)); } catch (x) {} // stay: put the entry back
+    H.cur = cur; return;
+  }
+  H.cur = st;
+  clearTimeout(H.exitTimer);
+  if (closingModal) { var m = $('#modal'); if (m) m.remove(); }
+  var sd = $('#side'); if (cur.layer === 'side' && st.layer !== 'side' && sd) sd.classList.remove('open');
+  // An entry whose modal / menu / editor is already gone: skip over it (Back) or tidy it (Forward).
+  var deadLayer = (st.layer === 'modal' && !$('#modal')) || (st.layer === 'side' && !(sd && sd.classList.contains('open')));
+  if (st.ffv !== S.view) {
+    S.view = st.ffv; store('ff_view', st.ffv); H.subClose = null;
+    if (st.ffv === 'customer' && st.phone) store('ff_last_phone', st.phone);
+    route();
+  } else if (cur.sub && st.sub !== cur.sub) {
+    var f = H.subClose; H.subClose = null; if (f) f();
+  } else if (st.ffv === 'customer' && st.phone && st.phone !== cur.phone && $('#cp')) {
+    $('#cp').value = st.phone; lookup(true);
+  }
+  var deadSub = st.sub && !H.subClose;
+  if (deadLayer || deadSub) {
+    if (back && st.n > 0) { H.cur = hCopy(st, { layer: null, sub: null }); H.cur.n = st.n; history.back(); return; }
+    hReplace(hCopy(st, { layer: null, sub: null }));
+  }
+  hHeader();
+  if (st.root && back) {
+    if (cur.ffv === 'today' && !cur.sub && !cur.layer) {
+      // Installed app, on Today, nothing left: next Back (within 2.5 s) closes the app.
+      toast('Press back again to exit');
+      H.exitTimer = setTimeout(function () { if (H.cur && H.cur.root) hPush({ ffv: 'today' }); }, 2500);
+    } else hPush({ ffv: 'today' });
+  }
+});
+// /panel#orders or /panel?v=orders opens that screen (after sign-in too).
+function hDeepLink() {
+  var v = '';
+  try { v = new URLSearchParams(location.search).get('v') || decodeURIComponent((location.hash || '').slice(1)); } catch (e) {}
+  return v && Object.prototype.hasOwnProperty.call(viewMap(), v) ? v : '';
+}
+(function () { var dv = hDeepLink(); if (dv) { S.view = dv; store('ff_view', dv); } })();
+
+/* ================= new version ready (appversion.js) ================= */
+// An installed app left open keeps the old page. When it comes back to the front (and every 10 minutes) we ask the
+// server for its version id; if it changed, a bar offers Refresh. Admin never reloads by itself (forms may be open).
+var UPD = { last: 0, shown: false };
+function updCheck() {
+  if (!window.FF_VERSION || UPD.shown || document.visibilityState === 'hidden') return;
+  UPD.last = Date.now();
+  fetch('/version', { cache: 'no-store', credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (r) {
+    if (!r || !r.version || r.version === window.FF_VERSION) return;
+    try { if (navigator.serviceWorker) navigator.serviceWorker.getRegistration('/').then(function (reg) { if (reg) reg.update(); }).catch(function () {}); } catch (e) {}
+    updShow();
+  }).catch(function () {});
+}
+function updShow() {
+  UPD.shown = true;
+  var b = $('#updbar');
+  if (!b) {
+    b = document.createElement('div'); b.id = 'updbar'; b.className = 'updbar'; b.setAttribute('role', 'status');
+    b.innerHTML = '<span>🔄 New version ready</span><button class="btn green sm" onclick="updReload()">Refresh</button><button class="x" aria-label="Later" onclick="updHide()">✕</button>';
+    document.body.appendChild(b);
+  }
+  b.hidden = false;
+}
+function updHide() { var b = $('#updbar'); if (b) b.hidden = true; UPD.shown = false; UPD.last = Date.now(); }
+function updReload() { if (hLeaveBlocked()) return; location.reload(); }
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && Date.now() - UPD.last > 15000) updCheck(); });
+setInterval(updCheck, 10 * 60000);
 
 /* ================= dashboard ================= */
 function dashboard() {
@@ -442,8 +613,12 @@ function customerView(phone) {
   var last = typeof phone === 'string' ? phone : store('ff_last_phone');
   if (last) { $('#cp').value = last; lookup(); } else $('#cp').focus();
 }
-function lookup() {
+function lookup(fromHistory) {
   var p = $('#cp').value.trim(); if (!p) return; store('ff_last_phone', p);
+  // Looking up another customer = a history entry, so Back shows the previous customer again.
+  if (fromHistory !== true && H.cur && H.cur.ffv === 'customer' && !H.cur.layer && !H.cur.sub) {
+    if (H.cur.phone && H.cur.phone !== p) hPush({ ffv: 'customer', phone: p }); else hReplace(hCopy(H.cur, { phone: p }));
+  }
   $('#c360').innerHTML = '<p class="muted">Loading…</p>';
   api('/admin/api/customer', { phone: p }).then(function (r) {
     if (!r.ok) { $('#c360').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
@@ -760,13 +935,17 @@ function removedDialog(i) {
 
 /* ================= modal + row editor ================= */
 function modal(title, body, foot, size) {
-  closeModal();
+  var old = $('#modal'); if (old) old.remove(); // one modal replaces another: keep its history entry
   var m = document.createElement('div'); m.className = 'modal'; m.id = 'modal';
-  m.innerHTML = '<div class="mbox ' + (size || '') + '"><div class="mhd"><b>' + title + '</b><button class="btn ghost sm" onclick="closeModal()">✕</button></div><div class="mbody">' + body + '</div><div class="mft">' + (foot || '') + '</div></div>';
+  m.innerHTML = '<div class="mbox ' + (size || '') + '"><div class="mhd"><div class="mttl"><button class="btn ghost sm mback" onclick="closeModal()" aria-label="Back">←</button><b>' + title + '</b></div><button class="btn ghost sm" onclick="closeModal()">✕</button></div><div class="mbody">' + body + '</div><div class="mft">' + (foot || '') + '</div></div>';
   m.addEventListener('mousedown', function (e) { if (e.target === m) closeModal(); });
+  // Typing in a form = unsaved changes: the phone Back button asks before closing.
+  var mark = function (e) { if (e.target && e.target.closest && e.target.closest('.mbody') && !e.target.closest('[data-nodirty]')) m.setAttribute('data-dirty', '1'); };
+  m.addEventListener('input', mark); m.addEventListener('change', mark);
   document.body.appendChild(m);
+  if (H.inited && !(H.cur && H.cur.layer === 'modal')) hPush(hCopy(H.cur, { layer: 'modal' }));
 }
-function closeModal() { var m = $('#modal'); if (m) m.remove(); }
+function closeModal() { var m = $('#modal'); if (m) m.remove(); if (H.cur && H.cur.layer === 'modal') hDropTop(); }
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
 // Values with a line break (and Benefits / PostPaymentMessage) get a textarea so saving keeps the line breaks.
 var MULTILINE_KEYS = ['Benefits', 'PostPaymentMessage'];
@@ -1861,6 +2040,7 @@ function prLoad() {
   });
 }
 function prRenderList() {
+  hSubDone('offer');
   var h = '';
   if (!PR.list.length) h = '<div class="card" style="text-align:center;padding:28px"><div style="font-size:2.4rem">📣</div><h3>No offers yet</h3><p class="muted">Start with the 🎉 Anniversary template or ➕ New offer.</p></div>';
   else h = '<div class="pr-list">' + PR.list.map(function (p) {
@@ -1884,6 +2064,7 @@ function prRenderList() {
 }
 function prEdit(p) {
   PR.edit = Object.assign({ pages: [] }, p);
+  hSub('offer', function () { PR.edit = null; prLoad(); prRenderList(); });
   var e = PR.edit;
   var opt = function (list, val) { return list.map(function (x) { return '<option value="' + x[0] + '"' + (x[0] === val ? ' selected' : '') + '>' + x[1] + '</option>'; }).join(''); };
   var pageBox = function (k, label) { return '<label class="rf-tog" style="margin:0"><input type="checkbox" data-page="' + k + '"' + (e.pages.indexOf(k) >= 0 ? ' checked' : '') + '/> ' + label + '</label>'; };
@@ -1924,7 +2105,7 @@ function prEdit(p) {
     var tb = ev.target.closest('[data-type]');
     if (tb) { PR.edit.type = tb.dataset.type; prEdit(PR.edit); return; }
   };
-  $('#prback').onclick = function () { PR.edit = null; prLoad(); prRenderList(); };
+  $('#prback').onclick = function () { hBack(); }; // same as the phone Back button (asks if not saved)
   $('#prsave').onclick = function () {
     var btn = this;
     saveSettingsBtn(btn, '/admin/api/promos/save', PR.edit, rfStateSet, function (r) { r.changed = ['x']; PR.edit = Object.assign({}, r.promo); prLoad(); setTimeout(function () { prEdit(PR.edit); rfStateSet('ok', '✅ Saved — ' + ((PR_STATUS[r.status] || [r.status])[0])); }, 50); });
@@ -2011,6 +2192,7 @@ function plLoad() {
 }
 function plFind(svc, plan) { var f = null; PL.list.forEach(function (g) { g.plans.forEach(function (p) { if (p.service === svc && p.plan === plan) f = p; }); }); return f; }
 function plRenderList() {
+  hSubDone('plan');
   if (!PL.list.length) { $('#plbody').innerHTML = '<div class="card" style="text-align:center;padding:28px"><div style="font-size:2.4rem">🧾</div><h3>No plans yet</h3><p class="muted">Tap ➕ New plan.</p></div>'; return; }
   $('#plbody').innerHTML = (PL.stockError ? '<div class="qnote warn" style="margin-bottom:12px">⚠️ Live stock could not be counted: ' + esc(PL.stockError) + '</div>' : '') +
     PL.list.map(function (g, gi) {
@@ -2044,6 +2226,7 @@ function plToggle(p, btn) {
 }
 function plEdit(e, orig) {
   PL.edit = e; PL.orig = orig || null;
+  hSub('plan', function () { PL.edit = null; PL.orig = null; plRenderList(); plLoad(); });
   var used = orig ? (orig.orders + orig.subs) : 0, locked = used > 0;
   var services = []; PL.list.forEach(function (g) { services.push(g.service); });
   var opt = function (list, val) { return list.map(function (x) { return '<option value="' + esc(x[0]) + '"' + (String(x[0]) === String(val) ? ' selected' : '') + '>' + esc(x[1]) + '</option>'; }).join(''); };
@@ -2111,7 +2294,7 @@ function plEdit(e, orig) {
     else PL.edit[key] = v;
     plEdit(PL.edit, PL.orig); st('dirty', '● Not saved yet');
   };
-  $('#plback').onclick = function () { PL.edit = null; PL.orig = null; plRenderList(); plLoad(); };
+  $('#plback').onclick = function () { hBack(); }; // same as the phone Back button (asks if not saved)
   $('#plsave').onclick = function () {
     var btn = this, payload = Object.assign({}, PL.edit, { original: PL.orig ? { service: PL.orig.service, plan: PL.orig.plan } : null });
     if (payload.nameMode === 'builder') payload.plan = plName(payload);
