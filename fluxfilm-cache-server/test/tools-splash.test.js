@@ -112,7 +112,7 @@ function runSplash({ reduce, seen, storageThrows }) {
   return S;
 }
 let S = runSplash({});
-ok('first visit: shown, marked seen, auto-removed by 1.4 s', !S.hidden && !S.removed && S.store.ff_splash === '1' && S.timers.length === 1 && S.timers[0][1] <= 1400);
+ok('page load: shown and auto-removed by 1.4 s', !S.hidden && !S.removed && S.timers.length === 1 && S.timers[0][1] <= 1400);
 S.timers[0][0]();
 ok('timer removes it', S.removed);
 S = runSplash({}); S.listeners.click();
@@ -120,7 +120,7 @@ ok('tap skips it', S.removed);
 S = runSplash({}); S.listeners.animationend({ target: {} });
 ok('a child animation ending does not remove it early', !S.removed);
 S = runSplash({ seen: true });
-ok('second load in the same session: removed at once, never shown', S.removed && S.hidden);
+ok('reload in the same tab shows the 3D logo again (owner 2026-09-14)', !S.hidden && !S.removed && !/sessionStorage/.test(spScript));
 S = runSplash({ reduce: true });
 ok('reduced motion: removed at once, never shown', S.removed && S.hidden && !S.store.ff_splash);
 S = runSplash({ storageThrows: true });
