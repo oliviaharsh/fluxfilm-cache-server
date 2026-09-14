@@ -551,7 +551,12 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
     var probe = document.createElement('div'); probe.setAttribute('style', 'position:fixed;bottom:0;height:env(safe-area-inset-bottom);width:1px;visibility:hidden'); document.body.appendChild(probe);
     var inset = Math.round(probe.getBoundingClientRect().height); probe.remove();
     var standalone = false; try { standalone = window.matchMedia('(display-mode: standalone)').matches; } catch (e) {}
-    box.textContent = 'innerH ' + m.innerH + ' · vvH ' + m.vvH + ' · visH ' + Math.round(m.visH) + '\ndocH ' + m.docH + ' · scrollY ' + m.scrollY + '\nnavTop ' + m.navTop + ' · lastBottom ' + m.lastBottom + '\nextra ' + m.extra + ' · inset ' + inset + ' · app ' + standalone + ' · dpr ' + window.devicePixelRatio;
+    var zoom = ''; try { zoom = getComputedStyle(document.documentElement).zoom; } catch (e) {}
+    box.textContent = 'v ' + (window.FF_VERSION || '?') + ' · app ' + standalone + ' · dpr ' + window.devicePixelRatio + ' · zoom ' + zoom +
+      '\ninnerH ' + m.innerH + ' · clientH ' + m.clientH + ' · vvH ' + m.vvH + ' · vvScale ' + m.vvScale + ' · screenH ' + m.screenH +
+      '\ndocH ' + m.docH + ' · scrollY ' + m.scrollY + ' · atEnd ' + m.atEnd +
+      '\nnavTop ' + m.navTop + ' · lastBottom ' + m.lastBottom + ' · padB ' + m.padB +
+      '\nextra ' + m.extra + ' · inset ' + inset;
   };
 })();
 </script>
@@ -1534,6 +1539,48 @@ function RefBanner({
     "aria-label": "Hide"
   }, "×"));
 }
+// ✍️ Share texts — every message a customer sends from the app is written here, so the wording is easy to change.
+// The link always goes LAST: WhatsApp builds its preview card from the link at the end of the message.
+// The share sheet (navigator.share) gets the text WITHOUT the link: Android and iOS add the url after the text themselves.
+const shareText_ = {
+  clean(v) {
+    return String(v == null ? '' : v).replace(/[*_~`]/g, '').replace(/\s+/g, ' ').trim();
+  },
+  rupees(n) {
+    const v = Math.round(Number(n) || 0);
+    return v > 0 ? '₹' + v.toLocaleString('en-IN') : '';
+  },
+  // 🍿 What's new post. info = feedServiceInfo_(post.service, plans) → { service, price } (cheapest plan) or null.
+  post(p, info, now) {
+    const title = shareText_.clean(p && p.title) || 'Something new';
+    const service = shareText_.clean(info && info.service || p && p.service);
+    const price = shareText_.rupees(info && info.price);
+    const deal = service + (price ? ' from ' + price : ' at low prices') + ', instant login ✅';
+    const t = /^\d{4}-\d{2}-\d{2}$/.test(p && p.releaseDate || '') ? Date.parse(p.releaseDate + 'T00:00:00+05:30') : 0;
+    let text;
+    if (!service || p && p.type === 'announcement') text = `📣 *${title}* — fresh from FluxFilm 🍿`;else if (t > (now || Date.now())) text = `🍿 *${title}* is coming to ${service} on ${new Date(t).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      timeZone: 'Asia/Kolkata'
+    })}! Get ready with FluxFilm — ${deal}`;else text = `🍿 *${title}* is streaming on ${service}! Watch it with FluxFilm — ${deal}`;
+    return {
+      title: service ? `${title} — on ${service}` : title,
+      text: text + ' 👉'
+    };
+  },
+  // 🎁 Refer & earn, "Share on WhatsApp". info = getReferralInfo result (code, link, friendDiscount).
+  referral(info) {
+    const off = shareText_.rupees(info && info.friendDiscount);
+    const code = shareText_.clean(info && info.code);
+    return '🎁 Hey! I get my Netflix, Prime Video & JioHotstar from FluxFilm — cheap, instant and legit. ' + (off ? `Use my link and get *${off} OFF* your first plan` : 'Try it with my invite link') + (code ? ` (code ${code})` : '') + ' 👉 ' + (info && info.link || '');
+  },
+  // 🎁 Refer & earn, "Copy link": short, code kept for typing in by hand.
+  referralShort(info) {
+    const off = shareText_.rupees(info && info.friendDiscount);
+    const code = shareText_.clean(info && info.code);
+    return (off ? `🎁 ${off} OFF your first FluxFilm plan` : '🎁 Join me on FluxFilm') + (code ? ` — code ${code}` : '') + ' 👉 ' + (info && info.link || '');
+  }
+};
 function copyText_(text, done) {
   window.ffSound?.('copy');
   const fallback = () => {
@@ -1592,7 +1639,7 @@ function ReferralPanel({
     setCopied(what);
     setTimeout(() => setCopied(c => c === what ? '' : c), 1600);
   });
-  const shareText = `🍿 Get premium subscriptions (Netflix, Prime & more) cheaper on FluxFilm! Use my invite link and get ₹${info.friendDiscount} off your first plan: ${info.link}`;
+  const shareText = shareText_.referral(info);
   const R = info.rules || {};
   const range = R.firstMax > 0 ? `${R.firstMin}–${R.firstMax}` : `${R.firstMin}+`;
   const STATUS = {
@@ -1626,7 +1673,7 @@ function ReferralPanel({
   }, "💬 Share on WhatsApp"), React.createElement(Btn, {
     variant: "ghost",
     full: true,
-    onClick: () => copy('link', info.link)
+    onClick: () => copy('link', shareText_.referralShort(info))
   }, copied === 'link' ? '✅ Link copied' : '🔗 Copy link'))), React.createElement(Card, {
     style: {
       marginTop: 12
@@ -1901,7 +1948,7 @@ function BottomNav({
       // "At the very end" uses the LAYOUT height: on edge-to-edge Android the visible height (visualViewport) can be smaller,
       // so checking with it never saw the end and the heal never ran (still cut on the owner's Nord 5 after PR #68).
       const layoutH = Math.max(window.innerHeight, doc.clientHeight || 0);
-      if (doc.scrollTop + layoutH < doc.scrollHeight - 4) return;
+      const atEnd = doc.scrollTop + layoutH >= doc.scrollHeight - 4;
       // Last real content = the lowest in-flow child (pop-ups, update bar and other fixed layers are ignored).
       let last = null; let lastBottom = -Infinity;
       for (const c of page.children) {
@@ -1910,14 +1957,16 @@ function BottomNav({
         const r = c.getBoundingClientRect();
         if (r.height > 0 && r.bottom > lastBottom) { last = c; lastBottom = r.bottom; }
       }
-      if (!last) return;
-      const limit = Math.min(el.getBoundingClientRect().top, visH);
-      const missing = Math.ceil(last.getBoundingClientRect().bottom - limit + 20);
+      const navTop = el.getBoundingClientRect().top;
+      // ?layout=1 box: shown on every scroll (not only at the end) so a phone screenshot always has the numbers.
+      if (window.ffLayoutDebug) window.ffLayoutDebug({ visH, innerH: window.innerHeight, clientH: doc.clientHeight, vvH: vv ? Math.round(vv.height) : null, vvScale: vv ? vv.scale : null, docH: doc.scrollHeight, scrollY: Math.round(doc.scrollTop), atEnd, navTop: Math.round(navTop), lastBottom: Math.round(lastBottom), padB: getComputedStyle(page).paddingBottom, screenH: window.screen && window.screen.height, extra });
+      if (!atEnd || !last) return;
+      const limit = Math.min(navTop, visH);
+      const missing = Math.ceil(lastBottom - limit + 20);
       if (missing > 0 && extra < 480) {
         extra = Math.min(480, extra + missing);
         root.style.setProperty('--ff-bnav-extra', extra + 'px');
       }
-      if (window.ffLayoutDebug) window.ffLayoutDebug({ visH, innerH: window.innerHeight, vvH: vv ? Math.round(vv.height) : null, docH: doc.scrollHeight, scrollY: Math.round(doc.scrollTop), navTop: Math.round(el.getBoundingClientRect().top), lastBottom: Math.round(last.getBoundingClientRect().bottom), extra });
     };
     let healT = 0;
     const onScroll = () => { clearTimeout(healT); healT = setTimeout(heal, 120); };
@@ -10138,18 +10187,19 @@ function feedRelease_(ymd, type, now) {
 function feedThumb_(url) {
   return /^(https:\/\/image\.tmdb\.org|\/tmdb-img)\/t\/p\/w780\//.test(url || '') ? url.replace('/w780/', '/w342/') : url || '';
 }
-function feedShare_(p, done) {
+function feedShare_(p, info, done) {
   const url = window.location.origin + '/?post=' + encodeURIComponent(p.id);
+  const msg = shareText_.post(p, info);
   feedEvent_(p.id, 'share');
   if (navigator.share) {
     navigator.share({
-      title: p.title,
-      text: p.title + (p.service ? ' — now on ' + p.service : '') + ' 🍿',
+      title: msg.title,
+      text: msg.text,
       url
     }).then(() => done && done('shared'), () => {});
     return;
   }
-  copyText_(url, () => done && done('copied'));
+  copyText_(msg.text + ' ' + url, () => done && done('copied'));
 }
 function FeedStrip({
   nav
@@ -10202,6 +10252,7 @@ function FeedStrip({
 function FeedPost({
   p,
   info,
+  shareInfo,
   renewSub,
   highlight,
   onCta
@@ -10297,9 +10348,9 @@ function FeedPost({
   }, liked ? '❤️' : '🤍'), likes > 0 ? likes : ''), React.createElement("button", {
     type: "button",
     "aria-label": "Share",
-    onClick: () => feedShare_(p, how => {
+    onClick: () => feedShare_(p, shareInfo, how => {
       if (how === 'copied') {
-        setNote('🔗 Link copied — paste it in WhatsApp');
+        setNote('🔗 Message copied — paste it in WhatsApp');
         setTimeout(() => setNote(''), 2500);
       }
     })
@@ -10444,6 +10495,7 @@ function FeedScreen({
       key: p.id,
       p: p,
       info: info,
+      shareInfo: info || feedServiceInfo_(p.service, plans),
       renewSub: renewSub,
       highlight: !!target && p === target,
       onCta: onCta

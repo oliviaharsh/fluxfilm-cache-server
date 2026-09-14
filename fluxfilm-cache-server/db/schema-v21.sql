@@ -39,5 +39,5 @@ CREATE TABLE IF NOT EXISTS olivia_messages (
   KEY idx_olivia_msg_conv (conversation_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-SELECT COUNT(*) AS olivia_tables_ready FROM information_schema.tables
- WHERE table_schema = DATABASE() AND table_name IN ('olivia_conversations', 'olivia_messages');
+-- Check (no information_schema: the Hostinger user may not read it): both counts show = both tables exist.
+SELECT (SELECT COUNT(*) FROM olivia_conversations) AS olivia_conversations_rows, (SELECT COUNT(*) FROM olivia_messages) AS olivia_messages_rows;

@@ -372,6 +372,9 @@ try { require('./pwa').mount(app); } catch (e) { console.log('[pwa] not mounted:
 // SEO (seo.js): /robots.txt, /sitemap.xml, /og-image.png and the crawlable /plans, /plans/<service>, /faq, /whats-new, /about pages.
 let seo = null;
 try { seo = require('./seo'); seo.mount(app); } catch (e) { console.log('[seo] not mounted:', e.message); }
+// Share previews (share.js): /og-referral.png + per-link cards for /?post=<id> and /?ref=<CODE> (added in the catch-all below).
+let share = null;
+try { share = require('./share'); share.mount(app); } catch (e) { console.log('[share] not mounted:', e.message); }
 // Offer pictures (stored in app_settings) — before the storefront catch-all.
 app.get('/promo-img/:id', async (req, res) => {
   try {
@@ -430,6 +433,8 @@ app.get('*', async (req, res) => {
     if (req.path !== '/' && req.path !== '/index.html') res.set('X-Robots-Tag', 'noindex, follow');
     let out = html;
     if (seo) { try { out = await seo.decorateIndex(html); } catch (_) { out = html; } }
+    // Shared links (/?post=<id>, /?ref=<CODE>) get their own title / description / picture; anything invalid keeps the normal head.
+    if (share && (req.path === '/' || req.path === '/index.html')) { try { out = await share.decorate(out, req.query); } catch (_) {} }
     return res.type('html').send(out);
   }
   if (INDEX) return res.sendFile(INDEX);
