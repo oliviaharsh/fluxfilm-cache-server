@@ -6,6 +6,7 @@
  *   GET /sw.js                  service worker: pages always come from the network (so an installed app always shows
  *                               the latest website, no app update needed); a friendly offline page when there's no
  *                               internet. /api, /admin and /panel are never cached.
+ *                               Also shows push notifications and opens the right page when one is tapped.
  *   GET /icons/<file>           icons/ (the new logo, design/logo PR) first, else icons-default/ (placeholders)
  */
 const fs = require('fs');
@@ -72,6 +73,29 @@ self.addEventListener('fetch', (e) => {
   if (url.pathname.startsWith('/icons/')) {
     e.respondWith(caches.open(ASSETS).then((c) => c.match(req).then((hit) => hit || fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }))));
   }
+});
+// Push notifications (push.js): renewal reminders, "access is ready", admin tests / broadcasts.
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data ? e.data.text() : '' }; }
+  const icon = d.icon === '/icons/admin-icon-192.png' ? d.icon : '/icons/icon-192.png';
+  const opts = { body: String(d.body || ''), icon, badge: icon, data: { url: String(d.url || '/') } };
+  if (d.tag) { opts.tag = String(d.tag); opts.renotify = true; }
+  e.waitUntil(self.registration.showNotification(String(d.title || 'FluxFilm'), opts));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  let target = self.location.origin + '/';
+  try {
+    const u = new URL((e.notification.data && e.notification.data.url) || '/', self.location.origin);
+    if (u.origin === self.location.origin || u.protocol === 'https:') target = u.href;
+  } catch (_) {}
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    const same = new URL(target).origin === self.location.origin;
+    const win = same && list.find((c) => new URL(c.url).origin === self.location.origin && 'navigate' in c);
+    if (win) return win.navigate(target).then((w) => (w || win).focus()).catch(() => self.clients.openWindow(target));
+    return self.clients.openWindow(target);
+  }));
 });
 `;
 }

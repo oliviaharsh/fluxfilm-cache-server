@@ -75,6 +75,10 @@ function afterFulfillHook(payload) {
   mailer.sendAccessEmail(p)
     .then(() => console.log('[mail] sent for', p.orderId))
     .catch((e) => console.log('[mail] failed:', e.message));
+  // Push "🎬 Your Netflix access is ready" if the customer switched notifications on (never blocks delivery).
+  if (!p.manual) {
+    try { require('./pushreminders').notifyDelivered(p).catch(() => {}); } catch (e) { console.log('[push] delivered hook skipped:', e.message); }
+  }
 }
 
 async function withLock(name, ttl, fn) {
