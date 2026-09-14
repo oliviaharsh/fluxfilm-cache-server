@@ -368,7 +368,13 @@ app.get('/feed-img/:id', async (req, res) => {
 if (admin) admin.mountAdmin(app, { db, ADMIN_KEY, sync });
 
 // -- Serve the storefront --
+// The page carries window.FF_VERSION (appversion.js) so an installed app left open can spot a new version.
+// res.send keeps the ETag / 304 behaviour sendFile had; max-age=0 = always revalidated.
+const appversion = require('./appversion');
+appversion.setIndexPath(INDEX);
 app.get('*', (_req, res) => {
+  const html = INDEX && appversion.page(INDEX);
+  if (html) { res.set('Cache-Control', 'public, max-age=0'); return res.type('html').send(html); }
   if (INDEX) return res.sendFile(INDEX);
   res.status(404).type('text/plain').send('index.html not found. Open /__debug.');
 });

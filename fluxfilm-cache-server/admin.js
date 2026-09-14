@@ -442,12 +442,14 @@ function mountAdmin(app, deps) {
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
 
-  app.get('/panel', (_req, res) => res.type('html').send(PAGE));
+  // window.FF_VERSION added so the installed admin app can show "new version ready" (appversion.js).
+  app.get('/panel', (_req, res) => res.type('html').send(appversion.page(path.join(__dirname, 'admin.html')) || PAGE));
 }
 
 // The panel page lives in admin.html (plain HTML/JS, no template-literal escaping).
 const fs = require('fs');
 const path = require('path');
+const appversion = require('./appversion');
 let PAGE;
 try { PAGE = fs.readFileSync(path.join(__dirname, 'admin.html'), 'utf8'); }
 catch (e) { PAGE = '<!DOCTYPE html><title>FluxFilm Admin</title><p>admin.html is missing from the app folder.</p>'; }
