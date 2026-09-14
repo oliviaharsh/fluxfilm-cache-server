@@ -313,6 +313,9 @@ app.post('/api', async (req, res) => {
   return res.status(404).json({ ok: false, message: 'This action is not available in the database-only storefront.' });
 });
 
+// -- Installable app: manifests, service worker, icons (pwa.js) — before the storefront catch-all --
+try { require('./pwa').mount(app); } catch (e) { console.log('[pwa] not mounted:', e.message); }
+
 // -- Admin panel (read-only) --
 if (admin) admin.mountAdmin(app, { db, ADMIN_KEY, sync });
 
