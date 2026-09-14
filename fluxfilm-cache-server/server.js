@@ -353,6 +353,9 @@ app.post('/api', async (req, res) => {
 
 // -- Installable app: manifests, service worker, icons (pwa.js) — before the storefront catch-all --
 try { require('./pwa').mount(app); } catch (e) { console.log('[pwa] not mounted:', e.message); }
+// SEO (seo.js): /robots.txt, /sitemap.xml, /og-image.png and the crawlable /plans, /plans/<service>, /faq, /whats-new, /about pages.
+let seo = null;
+try { seo = require('./seo'); seo.mount(app); } catch (e) { console.log('[seo] not mounted:', e.message); }
 // Offer pictures (stored in app_settings) — before the storefront catch-all.
 app.get('/promo-img/:id', async (req, res) => {
   try {
@@ -402,9 +405,17 @@ if (admin) admin.mountAdmin(app, { db, ADMIN_KEY, sync });
 // res.send keeps the ETag / 304 behaviour sendFile had; max-age=0 = always revalidated.
 const appversion = require('./appversion');
 appversion.setIndexPath(INDEX);
-app.get('*', (_req, res) => {
+// seo.decorateIndex adds the live "from ₹X" description + JSON-LD (5-min cache). Other paths show the same app, so they
+// are kept out of search results (the page's canonical is always https://shop.fluxfilm.in/).
+app.get('*', async (req, res) => {
   const html = INDEX && appversion.page(INDEX);
-  if (html) { res.set('Cache-Control', 'public, max-age=0'); return res.type('html').send(html); }
+  if (html) {
+    res.set('Cache-Control', 'public, max-age=0');
+    if (req.path !== '/' && req.path !== '/index.html') res.set('X-Robots-Tag', 'noindex, follow');
+    let out = html;
+    if (seo) { try { out = await seo.decorateIndex(html); } catch (_) { out = html; } }
+    return res.type('html').send(out);
+  }
   if (INDEX) return res.sendFile(INDEX);
   res.status(404).type('text/plain').send('index.html not found. Open /__debug.');
 });
