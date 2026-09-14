@@ -19,8 +19,10 @@ ok('checkout screens use the narrow centred column, lists use the wide one', /'f
 ok('old phone-strip desktop layout removed', !/body::after/.test(html) && !/#root \{ max-width: 520px/.test(html));
 ok('responsive grids for services and subscription cards', /className: "ff-grid-svc"/.test(html) && (html.match(/className: "ff-cards"/g) || []).length === 3); // active subs, history, filtered list
 // My plans: All / Active / Expired filter (owner 2026-09-14).
-ok('My plans has All · Active · Expired chips with counts', /\[\['all', 'All', allSubs\.length\], \['active', '🟢 Active', liveSubs\.length\], \['expired', '⚪ Expired', expiredSubs\.length\]\]/.test(html) && /\.ff-subfilter button \{[^}]*min-height: 42px/.test(html));
+ok('My plans has All · Active · Expired chips with counts', /\[\['all', 'All', allSubs\.length\], \['active', 'Active', liveSubs\.length\], \['expired', 'Expired', expiredSubs\.length\]\]/.test(html) && /\.ff-subfilter button \{[^}]*min-height: 42px/.test(html));
 ok('active = days left > 0, expired = the rest; choice remembered on the phone', /const isLiveSub = s => Number\(s\.daysLeft\) > 0;/.test(html) && /localStorage\.setItem\('ff_sub_filter', v\)/.test(html) && /const filteredSubs = subFilter === 'active' \? liveSubs : subFilter === 'expired' \? expiredSubs : null;/.test(html));
+ok('filter chips fit small phones: one row, no wrap, CSS dots (no emoji), smaller text under 350 px', /\.ff-subfilter \{ display: flex; gap: 6px;/.test(html) && /\.ff-subfilter button \{[^}]*flex: 1 1 0; min-width: 0;[^}]*white-space: nowrap;/.test(html) && /@media \(max-width: 350px\) \{ \.ff-subfilter button/.test(html));
+ok('rocket is drawn 3D art, not the 🚀 emoji (its pulse drew a box around it)', /function RocketArt\(/.test(html) && !/"🚀"/.test(html) && !/🚀 (Coming soon|We're working)/.test(html) && /React\.createElement\(RocketArt, \{\s*size: 112\s*\}\)/.test(html) && /@keyframes ffRkFloat \{[^}]*perspective\(300px\)/.test(html));
 ok('"All" keeps the old Subscriptions + History layout', /!filteredSubs && React\.createElement\("div", \{\s*className: "ff-cards"\s*\}, actionable\.map/.test(html) && /!filteredSubs && history\.length > 0/.test(html));
 
 // React hooks must never be called inside a loop (crashes when the plan list changes size).
