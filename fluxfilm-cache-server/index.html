@@ -176,6 +176,82 @@ button { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
 button:active { transform: scale(.98) !important; }
 input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; }
 
+/* ── Tools tiles (home + My plans) ── */
+.ff-tools-head { display: flex; align-items: baseline; gap: 10px; margin: 0 2px 10px; }
+.ff-tools-head h2 { font-size: 18px; font-weight: 800; color: #0f172a; }
+.ff-tools-head span { font-size: 12.5px; font-weight: 700; color: #94a3b8; }
+.ff-tools-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+.ff-tool { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-height: 168px; padding: 16px 14px 14px; border-radius: 22px; border: 1px solid rgba(15,23,42,.09); background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.07); text-align: left; cursor: pointer; overflow: hidden; transition: box-shadow .18s ease, border-color .18s ease; -webkit-tap-highlight-color: transparent; }
+.ff-tool::after { content: ''; position: absolute; right: -34px; top: -34px; width: 110px; height: 110px; border-radius: 999px; opacity: .10; pointer-events: none; }
+.ff-tool:hover { box-shadow: 0 2px 6px rgba(15,23,42,.08), 0 14px 32px rgba(15,23,42,.10); }
+.ff-tool:focus-visible, .ff-tools-soon button:focus-visible { outline: 3px solid rgba(22,163,74,.45); outline-offset: 2px; }
+.ff-tool-ic { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; font-size: 26px; line-height: 1; margin-bottom: 8px; flex-shrink: 0; }
+.ff-tool-t { font-size: 15.5px; font-weight: 800; color: #0f172a; line-height: 1.25; }
+.ff-tool-s { font-size: 12.5px; font-weight: 600; color: #64748b; line-height: 1.4; }
+.ff-tool-go { margin-top: auto; padding-top: 10px; font-size: 14px; font-weight: 800; }
+.ff-tool-otp { border-color: rgba(124,58,237,.18); }
+.ff-tool-otp::after { background: #7c3aed; }
+.ff-tool-otp .ff-tool-ic { background: linear-gradient(135deg,#a78bfa,#7c3aed); box-shadow: 0 6px 16px rgba(124,58,237,.28); }
+.ff-tool-otp .ff-tool-go { color: #6d28d9; }
+.ff-tool-nf { border-color: rgba(229,9,20,.16); }
+.ff-tool-nf::after { background: #e50914; }
+.ff-tool-nf .ff-tool-ic { background: linear-gradient(135deg,#f43f5e,#b20710); box-shadow: 0 6px 16px rgba(229,9,20,.24); }
+.ff-tool-nf .ff-tool-go { color: #b91c1c; }
+.ff-tools-soon { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; margin-top: 10px; }
+.ff-tools-soon button { display: flex; align-items: center; gap: 6px; padding: 11px 12px; border-radius: 16px; border: 1px dashed rgba(15,23,42,.16); background: rgba(255,255,255,.6); font-size: 13px; font-weight: 700; color: #475569; cursor: pointer; text-align: left; min-width: 0; }
+.ff-tools-soon b { margin-left: auto; flex-shrink: 0; font-size: 10.5px; font-weight: 800; color: #92400e; background: rgba(245,158,11,.12); border-radius: 999px; padding: 2px 7px; }
+.ff-sheet-bg { position: fixed; inset: 0; z-index: 60; background: rgba(15,23,42,.50); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: flex; align-items: flex-end; justify-content: center; padding: 0 0 16px; animation: ffFadeIn .18s ease both; }
+.ff-sheet { width: min(520px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; background: #fff; border-radius: 24px 24px 18px 18px; padding: 6px 20px calc(20px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 40px rgba(15,23,42,.22); animation: slideUp .22s ease; text-align: center; }
+.ff-sheet-grip { width: 40px; height: 4px; border-radius: 999px; background: #e2e8f0; margin: 10px auto 18px; }
+.ff-sheet h3 { font-size: 20px; font-weight: 800; color: #0f172a; margin: 10px 0 6px; }
+.ff-sheet p { font-size: 14px; font-weight: 600; color: #64748b; line-height: 1.55; margin: 0 auto 14px; max-width: 400px; }
+.ff-sheet p b { color: #0f172a; }
+.ff-sheet-ic { display: flex; justify-content: center; }
+.ff-sheet-ic .ff-tool-ic { margin: 0; width: 60px; height: 60px; font-size: 30px; border-radius: 18px; }
+.ff-sheet-emoji { font-size: 52px; line-height: 1; margin-top: 4px; }
+.ff-sheet-which { text-align: left; font-size: 13.5px; font-weight: 600; color: #475569; line-height: 1.6; padding: 12px 14px; border-radius: 14px; background: #f8fafc; border: 1px solid rgba(15,23,42,.08); }
+.ff-sheet-which b { color: #0f172a; }
+.ff-sheet-which span { color: #1e40af; font-weight: 800; }
+.ff-sheet-btns { display: grid; gap: 10px; margin-top: 16px; }
+.ff-sheet .ff-soon-badge { margin-top: 2px; }
+.ff-otp-hint { margin: -4px 0 14px; padding: 11px 13px; border-radius: 14px; background: rgba(124,58,237,.07); border: 1px solid rgba(124,58,237,.20); font-size: 13.5px; font-weight: 600; color: #4c1d95; line-height: 1.45; animation: fadeSlide .2s ease both; }
+@keyframes ffFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@media (min-width: 640px) {
+  .ff-tool { min-height: 176px; padding: 18px 16px 16px; }
+  .ff-tool-t { font-size: 16.5px; }
+  .ff-tool-s { font-size: 13px; }
+}
+@media (max-width: 350px) {
+  .ff-tools-grid, .ff-tools-soon { grid-template-columns: minmax(0,1fr); }
+  .ff-tool { min-height: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .ff-sheet, .ff-sheet-bg { animation: none; } }
+
+/* ── Splash: 3D logo intro, once per tab session (see #ff-splash script) ── */
+#ff-splash { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; background: radial-gradient(120% 80% at 50% 42%, #ffffff 0%, #eefbf3 55%, #e3f5ea 100%); animation: ffSplashOut .26s ease-in .92s forwards; -webkit-tap-highlight-color: transparent; }
+#ff-splash[hidden] { display: none; }
+.ff-sp-stage { perspective: 700px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.ff-sp-cube { position: relative; width: 96px; height: 96px; transform-style: preserve-3d; animation: ffSpFlip .78s cubic-bezier(.2,.9,.25,1.15) both; will-change: transform; }
+.ff-sp-face, .ff-sp-edge { position: absolute; inset: 0; border-radius: 28px; }
+.ff-sp-edge { background: #15803d; }
+.ff-sp-e1 { transform: translateZ(-6px); }
+.ff-sp-e2 { transform: translateZ(-12px); background: #166534; }
+.ff-sp-face { display: grid; place-items: center; font-size: 46px; background: linear-gradient(135deg,#34d399,#16a34a); box-shadow: inset 0 1px 0 rgba(255,255,255,.35); overflow: hidden; transform: translateZ(0); }
+.ff-sp-face::after { content: ''; position: absolute; top: -20%; bottom: -20%; left: 0; width: 45%; background: linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent); transform: translateX(-160%) skewX(-18deg); animation: ffSpShine .55s ease-out .5s both; }
+.ff-sp-shadow { width: 84px; height: 14px; margin-top: -8px; border-radius: 50%; background: radial-gradient(closest-side, rgba(21,128,61,.28), transparent); animation: ffSpShadow .78s cubic-bezier(.2,.9,.25,1.15) both; }
+.ff-sp-word { display: flex; perspective: 400px; font-size: 30px; font-weight: 800; letter-spacing: -.5px; color: #0f172a; font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; }
+.ff-sp-word span { display: inline-block; transform-origin: 50% 100%; animation: ffSpLetter .36s cubic-bezier(.2,.8,.3,1.2) both; }
+.ff-sp-word span:nth-child(1) { animation-delay: .34s; } .ff-sp-word span:nth-child(2) { animation-delay: .38s; }
+.ff-sp-word span:nth-child(3) { animation-delay: .42s; } .ff-sp-word span:nth-child(4) { animation-delay: .46s; }
+.ff-sp-word span:nth-child(5) { animation-delay: .50s; color: #16a34a; } .ff-sp-word span:nth-child(6) { animation-delay: .54s; color: #16a34a; }
+.ff-sp-word span:nth-child(7) { animation-delay: .58s; color: #16a34a; } .ff-sp-word span:nth-child(8) { animation-delay: .62s; color: #16a34a; }
+@keyframes ffSpFlip { 0% { transform: translateY(26px) translateZ(-260px) rotateX(38deg) rotateY(-150deg); opacity: 0; } 35% { opacity: 1; } 72% { transform: translateY(-4px) translateZ(30px) rotateX(-8deg) rotateY(14deg); } 100% { transform: none; opacity: 1; } }
+@keyframes ffSpShadow { 0% { transform: scale(.35); opacity: 0; } 72% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes ffSpShine { to { transform: translateX(360%) skewX(-18deg); } }
+@keyframes ffSpLetter { from { transform: rotateX(-95deg) translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ffSplashOut { to { opacity: 0; transform: scale(1.06); visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { #ff-splash { display: none !important; } }
+
 /* ── Mobile hardening (added) ── */
 #root{overflow-x:clip}
 #root img,#root svg,#root canvas{max-width:100%}
@@ -186,6 +262,24 @@ input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; 
 </style>
 </head>
 <body>
+<div id="ff-splash" hidden aria-hidden="true"><div class="ff-sp-stage"><div class="ff-sp-cube"><div class="ff-sp-edge ff-sp-e2"></div><div class="ff-sp-edge ff-sp-e1"></div><div class="ff-sp-face">🍿</div></div><div class="ff-sp-shadow"></div><div class="ff-sp-word"><span>F</span><span>l</span><span>u</span><span>x</span><span>F</span><span>i</span><span>l</span><span>m</span></div></div></div>
+<script>
+// Splash: once per tab session, skipped for reduced motion, removed by 1.4 s at the latest. The app renders underneath.
+(function () {
+  var el = document.getElementById('ff-splash');
+  if (!el) return;
+  var done = function () { if (el.parentNode) el.parentNode.removeChild(el); };
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
+    if (sessionStorage.getItem('ff_splash')) return done();
+    sessionStorage.setItem('ff_splash', '1');
+  } catch (e) {}
+  el.hidden = false;
+  el.addEventListener('click', done);
+  el.addEventListener('animationend', function (e) { if (e.target === el) done(); });
+  setTimeout(done, 1400);
+})();
+</script>
 <div id="root"></div>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
@@ -1715,12 +1809,161 @@ function RecoverPickerModal({
     }
   }, "Cancel")));
 }
+// Tools (home + My plans): big friendly tiles. Every tool opens something real; "Soon" ones explain politely.
+const NETFLIX_HOUSEHOLD_LINK_2 = "https://darkflix.shop";
+function openExternal_(url) {
+  const w = window.open(url, '_blank');
+  try {
+    if (w) w.opener = null;
+  } catch (e) {}
+}
+const TOOLS_SOON_ = {
+  // [icon, sheet title, sheet text, short tile label]
+  movies: ['🎬', 'Latest Movies & Series', 'Stay up to date with what\'s new on Netflix, Prime, and more. Coming soon!', 'Movies & Series'],
+  games: ['🎮', 'Games', 'Browse and subscribe to game passes and services. Coming soon!', 'Games']
+};
+function ToolsSheet({
+  onClose,
+  children
+}) {
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  return React.createElement("div", {
+    className: "ff-sheet-bg",
+    onClick: onClose
+  }, React.createElement("div", {
+    className: "ff-sheet",
+    role: "dialog",
+    "aria-modal": "true",
+    onClick: e => e.stopPropagation()
+  }, React.createElement("div", {
+    className: "ff-sheet-grip"
+  }), children));
+}
+function ToolsGrid({
+  onOtp,
+  className,
+  style
+}) {
+  const [sheet, setSheet] = useState('');
+  const close = () => setSheet('');
+  const tiles = [{
+    id: 'otp',
+    icon: '📲',
+    tone: 'otp',
+    title: 'Get OTP',
+    sub: 'Login code for JioHotstar, Zee5, SonyLiv',
+    go: 'Get my OTP',
+    fn: () => onOtp && onOtp()
+  }, {
+    id: 'household',
+    icon: '🏠',
+    tone: 'nf',
+    title: 'Netflix Household Helper',
+    sub: 'Fix “not part of household” / TV code',
+    go: 'Fix it',
+    fn: () => setSheet('household')
+  }];
+  const soon = TOOLS_SOON_[sheet];
+  return React.createElement("section", {
+    className: "ff-tools" + (className ? ' ' + className : ''),
+    style: style
+  }, React.createElement("div", {
+    className: "ff-tools-head"
+  }, React.createElement("h2", null, "🧰 Tools"), React.createElement("span", null, "Quick help, anytime")), React.createElement("div", {
+    className: "ff-tools-grid"
+  }, tiles.map(t => React.createElement("button", {
+    key: t.id,
+    type: "button",
+    className: "ff-tool ff-tool-" + t.tone,
+    "data-tool": t.id,
+    onClick: t.fn
+  }, React.createElement("span", {
+    className: "ff-tool-ic",
+    "aria-hidden": "true"
+  }, t.icon), React.createElement("span", {
+    className: "ff-tool-t"
+  }, t.title), React.createElement("span", {
+    className: "ff-tool-s"
+  }, t.sub), React.createElement("span", {
+    className: "ff-tool-go"
+  }, t.go, " ›")))), React.createElement("div", {
+    className: "ff-tools-soon"
+  }, Object.keys(TOOLS_SOON_).map(k => React.createElement("button", {
+    key: k,
+    type: "button",
+    "data-tool": k,
+    onClick: () => setSheet(k)
+  }, TOOLS_SOON_[k][0], " ", TOOLS_SOON_[k][3], React.createElement("b", null, "Soon")))), sheet === 'household' && React.createElement(ToolsSheet, {
+    onClose: close
+  }, React.createElement("div", {
+    className: "ff-sheet-ic ff-tool-nf"
+  }, React.createElement("span", {
+    className: "ff-tool-ic"
+  }, "🏠")), React.createElement("h3", null, "Netflix Household Helper"), React.createElement("p", null, "Netflix says ", React.createElement("b", null, "“not part of your household”"), " or your TV asks for a code? Open the helper and follow the steps."), React.createElement("div", {
+    className: "ff-sheet-which"
+  }, React.createElement("b", null, "Which link should I use?"), React.createElement("div", null, "📌 ", React.createElement("b", null, "Link 1"), " — Netflix email starts with ", React.createElement("span", null, "harsh…, gunjan…, fluxfilm…")), React.createElement("div", null, "📌 ", React.createElement("b", null, "Link 2"), " — all other Netflix emails")), React.createElement("div", {
+    className: "ff-sheet-btns"
+  }, React.createElement(Btn, {
+    variant: "danger",
+    full: true,
+    onClick: () => openExternal_(NETFLIX_HOUSEHOLD_LINK)
+  }, "🔧 Open Link 1"), React.createElement(Btn, {
+    variant: "slate",
+    full: true,
+    onClick: () => openExternal_(NETFLIX_HOUSEHOLD_LINK_2)
+  }, "🔧 Open Link 2"), React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    onClick: close
+  }, "Close"))), soon && React.createElement(ToolsSheet, {
+    onClose: close
+  }, React.createElement("div", {
+    className: "ff-sheet-emoji"
+  }, soon[0]), React.createElement("h3", null, soon[1]), React.createElement("p", null, soon[2]), React.createElement("div", {
+    className: "ff-soon-badge"
+  }, "🚀 We're working on it!"), React.createElement("div", {
+    className: "ff-sheet-btns"
+  }, React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    onClick: close
+  }, "Close"))));
+}
 function HomeScreen({
   nav,
   onNeedAccount
 }) {
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
+  // Get OTP tile before login: show a hint at the phone box; after Continue, My plans opens the OTP picker.
+  const [otpHint, setOtpHint] = useState(false);
+  const otpAfterLogin = useRef(false);
+  function openOtpFromHome() {
+    otpAfterLogin.current = true;
+    setOtpHint(true);
+    const box = document.querySelector('#ff-login input');
+    if (box) {
+      try {
+        box.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        });
+        box.focus({
+          preventScroll: true
+        });
+      } catch (e) {}
+    }
+  }
+  const toDashboard = payload => nav('dashboard', otpAfterLogin.current ? {
+    ...payload,
+    _openOtp: true
+  } : payload);
   useEffect(() => {
     const saved = localStorage.getItem('ff_phone');
     if (saved && !phone) {
@@ -1768,7 +2011,7 @@ function HomeScreen({
             ...payload,
             screen: 'dashboard'
           });
-          nav('dashboard', payload);
+          toDashboard(payload);
         }, () => {
           setLoading(false);
           const payload = {
@@ -1783,7 +2026,7 @@ function HomeScreen({
             ...payload,
             screen: 'dashboard'
           });
-          nav('dashboard', payload);
+          toDashboard(payload);
         });
       }, () => {
         setLoading(false);
@@ -1798,7 +2041,7 @@ function HomeScreen({
           ...payload,
           screen: 'dashboard'
         });
-        nav('dashboard', payload);
+        toDashboard(payload);
       });
     }
     API.getMySubscriptions(ph, res => {
@@ -1948,7 +2191,11 @@ function HomeScreen({
       color: C.muted,
       fontWeight: 500
     }
-  }, "View your subscriptions, renew, and recover access.")), React.createElement("form", {
+  }, "View your subscriptions, renew, and recover access.")), otpHint && React.createElement("div", {
+    className: "ff-otp-hint",
+    role: "status"
+  }, "📲 To get your OTP, enter your phone number and tap ", React.createElement("b", null, "Continue"), ". We'll open Get OTP for you."), React.createElement("form", {
+    id: "ff-login",
     onSubmit: handleLogin,
     style: {
       display: 'flex',
@@ -2030,58 +2277,10 @@ function HomeScreen({
     variant: "blue",
     full: true,
     onClick: () => nav('buy1', {})
-  }, "🛒 Buy New Subscription")), React.createElement(Card, {
+  }, "🛒 Buy New Subscription")), React.createElement(ToolsGrid, {
     className: "ff-o5",
-    style: {
-      marginTop: 12
-    }
-  }, React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 16,
-      fontWeight: 900,
-      color: C.text,
-      marginBottom: 6
-    }
-  }, "🧩 Extra Tools"), React.createElement("button", {
-    onClick: () => {
-      const w = window.open(NETFLIX_HOUSEHOLD_LINK, '_blank');
-      try {
-        if (w) w.opener = null;
-      } catch (e) {}
-    },
-    style: {
-      width: '100%',
-      border: `1px solid ${C.border}`,
-      background: '#f8fafc',
-      borderRadius: 18,
-      padding: 14,
-      cursor: 'pointer',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 12,
-      textAlign: 'left'
-    }
-  }, React.createElement("span", {
-    style: {
-      fontSize: 24
-    }
-  }, "🏠"), React.createElement("span", null, React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 14,
-      fontWeight: 900,
-      color: C.text
-    }
-  }, "Netflix Household Helper"), React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 12,
-      fontWeight: 600,
-      color: C.muted,
-      marginTop: 2
-    }
-  }, "Fix household / device issues")))))));
+    onOtp: openOtpFromHome
+  }))));
 }
 function SubCard({
   sub,
@@ -2319,8 +2518,6 @@ function DashboardScreen({
   const [orders, setOrders] = useState(Array.isArray(cachedOrders) ? cachedOrders : []);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersPhone, setOrdersPhone] = useState(cachedOrdersPhone || '');
-  const [comingSoon, setComingSoon] = useState('');
-  const [toolsOpen, setToolsOpen] = useState(false);
   function handleRefresh() {
     const ph = normPhone_(phone || getFFSession().phone || '');
     if (!ph || refreshing) return;
@@ -2598,309 +2795,12 @@ function DashboardScreen({
       color: C.muted,
       marginTop: 4
     }
-  }, s.label)))), React.createElement("div", {
+  }, s.label)))), React.createElement(ToolsGrid, {
+    onOtp: onOtpClick,
     style: {
-      marginTop: 4,
-      marginBottom: 14,
-      borderRadius: R.card,
-      border: `1px solid ${toolsOpen ? 'rgba(229,9,20,.22)' : C.border}`,
-      background: '#fff',
-      boxShadow: C.shadow,
-      overflow: 'hidden',
-      transition: 'border-color .2s'
-    }
-  }, React.createElement("button", {
-    onClick: () => setToolsOpen(o => !o),
-    style: {
-      width: '100%',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 12,
-      padding: '14px 16px',
-      background: 'none',
-      border: 'none',
-      cursor: 'pointer',
-      textAlign: 'left'
-    }
-  }, React.createElement("div", {
-    style: {
-      width: 36,
-      height: 36,
-      borderRadius: 11,
-      background: 'linear-gradient(135deg,#1e293b,#334155)',
-      display: 'grid',
-      placeItems: 'center',
-      fontSize: 17,
-      flexShrink: 0
-    }
-  }, "🔧"), React.createElement("div", {
-    style: {
-      flex: 1
-    }
-  }, React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 14,
-      fontWeight: 800,
-      color: C.text
-    }
-  }, "Tools"), React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 11.5,
-      color: C.muted,
-      fontWeight: 600,
-      marginTop: 1
-    }
-  }, "Household helper, OTP, Movies & more")), React.createElement("div", {
-    style: {
-      fontSize: 18,
-      color: C.muted,
-      transform: toolsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-      transition: 'transform .22s ease',
-      flexShrink: 0
-    }
-  }, "⌄")), toolsOpen && React.createElement("div", {
-    style: {
-      padding: '0 14px 16px',
-      borderTop: `1px solid ${C.border}`,
-      animation: 'fadeSlide .18s ease both'
-    }
-  }, React.createElement("div", {
-    style: {
-      marginTop: 14,
-      padding: '13px 13px',
-      borderRadius: 16,
-      background: 'linear-gradient(135deg,rgba(229,9,20,.05),rgba(180,7,16,.02))',
-      border: '1px solid rgba(229,9,20,.16)'
-    }
-  }, React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 9,
-      marginBottom: 10
-    }
-  }, React.createElement("div", {
-    style: {
-      width: 32,
-      height: 32,
-      borderRadius: 10,
-      background: 'linear-gradient(135deg,#e50914,#b20710)',
-      display: 'grid',
-      placeItems: 'center',
-      fontSize: 16,
-      flexShrink: 0
-    }
-  }, "🏠"), React.createElement("div", null, React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 13.5,
-      fontWeight: 800,
-      color: C.text
-    }
-  }, "Netflix Household Helper"), React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 11,
-      color: C.muted,
-      fontWeight: 600,
-      marginTop: 1
-    }
-  }, "Fix \"outside household\" / TV errors"))), React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 12,
-      color: C.muted,
-      fontWeight: 600,
-      lineHeight: 1.7,
-      marginBottom: 10,
-      padding: '8px 10px',
-      borderRadius: 10,
-      background: 'rgba(15,23,42,.04)',
-      border: `1px solid ${C.border}`
-    }
-  }, React.createElement("b", {
-    style: {
-      color: C.text
-    }
-  }, "Which link?"), React.createElement("br", null), "📌 ", React.createElement("b", null, "Link 1"), " — emails starting with: ", React.createElement("span", {
-    style: {
-      color: '#1e40af',
-      fontWeight: 800
-    }
-  }, "harsh..., gunjan..., fluxfilm.."), React.createElement("br", null), "📌 ", React.createElement("b", null, "Link 2"), " — all other Netflix emails"), React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gap: 8
-    }
-  }, React.createElement(Btn, {
-    variant: "danger",
-    full: true,
-    size: "sm",
-    onClick: () => {
-      const w = window.open('https://script.google.com/macros/s/AKfycbwKHq3zwpz_xoSgXLwAUdfYSFa8wty2I3udACsWQO5OWpgmBXmhVHvCK_0e9XykhS7Nmw/exec', '_blank');
-      try {
-        if (w) w.opener = null;
-      } catch (e) {}
-    }
-  }, "🔧 Link 1"), React.createElement(Btn, {
-    variant: "slate",
-    full: true,
-    size: "sm",
-    onClick: () => {
-      const w = window.open('https://darkflix.shop', '_blank');
-      try {
-        if (w) w.opener = null;
-      } catch (e) {}
-    }
-  }, "🔧 Link 2"))), React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr 1fr',
-      gap: 8,
-      marginTop: 10
-    }
-  }, [{
-    id: 'movies',
-    icon: '🎬',
-    label: 'Movies & Series',
-    color: '#1e40af',
-    bg: 'rgba(37,99,235,.07)',
-    bd: 'rgba(37,99,235,.16)',
-    fn: () => setComingSoon('movies')
-  }, {
-    id: 'otp',
-    icon: '📲',
-    label: 'Get OTP',
-    color: '#6d28d9',
-    bg: 'rgba(124,58,237,.07)',
-    bd: 'rgba(124,58,237,.16)',
-    fn: onOtpClick
-  }, {
-    id: 'games',
-    icon: '🎮',
-    label: 'Games',
-    color: '#065f46',
-    bg: 'rgba(34,197,94,.06)',
-    bd: 'rgba(34,197,94,.18)',
-    fn: () => setComingSoon('games')
-  }].map(t => React.createElement("button", {
-    key: t.id,
-    onClick: t.fn,
-    style: {
-      padding: '12px 8px',
-      borderRadius: 14,
-      border: `1px solid ${t.bd}`,
-      background: t.bg,
-      cursor: 'pointer',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      gap: 5,
-      textAlign: 'center'
-    }
-  }, React.createElement("span", {
-    style: {
-      fontSize: 22
-    }
-  }, t.icon), React.createElement("span", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 11,
-      fontWeight: 800,
-      color: t.color,
-      lineHeight: 1.3
-    }
-  }, t.label), t.id !== 'otp' && React.createElement("span", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 9.5,
-      fontWeight: 700,
-      color: t.color,
-      opacity: .75,
-      padding: '1px 5px',
-      borderRadius: 999,
-      background: 'rgba(255,255,255,.7)',
-      border: `1px solid ${t.bd}`
-    }
-  }, "Soon")))))), comingSoon && React.createElement("div", {
-    onClick: () => setComingSoon(''),
-    style: {
-      position: 'fixed',
-      inset: 0,
-      zIndex: 60,
-      background: 'rgba(15,23,42,.50)',
-      backdropFilter: 'blur(6px)',
-      display: 'flex',
-      alignItems: 'flex-end',
-      justifyContent: 'center',
-      padding: '0 0 16px'
-    }
-  }, React.createElement("div", {
-    onClick: e => e.stopPropagation(),
-    style: {
-      width: 'min(520px,100%)',
-      background: '#fff',
-      borderRadius: '24px 24px 18px 18px',
-      padding: '6px 20px 24px',
-      boxShadow: '0 -8px 40px rgba(15,23,42,.22)',
-      animation: 'slideUp .22s ease',
-      textAlign: 'center'
-    }
-  }, React.createElement("div", {
-    style: {
-      width: 40,
-      height: 4,
-      borderRadius: 999,
-      background: '#e2e8f0',
-      margin: '10px auto 20px'
+      marginBottom: 16
     }
   }), React.createElement("div", {
-    style: {
-      fontSize: 52,
-      marginBottom: 12
-    }
-  }, comingSoon === 'movies' ? '🎬' : comingSoon === 'otp' ? '📲' : '🎮'), React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 20,
-      fontWeight: 900,
-      color: C.text,
-      marginBottom: 6
-    }
-  }, comingSoon === 'movies' ? 'Latest Movies & Series' : comingSoon === 'otp' ? 'Get OTP' : 'Games'), React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 13.5,
-      color: C.muted,
-      fontWeight: 600,
-      lineHeight: 1.6,
-      marginBottom: 20
-    }
-  }, comingSoon === 'movies' ? 'Stay up to date with what\'s new on Netflix, Prime, and more. Coming soon!' : comingSoon === 'otp' ? 'Get OTP for your linked accounts quickly and securely. Coming soon!' : 'Browse and subscribe to game passes and services. Coming soon!'), React.createElement("div", {
-    style: {
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: 6,
-      padding: '7px 14px',
-      borderRadius: 999,
-      background: 'rgba(245,158,11,.10)',
-      border: '1px solid rgba(245,158,11,.25)',
-      fontFamily: PJS,
-      fontSize: 12.5,
-      fontWeight: 800,
-      color: '#92400e',
-      marginBottom: 18
-    }
-  }, "🚀 We're working on it!"), React.createElement("br", null), React.createElement(Btn, {
-    variant: "ghost",
-    onClick: () => setComingSoon(''),
-    style: {
-      minWidth: 140
-    }
-  }, "Close"))), React.createElement("div", {
     style: {
       display: 'grid',
       gridTemplateColumns: '1fr 1fr',
