@@ -349,6 +349,8 @@ const fresh = () => { reset(); pm._internal.reset(); seq = 1; };
   const srv = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   ok('storefront actions routed + rate-limited', ['getBackupPayment', 'claimManualPayment', 'getClaimStatus'].every((a) => new RegExp("'" + a + "'").test(srv) && new RegExp(a + ': security.rateLimiter').test(srv)));
   ok('verifyPayment tries learned names; bank mail triggers a sweep', /autoMatchLearned\(orderId\)/.test(fs.readFileSync(path.join(__dirname, '..', 'order.js'), 'utf8')) && /paymatch'\)\.sweep\(\)/.test(fs.readFileSync(path.join(__dirname, '..', 'payments.js'), 'utf8')));
+  // MySQL FIELD() gives the LAST listed value the highest number, so with DESC 'REVIEW' (needs the owner) must be listed last.
+  ok('admin queue lists claims needing review before waiting ones', /FIELD\(c\.status, \\'WAITING\\', \\'REVIEW\\'\) DESC/.test(fs.readFileSync(path.join(__dirname, '..', 'paymatch.js'), 'utf8')));
   ok('schema-v17 creates both tables + widens app_settings', /CREATE TABLE IF NOT EXISTS payment_claims/.test(fs.readFileSync(path.join(__dirname, '..', 'db', 'schema-v17.sql'), 'utf8')) && /MEDIUMTEXT/.test(fs.readFileSync(path.join(__dirname, '..', 'db', 'schema-v17.sql'), 'utf8')));
 
   console.log('\n---------------------------------------');
