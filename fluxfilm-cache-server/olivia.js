@@ -336,7 +336,7 @@ function menuReply(st, lang, name) {
   return { intent: 'GREET_MENU', facts: { name: firstName(name) }, buttons: ['buy', 'renew', 'household', 'other'].map((id) => btn(id, lang)) };
 }
 const firstName = (n) => s(n).split(/\s+/)[0].replace(/[^\p{L}.'-]/gu, '').slice(0, 20);
-function resetPurchase(st) { for (const k of ['service', 'variant', 'days', 'plan', 'extraValue', 'options', 'title', 'price', 'coupon', 'groupJoined']) delete st[k]; }
+function resetPurchase(st) { for (const k of ['service', 'variant', 'days', 'plan', 'extraValue', 'options', 'title', 'price', 'coupon', 'groupJoined', 'flow', 'renew', 'renewSubs', 'renewOptions']) delete st[k]; }
 
 const PAY_STEPS = new Set(['paying', 'backup_name', 'backup_review', 'delivering']);
 const payButtons = (lang) => [btn('paid', lang), btn('cantpay', lang), btn('coupon', lang), btn('change', lang)];
@@ -356,6 +356,20 @@ async function deliverReplies(c, ctx) {
   if (f === 'PENDING') { st.step = 'delivering'; ctx.poll = 4; return []; }
   // Delivered or handed over: this order is finished in the chat (a new request starts a new order).
   st.lastOrderId = st.orderId; dropOrder(st);
+  if (st.flow === 'renew' && st.renew && f === 'FULFILLED') {
+    const rn = st.renew; resetPurchase(st);
+    st.step = 'done'; c.status = 'DONE';
+    const newExpiry = s(r.newExpiryText) || s(rn.quote && rn.quote.newExpiry);
+    const a = r.access || {};
+    const hasLogin = !!(s(a.user) || s(a.pass) || (Array.isArray(a.logins) && a.logins.length));
+    if (!rn.accountChange) return [{ intent: 'RENEW_DONE', facts: { title, newExpiry }, buttons: [btn('menu', lang), btn('whatsapp', lang)] }];
+    if (ctx.installedApp && hasLogin && !r.accessWithheld) {
+      const logins = Array.isArray(a.logins) && a.logins.length > 1 ? a.logins : [a];
+      const card = { type: 'access', title, logins: logins.map((x, i) => ({ device: Number(x.device) || i + 1, user: s(x.user), pass: s(x.pass), profileName: s(x.profileName), profileNumber: s(x.profileNumber), profilePin: s(x.profilePin) })) };
+      return [{ intent: 'RENEW_DONE_NEW_LOGIN_IN_CHAT', facts: { title, newExpiry }, card, buttons: [btn('menu', lang), btn('whatsapp', lang)] }];
+    }
+    return [{ intent: 'RENEW_DONE_NEW_LOGIN_EMAILED', facts: { title, newExpiry }, buttons: [btn('menu', lang), btn('whatsapp', lang)] }];
+  }
   const group = isGroupService(ctx.cat.plans, (st.plan || {}).service) ? [urlBtn('groupjoin', lang, groupLinkOf(ctx.cat.plans, st.plan.service))] : [];
   if (f === 'FULFILLED') {
     st.step = 'done'; c.status = 'DONE';
@@ -395,7 +409,9 @@ async function couponReplies(c, ctx, code) {
     const done = await paidAlready(c, ctx);
     if (done) return [{ intent: 'COUPON_TOO_LATE' }].concat(done);
   }
-  const p = currentPlan(st, ctx.cat);
+  const renewing = st.flow === 'renew' && st.renew;
+  const p = renewing ? (st.renew.toPlan ? (ctx.cat.plans || []).find((x) => x.service === st.renew.service && x.plan === st.renew.toPlan) : null) : currentPlan(st, ctx.cat);
+  if (!p && renewing) return [{ intent: 'COUPON_PICK_PLAN_FIRST' }].concat(st.renew ? renewDurations(st, ctx, lang) : await renewStart(c, ctx));
   if (!p) {
     if (code) st.pendingCoupon = code;
     return [{ intent: 'COUPON_PICK_PLAN_FIRST' }].concat(advance(st, ctx.cat, lang, ctx.profile));
@@ -409,16 +425,21 @@ async function couponReplies(c, ctx, code) {
   st.awaitCoupon = false;
   st.couponTries = (st.couponTries || 0) + 1;
   if (st.couponTries > MAX_COUPON_TRIES) return [{ intent: 'COUPON_TOO_MANY', buttons: withBackToPay(st, lang, [btn('nocoupon', lang), btn('whatsapp', lang)]) }];
-  const v = await tools().validateCoupon(c.phone, code, p);
+  const v = await tools().validateCoupon(c.phone, code, p, renewing ? 'RENEW' : 'NEW');
   ctx.meta.push({ tool: 'validateCoupon', ok: !!(v && v.ok), reason: v && !v.ok ? couponReason(v.message) : '' });
   if (!v || !v.ok) {
     st.awaitCoupon = true;
     return [{ intent: 'COUPON_INVALID', facts: { code, reason: couponReason(v && v.message) }, input: 'coupon', buttons: withBackToPay(st, lang, [btn('nocoupon', lang), btn('whatsapp', lang)]) }];
   }
+  // Renewal: a coupon replaces the early-renew discount (the shop never stacks them), so only use it if it saves more.
+  if (renewing && st.renew.quote && v.discount <= (st.renew.quote.early || 0)) {
+    return [{ intent: 'COUPON_NOT_BETTER', facts: { code: v.code || code, discount: v.discount, early: st.renew.quote.early } }].concat(st.orderId ? [{ intent: 'SEND_PAYMENT', facts: { amount: st.amount }, card: payCard(st), buttons: payButtons(lang) }] : await renewConfirm(c, ctx));
+  }
   // A valid coupon on an open, unpaid order: that QR is replaced by a new, cheaper one when they tap Pay.
   const hadOrder = dropOrder(st);
   st.coupon = { code: v.code || code, discount: v.discount, finalAmount: v.finalAmount, service: p.service, plan: p.plan };
   const replies = [{ intent: hadOrder ? 'COUPON_APPLIED_NEW_QR' : 'COUPON_APPLIED', facts: { code: st.coupon.code, discount: v.discount, final: v.finalAmount } }];
+  if (renewing) { delete st.paused; return replies.concat(await renewConfirm(c, ctx)); }
   return replies.concat(advance(st, ctx.cat, lang, ctx.profile));
 }
 
@@ -467,6 +488,70 @@ function factPack(st, ctx, lang) {
   ].join('\n');
 }
 
+
+// ── renew in chat (same functions as My plans → Renew) ──
+const devicesInPlan = (plan) => Number((String(plan).match(/(\d+)\s*device/i) || [])[1]) || 1;
+/** Step 1: which of the customer's own plans. Only plans returned for THIS phone can ever be renewed here. */
+function renewTextAction(st, ents, ctx) {
+  if (st.step === 'renew_pick' && ents.service) {
+    const i = (st.renewSubs || []).findIndex((x) => x.service.toLowerCase().split(' (')[0] === ents.service.toLowerCase().split(' (')[0]);
+    return i >= 0 ? 'rsub:' + i : '';
+  }
+  if (st.step === 'renew_duration' && ents.days) {
+    const i = (st.renewOptions || []).findIndex((pl) => { const p = (ctx.cat.plans || []).find((x) => x.service === st.renew.service && x.plan === pl); return p && Math.abs(p.durationDays - ents.days) <= 5; });
+    return i >= 0 ? 'rplan:' + i : '';
+  }
+  return '';
+}
+async function renewStart(c, ctx, serviceHint) {
+  const st = c.state; const lang = c.lang;
+  const r = await tools().mySubscriptions(c.phone);
+  const list = ((r && r.actionable) || []).filter((x) => x && x.subId);
+  ctx.meta.push({ tool: 'mySubscriptions', count: list.length });
+  resetPurchase(st); dropOrder(st);
+  if (!r || r.ok === false) { st.step = 'info'; return [{ intent: 'RENEW_ON_SITE', buttons: [btn('whatsapp', lang), btn('menu', lang)] }]; }
+  const hinted = serviceHint ? list.filter((x) => x.service.toLowerCase().split(' (')[0] === serviceHint.toLowerCase().split(' (')[0]) : [];
+  const subs = hinted.length ? hinted : list;
+  if (!subs.length) { st.step = 'info'; return [{ intent: 'RENEW_NONE', buttons: [btn('buy', lang), btn('whatsapp', lang), btn('menu', lang)] }]; }
+  st.flow = 'renew';
+  st.renewSubs = subs.slice(0, 8).map((x) => ({ subId: x.subId, service: x.service, plan: x.plan, daysLeft: x.daysLeft }));
+  if (st.renewSubs.length === 1) { st.renew = Object.assign({}, st.renewSubs[0]); return renewDurations(st, ctx, lang); }
+  st.step = 'renew_pick';
+  return [{ intent: 'RENEW_PICK', buttons: st.renewSubs.map((x, i) => btn('rsub:' + i, lang, x.service + ' ' + x.plan + ' · ' + words.daysLeftLabel(x.daysLeft, lang))).concat([btn('menu', lang)]) }];
+}
+/** Step 2: same length or another length of the same kind of plan (same Sharing/Private, same number of devices). */
+function renewDurations(st, ctx, lang) {
+  const r = st.renew;
+  const opts = (ctx.cat.plans || []).filter((p) => p.service === r.service && variantOf(p.plan) === variantOf(r.plan) && devicesInPlan(p.plan) === devicesInPlan(r.plan))
+    .sort((a, b) => a.durationDays - b.durationDays || a.price - b.price);
+  if (!opts.length) { st.step = 'handoff'; return [{ intent: 'RENEW_PLAN_GONE', facts: { title: r.service + ' ' + r.plan }, buttons: [btn('whatsapp', lang), btn('menu', lang)] }]; }
+  st.renewOptions = opts.map((p) => p.plan);
+  st.step = 'renew_duration';
+  return [{
+    intent: 'RENEW_DURATION', facts: { title: r.service + ' ' + r.plan, days: words.daysLeftLabel(r.daysLeft, lang) },
+    buttons: opts.map((p, i) => btn('rplan:' + i, lang, words.durationLabel(p.durationDays, lang) + ' · ' + words.rupees(p.price) + (p.plan === r.plan ? ' ✓' : ''))).concat([btn('menu', lang)]),
+  }];
+}
+/** Step 3: the shop's own renewQuote: early-renew discount, new expiry date, and whether the old account still has room. */
+async function renewConfirm(c, ctx) {
+  const st = c.state; const lang = c.lang; const r = st.renew;
+  const q = await tools().renewQuote(r.subId, r.toPlan);
+  const mode = q && q.renewal ? s(q.renewal.mode).toUpperCase() : '';
+  ctx.meta.push({ tool: 'renewQuote', ok: !!(q && q.ok), mode });
+  if (!q || !q.ok) { st.step = 'handoff'; return [{ intent: 'SOMETHING_WENT_WRONG', buttons: [btn('whatsapp', lang), btn('menu', lang)] }]; }
+  if (mode === 'NONE') { st.step = 'handoff'; return [{ intent: 'RENEW_BLOCKED', buttons: [btn('whatsapp', lang), btn('menu', lang)] }]; }
+  const p = (ctx.cat.plans || []).find((x) => x.service === r.service && x.plan === r.toPlan);
+  r.quote = { price: q.price, early: q.earlyDiscount || 0, amount: q.amount, newExpiry: s(q.renewal && q.renewal.preview && q.renewal.preview.newExpiryText), accountChange: mode === 'MOVE' || mode === 'SPLIT' };
+  st.title = r.service + ' ' + variantLabel(variantOf(r.toPlan)) + ' ' + words.durationLabel(p ? p.durationDays : 30, 'en');
+  st.step = 'renew_confirm';
+  const title = r.service + ' ' + r.toPlan;
+  if (st.coupon && st.coupon.plan === r.toPlan) {
+    return [{ intent: 'RENEW_CONFIRM_COUPON', facts: { title, price: q.price, code: st.coupon.code, discount: st.coupon.discount, final: st.coupon.finalAmount, newExpiry: r.quote.newExpiry, accountChange: r.quote.accountChange }, buttons: [btn('pay', lang), btn('nocoupon', lang), btn('rchange', lang)] }];
+  }
+  delete st.coupon;
+  return [{ intent: 'RENEW_CONFIRM', facts: { title, price: q.price, early: r.quote.early, amount: q.amount, newExpiry: r.quote.newExpiry, accountChange: r.quote.accountChange }, buttons: [btn('pay', lang), btn('coupon', lang), btn('rchange', lang), btn('menu', lang)] }];
+}
+
 async function turn(c, input, ctx) {
   const st = c.state; const lang = c.lang;
   const choice = s(input.choice);
@@ -503,7 +588,7 @@ async function turn(c, input, ctx) {
     else if (g === 'coupon') { action = 'coupon'; code = couponCodeIn(text, false); }
     else if (g === 'change') action = 'change';
     else if (g === 'price') { ents = entities(text, ctx.cat.plans); action = (ents.service && !PAY_STEPS.has(st.step)) ? 'slots' : 'price'; }
-    else if (g === 'renew' || g === 'household' || g === 'other') action = g;
+    else if (g === 'renew' || g === 'household' || g === 'other') { action = g; if (g === 'renew') ents = entities(text, ctx.cat.plans); }
     // 3. The step's own answers.
     if (!action) {
       const it = intentOf(text);
@@ -512,8 +597,9 @@ async function turn(c, input, ctx) {
       if (it === 'paid' && PAY_STEPS.has(st.step)) action = st.paused ? 'backpay_paid' : 'paid';
       else if (it === 'cantpay' && st.step === 'paying') action = 'cantpay';
       else if (it === 'diff' && (st.step === 'variant' || (st.service && needsVariant(ctx.cat.plans, st.service)) || ents.service)) action = 'diff';
+      else if (st.flow === 'renew' && (st.step === 'renew_pick' || st.step === 'renew_duration') && (ents.service || ents.days) && renewTextAction(st, ents, ctx)) action = renewTextAction(st, ents, ctx);
       else if (ents.service || ents.days || (ents.variant && !QUESTION_RE.test(text))) action = 'slots'; // "does sharing work on TV?" is a question, not a choice
-      else if (it === 'yes' && st.step === 'confirm') action = 'pay';
+      else if (it === 'yes' && (st.step === 'confirm' || st.step === 'renew_confirm')) action = 'pay';
       else if (it === 'yes' && st.step === 'group') action = 'joined';
       else if (it === 'yes' && st.step === 'tv') action = 'tv:yes';
       else if (it === 'no' && st.step === 'tv') action = 'tv:no';
@@ -555,10 +641,33 @@ async function turn(c, input, ctx) {
     resetPurchase(st); dropOrder(st); return [menuReply(st, lang, ctx.profile.name)];
   }
   if (action === 'buy') { resetPurchase(st); dropOrder(st); return advance(st, ctx.cat, lang, ctx.profile); }
-  if (action === 'renew' || action === 'household' || action === 'other') {
+  if (action === 'renew') {
+    if (st.orderId && PAY_STEPS.has(st.step)) {
+      const done = await paidAlready(c, ctx);
+      if (done) return done;
+      dropOrder(st);
+      return [{ intent: 'OLD_QR_CANCELLED' }].concat(await renewStart(c, ctx, ents.service));
+    }
+    return renewStart(c, ctx, ents.service);
+  }
+  if (action.startsWith('rsub:')) { const x = (st.renewSubs || [])[Number(action.slice(5))]; if (!x) return renewStart(c, ctx); st.renew = Object.assign({}, x); delete st.coupon; return renewDurations(st, ctx, lang); }
+  if (action.startsWith('rplan:')) {
+    const pl = (st.renewOptions || [])[Number(action.slice(6))];
+    if (!pl || !st.renew) return renewStart(c, ctx);
+    if (st.renew.toPlan !== pl) delete st.coupon;
+    st.renew.toPlan = pl;
+    return renewConfirm(c, ctx);
+  }
+  if (action === 'rchange' || (action === 'change' && st.flow === 'renew' && st.renew)) {
+    const done = await paidAlready(c, ctx);
+    if (done) return done;
+    const hadOrder = dropOrder(st); delete st.coupon;
+    return (hadOrder ? [{ intent: 'OLD_QR_CANCELLED' }] : []).concat(renewDurations(st, ctx, lang));
+  }
+  if (action === 'household' || action === 'other') {
     if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true;
-    const intent = action === 'renew' ? 'RENEW_ON_SITE' : action === 'household' ? 'HOUSEHOLD_HELPER' : 'HANDOFF_TO_HUMAN';
-    const b = action === 'household' ? [btn('helper', lang), btn('whatsapp', lang)] : action === 'renew' ? [btn('whatsapp', lang)] : [btn('whatsapp', lang)];
+    const intent = action === 'household' ? 'HOUSEHOLD_HELPER' : 'HANDOFF_TO_HUMAN';
+    const b = action === 'household' ? [btn('helper', lang), btn('whatsapp', lang)] : [btn('whatsapp', lang)];
     if (!st.paused) st.step = action === 'other' ? 'handoff' : 'info';
     return [{ intent, buttons: withBackToPay(st, lang, b.concat([btn('menu', lang)])) }];
   }
@@ -585,6 +694,7 @@ async function turn(c, input, ctx) {
   if (action === 'nocoupon') {
     st.awaitCoupon = false; delete st.coupon;
     if (st.orderId && st.paused) { delete st.paused; st.step = 'paying'; ctx.poll = 6; return [{ intent: 'SEND_PAYMENT', facts: { amount: st.amount }, card: payCard(st), buttons: payButtons(lang) }]; }
+    if (st.flow === 'renew' && st.renew && st.renew.toPlan) return renewConfirm(c, ctx);
     return advance(st, ctx.cat, lang, ctx.profile);
   }
   if (action === 'joined') { st.groupJoined = true; return advance(st, ctx.cat, lang, ctx.profile); }
@@ -615,8 +725,23 @@ async function turn(c, input, ctx) {
     return advance(st, ctx.cat, lang, ctx.profile);
   }
 
+  if (action === 'pay' && st.step === 'renew_confirm' && st.renew && st.renew.toPlan) {
+    const rn = st.renew;
+    const r = await tools().createRenewOrder(rn.subId, rn.toPlan === rn.plan ? '' : rn.toPlan, st.coupon ? st.coupon.code : '');
+    ctx.meta.push({ tool: 'createRenewOrder', ok: !!(r && r.ok), orderId: r && r.orderId, paused: !!(r && r.paused), blocked: !!(r && r.renewBlocked), coupon: !!st.coupon });
+    if (!r || !r.ok) {
+      if (r && r.paused) { st.step = 'menu'; return [{ intent: 'SHOP_PAUSED', buttons: [btn('menu', lang), btn('whatsapp', lang)] }]; }
+      if (r && r.renewBlocked) { st.step = 'handoff'; return [{ intent: 'RENEW_BLOCKED', buttons: [btn('whatsapp', lang), btn('menu', lang)] }]; }
+      if (st.coupon && /coupon/i.test(s(r && r.message))) { const bad = st.coupon.code; delete st.coupon; st.awaitCoupon = true; return [{ intent: 'COUPON_INVALID', facts: { code: bad, reason: couponReason(r.message) }, input: 'coupon', buttons: [btn('nocoupon', lang), btn('whatsapp', lang)] }]; }
+      return [{ intent: 'SOMETHING_WENT_WRONG', buttons: [btn('pay', lang), btn('whatsapp', lang), btn('menu', lang)] }];
+    }
+    rn.accountChange = !!r.accountChange || !!(rn.quote && rn.quote.accountChange);
+    st.orderId = r.orderId; st.amount = r.amount; st.upiLink = r.upiLink; st.step = 'paying'; st.orderAt = deps.now().getTime(); st.couponTries = 0;
+    ctx.poll = 6;
+    return [{ intent: 'SEND_PAYMENT', facts: { amount: r.amount }, card: payCard(st), buttons: payButtons(lang) }];
+  }
   if (action === 'pay') {
-    if (st.step !== 'confirm' || !st.plan) return advance(st, ctx.cat, lang, ctx.profile);
+    if (st.step !== 'confirm' || !st.plan) return st.flow === 'renew' && st.renew && st.renew.toPlan ? renewConfirm(c, ctx) : advance(st, ctx.cat, lang, ctx.profile);
     const p = currentPlan(st, ctx.cat);
     if (!p) { resetPurchase(st); return advance(st, ctx.cat, lang, ctx.profile); }
     const key = s(p.extraFieldKey).toUpperCase();
