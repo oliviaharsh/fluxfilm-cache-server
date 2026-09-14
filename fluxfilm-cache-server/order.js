@@ -18,6 +18,17 @@ function genOrderId() {
   const rnd = String(Math.floor(Math.random() * 100)).padStart(2, '0');
   return 'FF' + ts + rnd;
 }
+// IDs are short (FF + 7 digits) and go's imported orders use the same shape, so a new ID could land on an
+// existing order. Pick one that is not taken yet (the INSERT would otherwise fail and the customer see an error).
+async function freeOrderId() {
+  for (let i = 0; i < 8; i++) {
+    const id = genOrderId();
+    const rows = await db.query('SELECT 1 FROM orders WHERE order_id = ? LIMIT 1', [id]);
+    if (!rows || !rows.length) return id;
+  }
+  // Extremely unlikely: fall back to a longer ID (still matches FF + digits everywhere).
+  return 'FF' + String(Date.now()).slice(-9) + String(Math.floor(Math.random() * 100)).padStart(2, '0');
+}
 // Per-order secret handed only to the browser that created the order. Only its
 // SHA-256 is stored, so the raw token never sits in MySQL or the admin panel.
 // fulfill.js checks it before returning login credentials.
@@ -180,7 +191,7 @@ async function createOrder(p, opts) {
   }
   const referralDiscount = referral && !couponCode ? discount : 0;
   const listPrice = hasAmountOverride ? Math.max(basePrice, overrideAmount) : basePrice;
-  const orderId = genOrderId();
+  const orderId = await freeOrderId();
   // Pay part with coins (customer ticked "Use my coins"): the coins are held now, kept when paid, given back if not.
   let coinsUsed = 0; let coinsRupees = 0; let coinsMessage = '';
   if (p.useCoins === true && !hasAmountOverride && typeof coins.holdSpend === 'function') {
@@ -437,4 +448,4 @@ async function adminMarkPaid(orderId, txnRef) {
   return { ok: true };
 }
 
-module.exports = { createOrder, createRenewOrder, renewQuote, adminMarkPaid, verifyPayment, verifyPaymentByRef, validateCoupon, serviceAllowed, hashAccessToken, _internal: { genOrderId, couponDiscount } };
+module.exports = { createOrder, createRenewOrder, renewQuote, adminMarkPaid, verifyPayment, verifyPaymentByRef, validateCoupon, serviceAllowed, hashAccessToken, _internal: { genOrderId, freeOrderId, couponDiscount } };
