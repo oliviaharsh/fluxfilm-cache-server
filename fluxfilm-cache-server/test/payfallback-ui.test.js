@@ -162,6 +162,8 @@ const INFO = { ok: true, enabled: true, orderId: 'FF9123456', amount: 139, vpa: 
   const toastSrc = html.slice(toastAt, toastAt + 900);
   ok('toast is centred without translateX (fadeSlide keyframes override transform)', toastAt > 0 && !/translateX/.test(toastSrc) && /margin: '0 auto'/.test(toastSrc) && /fadeSlide/.test(toastSrc));
 
+  ok('admin claim filter chips size to their label (no "Approv" cut-off on phones)', /#pmseg button\{flex:1 1 auto;[^}]*white-space:nowrap\}/.test(admin));
+
   console.log('\n---------------------------------------');
   console.log('PASS ' + pass + '   FAIL ' + fail);
   process.exitCode = fail ? 1 : 0;
