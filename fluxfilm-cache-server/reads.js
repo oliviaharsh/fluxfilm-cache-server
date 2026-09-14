@@ -253,5 +253,8 @@ async function getWalletByPhone(phone) {
   };
 }
 
-module.exports = { getMySubscriptions, getCustomerOrders, getCustomerProfile, getActiveCouponsForCustomer, getWalletByPhone,
+/** Admin changed a plan: next read reloads durations / renew discounts / logos. */
+function clearPlansCache() { _plans = null; _plansAt = 0; }
+
+module.exports = { clearPlansCache, getMySubscriptions, getCustomerOrders, getCustomerProfile, getActiveCouponsForCustomer, getWalletByPhone,
   _internal: { normPhone, calcEarlyDiscount, renewEligibility, expiryMood, maskEmailFirst4, parseDbDate } };

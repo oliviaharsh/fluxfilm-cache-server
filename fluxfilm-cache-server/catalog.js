@@ -107,4 +107,7 @@ async function getNetflixHouseholdLink(email) {
   return { ok: true, link };
 }
 
-module.exports = { getBootstrap, getStockLevels, getTrendingItems, getNetflixHouseholdLink };
+/** Admin changed a plan: drop the short stock cache so badges follow the change at once. */
+function clearCache() { _stockCache = { at: 0, value: null }; }
+
+module.exports = { getBootstrap, getStockLevels, getTrendingItems, getNetflixHouseholdLink, clearCache };
