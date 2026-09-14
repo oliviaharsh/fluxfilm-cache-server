@@ -376,6 +376,18 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('"I purchased earlier" is not a buy command', olivia._internal.intentOf('I purchased netflix earlier') === '');
   ok('coupon code picked from a sentence, not the word "code"', olivia._internal.couponCodeIn('mere paas coupon code hai', false) === '' && olivia._internal.couponCodeIn('coupon code is NEW10', false) === 'NEW10' && olivia._internal.couponCodeIn('new10', true) === 'NEW10');
 
+  // Harsh's second live chat (15 Sep): typo + "for 99" restarted the flow again
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'Need netfix' });
+  ok('replay: "Need netfix" (typo) → Netflix Sharing or Private, not "which service"', last(r).intent === 'ASK_SHARING_OR_PRIVATE', last(r));
+  ok('typos: netfilx / hotsar / youtub / amazn understood; normal words are not services', ['i want netfilx', 'hotsar chahiye', 'youtub premium', 'amazn prime'].every((x) => !!olivia._internal.typoService(x) || /prime/.test(x)) && !olivia._internal.typoService('please send the plans') && !olivia._internal.typoService('payment done') && ['what is the price', 'send plans please', 'amount kitna', 'thank you', 'private profile', 'sharing please'].every((x) => !olivia._internal.typoService(x)));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'variant:sharing' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'But I buy it for 99' });
+  ok('replay: "But I buy it for 99" → price help (Group Offer), NOT a restart', last(r).intent === 'PRICE_HELP' && !r.messages.some((m) => m.intent === 'ASK_SERVICE'), r.messages);
+  ok('amounts in words are price questions, durations are not', olivia._internal.globalIntentOf('99 mein liya tha') === 'price' && olivia._internal.globalIntentOf('last time only 99') === 'price' && olivia._internal.globalIntentOf('netflix 3 months') === '' && olivia._internal.globalIntentOf('for 12 months') === '');
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix sharing' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'I want to buy' });
+  ok('"I want to buy" while already choosing does not start over', last(r).intent !== 'ASK_SERVICE', last(r));
   // off-script question → answer only from facts
   await olivia.saveSettings({ aiWords: true, knowledge: 'Sharing plans work on 1 device at a time. Do not change the profile PIN.' }); olivia._internal.reset();
   const seenQ = [];
