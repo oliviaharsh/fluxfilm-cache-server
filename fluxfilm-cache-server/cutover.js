@@ -197,7 +197,8 @@ async function run(opts) {
   let added = 0, filled = 0;
   for (const part of chunks(plan.customers.rows, CHUNK)) {
     if (!part.length) continue;
-    const r = await db.query('INSERT IGNORE INTO customers (phone, phone_norm, name, email, profile_pic_url, member_since, raw_json) VALUES ?',
+    // Bulk "VALUES ?" needs pool.query (db.query uses prepared statements, which can't expand it).
+    const [r] = await db.getPool().query('INSERT IGNORE INTO customers (phone, phone_norm, name, email, profile_pic_url, member_since, raw_json) VALUES ?',
       [part.map((c) => [s(c.phone) || c.phone_norm, c.phone_norm, c.name, c.email, c.profile_pic_url, c.member_since, c.raw_json])]);
     added += (r && r.affectedRows) || 0;
   }
