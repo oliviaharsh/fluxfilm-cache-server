@@ -79,7 +79,8 @@ async function sendCode(phone, deps) {
   if (!ph || ph.length < 10) return { ok: false, message: 'Enter your phone number.' };
   const eligible = deps && typeof deps.eligible === 'function' ? await deps.eligible(ph) : await hasActivePlan(ph);
   if (!eligible) return { ok: false, message: (deps && deps.notEligibleMessage) || 'Get OTP works only for a number with an active plan.' };
-  const email = await emailFor(ph);
+  // deps.emailFor: 💸 Refunds (refunds.js) also accept the email on the refunded order (no plan / profile needed).
+  const email = deps && typeof deps.emailFor === 'function' ? await deps.emailFor(ph) : await emailFor(ph);
   if (!email) return { ok: false, noEmail: true, message: 'We don\'t have an email for this number. Please message us on WhatsApp for your OTP.' };
   const prev = codes.get(ph);
   if (prev && prev.exp - CODE_TTL_MS + 45e3 > Date.now()) return { ok: true, maskedEmail: maskEmail(email), resent: false, message: 'Code already sent — check your email (and spam).' };

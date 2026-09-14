@@ -12,6 +12,14 @@
  * Every balance change runs in one transaction that first locks the customer's wallet row, so parallel changes
  * for the same person can't overwrite each other or pass the "already done?" checks twice. A customer can have
  * several wallet rows (old Sheet phone formats); the one with the most lifetime coins is the live one.
+ *
+ * 💸 Refund credit (owner request 2026-09-15): money FluxFilm refunded as "coins" is a SEPARATE pot, ₹1 = 1 credit.
+ * It is NOT part of wallet.coins_balance (so games, admin add/remove and the max-% rule never touch it) and needs no
+ * schema change: its balance is the sum of coins_ledger rows with a CREDIT_EVENTS event for that phone, always
+ * written while holding the same wallet-row lock. Refund credit can pay up to 100% of a new order or renewal; normal
+ * coins keep the max-% rule on top. One coin_spends row per order still drives the hold → spent / released life
+ * cycle: `coins` = normal coins, `rupees` = total ₹ off (credit + coins); the credit part lives in the ledger
+ * (CREDIT_SPEND −₹ when held, CREDIT_RELEASE +₹ when given back).
  */
 const db = require('./db');
 
@@ -21,6 +29,10 @@ const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); r
 const missingTable = (e) => /doesn't exist|ER_NO_SUCH_TABLE/i.test(String(e && e.message));
 const WALLET_ORDER = 'ORDER BY coins_lifetime DESC, coins_balance DESC';
 const SETTINGS_KEY = 'coins';
+// Refund credit pot (see the header). REFUND_CREDIT = credited by a refund; CREDIT_SPEND / CREDIT_RELEASE = held on /
+// given back from an order.
+const CREDIT_EVENTS = ['REFUND_CREDIT', 'CREDIT_SPEND', 'CREDIT_RELEASE'];
+const CREDIT_IN = "('REFUND_CREDIT', 'CREDIT_SPEND', 'CREDIT_RELEASE')";
 
 // ---------------- settings ----------------
 const envNum = (k, d) => { const v = asNum(process.env[k]); return process.env[k] != null && process.env[k] !== '' ? v : d; };
@@ -149,7 +161,69 @@ function spendAllowed(cfg, balance, amount, kind) {
   return { coins: Math.ceil(rupees / value - 1e-9), rupees };
 }
 
+// ---------------- refund credit (separate pot, ₹1 = 1 credit; see the header) ----------------
+const CREDIT_SUM_SQL = 'SELECT COALESCE(SUM(coins_delta), 0) AS n FROM coins_ledger WHERE phone_norm = ? AND event IN ' + CREDIT_IN;
+async function creditBalanceOn(conn, ph) { const [r] = await conn.query(CREDIT_SUM_SQL, [ph]); return Math.round(asNum(((r || [])[0] || {}).n)); }
+// Storefront / admin display (never below 0).
+async function creditBalance(phone) {
+  const ph = norm(phone);
+  if (!ph) return 0;
+  try { const r = await db.query(CREDIT_SUM_SQL, [ph]); return Math.max(0, Math.round(asNum(((r || [])[0] || {}).n))); } catch (e) { if (missingTable(e)) return 0; throw e; }
+}
+// Credit on one order: `used` = what was first held for it, `held` = what is still held now.
+async function creditOnOrderOn(conn, oid) {
+  const [rows] = await conn.query("SELECT event, coins_delta FROM coins_ledger WHERE order_id = ? AND event IN ('CREDIT_SPEND', 'CREDIT_RELEASE') ORDER BY id", [oid]);
+  const list = rows || [];
+  const first = list.find((r) => s(r.event) === 'CREDIT_SPEND');
+  return { used: first ? -asNum(first.coins_delta) : 0, held: -list.reduce((n, r) => n + asNum(r.coins_delta), 0) };
+}
+// Give back the credit still held on an order. The caller holds the wallet lock. Idempotent (nothing held → 0).
+async function releaseCreditOn(conn, oid, ph, why) {
+  const c = await creditOnOrderOn(conn, oid);
+  if (!(c.held > 0)) return 0;
+  const after = (await creditBalanceOn(conn, ph)) + c.held;
+  await ledger(conn, { event: 'CREDIT_RELEASE', orderId: oid, phone: ph, delta: c.held, balanceAfter: after, note: 'Refund credit back: ' + s(why) });
+  return c.held;
+}
+// An order whose hold was given back got paid anyway: take the credit again (may go below 0, exactly like coins).
+async function retakeCreditOn(conn, oid, ph) {
+  const c = await creditOnOrderOn(conn, oid);
+  const take = c.used - c.held;
+  if (!(take > 0)) return 0;
+  const after = (await creditBalanceOn(conn, ph)) - take;
+  await ledger(conn, { event: 'CREDIT_SPEND', orderId: oid, phone: ph, delta: -take, balanceAfter: after, note: 'Order paid after refund credit was given back' });
+  return take;
+}
+// Refund paid as credit: +₹credit to the pot, once per refunded order (ledger REFUND_CREDIT). Runs on the caller's
+// connection INSIDE its transaction, so the order's new state and the credit commit together or not at all.
+async function addRefundCreditOn(conn, { orderId, phone, credit, note, service, plan, amount }) {
+  const oid = s(orderId); const ph = norm(phone); const c = Math.max(0, Math.round(asNum(credit)));
+  if (!oid || !ph || !c) return { ok: false, credit: 0 };
+  await lockWalletOn(conn, ph);
+  const [dup] = await conn.query("SELECT id FROM coins_ledger WHERE order_id = ? AND event = 'REFUND_CREDIT' LIMIT 1", [oid]);
+  if (dup && dup.length) return { ok: true, already: true, credit: 0 };
+  const after = (await creditBalanceOn(conn, ph)) + c;
+  await ledger(conn, { event: 'REFUND_CREDIT', orderId: oid, phone: ph, service, plan, amount, delta: c, balanceAfter: after, note: s(note) || 'Refund credit for order ' + oid });
+  return { ok: true, credit: c, creditAfter: after };
+}
+
+// What "Use my coins" takes for an order of `amount` ₹: refund credit first (up to 100%), then normal coins within
+// the max-% rule, never more than what is left to pay. Pure.
+function spendPlan(cfg, balance, credit, amount, kind) {
+  const amt = Math.max(0, Math.floor(asNum(amount) + 1e-9));
+  const credit_ = Math.max(0, Math.min(Math.floor(asNum(credit) + 1e-9), amt));
+  const rest = amt - credit_;
+  let a = rest > 0 ? spendAllowed(cfg, balance, amt, kind) : { coins: 0, rupees: 0, reason: credit_ ? 'covered' : 'amount' };
+  if (a.rupees > rest) {
+    const value = asNum(cfg.coinValue) || 1;
+    const rupees = Math.floor(Math.floor(rest / value + 1e-9) * value + 1e-9);
+    a = rupees > 0 ? { coins: Math.ceil(rupees / value - 1e-9), rupees } : { coins: 0, rupees: 0, reason: 'covered' };
+  }
+  return { credit: credit_, coins: a.coins, coinRupees: a.rupees, rupees: credit_ + a.rupees, reason: a.reason || '', needed: a.needed };
+}
+
 // Storefront preview: "Use 45 coins → −₹45" (the server re-checks when the order is created).
+// coins / rupees = everything "Use my coins" would take (credit + coins); creditRupees / coinCoins / coinRupees = the parts.
 async function quoteSpend(phone, amount, kind) {
   const ph = norm(phone);
   const cfg = await getSettings();
@@ -158,14 +232,18 @@ async function quoteSpend(phone, amount, kind) {
   try { await db.query('SELECT 1 FROM coin_spends LIMIT 1', []); } catch (e) { if (!missingTable(e)) throw e; spendsReady = false; }
   const w = await db.query('SELECT coins_balance FROM wallet WHERE phone_norm = ? ' + WALLET_ORDER + ' LIMIT 1', [ph]);
   const balance = Math.floor(asNum((w[0] || {}).coins_balance));
+  const creditBal = await creditBalance(ph);
   const rules = { coinValue: cfg.coinValue, maxPercent: cfg.maxPercent, minCoins: cfg.minCoins, spendOnNew: cfg.spendOnNew, spendOnRenew: cfg.spendOnRenew };
-  if (!spendsReady || !cfg.settingsReady) return { ok: true, enabled: false, balance, coins: 0, rupees: 0, rules, reason: 'coming soon' };
-  const a = spendAllowed(cfg, balance, amount, kind);
-  return { ok: true, enabled: !!cfg.spendEnabled, balance, coins: a.coins, rupees: a.rupees, reason: a.reason || '', rules };
+  if (!spendsReady || !cfg.settingsReady) return { ok: true, enabled: false, balance, creditBalance: creditBal, coins: 0, rupees: 0, rules, reason: 'coming soon' };
+  const a = spendPlan(cfg, balance, creditBal, amount, kind);
+  return {
+    ok: true, enabled: !!cfg.spendEnabled || creditBal > 0, coinsEnabled: !!cfg.spendEnabled, balance, creditBalance: creditBal,
+    coins: a.coins + a.credit, rupees: a.rupees, creditRupees: a.credit, coinCoins: a.coins, coinRupees: a.coinRupees, reason: a.reason || '', rules,
+  };
 }
 
-// Take coins for a new order (inside the wallet lock). Older unpaid orders' holds for this phone are released first,
-// so a customer who abandons an order and tries again never has their coins stuck.
+// Take credit + coins for a new order (inside the wallet lock). Older unpaid orders' holds for this phone are released
+// first, so a customer who abandons an order and tries again never has their coins or credit stuck.
 async function holdSpend({ phone, orderId, amount, kind, service, plan }) {
   const ph = norm(phone); const oid = s(orderId);
   if (!ph || !oid) return { ok: false, message: 'missing phone/order' };
@@ -176,18 +254,30 @@ async function holdSpend({ phone, orderId, amount, kind, service, plan }) {
       const [old] = await conn.query(
         "SELECT cs.order_id, cs.coins FROM coin_spends cs LEFT JOIN orders o ON o.order_id = cs.order_id WHERE cs.phone_norm = ? AND cs.status = 'HELD' AND (o.order_id IS NULL OR UPPER(o.status) <> 'PAID')", [ph]);
       for (const h of old) {
-        balance += asNum(h.coins);
-        await conn.query('UPDATE wallet SET coins_balance = coins_balance + ? WHERE phone = ?', [asNum(h.coins), w.phone]);
-        await conn.query("UPDATE coin_spends SET status = 'RELEASED', note = ?, updated_at = NOW() WHERE order_id = ? AND status = 'HELD'", ['released: new order ' + oid, h.order_id]);
-        await ledger(conn, { event: 'SPEND_RELEASE', orderId: h.order_id, phone: ph, delta: asNum(h.coins), balanceAfter: balance, note: 'Coins back: new order ' + oid });
+        // Only give back what this transaction really moved from HELD (a parallel ₹0 confirm may have just spent it).
+        const [upd] = await conn.query("UPDATE coin_spends SET status = 'RELEASED', note = ?, updated_at = NOW() WHERE order_id = ? AND status = 'HELD'", ['released: new order ' + oid, h.order_id]);
+        if (!upd || !upd.affectedRows) continue;
+        const c = asNum(h.coins);
+        if (c) {
+          balance += c;
+          await conn.query('UPDATE wallet SET coins_balance = coins_balance + ? WHERE phone = ?', [c, w.phone]);
+          await ledger(conn, { event: 'SPEND_RELEASE', orderId: h.order_id, phone: ph, delta: c, balanceAfter: balance, note: 'Coins back: new order ' + oid });
+        }
+        await releaseCreditOn(conn, h.order_id, ph, 'new order ' + oid);
       }
-      const a = spendAllowed(cfg, balance, amount, kind);
-      if (a.coins <= 0) return { ok: false, coins: 0, rupees: 0, reason: a.reason, balance, message: a.reason === 'min' ? 'You need at least ' + cfg.minCoins + ' coins to use them.' : 'Coins can\'t be used on this order.' };
+      const creditBal = Math.max(0, await creditBalanceOn(conn, ph));
+      const a = spendPlan(cfg, balance, creditBal, amount, kind);
+      if (a.rupees <= 0) return { ok: false, coins: 0, rupees: 0, credit: 0, reason: a.reason, balance, message: a.reason === 'min' ? 'You need at least ' + cfg.minCoins + ' coins to use them.' : 'Coins can\'t be used on this order.' };
       const after = balance - a.coins;
-      await conn.query('UPDATE wallet SET coins_balance = coins_balance - ?, last_spent_at = NOW(), last_event = ? WHERE phone = ?', [a.coins, ('SPEND:' + oid).slice(0, 150), w.phone]);
+      if (a.coins) await conn.query('UPDATE wallet SET coins_balance = coins_balance - ?, last_spent_at = NOW(), last_event = ? WHERE phone = ?', [a.coins, ('SPEND:' + oid).slice(0, 150), w.phone]);
       await conn.query("INSERT INTO coin_spends (order_id, phone_norm, coins, rupees, status, created_at) VALUES (?, ?, ?, ?, 'HELD', NOW())", [oid, ph, a.coins, a.rupees]);
-      await ledger(conn, { event: 'SPEND', orderId: oid, phone: ph, service, plan, amount, delta: -a.coins, balanceAfter: after, note: 'Used ' + a.coins + ' coins = ₹' + a.rupees + ' off' });
-      return { ok: true, coins: a.coins, rupees: a.rupees, balanceAfter: after };
+      if (a.coins) await ledger(conn, { event: 'SPEND', orderId: oid, phone: ph, service, plan, amount, delta: -a.coins, balanceAfter: after, note: 'Used ' + a.coins + ' coins = ₹' + a.coinRupees + ' off' });
+      let creditAfter = creditBal;
+      if (a.credit) {
+        creditAfter = creditBal - a.credit;
+        await ledger(conn, { event: 'CREDIT_SPEND', orderId: oid, phone: ph, service, plan, amount, delta: -a.credit, balanceAfter: creditAfter, note: 'Used ₹' + a.credit + ' refund credit' });
+      }
+      return { ok: true, coins: a.coins, rupees: a.rupees, credit: a.credit, coinRupees: a.coinRupees, balanceAfter: after, creditAfter };
     });
   } catch (e) {
     if (missingTable(e)) return { ok: false, disabled: true, message: 'Coins can\'t be used yet.' };
@@ -202,9 +292,13 @@ async function releaseSpend(orderId, reason) {
   return withWallet(r.phone_norm, async (conn, w) => {
     const [upd] = await conn.query("UPDATE coin_spends SET status = 'RELEASED', note = ?, updated_at = NOW() WHERE order_id = ? AND status = 'HELD'", [s(reason).slice(0, 200), r.order_id]);
     if (!upd || !upd.affectedRows) return { ok: true, skipped: 'already handled' };
-    await conn.query('UPDATE wallet SET coins_balance = coins_balance + ? WHERE phone = ?', [asNum(r.coins), w.phone]);
-    await ledger(conn, { event: 'SPEND_RELEASE', orderId: r.order_id, phone: r.phone_norm, delta: asNum(r.coins), balanceAfter: w.balance + asNum(r.coins), note: 'Coins back: ' + s(reason) });
-    return { ok: true, released: asNum(r.coins) };
+    const c = asNum(r.coins);
+    if (c) {
+      await conn.query('UPDATE wallet SET coins_balance = coins_balance + ? WHERE phone = ?', [c, w.phone]);
+      await ledger(conn, { event: 'SPEND_RELEASE', orderId: r.order_id, phone: r.phone_norm, delta: c, balanceAfter: w.balance + c, note: 'Coins back: ' + s(reason) });
+    }
+    const credit = await releaseCreditOn(conn, r.order_id, norm(r.phone_norm), reason);
+    return { ok: true, released: c, creditReleased: credit };
   });
 }
 
@@ -220,9 +314,13 @@ async function onOrderPaid(orderId) {
     const [upd] = await conn.query("UPDATE coin_spends SET status = 'SPENT', note = ?, updated_at = NOW() WHERE order_id = ? AND status = ?", [wasReleased ? 'paid after coins were given back: taken again' : null, r.order_id, fromStatus]);
     if (!upd || !upd.affectedRows) return { ok: true, skipped: 'already handled' };
     if (wasReleased) {
-      await conn.query('UPDATE wallet SET coins_balance = coins_balance - ?, last_spent_at = NOW() WHERE phone = ?', [asNum(r.coins), w.phone]);
-      await ledger(conn, { event: 'SPEND', orderId: r.order_id, phone: r.phone_norm, delta: -asNum(r.coins), balanceAfter: w.balance - asNum(r.coins), note: 'Order paid after coins were given back' });
-      return { ok: true, status: 'SPENT', retaken: asNum(r.coins) };
+      const c = asNum(r.coins);
+      if (c) {
+        await conn.query('UPDATE wallet SET coins_balance = coins_balance - ?, last_spent_at = NOW() WHERE phone = ?', [c, w.phone]);
+        await ledger(conn, { event: 'SPEND', orderId: r.order_id, phone: r.phone_norm, delta: -c, balanceAfter: w.balance - c, note: 'Order paid after coins were given back' });
+      }
+      const credit = await retakeCreditOn(conn, r.order_id, norm(r.phone_norm));
+      return { ok: true, status: 'SPENT', retaken: c, creditRetaken: credit };
     }
     return { ok: true, status: 'SPENT' };
   });
@@ -235,7 +333,7 @@ async function maintain() {
   try {
     const expired = await db.query(
       "SELECT cs.order_id FROM coin_spends cs LEFT JOIN orders o ON o.order_id = cs.order_id WHERE cs.status = 'HELD' AND cs.created_at < NOW() - INTERVAL ? HOUR AND (o.order_id IS NULL OR UPPER(o.status) <> 'PAID') LIMIT 200", [cfg.holdHours]);
-    for (const x of expired) { const r = await releaseSpend(x.order_id, 'order not paid within ' + cfg.holdHours + 'h'); if (r.released) out.released++; }
+    for (const x of expired) { const r = await releaseSpend(x.order_id, 'order not paid within ' + cfg.holdHours + 'h'); if (r.released || r.creditReleased) out.released++; }
     const paid = await db.query("SELECT cs.order_id FROM coin_spends cs JOIN orders o ON o.order_id = cs.order_id WHERE cs.status IN ('HELD', 'RELEASED') AND UPPER(o.status) = 'PAID' LIMIT 200", []);
     for (const x of paid) { const r = await onOrderPaid(x.order_id); if (r.status) out.settled++; }
     return Object.assign({ ok: true }, out);
@@ -277,7 +375,7 @@ async function adjust({ phone, delta, reason }) {
 // not be taken is reported as `reverseShort`.
 async function undoOrderCoinsOn(conn, orderId, phone, reason) {
   const oid = s(orderId); const why = s(reason) || 'order cancelled';
-  const out = { returned: 0, reversed: 0, reverseShort: 0 };
+  const out = { returned: 0, reversed: 0, reverseShort: 0, creditReturned: 0 };
   if (!oid) return out;
   let spend = null;
   try {
@@ -297,10 +395,14 @@ async function undoOrderCoinsOn(conn, orderId, phone, reason) {
     const [upd] = await conn.query("UPDATE coin_spends SET status = 'RELEASED', note = ?, updated_at = NOW() WHERE order_id = ? AND status = ?", [why.slice(0, 200), oid, spend.status]);
     if (upd && upd.affectedRows) {
       const c = asNum(spend.coins); bal += c;
-      await conn.query('UPDATE wallet SET coins_balance = coins_balance + ? WHERE phone = ?', [c, w.phone]);
-      await ledger(conn, { event: 'SPEND_RELEASE', orderId: oid, phone: ph, delta: c, balanceAfter: bal, note: 'Coins back: ' + why });
+      if (c) {
+        await conn.query('UPDATE wallet SET coins_balance = coins_balance + ? WHERE phone = ?', [c, w.phone]);
+        await ledger(conn, { event: 'SPEND_RELEASE', orderId: oid, phone: ph, delta: c, balanceAfter: bal, note: 'Coins back: ' + why });
+      }
       out.returned = c;
     }
+    // Refund credit used on this order goes back to the credit pot (whatever the coin_spends status was).
+    out.creditReturned = await releaseCreditOn(conn, oid, ph, why);
   }
   if (earned > 0) {
     const take = Math.min(earned, Math.max(0, Math.floor(bal)));
@@ -330,9 +432,10 @@ async function creditRefundOn(conn, { orderId, phone, coins, note, service, plan
 async function history(phone) {
   const ph = norm(phone);
   if (!ph) return { ok: false, message: 'Phone required.' };
-  const LABEL = { NEW_PURCHASE: 'Earned on your order', RENEW: 'Earned on your renewal', REFERRAL: 'Invite reward', REFERRAL_REPEAT: 'Invite reward (friend ordered again)', REFERRAL_L2: "Invite reward (friend's friend)", SPEND: 'Used at checkout', SPEND_RELEASE: 'Coins given back', ADMIN_ADJUST: 'Adjusted by FluxFilm', REFUND: 'Refund for your order', EARN_REVERSE: 'Order refunded: earned coins taken back', GAME_WIN: '🎮 Won in Games', GAME_STREAK: '🔥 Games streak bonus', GAME_PLAY: '🎮 Extra game play' };
+  const LABEL = { NEW_PURCHASE: 'Earned on your order', RENEW: 'Earned on your renewal', REFERRAL: 'Invite reward', REFERRAL_REPEAT: 'Invite reward (friend ordered again)', REFERRAL_L2: "Invite reward (friend's friend)", SPEND: 'Used at checkout', SPEND_RELEASE: 'Coins given back', ADMIN_ADJUST: 'Adjusted by FluxFilm', REFUND: 'Refund for your order', EARN_REVERSE: 'Order refunded: earned coins taken back', GAME_WIN: '🎮 Won in Games', GAME_STREAK: '🔥 Games streak bonus', GAME_PLAY: '🎮 Extra game play', REFUND_CREDIT: '💸 Refund credit added', CREDIT_SPEND: '💸 Refund credit used at checkout', CREDIT_RELEASE: '💸 Refund credit given back' };
   const rows = await db.query('SELECT ts, event, order_id, coins_delta, balance_after FROM coins_ledger WHERE phone_norm = ? ORDER BY id DESC LIMIT 25', [ph]);
-  return { ok: true, items: rows.map((r) => ({ at: r.ts, label: LABEL[s(r.event).toUpperCase()] || s(r.event), coins: asNum(r.coins_delta), orderId: /^(ADJ|GP)/.test(s(r.order_id)) ? '' : s(r.order_id), balanceAfter: asNum(r.balance_after) })) };
+  // credit: true = a refund-credit line (₹, separate from coins); its balanceAfter is the credit balance.
+  return { ok: true, items: rows.map((r) => ({ at: r.ts, label: LABEL[s(r.event).toUpperCase()] || s(r.event), coins: asNum(r.coins_delta), credit: CREDIT_EVENTS.includes(s(r.event).toUpperCase()), orderId: /^(ADJ|GP)/.test(s(r.order_id)) ? '' : s(r.order_id), balanceAfter: asNum(r.balance_after) })) };
 }
 
 module.exports = {
@@ -340,6 +443,8 @@ module.exports = {
   getSettings, saveSettings, validateSettings, defaults,
   spendAllowed, quoteSpend, holdSpend, releaseSpend, onOrderPaid, maintain, startTimer, adjust, history,
   undoOrderCoinsOn, creditRefundOn,
+  // Refund credit (separate pot, pays up to 100%): refunds.js, adminorderactions.js, order.js (₹0 checkout).
+  CREDIT_EVENTS, spendPlan, creditBalance, creditBalanceOn, creditOnOrderOn, releaseCreditOn, addRefundCreditOn, lockWalletOn,
   // Games (games.js) change balances with its own caps inside the same wallet lock + ledger.
   withWallet, writeLedger: ledger,
   _internal: { resetCache: () => { cache = null; } },

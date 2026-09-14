@@ -246,6 +246,31 @@ if (oliviaMod) {
   LIMITS.oliviaChat = security.rateLimiter(400, TEN_MIN); // the payment screen polls every 6-8 s
   PHONE_LIMITS.oliviaChat = security.rateLimiter(300, TEN_MIN);
 }
+// 💸 Refunds (refunds.js): the home-screen choice for a cash refund (refund credit +10%, or a UPI ID → admin Today
+// to-do). a = [phone] / [phone, orderId] / [phone, orderId, upiId, deviceToken]. The UPI ID needs the email code.
+let refundsMod = null; try { refundsMod = require('./refunds'); } catch (e) { console.log('[refunds] not loaded:', e.message); }
+if (refundsMod) {
+  Object.assign(DB_STOREFRONT, {
+    getPendingRefunds: (a) => refundsMod.getPendingRefunds(a[0]),
+    convertRefundToCredit: (a) => refundsMod.convertToCredit(a[0], a[1]),
+    refundSendCode: (a) => refundsMod.sendCode(a[0]),
+    requestUpiRefund: (a) => refundsMod.requestUpi(a[0], a[1], a[2], a[3]),
+  });
+  ['getPendingRefunds', 'convertRefundToCredit', 'refundSendCode', 'requestUpiRefund'].forEach((x) => DB_STOREFRONT_ACTIONS.add(x));
+  Object.assign(LIMITS, {
+    getPendingRefunds: security.rateLimiter(120, TEN_MIN), convertRefundToCredit: security.rateLimiter(20, TEN_MIN),
+    refundSendCode: security.rateLimiter(10, 60 * 60e3), requestUpiRefund: security.rateLimiter(20, TEN_MIN),
+  });
+  Object.assign(PHONE_LIMITS, {
+    convertRefundToCredit: security.rateLimiter(10, TEN_MIN), refundSendCode: security.rateLimiter(4, 60 * 60e3), requestUpiRefund: security.rateLimiter(10, TEN_MIN),
+  });
+}
+// ₹0 checkout (order.js confirmFreeOrder): a = [orderId, { token, phone }]. The server re-checks the total and the holds.
+if (order) {
+  DB_WRITES.confirmFreeOrder = (a) => order.confirmFreeOrder(a[0], a[1]);
+  DB_WRITE_ACTIONS.add('confirmFreeOrder');
+  LIMITS.confirmFreeOrder = security.rateLimiter(30, TEN_MIN);
+}
 
 // -- Locate the canonical root index.html --
 // Nested storefront fallbacks are deliberately unsupported: an old public/

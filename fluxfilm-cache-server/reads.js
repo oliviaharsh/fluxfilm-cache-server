@@ -192,7 +192,12 @@ async function getCustomerOrders(phone, limit) {
       currency: String(r.currency || 'INR').trim(),
     };
     // Admin order actions: refund details and "delivered again after a failed attempt" for the Orders badges.
-    if (o.status.toUpperCase() === 'REFUNDED') Object.assign(o, { refundAmount: asNum(raw.RefundAmount != null ? raw.RefundAmount : r.final_amount), refundMethod: String(raw.RefundMethod || '').trim(), refundedAt: isoOrRaw(raw.RefundedAt) });
+    if (o.status.toUpperCase() === 'REFUNDED') {
+      // refundKind CREDIT | COUPON | UPI_PENDING | UPI | OTHER; refundState ASK_CUSTOMER | UPI_REQUESTED | DONE (refunds.js).
+      const ri = require('./refunds').refundInfo(r);
+      Object.assign(o, { refundAmount: ri.amount, refundMethod: ri.method, refundedAt: isoOrRaw(raw.RefundedAt), refundKind: ri.kind, refundState: ri.state, refundCredit: ri.credit, refundCoupon: ri.coupon });
+    }
+    if (asNum(raw.RefundCreditUsed) > 0) o.creditUsed = asNum(raw.RefundCreditUsed);
     if (raw.Refulfilled === true || String(raw.Refulfilled || '').toUpperCase() === 'TRUE') o.redelivered = true;
     return o;
   });
@@ -273,10 +278,13 @@ async function getWalletByPhone(phone) {
   if (!ph) return { ok: false, message: 'Phone required.' };
   const rows = await db.query(
     'SELECT coins_balance, coins_lifetime, last_earned_at, last_spent_at, last_event FROM wallet WHERE phone_norm = ? ORDER BY coins_lifetime DESC, coins_balance DESC LIMIT 1', [ph]);
-  if (!rows.length) return { ok: true, phone: ph, coinsBalance: 0, coinsLifetime: 0, lastEarnedAt: '', lastSpentAt: '', lastEvent: '' };
+  // 💸 Refund credit: a separate pot (coins.js), ₹1 = 1, can pay the full price of an order.
+  let refundCredit = 0;
+  try { refundCredit = await require('./coins').creditBalance(ph); } catch (e) { refundCredit = 0; }
+  if (!rows.length) return { ok: true, phone: ph, coinsBalance: 0, coinsLifetime: 0, refundCredit, lastEarnedAt: '', lastSpentAt: '', lastEvent: '' };
   const r = rows[0];
   return {
-    ok: true, phone: ph,
+    ok: true, phone: ph, refundCredit,
     coinsBalance: asNum(r.coins_balance),
     coinsLifetime: asNum(r.coins_lifetime),
     lastEarnedAt: r.last_earned_at ? isoOrRaw(r.last_earned_at) : '',

@@ -1862,8 +1862,12 @@ function CoinToggle({
     }, () => setQ(null)), 200);
     return () => clearTimeout(t);
   }, [phone, amount, kind]);
-  if (!q || !q.ok || !q.enabled || !(q.balance > 0)) return null;
+  // 💸 Refund credit (refunds as coins) is a separate pot: it pays up to the full price, normal coins keep the max-% rule.
+  if (!q || !q.ok || !q.enabled || !(q.balance > 0) && !(q.creditBalance > 0)) return null;
   const R = q.rules || {};
+  const cr = Number(q.creditRupees || 0);
+  const cc = Number(q.coinCoins != null ? q.coinCoins : q.coins || 0);
+  if (!(q.coins > 0) && q.creditBalance > 0) return null;
   if (!(q.coins > 0)) {
     const why = q.reason === 'min' ? `You have ${q.balance} coins — you can use them once you have ${R.minCoins}.` : q.reason === 'not on renewals' ? `You have ${q.balance} coins — they can be used on new plans.` : q.reason === 'not on new orders' ? `You have ${q.balance} coins — they can be used when you renew.` : '';
     return why ? React.createElement("div", {
@@ -1893,9 +1897,11 @@ function CoinToggle({
     }
   }, React.createElement("div", {
     className: "ff-coin-t"
-  }, "🪙 Use ", q.coins, " coins"), React.createElement("div", {
+  }, cr > 0 ? cc > 0 ? `💸 Use ₹${cr} refund credit + 🪙 ${cc} coins` : `💸 Use ₹${cr} refund credit` : `🪙 Use ${q.coins} coins`), q.creditBalance > 0 && React.createElement("div", {
     className: "ff-coin-s"
-  }, "You have ", q.balance, " · 1 coin = ₹", R.coinValue, " · up to ", R.maxPercent, "% of an order")), React.createElement("span", {
+  }, "💸 Refund credit ₹", q.creditBalance, " (can pay the full price)"), (!(q.creditBalance > 0) || q.balance > 0) && React.createElement("div", {
+    className: "ff-coin-s"
+  }, q.creditBalance > 0 ? `🪙 Coins ${q.balance} (up to ${R.maxPercent}% per order)` : `You have ${q.balance} · 1 coin = ₹${R.coinValue} · up to ${R.maxPercent}% of an order`)), React.createElement("span", {
     className: "ff-coin-amt"
   }, "−₹", q.rupees));
 }
@@ -1940,7 +1946,19 @@ function WalletPanel({
       color: C.muted,
       marginTop: 4
     }
-  }, Number(w.coinsLifetime), " earned in total")), React.createElement(Card, {
+  }, Number(w.coinsLifetime), " earned in total"), w && w.ok && Number(w.refundCredit || 0) > 0 && React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 14,
+      fontWeight: 800,
+      color: '#1e40af',
+      marginTop: 10,
+      padding: '8px 12px',
+      borderRadius: 12,
+      background: 'rgba(37,99,235,.08)',
+      display: 'inline-block'
+    }
+  }, "💸 Refund credit ₹", Number(w.refundCredit), " — can pay the full price of any plan")), React.createElement(Card, {
     style: {
       marginTop: 12
     }
@@ -3650,7 +3668,10 @@ function DashboardScreen({
     // Refunded by FluxFilm (admin order actions): no "Verify Payment" / pay again, show amount + date + where to.
     const refunded = String(o.status || '').toUpperCase() === 'REFUNDED';
     const refundDate = (() => { try { const d = new Date(o.refundedAt); return o.refundedAt && !isNaN(d.getTime()) ? d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''; } catch (e) { return ''; } })();
-    const refundTo = /coin/i.test(o.refundMethod || '') ? 'Refunded as FluxFilm coins' : /upi/i.test(o.refundMethod || '') ? 'Refunded to your UPI' : '';
+    // refundKind / refundState from reads.js (refunds.js): coins (refund credit), coupon, cash refund still open, UPI.
+    const rk = String(o.refundKind || '').toUpperCase();
+    const refundPending = rk === 'UPI_PENDING';
+    const refundTo = rk === 'UPI_PENDING' ? String(o.refundState || '').toUpperCase() === 'UPI_REQUESTED' ? '⏳ UPI refund requested' : '⏳ Choose how you want your refund' : rk === 'COUPON' ? '🎟️ Refunded as coupon ' + (o.refundCoupon || '') : rk === 'CREDIT' || /coin/i.test(o.refundMethod || '') ? '💸 Refunded as coins' + (o.refundCredit ? ' (' + o.refundCredit + ' coins of refund credit)' : '') : rk === 'UPI' || /upi/i.test(o.refundMethod || '') ? '💸 Refunded to UPI' : '';
     return React.createElement(Card, {
       key: o.orderId,
       style: {
@@ -3679,7 +3700,7 @@ function DashboardScreen({
       }
     }, o.plan, " · ", o.orderId)), React.createElement(Badge, {
       tone: refunded ? 'info' : fulfilled ? 'ok' : paid ? 'info' : 'warn'
-    }, refunded ? '💸 Refunded' : fulfilled ? (o.redelivered ? '✅ Delivered' : '✅ Fulfilled') : paid ? '💰 Paid' : '⏳ Pending')), refunded && React.createElement("div", {
+    }, refunded ? refundPending ? '⏳ Refund' : '💸 Refunded' : fulfilled ? (o.redelivered ? '✅ Delivered' : '✅ Fulfilled') : paid ? '💰 Paid' : '⏳ Pending')), refunded && React.createElement("div", {
       style: {
         marginTop: 8,
         fontFamily: PJS,
@@ -3687,7 +3708,14 @@ function DashboardScreen({
         fontWeight: 700,
         color: '#1e40af'
       }
-    }, '💸 ', refundTo || 'Refunded', ' · ₹', o.refundAmount != null ? o.refundAmount : o.amount, refundDate ? ' · ' + refundDate : ''), fulfilled && o.redelivered && React.createElement("div", {
+    }, refundTo || '💸 Refunded', ' · ₹', o.refundAmount != null ? o.refundAmount : o.amount, refundDate ? ' · ' + refundDate : ''), refunded && refundPending && String(o.refundState || '').toUpperCase() !== 'UPI_REQUESTED' && React.createElement(Btn, {
+      variant: "primary",
+      full: true,
+      style: {
+        marginTop: 10
+      },
+      onClick: () => window.dispatchEvent(new Event('ff-refunds-open'))
+    }, "💸 Choose: coins +10% or UPI"), fulfilled && o.redelivered && React.createElement("div", {
       style: {
         marginTop: 8,
         fontFamily: PJS,
@@ -5202,6 +5230,8 @@ function PayScreen({
 }) {
   const [copied, setCopied] = useState(false);
   const [copiedUPI, setCopiedUPI] = useState(false);
+  const [freeBusy, setFreeBusy] = useState(false);
+  const [freeMsg, setFreeMsg] = useState('');
   useEffect(() => {
     if (!creating || orderData) return;
     setLoading('🧾 Creating order…', 'Generating OrderID + UPI link');
@@ -5234,7 +5264,11 @@ function PayScreen({
         amount: Number(r.amount || 0),
         currency: r.currency || 'INR',
         accessToken: r.accessToken || '',
-        loginNotice: r.loginNotice || ''
+        loginNotice: r.loginNotice || '',
+        free: !!r.freeCheckout,
+        creditUsed: Number(r.creditUsed || 0),
+        coinsDiscount: Number(r.coinsDiscount || 0),
+        couponCode: r.couponCode || ''
       };
       if (form?.useCoins && !r.coinsUsed && r.coinsMessage) alert('🪙 Coins were not used: ' + r.coinsMessage);
       setOrderData(oi);
@@ -5285,7 +5319,132 @@ function PayScreen({
     renewPreview,
     loginNotice
   } = orderData;
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=8&data=${encodeURIComponent(upiLink || '')}`;
+  // ₹0 checkout: refund credit / coupon / coins cover the whole price → no UPI screen, just confirm (order.js
+  // confirmFreeOrder re-checks everything on the server), then the normal verify → delivery → success screen.
+  if (orderData.free && Number(amount || 0) === 0) {
+    const planName = [service, planObj?.plan].filter(Boolean).join(' ');
+    const proofPhone = form?.phone || getFFSession().phone || localStorage.getItem('ff_phone') || '';
+    const paidWith = [orderData.creditUsed > 0 ? `💸 ₹${orderData.creditUsed} refund credit` : '', orderData.coinsDiscount - (orderData.creditUsed || 0) > 0 ? `🪙 ₹${orderData.coinsDiscount - (orderData.creditUsed || 0)} coins` : '', orderData.couponCode ? `🎟️ coupon ${orderData.couponCode}` : ''].filter(Boolean);
+    const confirmFree = () => {
+      if (freeBusy) return;
+      setFreeBusy(true);
+      setFreeMsg('');
+      API.confirmFreeOrder(orderId, {
+        token: accessToken || '',
+        phone: proofPhone
+      }, r => {
+        setFreeBusy(false);
+        if (r && r.ok && r.paid) {
+          try {
+            localStorage.removeItem('FF_RESUME');
+          } catch (e) {}
+          nav('verify', {
+            orderId,
+            service,
+            accessToken,
+            phone: proofPhone
+          });
+          return;
+        }
+        setFreeMsg('⚠️ ' + (r && r.message || 'Could not confirm. Please try again.'));
+      }, () => {
+        setFreeBusy(false);
+        setFreeMsg('⚠️ Network problem — please tap Confirm again.');
+      });
+    };
+    return React.createElement(Slide, null, React.createElement("div", {
+      "data-ff": "free-checkout",
+      style: {
+        paddingBottom: 90
+      }
+    }, renewNotice ? React.createElement(Hint, {
+      tone: "blue"
+    }, "🔄 ", renewNotice) : null, loginNotice ? React.createElement(Hint, {
+      tone: "blue"
+    }, "ℹ️ ", loginNotice) : null, React.createElement("div", {
+      className: "ff-3d-ticket ff-free-ticket",
+      style: {
+        margin: '16px 0 14px',
+        padding: 20,
+        borderRadius: 20,
+        background: 'linear-gradient(135deg,#16a34a,#22c55e)',
+        color: '#fff',
+        textAlign: 'center',
+        boxShadow: '0 8px 30px rgba(22,163,74,.28)'
+      }
+    }, React.createElement("div", {
+      style: {
+        fontFamily: PJS,
+        fontSize: 12,
+        fontWeight: 700,
+        opacity: .8,
+        textTransform: 'uppercase',
+        letterSpacing: '.08em',
+        marginBottom: 4
+      }
+    }, "You pay"), React.createElement("div", {
+      style: {
+        fontFamily: PJS,
+        fontSize: 42,
+        fontWeight: 800,
+        lineHeight: 1
+      }
+    }, "₹0"), React.createElement("div", {
+      style: {
+        fontFamily: PJS,
+        fontSize: 12.5,
+        fontWeight: 600,
+        opacity: .85,
+        marginTop: 6
+      }
+    }, "No UPI payment needed")), React.createElement(Card, null, React.createElement("div", {
+      style: {
+        fontFamily: PJS,
+        fontSize: 17,
+        fontWeight: 800,
+        color: C.text,
+        lineHeight: 1.45
+      }
+    }, "✅ Use your credit to get ", React.createElement("b", null, planName || 'this plan'), " — you pay ₹0"), paidWith.length > 0 && React.createElement("div", {
+      style: {
+        fontFamily: PJS,
+        fontSize: 14,
+        fontWeight: 600,
+        color: C.muted,
+        marginTop: 8,
+        lineHeight: 1.6
+      }
+    }, "Paid with ", paidWith.join(' + ')), React.createElement(Btn, {
+      variant: "primary",
+      full: true,
+      disabled: freeBusy,
+      style: {
+        marginTop: 16,
+        minHeight: 54,
+        fontSize: 17
+      },
+      onClick: confirmFree
+    }, freeBusy ? '⏳ Confirming…' : '✅ Confirm — get my plan'), freeMsg && React.createElement("div", {
+      style: {
+        marginTop: 10,
+        fontFamily: PJS,
+        fontSize: 13.5,
+        fontWeight: 700,
+        color: C.red,
+        lineHeight: 1.5
+      }
+    }, freeMsg), React.createElement(Btn, {
+      variant: "ghost",
+      full: true,
+      style: {
+        marginTop: 10
+      },
+      onClick: () => {
+        if (goBack) goBack();else nav('home', {});
+      }
+    }, "⬅️ Not now"))));
+  }
+  const qrUrl =`https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=8&data=${encodeURIComponent(upiLink || '')}`;
   function copyText(text, setter) {
     if (!text || text === '-') return;
     window.ffSound?.('copy');
@@ -6737,7 +6896,11 @@ function RenewStartScreen({
         currency: r.currency || 'INR',
         accessToken: r.accessToken || '',
         renewNotice: r.renewNotice || '',
-        renewPreview: r.renewPreview || null
+        renewPreview: r.renewPreview || null,
+        free: !!r.freeCheckout,
+        creditUsed: Number(r.creditUsed || 0),
+        coinsDiscount: Number(r.coinsDiscount || 0),
+        couponCode: r.couponCode || ''
       };
       setOrderData(oi);
       try {
@@ -10069,6 +10232,279 @@ function PromoCard({
     onClick: () => promoAct_(p, nav)
   }, p.ctaText, " ›")));
 }
+// 💸 Cash refund pop-up (refunds.js): FluxFilm refunded an order and the owner chose "UPI cash — ask the customer".
+// The customer can take the refund as refund credit with 10% extra, or give a UPI ID (after the email code) — the owner
+// then gets a Today to-do and sends it. Shown on the home / My plans screen once per visit, and from the Orders button.
+const FF_UPI_RE_ = /^[a-zA-Z0-9][a-zA-Z0-9._-]{1,99}@[a-zA-Z][a-zA-Z0-9]{1,49}$/;
+function RefundChoice({
+  screen,
+  phone
+}) {
+  const [item, setItem] = useState(null);
+  const [step, setStep] = useState('choose');
+  const [upi, setUpi] = useState('');
+  const [code, setCode] = useState('');
+  const [verify, setVerify] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [done, setDone] = useState('');
+  const ph = normPhone_(phone || '');
+  const seenKey = id => 'ff_refund_seen_' + id;
+  function load(force) {
+    if (!ph) return;
+    API.getPendingRefunds(ph, r => {
+      const ask = (r && r.ok && r.items || []).filter(x => x.state === 'ASK_CUSTOMER');
+      const first = ask.find(x => {
+        if (force) return true;
+        try {
+          return !sessionStorage.getItem(seenKey(x.orderId));
+        } catch (e) {
+          return true;
+        }
+      });
+      if (!first) return;
+      const show = () => {
+        if (window.ffPromoOpen && !force) return setTimeout(show, 1500);
+        try {
+          sessionStorage.setItem(seenKey(first.orderId), '1');
+        } catch (e) {}
+        setItem(first);
+        setStep('choose');
+        setMsg('');
+        setDone('');
+      };
+      show();
+    }, () => {});
+  }
+  useEffect(() => {
+    if (!ph || !['home', 'dashboard'].includes(screen)) return;
+    let t = null;
+    // Never on top of an offer pop-up that is already open: wait until it is closed.
+    const tryLoad = () => {
+      if (window.ffPromoOpen) t = setTimeout(tryLoad, 1500);else load(false);
+    };
+    t = setTimeout(tryLoad, 1200);
+    return () => clearTimeout(t);
+  }, [ph, screen]);
+  useEffect(() => {
+    window.ffRefundOpen = !!item;
+    return () => {
+      window.ffRefundOpen = false;
+    };
+  }, [item]);
+  useEffect(() => {
+    const open = () => load(true);
+    window.addEventListener('ff-refunds-open', open);
+    return () => window.removeEventListener('ff-refunds-open', open);
+  }, [ph]);
+  if (!item) return null;
+  const close = () => {
+    if (busy) return;
+    setItem(null);
+  };
+  const takeCoins = () => {
+    setBusy(true);
+    setMsg('');
+    API.convertRefundToCredit(ph, item.orderId, r => {
+      setBusy(false);
+      if (r && r.ok) {
+        window.ffSound?.('coins');
+        setDone(`🪙 ${r.credit} coins of refund credit added. Use them on any plan — they can pay the full price.`);
+        setStep('done');
+      } else setMsg('⚠️ ' + (r && r.message || 'Could not add the coins. Please try again.'));
+    }, () => {
+      setBusy(false);
+      setMsg('⚠️ Network problem — please try again.');
+    });
+  };
+  const sendUpi = () => {
+    const id = upi.replace(/\s+/g, '');
+    if (!FF_UPI_RE_.test(id)) return setMsg('⚠️ Enter a UPI ID like name@okhdfcbank.');
+    setBusy(true);
+    setMsg('');
+    API.requestUpiRefund(ph, item.orderId, id, r => {
+      setBusy(false);
+      if (r && r.ok) {
+        setDone(r.message || '✅ Thanks! We\'ll send your refund soon.');
+        setStep('done');
+        return;
+      }
+      if (r && r.needsVerify) {
+        setVerify(r);
+        setStep('verify');
+        setMsg('');
+        return;
+      }
+      setMsg('⚠️ ' + (r && r.message || 'Could not save your UPI ID. Please try again.'));
+    }, () => {
+      setBusy(false);
+      setMsg('⚠️ Network problem — please try again.');
+    });
+  };
+  const sendCode = () => {
+    setBusy(true);
+    setMsg('');
+    API.refundSendCode(ph, r => {
+      setBusy(false);
+      if (r && r.ok) {
+        setVerify(Object.assign({}, verify, {
+          sent: true,
+          maskedEmail: r.maskedEmail || verify && verify.maskedEmail
+        }));
+        setMsg(r.message || '');
+      } else setMsg('⚠️ ' + (r && r.message || 'Could not send the code.'));
+    }, () => {
+      setBusy(false);
+      setMsg('⚠️ Could not send the code. Please try again.');
+    });
+  };
+  const checkCode = () => {
+    if (code.replace(/\D/g, '').length !== 6) return setMsg('⚠️ Enter the 6-digit code from the email.');
+    setBusy(true);
+    setMsg('');
+    API.otpVerifyCode(ph, code, r => {
+      setBusy(false);
+      if (r && r.ok && r.token) {
+        setOtpToken_(ph, r);
+        setCode('');
+        sendUpi();
+      } else setMsg('⚠️ ' + (r && r.message || 'That code did not work.'));
+    }, () => {
+      setBusy(false);
+      setMsg('⚠️ Could not check the code. Please try again.');
+    });
+  };
+  const note = msg ? React.createElement("p", {
+    key: "n",
+    style: {
+      color: /^⚠️/.test(msg) ? '#b91c1c' : '#1e40af'
+    }
+  }, msg) : null;
+  const what = React.createElement("p", null, "Your order ", React.createElement("b", null, item.orderId), " (", React.createElement("b", null, item.service, " ", item.plan), ", ₹", item.amount, ") was refunded. You chose a cash refund.");
+  let body;
+  if (step === 'done') body = [React.createElement("div", {
+    key: "e",
+    className: "ff-sheet-emoji"
+  }, "💚"), React.createElement("h3", {
+    key: "h"
+  }, "All set"), React.createElement("p", {
+    key: "p"
+  }, done), React.createElement("div", {
+    key: "b",
+    className: "ff-sheet-btns"
+  }, React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    onClick: () => setItem(null)
+  }, "👍 OK"))];else if (step === 'upi') body = [React.createElement("div", {
+    key: "e",
+    className: "ff-sheet-emoji"
+  }, "🏦"), React.createElement("h3", {
+    key: "h"
+  }, "UPI refund"), React.createElement("p", {
+    key: "p"
+  }, "Type the UPI ID we should send ", React.createElement("b", null, "₹", item.amount), " to."), React.createElement(Input, {
+    key: "i",
+    label: "Your UPI ID",
+    placeholder: "name@okhdfcbank",
+    value: upi,
+    autoFocus: true,
+    onChange: e => setUpi(e.target.value)
+  }), note, React.createElement("div", {
+    key: "b",
+    className: "ff-sheet-btns"
+  }, React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    disabled: busy,
+    onClick: sendUpi
+  }, busy ? '⏳ Saving…' : '✅ Send my refund to this UPI'), React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    onClick: () => {
+      setStep('choose');
+      setMsg('');
+    }
+  }, "⬅️ Back"))];else if (step === 'verify') body = [React.createElement("div", {
+    key: "e",
+    className: "ff-sheet-emoji"
+  }, "🔒"), React.createElement("h3", {
+    key: "h"
+  }, "Confirm it’s you"), React.createElement("p", {
+    key: "p"
+  }, verify && verify.hasEmail === false ? verify.message : verify && verify.sent ? `We emailed a 6-digit code to ${verify.maskedEmail || 'your email'}. Type it below.` : `For your safety, we’ll email a 6-digit code to ${verify && verify.maskedEmail || 'your email'} before sending money to a UPI ID.`), verify && verify.sent && React.createElement(Input, {
+    key: "i",
+    label: "6-digit code",
+    placeholder: "123456",
+    type: "tel",
+    value: code,
+    autoFocus: true,
+    onChange: e => setCode(e.target.value)
+  }), note, React.createElement("div", {
+    key: "b",
+    className: "ff-sheet-btns"
+  }, verify && verify.hasEmail === false ? React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    onClick: () => API.openWhatsApp()
+  }, "💬 WhatsApp support") : verify && verify.sent ? React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    disabled: busy,
+    onClick: checkCode
+  }, busy ? '⏳ Checking…' : '✅ Confirm code') : React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    disabled: busy,
+    onClick: sendCode
+  }, busy ? '⏳ Sending…' : '📧 Email me a code'), React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    onClick: () => {
+      setStep('upi');
+      setMsg('');
+    }
+  }, "⬅️ Back"))];else body = [React.createElement("div", {
+    key: "e",
+    className: "ff-sheet-emoji"
+  }, "💸"), React.createElement("h3", {
+    key: "h"
+  }, "One order was refunded"), React.createElement(React.Fragment, {
+    key: "w"
+  }, what), React.createElement("p", {
+    key: "o"
+  }, "Want to keep shopping? Take it as coins with ", React.createElement("b", null, item.bonusPercent || 10, "% extra"), " — they can pay the full price of any plan."), note, React.createElement("div", {
+    key: "b",
+    className: "ff-sheet-btns"
+  }, React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    disabled: busy,
+    style: {
+      minHeight: 54,
+      fontSize: 15.5
+    },
+    onClick: takeCoins
+  }, busy ? '⏳ Adding…' : `🪙 Take ₹${item.amount} + ${item.bonusPercent || 10}% = ${item.credit} coins instead (use on any plan)`), React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    disabled: busy,
+    onClick: () => {
+      setStep('upi');
+      setMsg('');
+    }
+  }, "🏦 Continue with UPI refund"), React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    size: "sm",
+    onClick: close
+  }, "Decide later"))];
+  return React.createElement(ToolsSheet, {
+    onClose: close
+  }, React.createElement("div", {
+    "data-ff": "refund-choice"
+  }, body));
+}
 function PromoPopup({
   promos,
   screen,
@@ -10081,6 +10517,8 @@ function PromoPopup({
     const p = promos.find(x => x.type === 'popup' && promoFits_(x, screen, loggedIn) && promoPopupDue_(x));
     if (!p) return;
     const t = setTimeout(() => {
+      // A refunded order is waiting for the customer's choice (RefundChoice): that pop-up wins this visit.
+      if (window.ffRefundOpen) return;
       promoMarkSeen_(p);
       promoEvent_(p.id, 'view');
       window.ffPromoOpen = true;
@@ -12571,6 +13009,9 @@ function App() {
     screen: screen,
     loggedIn: !!sessionPhone,
     nav: nav
+  }), !storeBlocked && sessionPhone && React.createElement(RefundChoice, {
+    screen: screen,
+    phone: sessionPhone
   }), !storeBlocked && React.createElement(InstallPrompt, {
     screen: screen
   }), React.createElement(UpdateBar, {
@@ -12758,6 +13199,23 @@ const API = {
   },
   getCoinHistory(phone, onSuccess, onFailure) {
     apiCall_('getCoinHistory', [phone], onSuccess, onFailure);
+  },
+  // ₹0 checkout: the server re-checks the total, the credit / coins holds and the coupon before marking it paid.
+  confirmFreeOrder(orderId, proof, onSuccess, onFailure) {
+    apiCall_('confirmFreeOrder', [orderId, proof || {}], onSuccess, onFailure);
+  },
+  // 💸 Refunds (refunds.js): cash refund choice on the home screen.
+  getPendingRefunds(phone, onSuccess, onFailure) {
+    apiCall_('getPendingRefunds', [phone], onSuccess, onFailure);
+  },
+  convertRefundToCredit(phone, orderId, onSuccess, onFailure) {
+    apiCall_('convertRefundToCredit', [phone, orderId], onSuccess, onFailure);
+  },
+  refundSendCode(phone, onSuccess, onFailure) {
+    apiCall_('refundSendCode', [phone], onSuccess, onFailure);
+  },
+  requestUpiRefund(phone, orderId, upiId, onSuccess, onFailure) {
+    apiCall_('requestUpiRefund', [phone, orderId, upiId, getOtpToken_(phone)], onSuccess, onFailure);
   },
   getNetflixHouseholdLink(email, onSuccess, onFailure) {
     apiCall_('getNetflixHouseholdLink', [email], onSuccess, onFailure);

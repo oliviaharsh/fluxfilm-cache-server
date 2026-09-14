@@ -157,7 +157,7 @@ ok('AudioContext constructor throws: silent', (() => { try { W.fire('pointerdown
   ok('invite discount → coupon sound', /friendDiscount\) > 0\) window\.ffSound\?\.\('coupon'\)/.test(html));
   ok('coins switched on at checkout → coins', /if \(!on\) window\.ffSound\?\.\('coins'\);\n\s*onChange && onChange\(!on, q\);/.test(fnSrc('CoinToggle', 'WalletPanel')));
   ok('copy tick in every copy handler (creds, copyText_, pay screen, pay help, coupons, OTP)', (html.match(/window\.ffSound\?\.\('copy'\)/g) || []).length === 6);
-  ok('no sound calls anywhere else (keeps it calm)', (html.match(/window\.ffSound(Once)?\?\.\(/g) || []).length === 16, (html.match(/window\.ffSound(Once)?\?\.\(/g) || []).length);
+  ok('no sound calls anywhere else (keeps it calm)', (html.match(/window\.ffSound(Once)?\?\.\(/g) || []).length === 17 /* +1: refund taken as coins (RefundChoice) */, (html.match(/window\.ffSound(Once)?\?\.\(/g) || []).length);
 
   section('store: Account switches');
   const rowsSrc = html.slice(html.indexOf('function SoundRows()'), html.indexOf('function AccountScreen({'));

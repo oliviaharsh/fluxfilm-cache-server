@@ -104,7 +104,8 @@ async function couponDiscount(code, phone, baseAmount, ctx) {
   let disc = (type.startsWith('PERC') || type === 'PCT' || type === '%') ? baseAmount * val / 100 : val;
   if (maxD > 0) disc = Math.min(disc, maxD);
   disc = Math.max(0, Math.min(disc, baseAmount));
-  return { ok: true, discount: Math.round(disc) };
+  // refundCoupon: a personal coupon FluxFilm gave as a refund (adminorderactions.js, raw.Source = 'REFUND').
+  return { ok: true, discount: Math.round(disc), refundCoupon: String(raw.Source || '').trim().toUpperCase() === 'REFUND', globalLimit: globalLimit };
 }
 
 /**
@@ -211,15 +212,21 @@ async function createOrder(p, opts) {
   const listPrice = hasAmountOverride ? Math.max(basePrice, overrideAmount) : basePrice;
   const orderId = await freeOrderId();
   // Pay part with coins (customer ticked "Use my coins"): the coins are held now, kept when paid, given back if not.
-  let coinsUsed = 0; let coinsRupees = 0; let coinsMessage = '';
+  // coinsRupees = everything "Use my coins" took (refund credit first, up to 100%, then coins within the max-%);
+  // creditUsed = the refund-credit part of it.
+  let coinsUsed = 0; let coinsRupees = 0; let creditUsed = 0; let coinsMessage = '';
   if (p.useCoins === true && !hasAmountOverride && typeof coins.holdSpend === 'function') {
     try {
       const h = await coins.holdSpend({ phone, orderId, amount: Math.max(0, listPrice - discount), kind: orderType, service, plan });
-      if (h.ok) { coinsUsed = h.coins; coinsRupees = h.rupees; } else coinsMessage = h.message || '';
+      if (h.ok) { coinsUsed = h.coins; coinsRupees = h.rupees; creditUsed = asNum(h.credit); } else coinsMessage = h.message || '';
     } catch (e) { console.log('[coins] hold failed for', orderId, e.message); coinsMessage = 'Coins could not be used right now.'; }
   }
   const totalDiscount = discount + coinsRupees;
   const finalAmount = Math.max(0, listPrice - totalDiscount);
+  // ₹0 checkout: credit / coupon / coins cover the whole price. No UPI screen; the customer taps Confirm and
+  // confirmFreeOrder re-checks everything on the server. Decided here only (raw_json is never written by the client);
+  // admin quick orders (amountOverride) are marked paid by the owner instead.
+  const freeCheckout = finalAmount === 0 && !hasAmountOverride;
   const accessToken = newAccessToken();
 
   const orderRaw = {
@@ -234,7 +241,9 @@ async function createOrder(p, opts) {
     AccessTokenHash: hashAccessToken(accessToken),
   };
   if (referral) { orderRaw.ReferralCode = referral.code; orderRaw.ReferralDiscount = referralDiscount; }
-  if (coinsUsed) { orderRaw.CoinsUsed = coinsUsed; orderRaw.CoinsDiscount = coinsRupees; }
+  if (coinsUsed) { orderRaw.CoinsUsed = coinsUsed; orderRaw.CoinsDiscount = coinsRupees - creditUsed; }
+  if (creditUsed) orderRaw.RefundCreditUsed = creditUsed;
+  if (freeCheckout) orderRaw.FreeCheckout = true;
   if (loginMode) orderRaw.LoginMode = loginMode; // the typed column orders.login_mode holds the same value
   if (opts.rawExtra && typeof opts.rawExtra === 'object') Object.assign(orderRaw, opts.rawExtra);
 
@@ -250,7 +259,7 @@ async function createOrder(p, opts) {
       JSON.stringify(orderRaw)].concat(loginMode ? [loginMode] : []));
   } catch (e) {
     // The order was not saved: give the held coins straight back.
-    if (coinsUsed) await coins.releaseSpend(orderId, 'order could not be saved').catch((x) => console.log('[coins] release failed', orderId, x.message));
+    if (coinsRupees) await coins.releaseSpend(orderId, 'order could not be saved').catch((x) => console.log('[coins] release failed', orderId, x.message));
     throw e;
   }
 
@@ -285,7 +294,7 @@ async function createOrder(p, opts) {
 
   return {
     ok: true, orderId, amount: finalAmount, baseAmount: listPrice, planPrice: price, discount: totalDiscount,
-    coinsUsed, coinsDiscount: coinsRupees, coinsMessage,
+    coinsUsed, coinsDiscount: coinsRupees, creditUsed, coinsMessage, freeCheckout,
     couponCode: couponCode || '', currency: 'INR', upiVpa, payee, upiLink,
     paymentNote: orderId, groupJoinRequired, groupJoinLink,
     deviceCount, tvCount,
@@ -302,6 +311,7 @@ async function _order(orderId) {
 async function _markPaid(orderId, txnRef) {
   const conn = await db.getPool().getConnection();
   let becamePaid = false;
+  const couponOf = { code: '', discount: 0 };
   try {
     await conn.beginTransaction();
     const [rows] = await conn.query(
@@ -313,6 +323,7 @@ async function _markPaid(orderId, txnRef) {
       await conn.query('UPDATE orders SET status = ?, txn_ref = ?, verified_at = NOW() WHERE order_id = ?', ['PAID', txnRef || '', orderId]);
       becamePaid = true;
       const code = String(o.coupon_code || '').trim().toUpperCase();
+      couponOf.code = code; couponOf.discount = asNum(o.discount);
       if (code && asNum(o.discount) > 0) {
         await conn.query(
           `INSERT INTO coupon_usage (coupon_code, phone, phone_norm, email, discount, order_id, action, ts, raw_json)
@@ -331,6 +342,11 @@ async function _markPaid(orderId, txnRef) {
     try { await conn.rollback(); } catch (_) {}
     throw e;
   } finally { conn.release(); }
+  // A refund coupon (single use) was on two orders that were both paid (one by UPI after the other was confirmed):
+  // payment can't be refused, so tell the owner. Never blocks payment.
+  if (becamePaid && /^RF[A-Z0-9]{4,}$/.test(String(couponOf.code || '')) && couponOf.discount > 0) {
+    flagRefundCouponOveruse(couponOf.code, orderId).catch((e) => console.log('[coupon] overuse check failed for', orderId, e.message));
+  }
   // Refer & earn: a friend's first paid order rewards whoever invited them. Never blocks payment.
   if (becamePaid && typeof coins.onOrderPaid === 'function') {
     // Coins used on this order are now kept (maintain() retries if this fails).
@@ -345,6 +361,7 @@ async function _markPaid(orderId, txnRef) {
 
 // Refunded by the owner: the checkout page stops waiting and says so (no bank credit is taken for it).
 const REFUNDED_VERIFY = { ok: true, found: false, paid: false, refunded: true, fulfillment: 'REFUNDED', message: '💸 This order was refunded. Please contact WhatsApp support if this looks wrong.' };
+const FREE_VERIFY = { ok: true, found: false, paid: false, freeCheckout: true, message: 'Nothing to pay on this order — go back and tap “Confirm” to use your credit.' };
 
 async function verifyPayment(orderId) {
   const o = await _order(orderId);
@@ -352,6 +369,8 @@ async function verifyPayment(orderId) {
   if (o.source !== 'node') return { ok: false, found: false, message: 'This legacy order cannot be verified on the new checkout. Please contact support.' };
   if (String(o.status || '').toUpperCase() === 'REFUNDED') return REFUNDED_VERIFY;
   if (String(o.status || '').toUpperCase() === 'PAID') return { ok: true, found: true, paid: true, message: '✅ Payment confirmed.' };
+  // ₹0 order: nothing to find in the bank (and no ₹0 bank line may ever "pay" it) — it is confirmed with confirmFreeOrder.
+  if (!(asNum(o.final_amount) > 0)) return FREE_VERIFY;
   const credit = await pay.findByOrder(orderId, o.final_amount);
   if (credit) { await _markPaid(orderId, credit.upi_ref); return { ok: true, found: true, paid: true }; }
   // Paid to the plain backup QR by a customer whose payer name we already know (payment fallback, schema-v17).
@@ -368,6 +387,7 @@ async function verifyPaymentByRef(orderId, ref) {
   if (o.source !== 'node') return { ok: false, found: false, message: 'This legacy order cannot be verified on the new checkout. Please contact support.' };
   if (String(o.status || '').toUpperCase() === 'REFUNDED') return REFUNDED_VERIFY;
   if (String(o.status || '').toUpperCase() === 'PAID') return { ok: true, found: true, paid: true, message: '✅ Payment confirmed.' };
+  if (!(asNum(o.final_amount) > 0)) return FREE_VERIFY;
   const credit = await pay.findByRef(orderId, ref, o.final_amount);
   if (credit) { await _markPaid(orderId, credit.upi_ref); return { ok: true, found: true, paid: true }; }
   return { ok: true, found: false, message: 'That reference / amount didn\'t match a payment yet. Please double-check and try again.' };
@@ -467,6 +487,131 @@ async function validateCoupon(code, ctx) {
   return { ok: true, code: c.toUpperCase(), discount: cd.discount, finalAmount: Math.max(0, amount - cd.discount), message: 'Coupon applied.' };
 }
 
+/**
+ * confirmFreeOrder(orderId, proof) — ₹0 checkout: refund credit / coupon / coins cover the whole price.
+ * proof = { token, phone }: the per-order token from createOrder OR the order's phone (same proof as fulfillAndGetAccess).
+ * Nothing the browser sends is trusted: under one named lock + a transaction that locks the order row and the
+ * customer's wallet row, the server checks that createOrder marked the order FreeCheckout, the stored final amount is
+ * 0, the credit + coins are STILL held for this order (not given back meanwhile), and the coupon is STILL valid and
+ * worth what it was. Only then: PAID (txn_ref CREDIT-…, no bank credit), coupon USED, holds SPENT — all or nothing.
+ * Repeating (or racing) the call returns { paid, already } and changes nothing. Delivery then runs exactly like a paid
+ * order (the storefront polls fulfillAndGetAccess); if it fails the order is PAID/FAILED with the admin ⚡ Actions.
+ */
+const FREE_LOCK = 'ff_free_confirm';
+class FreeRefused extends Error { constructor(message, extra) { super(message); this.extra = extra || {}; } }
+async function confirmFreeOrder(orderId, proof) {
+  const oid = String(orderId || '').trim().toUpperCase();
+  if (!/^FF\d{1,14}$/.test(oid)) return { ok: false, message: 'Order not found.' };
+  const pr = proof && typeof proof === 'object' ? proof : { token: proof };
+  const pool = db.getPool && db.getPool();
+  if (!pool) return { ok: false, message: 'Database not available — please try again.' };
+  const conn = await pool.getConnection();
+  let locked = false; let done = null;
+  try {
+    const [l] = await conn.query('SELECT GET_LOCK(?, ?) AS l', [FREE_LOCK, 10]);
+    if (!l || !l[0] || Number(l[0].l) !== 1) return { ok: false, busy: true, message: 'Busy — please tap Confirm again in a moment.' };
+    locked = true;
+    await conn.beginTransaction();
+    try {
+      done = await _confirmFreeOn(conn, oid, pr);
+      await conn.commit();
+    } catch (e) {
+      try { await conn.rollback(); } catch (_) {}
+      if (e instanceof FreeRefused) return Object.assign({ ok: false, message: e.message }, e.extra);
+      throw e;
+    }
+  } finally {
+    if (locked) { try { await conn.query('SELECT RELEASE_LOCK(?)', [FREE_LOCK]); } catch (_) {} }
+    conn.release();
+  }
+  if (done.becamePaid) {
+    referrals.onOrderPaid(oid)
+      .then((r) => { if (r && r.status) console.log('[referral]', oid, JSON.stringify(r)); })
+      .catch((e) => console.log('[referral] reward failed for', oid, e.message));
+  }
+  return done.out;
+}
+async function _confirmFreeOn(conn, oid, pr) {
+  const [rows] = await conn.query(
+    'SELECT order_id, status, source, service, plan, phone, phone_norm, email, order_type, price, discount, final_amount, coupon_code, raw_json FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE', [oid]);
+  const o = (rows || [])[0];
+  if (!o) throw new FreeRefused('Order not found.');
+  const raw = Object.assign({}, rawOf(o.raw_json));
+  const token = String(pr.token || '').trim();
+  const phoneOk = !!norm(pr.phone) && norm(pr.phone) === String(o.phone_norm || '');
+  const tokenOk = !!token && !!raw.AccessTokenHash && hashAccessToken(token) === String(raw.AccessTokenHash);
+  if (!phoneOk && !tokenOk) throw new FreeRefused('This order was placed with a different phone number.');
+  const st = String(o.status || '').toUpperCase();
+  if (st === 'PAID') return { out: { ok: true, paid: true, already: true, orderId: oid, message: '✅ Already confirmed.' } };
+  if (st === 'REFUNDED') throw new FreeRefused('💸 This order was refunded.', { refunded: true });
+  if (String(o.source || '') !== 'node' || st !== 'CREATED') throw new FreeRefused('This order can’t be confirmed here. Please contact support.');
+  if (raw.FreeCheckout !== true || asNum(o.final_amount) !== 0) throw new FreeRefused('This order still needs a UPI payment.', { needsPayment: true });
+
+  // Credit + coins still held for THIS order? (A newer checkout with coins, or 24 h without paying, gives them back.)
+  const creditRecorded = Math.round(asNum(raw.RefundCreditUsed));
+  const coinsRecorded = Math.round(asNum(raw.CoinsDiscount));
+  const heldRecorded = creditRecorded + coinsRecorded;
+  const startAgain = { startAgain: true };
+  let spend = null;
+  if (heldRecorded > 0) {
+    await coins.lockWalletOn(conn, String(o.phone_norm));
+    const [sp] = await conn.query('SELECT order_id, coins, rupees, status FROM coin_spends WHERE order_id = ? LIMIT 1 FOR UPDATE', [oid]);
+    spend = (sp || [])[0] || null;
+    if (!spend || String(spend.status).toUpperCase() !== 'HELD' || Math.round(asNum(spend.rupees)) !== heldRecorded) {
+      throw new FreeRefused('Your credit / coins on this order were given back (the order waited too long, or you started another order). Please start the order again.', startAgain);
+    }
+    const c = await coins.creditOnOrderOn(conn, oid);
+    if (Math.round(c.held) !== creditRecorded) throw new FreeRefused('Your refund credit on this order was given back. Please start the order again.', startAgain);
+  }
+  // Every other discount (coupon, invite, early renewal) was worked out by createOrder on the server.
+  const otherDiscount = Math.round(asNum(o.discount)) - heldRecorded;
+  const code = String(o.coupon_code || '').trim().toUpperCase();
+  if (code && otherDiscount > 0) {
+    const cd = await couponDiscount(code, o.phone_norm, asNum(o.price), { action: String(o.order_type || 'NEW').toUpperCase() === 'RENEW' ? 'RENEW' : 'NEW', service: o.service, plan: o.plan });
+    if (!cd.ok) throw new FreeRefused('Coupon ' + code + ': ' + (cd.message || 'not valid any more') + ' Please start the order again.', startAgain);
+    if (cd.discount < otherDiscount) throw new FreeRefused('Coupon ' + code + ' is now worth less than when you started. Please start the order again.', startAgain);
+  }
+  if (Math.round(asNum(o.price)) - otherDiscount - heldRecorded > 0 || otherDiscount < 0) throw new FreeRefused('This order still needs a UPI payment.', { needsPayment: true });
+
+  const paidWith = [creditRecorded ? 'CREDIT' : '', coinsRecorded ? 'COINS' : '', code && otherDiscount > 0 ? 'COUPON' : ''].filter(Boolean);
+  const method = paidWith.join('+') || 'DISCOUNT';
+  Object.assign(raw, { Status: 'PAID', PaymentMethod: method, PaidWithCredit: creditRecorded, PaidWithCoins: coinsRecorded, PaidWithCoupon: code && otherDiscount > 0 ? code : '', FreeConfirmedAt: new Date().toISOString(), TxnRef: 'CREDIT-' + oid });
+  const [upd] = await conn.query("UPDATE orders SET status = 'PAID', txn_ref = ?, verified_at = NOW(), raw_json = ? WHERE order_id = ? AND UPPER(status) = 'CREATED' LIMIT 1", ['CREDIT-' + oid, JSON.stringify(raw), oid]);
+  if (!upd || upd.affectedRows !== 1) throw new FreeRefused('This order changed while confirming — please try again.');
+  if (code && otherDiscount > 0) {
+    await conn.query(
+      `INSERT INTO coupon_usage (coupon_code, phone, phone_norm, email, discount, order_id, action, ts, raw_json)
+       SELECT ?, ?, ?, ?, ?, ?, 'USED', NOW(), ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM coupon_usage WHERE order_id = ? AND UPPER(coupon_code) = ? AND UPPER(action) = 'USED'
+       )`,
+      [code, o.phone, o.phone_norm, o.email, otherDiscount, oid, JSON.stringify({
+        Timestamp: new Date().toISOString(), CouponCode: code, Phone: o.phone,
+        Email: o.email, Discount: otherDiscount, OrderID: oid, Action: 'USED',
+      }), oid, code]);
+  }
+  if (spend) {
+    const [sp2] = await conn.query("UPDATE coin_spends SET status = 'SPENT', note = ?, updated_at = NOW() WHERE order_id = ? AND status = 'HELD'", ['₹0 checkout confirmed', oid]);
+    if (!sp2 || sp2.affectedRows !== 1) throw new FreeRefused('Your credit on this order was just given back. Please start the order again.', startAgain);
+  }
+  return { becamePaid: true, out: { ok: true, paid: true, orderId: oid, paymentMethod: method, message: '✅ Confirmed — getting your plan ready…' } };
+}
+
+// Refund coupons are single use; if two orders using the same one both got paid, put it on the owner's Today to-dos.
+async function flagRefundCouponOveruse(code, orderId) {
+  const u = await db.query("SELECT COUNT(DISTINCT order_id) n FROM coupon_usage WHERE UPPER(coupon_code) = ? AND UPPER(action) = 'USED'", [code]);
+  const n = +((u || [])[0] || {}).n || 0;
+  if (n <= 1) return { ok: true, n };
+  const c = await db.query('SELECT raw_json FROM coupons WHERE code = ? LIMIT 1', [code]);
+  const raw = rawOf(((c || [])[0] || {}).raw_json);
+  if (String(raw.Source || '').toUpperCase() !== 'REFUND' || n <= Math.max(1, Number(raw.GlobalLimit || 1))) return { ok: true, n };
+  await db.query('INSERT INTO admin_todos (title, note) VALUES (?, ?)', [
+    ('⚠️ Refund coupon ' + code + ' was used on ' + n + ' paid orders (latest ' + orderId + ')').slice(0, 300),
+    'A single-use refund coupon (₹' + asNum(raw.Value) + ', from order ' + (raw.RefundOrderId || '?') + ') paid for more than one order — one of them was paid by UPI after the other was confirmed. Check the orders and decide whether to ask the customer for the difference.',
+  ]).catch(() => {});
+  return { ok: true, n, flagged: true };
+}
+
 /** Admin only: mark an order paid (cash / UPI seen on WhatsApp). Same bookkeeping as a matched bank credit. */
 async function adminMarkPaid(orderId, txnRef) {
   const o = await _order(orderId);
@@ -477,4 +622,4 @@ async function adminMarkPaid(orderId, txnRef) {
   return { ok: true };
 }
 
-module.exports = { createOrder, createRenewOrder, renewQuote, adminMarkPaid, verifyPayment, verifyPaymentByRef, validateCoupon, serviceAllowed, hashAccessToken, _internal: { genOrderId, freeOrderId, couponDiscount } };
+module.exports = { createOrder, createRenewOrder, renewQuote, adminMarkPaid, verifyPayment, verifyPaymentByRef, validateCoupon, confirmFreeOrder, serviceAllowed, hashAccessToken, _internal: { genOrderId, freeOrderId, couponDiscount, flagRefundCouponOveruse } };
