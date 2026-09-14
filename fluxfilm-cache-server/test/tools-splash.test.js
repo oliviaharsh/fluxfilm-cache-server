@@ -127,6 +127,35 @@ ok('reduced motion: removed at once, never shown', S.removed && S.hidden && !S.s
 S = runSplash({ storageThrows: true });
 ok('storage blocked: still works (shown, removed by timer)', !S.hidden && S.timers.length === 1);
 
+section('admin panel splash (rose ribbon reveal)');
+const admin = fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8').replace(/\r\n/g, '\n');
+const aCss = (admin.match(/<style>([\s\S]*?)<\/style>/) || ['', ''])[1];
+ok('admin: splash hidden by default, right after <body>, before #app', /<body>\n<div id="ff-splash" hidden aria-hidden="true">/.test(admin) && admin.indexOf('id="ff-splash"') < admin.indexOf('<div id="app">'));
+ok('admin: reduced motion hides it in CSS', /@media \(prefers-reduced-motion: reduce\) \{ #ff-splash \{ display: none !important; \} \}/.test(aCss));
+const aKf = [...aCss.matchAll(/@keyframes (ffSp\w+|ffSplashOut) \{([\s\S]*?)\} \}/g)];
+ok('admin: keyframes only animate transform / opacity / visibility', aKf.length === 6 && aKf.every((m) => (m[2].match(/([a-z-]+)\s*:/g) || []).every((p) => /^(transform|opacity|visibility)\s*:$/.test(p))), aKf.map((m) => m[1]));
+const aOut = aCss.match(/#ff-splash \{[^}]*animation: ffSplashOut ([\d.]+)s ease-in ([\d.]+)s forwards;/);
+ok('admin: whole intro under 1.6 s, wine background', aOut && Number(aOut[1]) + Number(aOut[2]) <= 1.6 && /#ff-splash \{[^}]*#12040a/.test(aCss));
+ok('admin: 7 rose ribbons, inline admin logo (own ids), 18 streaks', (admin.match(/<div class="ff-sp-rib">((?:<span><\/span>)+)<\/div>/) || ['', ''])[1].length === 7 * 13 && /\.ff-sp-rib span:nth-child\(1\) \{ background: #be123c; \}/.test(aCss) && /<div class="ff-sp-logo"><svg[^>]*>[\s\S]*?ffasp-bg/.test(admin) && !/id="ffa-/.test(admin) && (admin.match(/<div class="ff-sp-streaks">(.*?)<\/div><div class="ff-sp-stage">/) || ['', ''])[1].split('<i ').length - 1 === 18);
+const aScript = (admin.match(/<body>\n<div id="ff-splash"[^\n]*\n<script>([\s\S]*?)<\/script>\n<div id="app"><\/div>/) || ['', ''])[1];
+function runAdminSplash({ reduce, seen, storageThrows }) {
+  const S = { removed: false, hidden: true, listeners: {}, timers: [], store: seen ? { ff_admin_splash: '1' } : {} };
+  const node = { get hidden() { return S.hidden; }, set hidden(v) { S.hidden = v; }, addEventListener: (k, f) => { S.listeners[k] = f; }, parentNode: { removeChild: () => { S.removed = true; node.parentNode = null; } } };
+  const sessionStorage = { getItem: (k) => { if (storageThrows) throw new Error('blocked'); return S.store[k] || null; }, setItem: (k, v) => { if (storageThrows) throw new Error('blocked'); S.store[k] = v; } };
+  new Function('document', 'window', 'sessionStorage', 'setTimeout', aScript)({ getElementById: () => node }, { matchMedia: () => ({ matches: !!reduce }) }, sessionStorage, (f, ms) => S.timers.push([f, ms]));
+  return S;
+}
+S = runAdminSplash({});
+ok('admin: first open shown, remembered (own key), removed by 1.8 s', aScript && !S.hidden && S.store.ff_admin_splash === '1' && !S.store.ff_splash && S.timers.length === 1 && S.timers[0][1] <= 1800);
+S = runAdminSplash({}); S.listeners.click();
+ok('admin: tap skips it', S.removed);
+S = runAdminSplash({ seen: true });
+ok('admin: not shown again in the same session', S.hidden && S.removed);
+S = runAdminSplash({ reduce: true });
+ok('admin: reduced motion never shows it', S.removed && S.hidden);
+S = runAdminSplash({ storageThrows: true });
+ok('admin: storage blocked still works', !S.hidden && S.timers.length === 1);
+
 console.log('\n---------------------------------------');
 console.log('PASS ' + pass + '   FAIL ' + fail);
 process.exitCode = fail ? 1 : 0;
