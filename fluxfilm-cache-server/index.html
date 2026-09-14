@@ -228,6 +228,40 @@ input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; 
 }
 @media (prefers-reduced-motion: reduce) { .ff-sheet, .ff-sheet-bg { animation: none; } }
 
+/* ── Maintenance screen: 3D-style construction scene (transform/opacity only) ── */
+.ff-mt { max-width: 520px; margin: 8px auto 0; padding-bottom: 90px; text-align: center; }
+.ff-mt-stage { perspective: 900px; margin: 4px auto 14px; max-width: 440px; }
+.ff-mt-scene { display: block; width: 100%; height: auto; border-radius: 22px; box-shadow: 0 18px 40px rgba(15,23,42,.16), 0 2px 0 rgba(255,255,255,.8) inset; animation: ffMtTilt 9s ease-in-out infinite; transform-origin: 50% 60%; }
+.ff-mt-scene * { transform-box: fill-box; }
+.ff-mt-sun { transform-origin: 50% 50%; animation: ffMtSpin 24s linear infinite; }
+.ff-mt-cloud1 { animation: ffMtDrift 11s ease-in-out infinite alternate; }
+.ff-mt-cloud2 { animation: ffMtDrift 14s ease-in-out infinite alternate-reverse; }
+.ff-mt-cable { transform-origin: 50% 0; animation: ffMtCable 6s ease-in-out infinite; }
+.ff-mt-load { transform-origin: 60% 0; animation: ffMtLoad 6s ease-in-out infinite; }
+.ff-mt-hammer { transform-origin: 20% 0; animation: ffMtHammer .7s ease-in-out infinite; }
+.ff-mt-sparks { transform-origin: 50% 50%; animation: ffMtSpark .7s ease-out infinite; }
+.ff-mt-barrow { transform-origin: 50% 50%; animation: ffMtPush 7s ease-in-out infinite; }
+.ff-mt-walk .ff-mt-leg1 { transform-origin: 50% 0; animation: ffMtStep .5s ease-in-out infinite alternate; }
+.ff-mt-walk .ff-mt-leg2 { transform-origin: 50% 0; animation: ffMtStep .5s ease-in-out infinite alternate-reverse; }
+.ff-mt-wave { transform-origin: 20% 0; animation: ffMtWave 2.4s ease-in-out infinite; }
+@keyframes ffMtTilt { 0%,100% { transform: perspective(900px) rotateX(7deg) rotateY(-7deg); } 50% { transform: perspective(900px) rotateX(4deg) rotateY(7deg); } }
+@keyframes ffMtSpin { to { transform: rotate(360deg); } }
+@keyframes ffMtDrift { from { transform: translateX(-14px); } to { transform: translateX(16px); } }
+@keyframes ffMtCable { 0% { transform: scaleY(.12); } 42% { transform: scaleY(1); } 80% { transform: scaleY(1); } 92%,100% { transform: scaleY(.12); } }
+@keyframes ffMtLoad { 0% { transform: translateY(-24px) rotate(-3deg); opacity: 1; } 20% { transform: translateY(-18px) rotate(3deg); } 42% { transform: translateY(0) rotate(0); } 46% { transform: translateY(-2px); } 50%,80% { transform: translateY(0); opacity: 1; } 90% { transform: translateY(0); opacity: 0; } 91% { transform: translateY(-24px) rotate(-3deg); opacity: 0; } 100% { transform: translateY(-24px) rotate(-3deg); opacity: 1; } }
+@keyframes ffMtHammer { 0%,100% { transform: rotate(-35deg); } 50% { transform: rotate(25deg); } }
+@keyframes ffMtSpark { 0%,45% { transform: scale(.2); opacity: 0; } 55% { transform: scale(1.2); opacity: 1; } 100% { transform: scale(.6); opacity: 0; } }
+@keyframes ffMtPush { 0% { transform: translateX(0) scaleX(1); } 45% { transform: translateX(52px) scaleX(1); } 50% { transform: translateX(52px) scaleX(-1); } 95% { transform: translateX(0) scaleX(-1); } 100% { transform: translateX(0) scaleX(1); } }
+@keyframes ffMtStep { from { transform: rotate(-16deg); } to { transform: rotate(16deg); } }
+@keyframes ffMtWave { 0%,60%,100% { transform: rotate(0); } 70% { transform: rotate(-40deg); } 80% { transform: rotate(-10deg); } 90% { transform: rotate(-40deg); } }
+.ff-mt-title { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 23px; font-weight: 900; color: #0f172a; margin: 6px 0 8px; }
+.ff-mt-msg { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 15px; font-weight: 600; color: #475569; line-height: 1.55; margin: 0 auto 12px; max-width: 420px; }
+.ff-mt-back { display: inline-block; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 14px; font-weight: 700; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 999px; padding: 8px 16px; margin-bottom: 12px; }
+.ff-mt-safe { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 13px; font-weight: 600; color: #166534; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 14px; padding: 10px 14px; margin: 0 auto 16px; max-width: 420px; line-height: 1.5; }
+.ff-mt-btns { display: grid; gap: 10px; max-width: 420px; margin: 0 auto; }
+.ff-pausebar { display: flex; gap: 10px; align-items: center; margin: 0 0 14px; padding: 12px 14px; border-radius: 16px; background: linear-gradient(135deg,#fffbeb,#fef3c7); border: 1.5px solid #fcd34d; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 13.5px; font-weight: 600; color: #78350f; line-height: 1.45; text-align: left; }
+.ff-pausebar-ic { font-size: 22px; }
+@media (prefers-reduced-motion: reduce) { .ff-mt-scene, .ff-mt-scene * { animation: none !important; } }
 /* ── Rocket art (RocketArt): float + 3D tilt, flame flicker ── */
 .ff-rocket3d { display: block; overflow: visible; }
 .ff-rocket3d .ff-rk-ship { transform-box: fill-box; transform-origin: 50% 60%; animation: ffRkFloat 1.8s ease-in-out infinite; }
@@ -7886,6 +7920,531 @@ function ComingSoonCard({
     small: true
   }), " Coming soon")));
 }
+// ── Maintenance (admin → 🚧 Maintenance): animated 3D-style construction scene + friendly screen ──
+function mtBox_(key, x, y, w, h, d, front, side, top, extra) {
+  return React.createElement("g", {
+    key: key
+  }, React.createElement("polygon", {
+    points: `${x},${y} ${x + d},${y - d * .5} ${x + w + d},${y - d * .5} ${x + w},${y}`,
+    fill: top
+  }), React.createElement("polygon", {
+    points: `${x + w},${y} ${x + w + d},${y - d * .5} ${x + w + d},${y + h - d * .5} ${x + w},${y + h}`,
+    fill: side
+  }), React.createElement("rect", {
+    x: x,
+    y: y,
+    width: w,
+    height: h,
+    fill: front
+  }), extra);
+}
+function mtWindows_(x, y) {
+  return [0, 1, 2].map(i => React.createElement("g", {
+    key: 'w' + i
+  }, React.createElement("rect", {
+    x: x + 10 + i * 28,
+    y: y + 8,
+    width: 16,
+    height: 12,
+    rx: 1.5,
+    fill: "#1e3a8a"
+  }), React.createElement("rect", {
+    x: x + 12 + i * 28,
+    y: y + 10,
+    width: 5,
+    height: 2,
+    fill: "#93c5fd",
+    opacity: ".9"
+  })));
+}
+function mtWorker_(key, x, y, armClass, tool, opts) {
+  const o = opts || {};
+  return React.createElement("g", {
+    key: key,
+    transform: `translate(${x} ${y})`
+  }, React.createElement("g", {
+    className: o.walkClass || ''
+  }, React.createElement("rect", {
+    className: o.walkClass ? 'ff-mt-leg1' : '',
+    x: "-5",
+    y: "-14",
+    width: "4",
+    height: "14",
+    rx: "1.5",
+    fill: "#1e3a8a"
+  }), React.createElement("rect", {
+    className: o.walkClass ? 'ff-mt-leg2' : '',
+    x: "1",
+    y: "-14",
+    width: "4",
+    height: "14",
+    rx: "1.5",
+    fill: "#1e40af"
+  }), React.createElement("rect", {
+    x: "-8",
+    y: "-32",
+    width: "16",
+    height: "20",
+    rx: "4",
+    fill: "#f97316"
+  }), React.createElement("rect", {
+    x: "-8",
+    y: "-24",
+    width: "16",
+    height: "2.6",
+    fill: "#fde047"
+  }), React.createElement("rect", {
+    x: "3",
+    y: "-32",
+    width: "5",
+    height: "20",
+    rx: "3",
+    fill: "#ea580c",
+    opacity: ".55"
+  }), React.createElement("rect", {
+    x: "-11",
+    y: "-31",
+    width: "4",
+    height: "13",
+    rx: "2",
+    fill: "#f97316"
+  }), React.createElement("circle", {
+    cx: "0",
+    cy: "-38",
+    r: "6",
+    fill: "#f1c27d"
+  }), React.createElement("circle", {
+    cx: "2.2",
+    cy: "-38.5",
+    r: ".9",
+    fill: "#422006"
+  }), React.createElement("path", {
+    d: "M-7 -39 A7 7 0 0 1 7 -39 Z",
+    fill: "#facc15"
+  }), React.createElement("rect", {
+    x: "-9",
+    y: "-40.5",
+    width: "18",
+    height: "2.6",
+    rx: "1.2",
+    fill: "#eab308"
+  }), React.createElement("g", {
+    className: armClass
+  }, React.createElement("rect", {
+    x: "6",
+    y: "-31",
+    width: "4",
+    height: "13",
+    rx: "2",
+    fill: "#f97316"
+  }), tool)));
+}
+function MaintenanceScene() {
+  const floors = [0, 1, 2].map(i => mtBox_('f' + i, 100, 205 - 28 * (i + 1), 96, 28, 22, i % 2 ? '#e2e8f0' : '#cbd5e1', '#94a3b8', '#f1f5f9', mtWindows_(100, 205 - 28 * (i + 1))));
+  const hammer = React.createElement("g", null, React.createElement("rect", {
+    x: "7",
+    y: "-20",
+    width: "2",
+    height: "11",
+    fill: "#92400e"
+  }), React.createElement("rect", {
+    x: "3.5",
+    y: "-11",
+    width: "9",
+    height: "4.5",
+    rx: "1",
+    fill: "#475569"
+  }));
+  const clipboard = React.createElement("rect", {
+    x: "6",
+    y: "-22",
+    width: "9",
+    height: "11",
+    rx: "1.5",
+    fill: "#f8fafc",
+    stroke: "#64748b"
+  });
+  const barrow = React.createElement("g", null, React.createElement("path", {
+    d: "M10 -20 L34 -20 L29 -9 L14 -9 Z",
+    fill: "#64748b"
+  }), React.createElement("path", {
+    d: "M13 -20 Q21 -28 31 -20 Z",
+    fill: "#a16207"
+  }), React.createElement("circle", {
+    cx: "30",
+    cy: "-5",
+    r: "5",
+    fill: "#1f2937"
+  }), React.createElement("circle", {
+    cx: "30",
+    cy: "-5",
+    r: "1.8",
+    fill: "#9ca3af"
+  }), React.createElement("rect", {
+    x: "4",
+    y: "-22",
+    width: "10",
+    height: "2.4",
+    rx: "1",
+    fill: "#475569"
+  }));
+  return React.createElement("div", {
+    className: "ff-mt-stage",
+    "aria-hidden": "true"
+  }, React.createElement("svg", {
+    className: "ff-mt-scene",
+    viewBox: "0 0 360 250",
+    role: "img"
+  }, React.createElement("defs", null, React.createElement("linearGradient", {
+    id: "mtSky",
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1"
+  }, React.createElement("stop", {
+    offset: "0",
+    stopColor: "#bae6fd"
+  }), React.createElement("stop", {
+    offset: "1",
+    stopColor: "#f0f9ff"
+  })), React.createElement("linearGradient", {
+    id: "mtGround",
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1"
+  }, React.createElement("stop", {
+    offset: "0",
+    stopColor: "#e7d3a8"
+  }), React.createElement("stop", {
+    offset: "1",
+    stopColor: "#c9a86a"
+  }))), React.createElement("rect", {
+    x: "0",
+    y: "0",
+    width: "360",
+    height: "250",
+    rx: "22",
+    fill: "url(#mtSky)"
+  }), React.createElement("g", {
+    className: "ff-mt-sun"
+  }, React.createElement("circle", {
+    cx: "46",
+    cy: "44",
+    r: "16",
+    fill: "#fde047"
+  }), [0, 45, 90, 135, 180, 225, 270, 315].map(a => React.createElement("rect", {
+    key: a,
+    x: "45",
+    y: "18",
+    width: "2.5",
+    height: "7",
+    rx: "1",
+    fill: "#facc15",
+    transform: `rotate(${a} 46 44)`
+  }))), React.createElement("g", {
+    className: "ff-mt-cloud1"
+  }, React.createElement("ellipse", {
+    cx: "150",
+    cy: "30",
+    rx: "22",
+    ry: "8",
+    fill: "#fff"
+  }), React.createElement("ellipse", {
+    cx: "165",
+    cy: "25",
+    rx: "14",
+    ry: "9",
+    fill: "#fff"
+  })), React.createElement("g", {
+    className: "ff-mt-cloud2"
+  }, React.createElement("ellipse", {
+    cx: "320",
+    cy: "20",
+    rx: "18",
+    ry: "6",
+    fill: "#fff",
+    opacity: ".9"
+  })), React.createElement("rect", {
+    x: "0",
+    y: "205",
+    width: "360",
+    height: "45",
+    fill: "url(#mtGround)"
+  }), React.createElement("rect", {
+    x: "0",
+    y: "205",
+    width: "360",
+    height: "3",
+    fill: "#b08b4f",
+    opacity: ".5"
+  }), React.createElement("ellipse", {
+    cx: "160",
+    cy: "209",
+    rx: "80",
+    ry: "6",
+    fill: "rgba(15,23,42,.12)"
+  }), React.createElement("g", {
+    className: "ff-mt-crane"
+  }, React.createElement("rect", {
+    x: "258",
+    y: "196",
+    width: "30",
+    height: "10",
+    rx: "2",
+    fill: "#64748b"
+  }), React.createElement("rect", {
+    x: "268",
+    y: "40",
+    width: "2.5",
+    height: "158",
+    fill: "#eab308"
+  }), React.createElement("rect", {
+    x: "278",
+    y: "40",
+    width: "2.5",
+    height: "158",
+    fill: "#ca8a04"
+  }), Array.from({
+    length: 9
+  }, (_, i) => React.createElement("line", {
+    key: i,
+    x1: "269",
+    y1: 196 - i * 17,
+    x2: "279",
+    y2: 179 - i * 17,
+    stroke: "#eab308",
+    strokeWidth: "1.6"
+  })), React.createElement("rect", {
+    x: "118",
+    y: "38",
+    width: "220",
+    height: "4",
+    fill: "#eab308"
+  }), React.createElement("rect", {
+    x: "118",
+    y: "46",
+    width: "150",
+    height: "2",
+    fill: "#ca8a04"
+  }), Array.from({
+    length: 10
+  }, (_, i) => React.createElement("line", {
+    key: 'j' + i,
+    x1: 120 + i * 15,
+    y1: "42",
+    x2: 127 + i * 15,
+    y2: "47",
+    stroke: "#ca8a04",
+    strokeWidth: "1.3"
+  })), React.createElement("path", {
+    d: "M274 16 L268 38 L280 38 Z",
+    fill: "#eab308"
+  }), React.createElement("line", {
+    x1: "274",
+    y1: "16",
+    x2: "122",
+    y2: "38",
+    stroke: "#475569",
+    strokeWidth: "1"
+  }), React.createElement("line", {
+    x1: "274",
+    y1: "16",
+    x2: "334",
+    y2: "38",
+    stroke: "#475569",
+    strokeWidth: "1"
+  }), React.createElement("rect", {
+    x: "318",
+    y: "42",
+    width: "18",
+    height: "16",
+    rx: "2",
+    fill: "#475569"
+  }), React.createElement("rect", {
+    x: "256",
+    y: "48",
+    width: "22",
+    height: "16",
+    rx: "3",
+    fill: "#facc15"
+  }), React.createElement("rect", {
+    x: "260",
+    y: "51",
+    width: "10",
+    height: "7",
+    rx: "1.5",
+    fill: "#7dd3fc"
+  }), React.createElement("rect", {
+    x: "150",
+    y: "42",
+    width: "18",
+    height: "6",
+    rx: "1.5",
+    fill: "#334155"
+  })), floors, React.createElement("g", {
+    className: "ff-mt-cable"
+  }, React.createElement("rect", {
+    x: "158.3",
+    y: "48",
+    width: "1.4",
+    height: "34",
+    fill: "#334155"
+  })), React.createElement("g", {
+    className: "ff-mt-load"
+  }, React.createElement("path", {
+    d: "M155 82 L159 76 L163 82",
+    stroke: "#334155",
+    strokeWidth: "2",
+    fill: "none"
+  }), mtBox_('f3', 100, 93, 96, 28, 22, '#e2e8f0', '#94a3b8', '#f8fafc', mtWindows_(100, 93))), React.createElement("rect", {
+    x: "82",
+    y: "121",
+    width: "3",
+    height: "84",
+    fill: "#f97316"
+  }), React.createElement("rect", {
+    x: "96",
+    y: "121",
+    width: "3",
+    height: "84",
+    fill: "#ea580c"
+  }), React.createElement("rect", {
+    x: "76",
+    y: "149",
+    width: "26",
+    height: "4",
+    rx: "1",
+    fill: "#a16207"
+  }), React.createElement("rect", {
+    x: "76",
+    y: "177",
+    width: "26",
+    height: "4",
+    rx: "1",
+    fill: "#a16207"
+  }), React.createElement("line", {
+    x1: "83",
+    y1: "153",
+    x2: "98",
+    y2: "177",
+    stroke: "#fb923c",
+    strokeWidth: "1.5"
+  }), mtWorker_('w1', 88, 149, 'ff-mt-hammer', hammer), React.createElement("g", {
+    className: "ff-mt-sparks"
+  }, React.createElement("path", {
+    d: "M100 136 l2 -5 l2 5 l5 2 l-5 2 l-2 5 l-2 -5 l-5 -2 Z",
+    fill: "#fde047"
+  }), React.createElement("circle", {
+    cx: "108",
+    cy: "130",
+    r: "1.5",
+    fill: "#fb923c"
+  })), React.createElement("g", {
+    className: "ff-mt-barrow"
+  }, mtWorker_('w2', 26, 205, 'ff-mt-push', barrow, {
+    walkClass: 'ff-mt-walk'
+  })), mtWorker_('w3', 236, 205, 'ff-mt-wave', clipboard), React.createElement("g", null, React.createElement("path", {
+    d: "M212 205 L218 188 L224 205 Z",
+    fill: "#f97316"
+  }), React.createElement("rect", {
+    x: "214.5",
+    y: "196",
+    width: "7",
+    height: "2.5",
+    fill: "#fff"
+  }), React.createElement("path", {
+    d: "M338 205 L344 188 L350 205 Z",
+    fill: "#f97316"
+  }), React.createElement("rect", {
+    x: "340.5",
+    y: "196",
+    width: "7",
+    height: "2.5",
+    fill: "#fff"
+  })), React.createElement("g", null, React.createElement("rect", {
+    x: "296",
+    y: "184",
+    width: "3",
+    height: "21",
+    fill: "#334155"
+  }), React.createElement("rect", {
+    x: "328",
+    y: "184",
+    width: "3",
+    height: "21",
+    fill: "#334155"
+  }), React.createElement("rect", {
+    x: "290",
+    y: "170",
+    width: "46",
+    height: "16",
+    rx: "3",
+    fill: "#facc15",
+    stroke: "#1f2937",
+    strokeWidth: "1.5"
+  }), React.createElement("text", {
+    x: "313",
+    y: "181",
+    textAnchor: "middle",
+    fontSize: "7.5",
+    fontWeight: "800",
+    fill: "#1f2937",
+    fontFamily: "system-ui, sans-serif"
+  }, "UPGRADING"))));
+}
+function MaintenanceScreen({
+  status,
+  nav,
+  phone,
+  onCheckAgain
+}) {
+  const [checking, setChecking] = useState(false);
+  const st = status || {};
+  const again = () => {
+    setChecking(true);
+    onCheckAgain && onCheckAgain(() => setChecking(false));
+  };
+  return React.createElement("div", {
+    className: "ff-mt"
+  }, React.createElement(MaintenanceScene, null), React.createElement("h2", {
+    className: "ff-mt-title"
+  }, "🛠️ We’re doing some maintenance"), React.createElement("p", {
+    className: "ff-mt-msg"
+  }, st.message || 'We are upgrading FluxFilm to make it faster and better. Please come back in a little while.'), React.createElement("div", {
+    className: "ff-mt-back"
+  }, st.backText ? React.createElement(React.Fragment, null, "⏰ Please visit again ", React.createElement("b", null, st.backText)) : '⏰ Please visit again after a few minutes'), React.createElement("div", {
+    className: "ff-mt-safe"
+  }, "✅ Your plans and logins are safe and keep working. You can still see your plans and orders, recover access and use Get OTP."), React.createElement("div", {
+    className: "ff-mt-btns"
+  }, React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    disabled: checking,
+    onClick: again
+  }, checking ? '⏳ Checking…' : '🔄 Check again'), React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    onClick: () => nav(phone ? 'dashboard' : 'home', phone ? {
+      phone
+    } : {})
+  }, phone ? '🎬 My plans' : '🏠 Home'), React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    onClick: () => nav('recover', {})
+  }, "🔐 Recover access")));
+}
+function PauseBanner({
+  status
+}) {
+  if (!status || !status.paused) return null;
+  return React.createElement("div", {
+    className: "ff-pausebar",
+    role: "status"
+  }, React.createElement("span", {
+    className: "ff-pausebar-ic"
+  }, "🚧"), React.createElement("span", null, React.createElement("b", null, "New orders are paused for maintenance."), " ", status.backText ? 'Back ' + status.backText + '. ' : '', "Your plans, Get OTP and Recover still work."));
+}
 function RestoringScreen({
   trending,
   trendIndex
@@ -8949,6 +9508,7 @@ function OtpScreen({
 }
 const TOPBAR_META = {
   home: ['FluxFilm', 'Premium subscriptions · Instant access ✅', '✅ Ready'],
+  maintenance: ['Maintenance', 'Back very soon', null],
   dashboard: ['FluxFilm', 'Your subscriptions', null],
   buy1: ['Buy Subscription', 'Cheaper than official · Instant ⚡', null],
   buy2: ['Choose a Plan', 'No login needed yet', null],
@@ -8993,6 +9553,19 @@ function App() {
   // Which checkout the customer is in ('buy' or 'renew') so the step numbers match; '' = no steps.
   const [flow, setFlow] = useState('');
   const [refInfo, setRefInfo] = useState(null);
+  // Maintenance switch: checked on load, every minute, and when a buy/renew step opens.
+  const [storeStatus, setStoreStatus] = useState(null);
+  function refreshStore(done) {
+    API.getStoreStatus(r => {
+      if (r && r.ok) setStoreStatus(r);
+      done && done(r);
+    }, () => done && done(null));
+  }
+  useEffect(() => {
+    refreshStore();
+    const t = setInterval(() => refreshStore(), 60000);
+    return () => clearInterval(t);
+  }, []);
   const [history, setHistory] = useState([]);
   const [screenData, setScreenData] = useState({});
   const [loadingMsg, setLoadingMsg] = useState(null);
@@ -9408,8 +9981,11 @@ function App() {
   }
   const d = screenData,
     sessionPhone = d.phone || getFFSession().phone || '';
+  // While paused: plans, subscriptions, orders, profile, recover and Get OTP stay open; creating an order does not.
+  const storePaused = !!(storeStatus && storeStatus.paused);
+  const storeBlocked = storePaused && (['groupJoin', 'details', 'review', 'renewStart'].includes(screen) || screen === 'pay' && !!d.creating);
   const canGoBack = history.length > 0 && screen !== 'home' && screen !== 'dashboard' || screen === 'account';
-  const [title, sub2, pill] = TOPBAR_META[screen] || TOPBAR_META.home;
+  const [title, sub2, pill] = TOPBAR_META[storeBlocked ? 'maintenance' : screen] || TOPBAR_META.home;
   // Home / plans / my subscriptions use the wide layout; step-by-step screens stay narrow and focused.
   const WIDE_SCREENS = {
     home: 1,
@@ -9506,8 +10082,15 @@ function App() {
     className: "page-inner " + (WIDE_SCREENS[screen] ? 'ff-w-wide' : 'ff-w-flow') + (showBnav ? ' ff-has-bnav' : ''),
     key: screen
   }, React.createElement(CheckoutSteps, {
-    flow: flow,
+    flow: storeBlocked ? '' : flow,
     screen: screen
+  }), storePaused && !storeBlocked && ['home', 'buy1', 'buy2', 'dashboard'].includes(screen) && React.createElement(PauseBanner, {
+    status: storeStatus
+  }), storeBlocked && React.createElement(MaintenanceScreen, {
+    status: storeStatus,
+    nav: navReset,
+    phone: sessionPhone,
+    onCheckAgain: done => refreshStore(() => done())
   }), (screen === 'home' || screen === 'buy1' || screen === 'buy2') && React.createElement(RefBanner, {
     info: refInfo,
     onClose: () => setRefInfo(null)
@@ -9568,18 +10151,18 @@ function App() {
     onNeedAccount: openAccountModal,
     stockLevels: stockLevels,
     stockLoading: stockLoading
-  }), screen === 'groupJoin' && React.createElement(GroupJoinScreen, {
+  }), !storeBlocked && screen === 'groupJoin' && React.createElement(GroupJoinScreen, {
     nav: nav,
     service: d.service,
     planObj: d.planObj
-  }), screen === 'details' && React.createElement(DetailsScreen, {
+  }), !storeBlocked && screen === 'details' && React.createElement(DetailsScreen, {
     nav: nav,
     service: d.service,
     planObj: d.planObj,
     phone: d.phone,
     profile: d.profile,
     groupJoined: d.groupJoined
-  }), screen === 'review' && React.createElement(ReviewScreen, {
+  }), !storeBlocked && screen === 'review' && React.createElement(ReviewScreen, {
     nav: nav,
     goBack: goBack,
     service: d.service,
@@ -9587,7 +10170,7 @@ function App() {
     form: d.form,
     couponState: d.couponState,
     groupJoined: d.groupJoined
-  }), screen === 'pay' && React.createElement(PayScreen, {
+  }), !storeBlocked && screen === 'pay' && React.createElement(PayScreen, {
     nav: nav,
     goBack: goBack,
     service: d.service,
@@ -9622,7 +10205,7 @@ function App() {
     preSelectedSub: d.preSelectedSub,
     savedPhone: d.phone,
     setGlobalLoading: setLoading
-  }), screen === 'renewStart' && React.createElement(RenewStartScreen, {
+  }), !storeBlocked && screen === 'renewStart' && React.createElement(RenewStartScreen, {
     nav: nav,
     sub: d.sub,
     phone: d.phone || getFFSession().phone,
@@ -9707,6 +10290,9 @@ function apiCall_(action, args, onSuccess, onFailure) {
 const API = {
   getBootstrap(onSuccess, onFailure) {
     apiCall_('getBootstrap', [], onSuccess, onFailure);
+  },
+  getStoreStatus(onSuccess, onFailure) {
+    apiCall_('getStoreStatus', [], onSuccess, onFailure);
   },
   getTrendingItems(onSuccess, onFailure) {
     apiCall_('getTrendingItems', [], onSuccess, onFailure);

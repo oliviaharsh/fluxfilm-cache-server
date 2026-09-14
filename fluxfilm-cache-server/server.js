@@ -30,6 +30,7 @@ let account = null; try { account = require('./account'); } catch (e) { console.
 let referrals = null; try { referrals = require('./referrals'); } catch (e) { console.log('[referrals] not loaded:', e.message); }
 let coinsMod = null; try { coinsMod = require('./coins'); } catch (e) { console.log('[coins] not loaded:', e.message); }
 let paymatch = null; try { paymatch = require('./paymatch'); } catch (e) { console.log('[paymatch] not loaded:', e.message); }
+let storeMod = null; try { storeMod = require('./store'); } catch (e) { console.log('[store] not loaded:', e.message); }
 // Self-contained Node actions (recover + Get-OTP tool) — MySQL/IMAP, no Apps Script.
 const DB_RECOVER = Object.assign(
   recover ? {
@@ -83,7 +84,9 @@ const DB_STOREFRONT = Object.assign(
     getBackupPayment: (a) => paymatch.getBackupPayment(a[0], a[1]),
     claimManualPayment: (a) => paymatch.claimPayment(a[0], a[1], a[2], a[3]),
     getClaimStatus: (a) => paymatch.getClaimStatus(a[0], a[1]),
-  } : {}
+  } : {},
+  // Maintenance switch (admin → 🚧 Maintenance): the storefront polls this.
+  storeMod ? { getStoreStatus: () => storeMod.getStatus() } : {}
 );
 
 const security = require('./security');
@@ -119,6 +122,7 @@ const LIMITS = {
   getBackupPayment: security.rateLimiter(60, TEN_MIN),
   claimManualPayment: security.rateLimiter(10, TEN_MIN),
   getClaimStatus: security.rateLimiter(400, TEN_MIN),
+  getStoreStatus: security.rateLimiter(200, TEN_MIN),
   any: security.rateLimiter(3000, TEN_MIN),
 };
 const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'submitRestockRequest']);
@@ -152,9 +156,10 @@ const ADMIN_KEY = process.env.CACHE_CLEAR_KEY || '';
 const READ_FROM_DB = process.env.READ_FROM_DB === '1' || process.env.READ_FROM_DB === 'true';
 const BUY_ON_DB = process.env.BUY_ON_DB === '1' || process.env.BUY_ON_DB === 'true';
 const DB_WRITES = order ? {
-  createOrder: (a) => order.createOrder(a[0]),
+  // Maintenance: no new orders / renewals while the owner has paused the shop (existing orders still pay + deliver).
+  createOrder: async (a) => (storeMod && await storeMod.guard()) || order.createOrder(a[0]),
   // a[3] = "use my coins" (the only option the public may set; the rest of opts is server-only).
-  createRenewOrder: (a) => order.createRenewOrder(a[0], a[1], a[2], { useCoins: a[3] === true }),
+  createRenewOrder: async (a) => (storeMod && await storeMod.guard()) || order.createRenewOrder(a[0], a[1], a[2], { useCoins: a[3] === true }),
   validateCoupon: (a) => order.validateCoupon(a[0], a[1]),
   verifyPayment: (a) => order.verifyPayment(a[0]),
   verifyPaymentByRef: (a) => order.verifyPaymentByRef(a[0], a[1]),
@@ -165,7 +170,7 @@ const DB_WRITES = order ? {
   },
 } : {};
 const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
-const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus']);
+const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus']);
 const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota', 'otpSendCode', 'otpVerifyCode']);
 const DB_WRITE_ACTIONS = new Set(['createOrder', 'createRenewOrder', 'validateCoupon', 'verifyPayment', 'verifyPaymentByRef', 'fulfillAndGetAccess']);
 const DB_NOT_YET_PORTED = new Set(['recoverReassignAccount']);

@@ -152,6 +152,8 @@ function mountAdmin(app, deps) {
   require('./admincoins').mount(app, Object.assign({ db, auth, audit }, deps.coins || {}));
   // Payment fallback: backup UPI ID / QR settings + "I've paid" review queue (adminpayments.js).
   require('./adminpayments').mount(app, Object.assign({ db, auth, audit }, deps.payments || {}));
+  // Maintenance: pause / resume new orders (adminstore.js).
+  require('./adminstore').mount(app, Object.assign({ db, auth, audit }, deps.store || {}));
 
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};
