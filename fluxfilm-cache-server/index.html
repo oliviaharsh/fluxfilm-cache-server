@@ -3449,22 +3449,40 @@ function GroupJoinScreen({
     })
   }, "✅ I Joined")))));
 }
+// Devices on a plan come from its name ("2 Devices 1Y" = 2). The server uses the same rule.
+function planDeviceCount_(plan) {
+  const m = String(plan || '').match(/(\d+)\s*device/i);
+  return m ? Math.max(1, Number(m[1])) : 1;
+}
 function DeviceSelect({ service, planObj, form, setForm }) {
   var svc = String(service || '').toLowerCase();
   var isOtp = ['jiohotstar', 'hotstar', 'zee5', 'sonyliv'].some(function (k) { return svc.indexOf(k) > -1; });
   if (isOtp) return null; // OTP = whole account, no device choice
   var isPrime = !!(planObj && planObj.extraFieldKey === 'PRIME_DEVICE_TYPE');
-  if (!isPrime) return null; // device count comes from the plan; only Prime asks TV / non-TV
-  function setPrimeSingle(v) { setForm(function (f) { return Object.assign({}, f, { extraVal: v }); }); }
-  var pill = function (active, label, onClick, key) {
-    return React.createElement("button", { key: key, type: "button", onClick: onClick, style: { padding: '11px 0', flex: '1 1 0', minWidth: 44, borderRadius: R.btn, border: '2px solid ' + (active ? '#6d28d9' : C.border), background: active ? 'rgba(109,40,217,.08)' : '#fafafa', color: active ? '#6d28d9' : C.text, fontFamily: PJS, fontSize: 14, fontWeight: 800, cursor: 'pointer', transition: 'border .12s,background .12s' } }, label);
+  if (!isPrime) return null; // device count comes from the plan; only Prime asks about TVs
+  var devices = planDeviceCount_(planObj && planObj.plan);
+  // tvCount = how many of the plan's devices are TVs (TVs use separate slots on a Prime account).
+  function setTv(n) { setForm(function (f) { return Object.assign({}, f, { tvCount: n, deviceCount: devices, extraVal: n > 0 ? 'TV' : 'NON_TV' }); }); }
+  var chosen = form.extraVal ? (form.tvCount != null ? form.tvCount : (form.extraVal === 'TV' ? devices : 0)) : null;
+  var pill = function (active, label, sub, onClick, key) {
+    return React.createElement("button", { key: key, type: "button", onClick: onClick, style: { padding: '11px 6px', flex: '1 1 0', minWidth: 64, borderRadius: R.btn, border: '2px solid ' + (active ? '#6d28d9' : C.border), background: active ? 'rgba(109,40,217,.08)' : '#fafafa', color: active ? '#6d28d9' : C.text, fontFamily: PJS, fontSize: 14, fontWeight: 800, cursor: 'pointer', transition: 'border .12s,background .12s', lineHeight: 1.2 } }, label, sub && React.createElement("div", { style: { fontSize: 11, fontWeight: 600, color: C.muted, marginTop: 3 } }, sub));
   };
+  if (devices <= 1) {
+    return React.createElement("div", { style: { marginTop: 4 } },
+      React.createElement("label", { style: { display: 'block', fontFamily: PJS, fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 6, letterSpacing: '.02em' } }, "📺 Will you use it on a TV?"),
+      React.createElement("div", { style: { display: 'flex', gap: 8 } },
+        pill(chosen === 1, 'Yes — TV 📺', '', function () { setTv(1); }, 'tv'),
+        pill(chosen === 0, 'No — Mobile 📱', '', function () { setTv(0); }, 'ntv')),
+      React.createElement("div", { style: { fontFamily: PJS, fontSize: 11.5, color: C.muted, fontWeight: 600, marginTop: 6, lineHeight: 1.5 } }, "💡 TV + mobile? Still pick ", React.createElement("b", null, "Yes — TV"), " — TV uses a separate slot."));
+  }
+  var opts = [];
+  for (var n = 0; n <= devices; n++) opts.push(n);
   return React.createElement("div", { style: { marginTop: 4 } },
-    React.createElement("label", { style: { display: 'block', fontFamily: PJS, fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 6, letterSpacing: '.02em' } }, "📺 Will you use it on a TV?"),
-    React.createElement("div", { style: { display: 'flex', gap: 8 } },
-      pill(form.extraVal === 'TV', 'Yes — TV 📺', function () { setPrimeSingle('TV'); }, 'tv'),
-      pill(form.extraVal === 'NON_TV', 'No — Mobile 📱', function () { setPrimeSingle('NON_TV'); }, 'ntv')),
-    React.createElement("div", { style: { fontFamily: PJS, fontSize: 11.5, color: C.muted, fontWeight: 600, marginTop: 6, lineHeight: 1.5 } }, "💡 TV + mobile? Still pick ", React.createElement("b", null, "Yes — TV"), " — TV uses a separate slot."));
+    React.createElement("label", { style: { display: 'block', fontFamily: PJS, fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 6, letterSpacing: '.02em' } }, "📺 This plan has " + devices + " devices. How many will be a TV?"),
+    React.createElement("div", { style: { display: 'flex', gap: 8 } }, opts.map(function (n) {
+      return pill(chosen === n, n === 0 ? 'No TV' : n === devices ? (devices === 2 ? 'Both TV' : 'All TV') : n + ' TV', n === 0 ? 'Mobile / laptop' : n === devices ? '📺 TVs only' : '📺 + 📱', function () { setTv(n); }, 'tv' + n);
+    })),
+    React.createElement("div", { style: { fontFamily: PJS, fontSize: 11.5, color: C.muted, fontWeight: 600, marginTop: 6, lineHeight: 1.5 } }, "💡 Smart TV / Fire Stick counts as a TV. Phone, tablet and laptop don't."));
 }
 function DetailsScreen({
   nav,
@@ -3482,8 +3500,8 @@ function DetailsScreen({
     coupon: '',
     notes: '',
     extraVal: '',
-    deviceCount: 1,
-    tvCount: 0
+    deviceCount: planDeviceCount_(planObj?.plan),
+    tvCount: null
   });
   const [couponState, setCouponState] = useState({
     applied: false,
@@ -3552,7 +3570,7 @@ function DetailsScreen({
     if (!form.phone.trim()) return alert('Phone is required.');
     if (planObj?.needsExtraField) {
       var isPrimeDev = planObj.extraFieldKey === 'PRIME_DEVICE_TYPE';
-      if (isPrimeDev && !form.extraVal.trim()) return alert('Please select whether you will use Prime on a TV.');
+      if (isPrimeDev && !form.extraVal.trim()) return alert(planDeviceCount_(planObj.plan) > 1 ? 'Please choose how many of your devices will be a TV.' : 'Please select whether you will use Prime on a TV.');
       if (!isPrimeDev && !form.extraVal.trim()) return alert('Please fill: ' + (planObj.extraFieldLabel || 'Required field'));
     }
     if (form.coupon.trim() && !couponState.applied) {
@@ -4018,7 +4036,8 @@ function PayScreen({
       notes: form?.notes || '',
       extraFieldKey: planObj?.extraFieldKey || '',
       extraFieldValue: form?.extraVal || '',
-      discountOverride: 0,
+      deviceCount: planDeviceCount_(planObj?.plan),
+      tvCount: form?.tvCount != null ? form.tvCount : '',
       groupJoined: !!groupJoined
     }, r => {
       setLoading(null);
