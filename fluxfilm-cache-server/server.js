@@ -38,7 +38,10 @@ const DB_RECOVER = Object.assign(
     recoverGetAccess: (a) => recover.getAccess(a[0], a[1], a[2], a[3]),
   } : {},
   otptool ? {
-    getLatestOtp: (a) => otptool.getLatestOtp(a[0], a[1]),
+    // a[2] = device token from otpVerifyCode (required - a phone number alone no longer unlocks OTPs).
+    getLatestOtp: (a) => otptool.getLatestOtp(a[0], a[1], a[2]),
+    otpSendCode: (a) => require('./otpaccess').sendCode(a[0]),
+    otpVerifyCode: (a) => require('./otpaccess').verifyCode(a[0], a[1]),
     getOtpQuota: (a) => otptool.getOtpQuota(a[0], a[1]),
   } : {}
 );
@@ -94,6 +97,8 @@ const LIMITS = {
   recoverSendOtp: security.rateLimiter(10, 60 * 60e3),
   recoverVerifyOtp: security.rateLimiter(30, 15 * 60e3),
   getLatestOtp: security.rateLimiter(40, TEN_MIN),
+  otpSendCode: security.rateLimiter(10, 60 * 60e3),
+  otpVerifyCode: security.rateLimiter(30, 15 * 60e3),
   validateCoupon: security.rateLimiter(60, TEN_MIN),
   verifyPaymentByRef: security.rateLimiter(20, TEN_MIN),
   createOrder: security.rateLimiter(30, TEN_MIN),
@@ -111,6 +116,8 @@ const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomer
 const PHONE_LIMITS = {
   recoverSendOtp: security.rateLimiter(3, 15 * 60e3),
   getLatestOtp: security.rateLimiter(15, TEN_MIN),
+  otpSendCode: security.rateLimiter(4, 60 * 60e3),
+  otpVerifyCode: security.rateLimiter(12, 15 * 60e3),
 };
 function rateLimited(req, action, args) {
   const ip = security.clientIp(req);
@@ -149,7 +156,7 @@ const DB_WRITES = order ? {
 } : {};
 const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
 const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory']);
-const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota']);
+const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota', 'otpSendCode', 'otpVerifyCode']);
 const DB_WRITE_ACTIONS = new Set(['createOrder', 'createRenewOrder', 'validateCoupon', 'verifyPayment', 'verifyPaymentByRef', 'fulfillAndGetAccess']);
 const DB_NOT_YET_PORTED = new Set(['recoverReassignAccount']);
 
