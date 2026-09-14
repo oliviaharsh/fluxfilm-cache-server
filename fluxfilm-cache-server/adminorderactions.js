@@ -4,7 +4,8 @@
  *   GET  /admin/api/order/actions?id=FF…     which actions fit this order now (+ last error, stock, refund info)
  *   POST /admin/api/order/fulfil             { orderId }                          run the normal delivery again
  *   POST /admin/api/order/manual-deliver     { orderId, login, password, profile, pin, accountRef, note, notify }
- *   POST /admin/api/order/refund             { orderId, amount, method: UPI|Coins|Other, reference, note, notify }
+ *   POST /admin/api/order/refund             { orderId, amount, method: Coins|Coupon|UPI_ASK|UPI|Other, reference, note, notify }
+ *   POST /admin/api/order/refund-upi-done    { orderId, reference, notify }        the customer's UPI refund was sent
  *   POST /admin/api/order/erase              { orderId, confirm: '<orderId>', reason }
  *
  * Rules (owner request 2026-09-15):
@@ -30,11 +31,15 @@ const esc = (v) => s(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/
 const missingTable = (e) => /doesn't exist|ER_NO_SUCH_TABLE/i.test(String(e && e.message));
 
 const LOCK = 'ff_alloc';                 // the same lock fulfill.js allocates under
-const REFUND_METHODS = ['UPI', 'COINS', 'OTHER'];
+// COINS = refund credit (pays up to 100%), COUPON = personal RF coupon, UPI_ASK = ask the customer (coins +10% or UPI ID),
+// UPI / OTHER = already refunded outside FluxFilm, just recorded. See refunds.js.
+const REFUND_METHODS = ['COINS', 'COUPON', 'UPI_ASK', 'UPI', 'OTHER'];
+const METHOD_LABEL = { COINS: 'Coins', COUPON: 'Coupon', UPI_ASK: 'UPI_PENDING', UPI: 'UPI', OTHER: 'Other' };
 const FAILED_STATES = ['FAILED', 'NO_STOCK', 'ERROR'];
 const COOLDOWN_DAYS = Number(process.env.REUSE_COOLDOWN_DAYS || 10);
 
 class Refused extends Error { constructor(status, message, extra) { super(message); this.status = status; this.extra = extra || {}; } }
+const refundsMod = require('./refunds');
 
 /** A subscription row that really gave the customer something (a login, or marked delivered). */
 function isDeliveredSub(x) { return up(x.fulfillment_status) === 'FULFILLED' || !!s(x.login_id); }
@@ -82,7 +87,11 @@ function decide(o, subs) {
   else if (delivered) erase = no(deliveredMsg);
   else erase = { allowed: true };
 
-  return { status: st, fulfillmentStatus: fs, legacy, renew, delivered, manualPending, refunded, failed, fulfil, manual, refund, erase };
+  // A cash refund the customer is choosing, or asked to be sent to their UPI ID: the owner marks it sent.
+  const ri = refunded ? refundsMod.refundInfo(o) : null;
+  const upiDone = ri && ri.kind === 'UPI_PENDING' ? { allowed: true, state: ri.state } : no(refunded ? 'No UPI refund is waiting.' : 'Not refunded.');
+
+  return { status: st, fulfillmentStatus: fs, legacy, renew, delivered, manualPending, refunded, failed, fulfil, manual, refund, erase, upiDone };
 }
 
 function mount(app, deps) {
@@ -91,6 +100,8 @@ function mount(app, deps) {
   const lazy = (name) => () => deps[name] || require('./' + name);
   const M = { fulfill: lazy('fulfill'), coins: lazy('coins'), referrals: lazy('referrals'), catalog: lazy('catalog'), mailer: lazy('mailer'), push: lazy('push'), pushreminders: lazy('pushreminders') };
   const now = () => (deps.now ? deps.now() : new Date());
+  // Refund credit / coupon / ask-the-customer helpers + notifications (same injected push / mailer / coins as here).
+  const R = deps.refunds || refundsMod.create({ db, coins: deps.coins, push: deps.push, mailer: deps.mailer, now: deps.now });
 
   const send = (res, e) => {
     if (e instanceof Refused) return res.status(e.status).json(Object.assign({ ok: false, message: e.message }, e.extra));
@@ -162,7 +173,10 @@ function mount(app, deps) {
         lastErrorAt: s(raw.LastFulfilAt),
         refulfilled: raw.Refulfilled === true, refulfilledAt: s(raw.RefulfilledAt), manualDelivered: raw.ManualDelivered === true,
       };
-      if (d.refunded) out.refund = { amount: asNum(raw.RefundAmount != null ? raw.RefundAmount : o.final_amount), method: s(raw.RefundMethod), reference: s(raw.RefundRef), note: s(raw.RefundNote), at: s(raw.RefundedAt), coins: asNum(raw.RefundCoins) };
+      if (d.refunded) {
+        const ri = refundsMod.refundInfo(o);
+        out.refund = { amount: ri.amount, method: ri.method, kind: ri.kind, state: ri.state, reference: ri.reference, note: s(raw.RefundNote), at: ri.at, coins: asNum(raw.RefundCoins), credit: ri.credit, bonus: ri.bonus, coupon: ri.coupon, couponExpiry: ri.couponExpiry, upi: ri.upi, todoId: ri.todoId, upiSentAt: s(raw.RefundUpiSentAt) };
+      }
       if (d.fulfil.allowed || d.failed) out.stock = await stockFor(o.service, o.plan);
       res.json(out);
     } catch (e) { send(res, e); }
@@ -292,10 +306,9 @@ function mount(app, deps) {
     const id = orderIdOf(req);
     if (!id) return res.status(400).json({ ok: false, message: 'Order id required.' });
     const method = up(b.method);
-    if (!REFUND_METHODS.includes(method)) return res.status(400).json({ ok: false, field: 'method', message: 'Choose how you refunded: UPI, Coins or Other.' });
+    if (!REFUND_METHODS.includes(method)) return res.status(400).json({ ok: false, field: 'method', message: 'Choose how to refund: Coins (refund credit), Coupon, Ask the customer (UPI), UPI already sent, or Other.' });
     const reference = s(b.reference).slice(0, 120); const note = s(b.note).slice(0, 300);
     try {
-      const coinValue = method === 'COINS' ? (asNum((await M.coins().getSettings()).coinValue) || 1) : 1;
       const done = await withLockedTx(async (conn) => {
         const { o, subs } = await loadForUpdate(conn, id);
         if (!o) throw new Refused(404, 'Order not found.');
@@ -304,23 +317,37 @@ function mount(app, deps) {
         if (d.refunded) return { already: true, o, raw };
         if (!d.refund.allowed) throw new Refused(409, d.refund.reason);
         const max = asNum(o.final_amount);
-        const amount = (b.amount === '' || b.amount == null) ? max : Math.round(asNum(b.amount) * 100) / 100;
-        if (!(amount > 0) || amount > max) throw new Refused(400, 'Refund amount must be more than ₹0 and at most ₹' + max + '.', { field: 'amount' });
+        let amount = (b.amount === '' || b.amount == null) ? max : Math.round(asNum(b.amount) * 100) / 100;
+        // A ₹0 order (paid with refund credit / coupon / coins): refunding it just gives those back.
+        let how = method;
+        if (max === 0) { amount = 0; how = 'OTHER'; }
+        else if (!(amount > 0) || amount > max) throw new Refused(400, 'Refund amount must be more than ₹0 and at most ₹' + max + '.', { field: 'amount' });
+        if ((how === 'COINS' || how === 'COUPON') && Math.round(amount) !== amount) throw new Refused(400, 'Coins and coupon refunds need a whole rupee amount.', { field: 'amount' });
         const at = fmtDt(now());
-        const methodLabel = method === 'COINS' ? 'Coins' : method === 'UPI' ? 'UPI' : 'Other';
-        const coinsToCredit = method === 'COINS' ? Math.round(amount / coinValue) : 0;
+        const methodLabel = METHOD_LABEL[how];
         Object.assign(raw, { Status: 'REFUNDED', FulfillmentStatus: 'REFUNDED', RefundedAt: at, RefundAmount: amount, RefundMethod: methodLabel, RefundRef: reference, RefundNote: note, PreviousFulfillmentStatus: up(o.fulfillment_status) });
-        if (coinsToCredit) raw.RefundCoins = coinsToCredit;
-        await writeOrder(conn, id, { status: 'REFUNDED', fulfillment_status: 'REFUNDED' }, raw);
+        raw.RefundState = how === 'UPI_ASK' ? 'ASK_CUSTOMER' : 'DONE';
         // A manual plan's placeholder row (no login) must stop counting as "to activate".
         for (const x of subs.filter((x) => !isDeliveredSub(x))) {
           const sraw = x.raw_json == null ? null : Object.assign(rawOf(x.raw_json), { Status: 'CANCELLED', FulfillmentStatus: 'REFUNDED' });
           await conn.query("UPDATE subscriptions SET status = 'CANCELLED', fulfillment_status = 'REFUNDED'" + (sraw ? ', raw_json = ?' : '') + ' WHERE sub_id = ? LIMIT 1', (sraw ? [JSON.stringify(sraw)] : []).concat([x.sub_id]));
         }
         const holds = await releaseHolds(conn, o, 'order ' + id + ' refunded');
-        let credited = null;
-        if (coinsToCredit) credited = await M.coins().creditRefundOn(conn, { orderId: id, phone: o.phone_norm, coins: coinsToCredit, service: o.service, plan: o.plan, amount, note: 'Refund for order ' + id + (note ? ': ' + note : '') });
-        return { o, raw, amount, methodLabel, coinsToCredit, credited, holds, placeholders: subs.length };
+        let credit = 0; let coupon = null;
+        if (how === 'COINS') {
+          // ₹1 = 1 refund credit, separate from normal coins; it can pay the full price of the next order (coins.js).
+          const c = await M.coins().addRefundCreditOn(conn, { orderId: id, phone: o.phone_norm, credit: amount, service: o.service, plan: o.plan, amount, note: 'Refund for order ' + id + (note ? ': ' + note : '') });
+          if (!c.ok) throw new Refused(400, 'This order has no phone number — refund credit needs one. Use Coupon, UPI or Other.');
+          credit = c.credit;
+          Object.assign(raw, { RefundCredit: credit, RefundCoins: credit });
+        }
+        if (how === 'COUPON') {
+          if (!s(o.phone_norm)) throw new Refused(400, 'This order has no phone number — a refund coupon needs one. Use UPI or Other.');
+          coupon = await R.createRefundCouponOn(conn, { orderId: id, phone: o.phone_norm, amount });
+          Object.assign(raw, { RefundCoupon: coupon.code, RefundCouponExpiry: coupon.expiry });
+        }
+        await writeOrder(conn, id, { status: 'REFUNDED', fulfillment_status: 'REFUNDED' }, raw);
+        return { o, raw, amount, how, methodLabel, credit, coupon, holds, placeholders: subs.length };
       });
       const o = done.o;
       if (done.already) return res.json({ ok: true, already: true, orderId: id, message: 'Already refunded on ' + s(done.raw.RefundedAt) + '.', refund: { amount: asNum(done.raw.RefundAmount), method: s(done.raw.RefundMethod), at: s(done.raw.RefundedAt) } });
@@ -328,34 +355,45 @@ function mount(app, deps) {
       const paidRewards = (h.referral && h.referral.alreadyPaid) || [];
       audit.record(req, {
         action: 'order.refund', entity: 'order', id,
-        summary: 'Refunded ₹' + done.amount + ' by ' + done.methodLabel + (reference ? ' (' + reference + ')' : '') + (note ? ' · ' + note : '') + ' · was ' + (up(o.fulfillment_status) || 'PENDING'),
-        details: { amount: done.amount, method: done.methodLabel, reference, note, coinsCredited: done.coinsToCredit, coins: h.coins, referral: h.referral, couponsReleased: h.couponsReleased },
+        summary: 'Refunded ₹' + done.amount + ' by ' + done.methodLabel + (done.coupon ? ' ' + done.coupon.code : '') + (reference ? ' (' + reference + ')' : '') + (note ? ' · ' + note : '') + ' · was ' + (up(o.fulfillment_status) || 'PENDING'),
+        details: { amount: done.amount, method: done.methodLabel, reference, note, refundCredit: done.credit, coupon: done.coupon, coins: h.coins, referral: h.referral, couponsReleased: h.couponsReleased },
       });
-      if (b.notify !== false) notifyRefund(o, done);
+      if (b.notify !== false) {
+        if (done.how === 'COINS') R.notify(o, 'CREDIT', { amount: done.amount, credit: done.credit });
+        else if (done.how === 'COUPON') R.notify(o, 'COUPON', { amount: done.amount, coupon: done.coupon.code, expiry: done.coupon.expiry });
+        else if (done.how === 'UPI_ASK') R.notify(o, 'ASK', { amount: done.amount, credit: refundsMod.bonusCredit(done.amount) });
+        else R.notify(o, 'RECORDED', { amount: done.amount, how: done.how === 'UPI' ? 'to your UPI' : '' });
+      }
       const notes = [];
       if (h.coins && h.coins.returned) notes.push(h.coins.returned + ' coins used on this order were given back.');
+      if (h.coins && h.coins.creditReturned) notes.push('₹' + h.coins.creditReturned + ' refund credit used on this order was given back.');
       if (h.coins && h.coins.reversed) notes.push(h.coins.reversed + ' coins earned on it were taken back.');
       if (h.coins && h.coins.reverseShort) notes.push(h.coins.reverseShort + ' earned coins were already spent and could not be taken back.');
-      if (done.coinsToCredit) notes.push(done.coinsToCredit + ' coins added to the customer’s wallet as the refund.');
+      if (done.credit) notes.push('₹' + done.credit + ' refund credit added — the customer can use it on any plan (up to the full price).');
+      if (done.coupon) notes.push('Coupon ' + done.coupon.code + ' (₹' + done.coupon.value + ' off, single use, this phone only, until ' + done.coupon.expiry.slice(0, 10) + ') created.');
+      if (done.how === 'UPI_ASK') notes.push('The customer is asked on their home screen: ' + refundsMod.bonusCredit(done.amount) + ' coins of refund credit (+' + refundsMod.BONUS_PERCENT + '%) or a UPI refund. If they choose UPI you get a Today to-do with their UPI ID.');
+      if (done.how === 'OTHER' && method !== 'OTHER') notes.push('This order cost ₹0, so nothing new was credited — what paid for it was given back.');
       if (h.referral && h.referral.cancelled) notes.push(h.referral.cancelled + ' unpaid referral reward(s) cancelled.');
       if (paidRewards.length) notes.push('Referral reward already paid: ' + paidRewards.map((x) => x.coins + ' coins to ' + x.to).join(', ') + ' — remove them in 🪙 Coins if you want.');
       if (h.couponsReleased) notes.push('Coupon use released.');
-      res.json({ ok: true, orderId: id, status: 'REFUNDED', amount: done.amount, method: done.methodLabel, coinsCredited: done.coinsToCredit, holds: h, notes, message: '💸 Refund recorded (₹' + done.amount + ', ' + done.methodLabel + ').' });
+      const label = { COINS: 'refund credit', COUPON: 'coupon ' + (done.coupon ? done.coupon.code : ''), UPI_ASK: 'waiting for the customer to choose', UPI: 'UPI', OTHER: 'Other' }[done.how];
+      res.json({ ok: true, orderId: id, status: 'REFUNDED', amount: done.amount, method: done.methodLabel, refundCredit: done.credit, coinsCredited: done.credit, coupon: done.coupon, holds: h, notes, message: '💸 Refund recorded (₹' + done.amount + ', ' + label + ').' });
     } catch (e) { send(res, e); }
   });
 
-  function notifyRefund(o, done) {
-    const how = done.methodLabel === 'Coins' ? 'as ' + done.coinsToCredit + ' FluxFilm coins' : done.methodLabel === 'UPI' ? 'to your UPI' : '';
-    const title = '💸 Refund for your ' + s(o.service) + ' order';
-    const body = 'We refunded ₹' + done.amount + (how ? ' ' + how : '') + ' for order ' + o.order_id + '. Sorry we could not deliver it.';
-    Promise.resolve().then(() => M.push().sendToPhone(o.phone_norm, { title, body, url: '/?source=push', tag: 'refund-' + s(o.order_id).replace(/[^\w-]/g, '') }, { urgency: 'normal' })).catch(() => {});
-    const html = '<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:520px;margin:auto"><h2 style="color:#0f766e;margin-bottom:4px">💸 Your refund</h2>' +
-      '<p style="color:#475569;margin-top:0">Hi ' + esc(o.name || 'there') + ',</p>' +
-      '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin:14px 0;font-size:14px"><b>' + esc(o.service) + '</b> — ' + esc(o.plan) + '<br>Order ID: ' + esc(o.order_id) + '<br>Refunded: <b>₹' + esc(done.amount) + '</b>' + (how ? ' ' + esc(how) : '') + '</div>' +
-      '<p style="color:#475569;font-size:14px">Sorry we could not deliver this order. ' + (done.methodLabel === 'UPI' ? 'UPI refunds usually show in your bank within a day.' : '') + '</p>' +
-      '<p style="color:#94a3b8;font-size:12px;margin-top:18px">Need help? Just reply to this email or message us on WhatsApp. 💚</p></div>';
-    Promise.resolve().then(() => M.mailer().send(o.email, '💸 Refund for your FluxFilm order ' + o.order_id, html)).catch(() => {});
-  }
+  // ---------------------------------------------------------------- the customer's UPI refund was sent
+  app.post('/admin/api/order/refund-upi-done', async (req, res) => {
+    if (!auth(req, res)) return;
+    const b = req.body || {};
+    const id = orderIdOf(req);
+    if (!id) return res.status(400).json({ ok: false, message: 'Order id required.' });
+    try {
+      const r = await R.completeUpi({ orderId: id, reference: b.reference, via: 'admin', notify: b.notify !== false });
+      if (!r.ok) return res.status(r.status || 409).json(r);
+      if (!r.already) audit.record(req, { action: 'order.refundUpiSent', entity: 'order', id, summary: 'UPI refund sent ₹' + r.amount + (r.upi ? ' to ' + r.upi : '') + (s(b.reference) ? ' (' + s(b.reference).slice(0, 120) + ')' : '') });
+      res.json(r);
+    } catch (e) { send(res, e); }
+  });
 
   // ---------------------------------------------------------------- erase (marked paid by mistake)
   app.post('/admin/api/order/erase', async (req, res) => {
@@ -422,4 +460,4 @@ function mount(app, deps) {
   });
 }
 
-module.exports = { mount, decide, isDeliveredSub, REFUND_METHODS };
+module.exports = { mount, decide, isDeliveredSub, REFUND_METHODS, METHOD_LABEL };

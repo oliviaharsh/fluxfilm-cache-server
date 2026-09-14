@@ -75,7 +75,7 @@ const catalog = { getStockLevels: async () => ({ ok: true, levels: { 'SonyLiv Pr
   ok('to-dos included', Array.isArray(r.body.todos) && r.body.needsSchema === false);
   schema = false;
   r = await get('/admin/api/today');
-  ok('before schema-v14: Today still works, to-dos say to run the SQL', r.body.ok && r.body.todos === null && r.body.needsSchema === true && r.body.items.length === 9, r.body);
+  ok('before schema-v14: Today still works, to-dos say to run the SQL', r.body.ok && r.body.todos === null && r.body.needsSchema === true && r.body.items.length === 11, r.body); // +2: UPI refunds to send, customer still choosing (refunds.js)
   r = await post('/admin/api/todos', { title: 'x' });
   ok('adding a to-do before schema-v14 -> 409 with the fix', r.status === 409 && /schema-v14/.test(r.body.message), r.body);
   schema = true;
