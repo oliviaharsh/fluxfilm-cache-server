@@ -29,6 +29,42 @@ html, body { background: #f5f7fb; }
 .ff-bnav-btn { border: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; white-space: nowrap; font-weight: 700; color: #64748b; padding: 7px 0 6px; border-radius: 14px; cursor: pointer; }
 .ff-bnav-ic { font-size: 20px; line-height: 1; }
 .ff-bnav-btn.on { color: #15803d; background: rgba(22,163,74,.09); }
+@keyframes ffSlideIn { from { transform: translateX(28px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ffSlideBack { from { transform: translateX(-28px); opacity: 0; } to { transform: none; opacity: 1; } }
+.ff-slide { animation: ffSlideIn .22s ease backwards; }
+.ff-slide-back { animation-name: ffSlideBack; }
+@media (prefers-reduced-motion: reduce) { .ff-slide { animation: none; } }
+.ff-acard { display: flex; align-items: center; gap: 14px; cursor: pointer; }
+.ff-avatar { flex-shrink: 0; border-radius: 999px; background: linear-gradient(135deg,#34d399,#16a34a); display: grid; place-items: center; color: #fff; font-weight: 800; overflow: hidden; box-shadow: 0 4px 14px rgba(22,163,74,.22); }
+.ff-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.ff-alist { margin-top: 12px; padding: 4px 0 !important; }
+.ff-arow { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: none; border: 0; text-align: left; cursor: pointer; font-family: inherit; }
+.ff-arow + .ff-arow { border-top: 1px solid rgba(15,23,42,.07); }
+.ff-arow:hover { background: #f8fafc; }
+.ff-arow-ic { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; font-size: 21px; flex-shrink: 0; }
+.ff-arow-t { font-size: 15px; font-weight: 800; color: #0f172a; }
+.ff-arow-s { font-size: 12.5px; font-weight: 600; color: #64748b; margin-top: 2px; }
+.ff-arow-go { margin-left: auto; color: #94a3b8; font-size: 22px; line-height: 1; flex-shrink: 0; }
+.ff-pill { margin-left: auto; flex-shrink: 0; padding: 4px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 800; }
+.ff-pill.soon { background: rgba(245,158,11,.10); border: 1px solid rgba(245,158,11,.28); color: #92400e; }
+.ff-pill.count { background: rgba(22,163,74,.10); border: 1px solid rgba(22,163,74,.25); color: #15803d; }
+.ff-subhead { display: flex; align-items: center; gap: 10px; margin: 16px 0 6px; }
+.ff-subhead button { border: 1px solid rgba(15,23,42,.10); background: #fff; border-radius: 999px; padding: 8px 14px 8px 10px; font-size: 13.5px; font-weight: 800; color: #334155; cursor: pointer; font-family: inherit; }
+.ff-subhead h2 { font-size: 18px; font-weight: 800; color: #0f172a; }
+.ff-coupon { display: flex; background: #fff; border: 1px solid rgba(15,23,42,.09); border-radius: 20px; overflow: hidden; box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.06); }
+.ff-coupon + .ff-coupon { margin-top: 12px; }
+.ff-coupon-amt { flex-shrink: 0; width: 104px; background: linear-gradient(160deg,#22c55e,#15803d); color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 14px 8px; position: relative; }
+.ff-coupon-amt::after { content: ''; position: absolute; right: -1px; top: 10px; bottom: 10px; border-right: 2px dashed rgba(255,255,255,.55); }
+.ff-coupon-big { font-size: 26px; font-weight: 800; line-height: 1; }
+.ff-coupon-off { font-size: 12px; font-weight: 800; letter-spacing: .12em; margin-top: 4px; }
+.ff-coupon-cap { font-size: 10.5px; font-weight: 700; opacity: .9; margin-top: 6px; }
+.ff-coupon-body { flex: 1; min-width: 0; padding: 14px 14px 12px; }
+.ff-coupon-top { display: flex; align-items: center; gap: 8px; }
+.ff-coupon-code { font-family: Consolas, 'SF Mono', monospace; font-size: 15px; font-weight: 800; letter-spacing: .06em; color: #0f172a; padding: 5px 10px; border: 1.5px dashed rgba(22,163,74,.45); border-radius: 10px; background: rgba(22,163,74,.05); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ff-coupon-copy { margin-left: auto; flex-shrink: 0; border: 1px solid rgba(15,23,42,.12); background: #fff; border-radius: 10px; padding: 6px 11px; font-size: 12.5px; font-weight: 800; color: #334155; cursor: pointer; font-family: inherit; }
+.ff-coupon-desc { font-size: 13px; font-weight: 700; color: #334155; margin-top: 8px; line-height: 1.4; }
+.ff-coupon-facts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ff-coupon-facts span { font-size: 11.5px; font-weight: 700; color: #475569; background: #f1f5f9; border-radius: 999px; padding: 4px 9px; }
 .ff-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 4px; margin: 4px 0 14px; scrollbar-width: none; }
 .ff-tabs::-webkit-scrollbar { display: none; }
 .ff-tab { flex-shrink: 0; border: 1px solid rgba(15,23,42,.10); background: #fff; color: #334155; padding: 9px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 800; cursor: pointer; white-space: nowrap; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
@@ -708,20 +744,11 @@ function Slide({
   children,
   dir = 1
 }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.transform = `translateX(${dir * 100}%)`;
-    el.style.opacity = '0';
-    requestAnimationFrame(() => {
-      el.style.transition = 'transform .2s ease,opacity .2s ease';
-      el.style.transform = 'translateX(0)';
-      el.style.opacity = '1';
-    });
-  }, []);
+  // CSS keyframe slide-in. Fill mode 'backwards' means no transform is left on the div once it ends:
+  // a leftover transform made it the containing block for position:fixed pop-ups inside the screen,
+  // so they were drawn under the sticky header / bottom menu.
   return React.createElement("div", {
-    ref: ref
+    className: dir < 0 ? 'ff-slide ff-slide-back' : 'ff-slide'
   }, children);
 }
 function PopcornLogo({
@@ -851,7 +878,7 @@ function Topbar({
   }, "WhatsApp support"))));
 }
 const CHECKOUT_STEPS = {
-  buy: [['Plan', ['buy2', 'groupJoin']], ['Details', ['details']], ['Review', ['review']], ['Pay', ['pay']], ['Access', ['verify', 'done']]],
+  buy: [['Plan', ['buy2', 'groupJoin']], ['Details', ['details', 'review']], ['Pay', ['pay']], ['Access', ['verify', 'done']]],
   renew: [['Plan', ['renewStart']], ['Pay', ['pay']], ['Access', ['verify', 'done']]]
 };
 function CheckoutSteps({
@@ -3531,14 +3558,16 @@ function DetailsScreen({
     if (form.coupon.trim() && !couponState.applied) {
       if (!confirm('You entered a coupon but did not apply it.\nContinue without applying?')) return;
     }
-    nav('review', {
+    nav('pay', {
       service,
       planObj,
       form,
       couponState,
+      creating: true,
       groupJoined: !!groupJoined
     });
   }
+  const payable = couponState.applied ? Number(couponState.finalAmount || 0) : baseAmount;
   return React.createElement(Slide, null, React.createElement("div", {
     style: {
       paddingBottom: 90
@@ -3823,7 +3852,51 @@ function DetailsScreen({
     placeholder: "Any request? e.g. preferred profile name",
     value: form.notes,
     onChange: set('notes')
-  })), React.createElement(Hint, null, "📧 Your details are used for confirmation only. We never share them."), React.createElement("div", {
+  })), React.createElement("div", {
+    style: {
+      marginTop: 16,
+      borderTop: `1px dashed ${C.borderMd}`,
+      paddingTop: 12
+    }
+  }, [['Plan price', `₹${baseAmount}`], ...(couponState.applied && couponState.discount > 0 ? [['Coupon discount', `− ₹${couponState.discount}`]] : [])].map(([k, v]) => React.createElement("div", {
+    key: k,
+    style: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      padding: '5px 0',
+      fontFamily: PJS,
+      fontSize: 13.5,
+      fontWeight: 600,
+      color: C.muted
+    }
+  }, React.createElement("span", null, k), React.createElement("span", {
+    style: {
+      color: k === 'Coupon discount' ? C.green : C.text,
+      fontWeight: 700
+    }
+  }, v))), React.createElement("div", {
+    style: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'baseline',
+      padding: '8px 0 2px',
+      fontFamily: PJS
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 15,
+      fontWeight: 800,
+      color: C.text
+    }
+  }, "Total to pay"), React.createElement("span", {
+    style: {
+      fontSize: 24,
+      fontWeight: 800,
+      color: C.green
+    }
+  }, "₹", payable))), React.createElement(Hint, {
+    tone: "green"
+  }, "✅ Instant access after payment · 📧 Confirmation on email · We never share your details."), React.createElement("div", {
     style: {
       marginTop: 14
     }
@@ -3831,7 +3904,7 @@ function DetailsScreen({
     variant: "primary",
     full: true,
     onClick: proceed
-  }, "➡️ Continue to Review")))));
+  }, "✅ Confirm & Pay ₹", payable)))));
 }
 function ReviewScreen({
   nav,
@@ -3919,6 +3992,7 @@ function ReviewScreen({
 }
 function PayScreen({
   nav,
+  goBack,
   service,
   planObj,
   form,
@@ -3950,7 +4024,7 @@ function PayScreen({
       setLoading(null);
       if (!r || !r.ok) {
         alert(r?.message || 'Order creation failed.');
-        nav('review', {});
+        goBack ? goBack() : nav('home', {});
         return;
       }
       const oi = {
@@ -3972,7 +4046,7 @@ function PayScreen({
     }, err => {
       setLoading(null);
       alert('Order failed: ' + (err?.message || err));
-      nav('review', {});
+      goBack ? goBack() : nav('home', {});
     });
   }, []);
   if (!orderData) return React.createElement(Slide, null, React.createElement("div", {
@@ -5933,7 +6007,8 @@ function AccountScreen({
   onProfileUpdated,
   initialSection
 }) {
-  const [section, setSection] = useState(initialSection || 'profile');
+  // '' = the Account menu; 'profile' | 'coupons' | 'referral' | 'wallet' = a sub-page.
+  const [section, setSection] = useState(initialSection || '');
   const allSubs = subs || [];
   const active = allSubs.filter(s => Number(s.daysLeft || 0) > 7).length;
   const expiring = allSubs.filter(s => {
@@ -6030,11 +6105,124 @@ function AccountScreen({
   }
   const name = profile?.name || '';
   const first = name ? name.split(' ')[0] : '';
+  const validCoupons = coupons.filter(c => !(c.expiry && new Date(c.expiry) < new Date()));
+  const SECTION_TITLES = {
+    profile: '👤 Profile',
+    coupons: '🎟️ Coupons',
+    referral: '🎁 Refer & earn',
+    wallet: '👛 Wallet'
+  };
+  const openSection = k => {
+    setSection(k);
+    window.scrollTo({
+      top: 0,
+      behavior: 'instant'
+    });
+  };
   return React.createElement(Slide, null, React.createElement("div", {
     style: {
-      paddingBottom: 90
+      paddingBottom: 24
+    }
+  }, section ? React.createElement("div", {
+    className: "ff-subhead"
+  }, React.createElement("button", {
+    onClick: () => openSection('')
+  }, "‹ Account"), React.createElement("h2", null, SECTION_TITLES[section] || '')) : React.createElement(React.Fragment, null, React.createElement(Card, {
+    style: {
+      marginTop: 16
     }
   }, React.createElement("div", {
+    className: "ff-acard",
+    onClick: () => openSection('profile')
+  }, React.createElement("div", {
+    className: "ff-avatar",
+    style: {
+      width: 58,
+      height: 58,
+      fontSize: 22
+    }
+  }, profile?.profilePicUrl ? React.createElement("img", {
+    src: profile.profilePicUrl,
+    alt: ""
+  }) : profLoading ? '…' : name ? name[0].toUpperCase() : '👤'), React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 18,
+      fontWeight: 800,
+      color: C.text,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap'
+    }
+  }, profLoading ? '…' : name || 'My Account'), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13,
+      fontWeight: 600,
+      color: C.muted,
+      marginTop: 2
+    }
+  }, "📱 ", phone || '-', profile?.memberSince ? ' · Member since ' + fmtDate(profile.memberSince) : '')), React.createElement("span", {
+    className: "ff-arow-go"
+  }, "›"))), React.createElement(Card, {
+    pad: 0,
+    className: "ff-alist"
+  }, [{
+    k: 'profile',
+    icon: '👤',
+    bg: 'rgba(37,99,235,.10)',
+    title: 'Profile',
+    sub: 'Name, email & profile picture'
+  }, {
+    k: 'coupons',
+    icon: '🎟️',
+    bg: 'rgba(22,163,74,.10)',
+    title: 'Coupons',
+    sub: couponsLoading ? 'Checking offers…' : validCoupons.length ? 'Offers you can use at checkout' : 'No offers right now',
+    count: couponsLoading ? 0 : validCoupons.length
+  }, {
+    k: 'referral',
+    icon: '🎁',
+    bg: 'rgba(236,72,153,.10)',
+    title: 'Refer & earn',
+    sub: 'Invite friends, get rewards',
+    soon: true
+  }, {
+    k: 'wallet',
+    icon: '👛',
+    bg: 'rgba(245,158,11,.12)',
+    title: 'Wallet',
+    sub: 'Coins & balance',
+    soon: true
+  }].map(r => React.createElement("button", {
+    key: r.k,
+    className: "ff-arow",
+    onClick: () => openSection(r.k)
+  }, React.createElement("span", {
+    className: "ff-arow-ic",
+    style: {
+      background: r.bg
+    }
+  }, r.icon), React.createElement("span", {
+    style: {
+      minWidth: 0
+    }
+  }, React.createElement("div", {
+    className: "ff-arow-t"
+  }, r.title), React.createElement("div", {
+    className: "ff-arow-s"
+  }, r.sub)), r.soon ? React.createElement("span", {
+    className: "ff-pill soon"
+  }, "Soon") : r.count ? React.createElement("span", {
+    className: "ff-pill count"
+  }, r.count) : React.createElement("span", {
+    className: "ff-arow-go"
+  }, "›"))))), section === 'profile' && React.createElement("div", {
     style: {
       textAlign: 'center',
       padding: '24px 0 20px'
@@ -6123,16 +6311,7 @@ function AccountScreen({
     }
   }, React.createElement(Badge, {
     tone: profile.status === 'ACTIVE' ? 'ok' : 'bad'
-  }, profile.status === 'ACTIVE' ? '✅ Active Customer' : profile.status))), React.createElement("div", {
-    className: "ff-tabs",
-    role: "tablist"
-  }, [['profile', '👤 Profile'], ['wallet', '👛 Wallet'], ['referral', '🎁 Refer & earn'], ['coupons', '🎟️ Coupons']].map(([k, label]) => React.createElement("button", {
-    key: k,
-    role: "tab",
-    "aria-selected": section === k,
-    className: 'ff-tab' + (section === k ? ' on' : ''),
-    onClick: () => setSection(k)
-  }, label))), section === 'profile' && React.createElement(Card, null, React.createElement("div", {
+  }, profile.status === 'ACTIVE' ? '✅ Active Customer' : profile.status))), section === 'profile' && React.createElement(Card, null, React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 15,
@@ -6170,11 +6349,9 @@ function AccountScreen({
       background: 'rgba(15,23,42,.50)',
       backdropFilter: 'blur(6px)',
       display: 'flex',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       justifyContent: 'center',
-      paddingTop: 56,
-      paddingLeft: 8,
-      paddingRight: 8
+      padding: 16
     }
   }, React.createElement("div", {
     onClick: e => e.stopPropagation(),
@@ -6185,7 +6362,7 @@ function AccountScreen({
       padding: '18px 16px 20px',
       boxShadow: '0 8px 40px rgba(15,23,42,.28)',
       animation: 'popIn .22s ease',
-      maxHeight: 'calc(100dvh - 72px)',
+      maxHeight: 'calc(100dvh - 32px)',
       overflowY: 'auto'
     }
   }, React.createElement("div", {
@@ -6233,8 +6410,8 @@ function AccountScreen({
   }, "Tap to select, then tap Save."), React.createElement("div", {
     style: {
       display: 'grid',
-      gridTemplateColumns: 'repeat(3,1fr)',
-      gap: 10,
+      gridTemplateColumns: 'repeat(4,minmax(0,1fr))',
+      gap: 8,
       marginBottom: 16
     }
   }, AVATARS.map((url, i) => {
@@ -6361,123 +6538,10 @@ function AccountScreen({
       marginTop: 10
     },
     onClick: () => setShowAvatarPicker(true)
-  }, "🖼️ Change profile picture"), section === 'coupons' && React.createElement(Card, {
-    style: {
-      marginTop: 10
-    }
-  }, React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 15,
-      fontWeight: 800,
-      color: C.text,
-      marginBottom: 10
-    }
-  }, "🎟️ Active Coupons"), couponsLoading && React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 13,
-      color: C.muted,
-      fontWeight: 700
-    }
-  }, "Loading coupons…"), !couponsLoading && coupons.length === 0 && React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 13,
-      color: C.muted,
-      fontWeight: 700
-    }
-  }, "No active coupons right now."), !couponsLoading && coupons.map((c, i) => {
-    const isExpired = c.expiry ? new Date(c.expiry) < new Date() : false;
-    const discText = c.type === 'PERCENT' ? `${c.value}% off${c.maxDiscount ? ` (max ₹${c.maxDiscount})` : ''}` : c.value ? `₹${c.value} off` : '';
-    const minText = c.minAmount > 0 ? `on orders above ₹${c.minAmount}` : '';
-    const worthText = [discText, minText].filter(Boolean).join(' ');
-    const expiryText = c.expiry ? new Date(c.expiry).toLocaleDateString('en-IN', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric'
-    }) : '';
-    return React.createElement("div", {
-      key: i,
-      style: {
-        padding: '13px 0',
-        borderTop: i === 0 ? 'none' : `1px solid ${C.border}`,
-        opacity: isExpired ? .55 : 1
-      }
-    }, React.createElement("div", {
-      style: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        gap: 10,
-        alignItems: 'center'
-      }
-    }, React.createElement("div", {
-      style: {
-        fontFamily: PJS,
-        fontSize: 15,
-        fontWeight: 900,
-        color: isExpired ? C.muted : C.text,
-        textDecoration: isExpired ? 'line-through' : 'none'
-      }
-    }, c.code), React.createElement(Badge, {
-      tone: isExpired ? 'bad' : c.remaining === 0 ? 'warn' : 'ok'
-    }, isExpired ? '😔 Expired' : c.remaining === 'Unlimited' ? 'Unlimited' : `${c.remaining} left`)), worthText && React.createElement("div", {
-      style: {
-        marginTop: 5,
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 5,
-        padding: '4px 10px',
-        borderRadius: 999,
-        background: isExpired ? 'rgba(15,23,42,.05)' : 'rgba(22,163,74,.08)',
-        border: `1px solid ${isExpired ? C.border : 'rgba(22,163,74,.20)'}`,
-        fontFamily: PJS,
-        fontSize: 12,
-        fontWeight: 800,
-        color: isExpired ? C.muted : '#15803d'
-      }
-    }, isExpired ? '' : '💰', " ", worthText), React.createElement("div", {
-      style: {
-        fontFamily: PJS,
-        fontSize: 12,
-        color: C.muted,
-        fontWeight: 600,
-        marginTop: 5,
-        lineHeight: 1.5
-      }
-    }, c.description || `Valid for ${c.scope || 'eligible plans'}`), React.createElement("div", {
-      style: {
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginTop: 5,
-        flexWrap: 'wrap',
-        gap: 6
-      }
-    }, React.createElement("div", {
-      style: {
-        fontFamily: PJS,
-        fontSize: 11.5,
-        color: C.muted,
-        fontWeight: 600
-      }
-    }, "Used: ", c.usedByUser || 0, c.perUserLimit ? ` / ${c.perUserLimit}` : ' · Unlimited'), expiryText && React.createElement("div", {
-      style: {
-        fontFamily: PJS,
-        fontSize: 11.5,
-        fontWeight: 700,
-        color: isExpired ? C.red : C.muted
-      }
-    }, isExpired ? '❌ Expired' : '📅 Expires', " ", expiryText)), isExpired && React.createElement("div", {
-      style: {
-        marginTop: 6,
-        fontFamily: PJS,
-        fontSize: 11.5,
-        fontWeight: 700,
-        color: '#991b1b'
-      }
-    }, "😔 You missed it — this coupon is no longer valid."));
-  })), section === 'wallet' && React.createElement(ComingSoonCard, {
+  }, "🖼️ Change profile picture"), section === 'coupons' && React.createElement(CouponList, {
+    coupons: validCoupons,
+    loading: couponsLoading
+  }), section === 'wallet' && React.createElement(ComingSoonCard, {
     icon: '👛',
     title: 'FluxFilm Wallet',
     text: 'Your coins and balance will live here — earn on every purchase and use them to pay for renewals.'
@@ -6485,7 +6549,7 @@ function AccountScreen({
     icon: '🎁',
     title: 'Refer & earn',
     text: 'Share your invite link with friends and get rewards when they buy their first plan.'
-  }), React.createElement("div", {
+  }), !section && React.createElement("div", {
     style: {
       marginTop: 18
     }
@@ -6498,18 +6562,100 @@ function AccountScreen({
     }
   }, "🚪 Logout"))));
 }
+const COUPON_SCOPE_TEXT = {
+  ANY: '🛒 New plans & renewals',
+  NEW: '🆕 New plans only',
+  RENEW: '🔁 Renewals only'
+};
+function CouponList({
+  coupons,
+  loading
+}) {
+  const [copied, setCopied] = useState('');
+  if (loading) return React.createElement(Card, null, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 14,
+      fontWeight: 700,
+      color: C.muted,
+      textAlign: 'center'
+    }
+  }, "Checking your offers…"));
+  if (!coupons.length) return React.createElement(ComingSoonCard, {
+    icon: '🎟️',
+    title: 'No offers right now',
+    text: 'When we have a coupon for you it will show up here. Keep an eye on WhatsApp too!',
+    badge: ''
+  });
+  const copy = code => {
+    try {
+      navigator.clipboard.writeText(code);
+    } catch (e) {}
+    setCopied(code);
+    setTimeout(() => setCopied(c => c === code ? '' : c), 1600);
+  };
+  const fmt = d => {
+    const x = new Date(d);
+    return isNaN(x.getTime()) ? String(d) : x.toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
+  return React.createElement("div", null, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13,
+      fontWeight: 600,
+      color: C.muted,
+      margin: '4px 2px 12px',
+      lineHeight: 1.5
+    }
+  }, "Copy a code and paste it in the ", React.createElement("b", null, "Coupon"), " box when you buy or renew."), coupons.map(c => {
+    const pct = String(c.type || '').toUpperCase() === 'PERCENT';
+    const facts = [COUPON_SCOPE_TEXT[String(c.scope || 'ANY').toUpperCase()] || COUPON_SCOPE_TEXT.ANY, c.minAmount > 0 ? `💳 On orders of ₹${c.minAmount}+` : '', c.expiry ? `📅 Valid till ${fmt(c.expiry)}` : '', c.remaining === 'Unlimited' ? '' : `🎫 ${c.remaining} use${c.remaining === 1 ? '' : 's'} left`].filter(Boolean);
+    return React.createElement("div", {
+      key: c.code,
+      className: "ff-coupon"
+    }, React.createElement("div", {
+      className: "ff-coupon-amt"
+    }, React.createElement("div", {
+      className: "ff-coupon-big"
+    }, pct ? `${c.value}%` : `₹${c.value}`), React.createElement("div", {
+      className: "ff-coupon-off"
+    }, "OFF"), pct && c.maxDiscount > 0 && React.createElement("div", {
+      className: "ff-coupon-cap"
+    }, "up to ₹", c.maxDiscount)), React.createElement("div", {
+      className: "ff-coupon-body"
+    }, React.createElement("div", {
+      className: "ff-coupon-top"
+    }, React.createElement("span", {
+      className: "ff-coupon-code"
+    }, c.code), React.createElement("button", {
+      className: "ff-coupon-copy",
+      onClick: () => copy(c.code)
+    }, copied === c.code ? '✅ Copied' : '📋 Copy')), c.description && React.createElement("div", {
+      className: "ff-coupon-desc"
+    }, c.description), React.createElement("div", {
+      className: "ff-coupon-facts"
+    }, facts.map(f => React.createElement("span", {
+      key: f
+    }, f)))));
+  }));
+}
 function ComingSoonCard({
   icon,
   title,
-  text
+  text,
+  badge
 }) {
   return React.createElement(Card, {
     className: "ff-soon"
   }, React.createElement("div", {
     className: "ff-soon-ic"
-  }, icon), React.createElement("h3", null, title), React.createElement("p", null, text), React.createElement("span", {
+  }, icon), React.createElement("h3", null, title), React.createElement("p", null, text), badge !== '' && React.createElement("span", {
     className: "ff-soon-badge"
-  }, "🚀 Coming soon"));
+  }, badge || "🚀 Coming soon"));
 }
 function RestoringScreen({
   trending,
@@ -7398,14 +7544,14 @@ const TOPBAR_META = {
   buy1: ['Buy Subscription', 'Cheaper than official · Instant ⚡', null],
   buy2: ['Choose a Plan', 'No login needed yet', null],
   groupJoin: ['Join Group', 'Required before purchase', '👥 Group'],
-  details: ['Your Details', 'Almost done', null],
+  details: ['Confirm Order', 'Check details & pay', null],
   review: ['Review Order', 'Confirm before payment', null],
   pay: ['Payment', 'UPI · Instant verification', null],
   verify: ['Verifying Payment', 'Secure payment check', null],
   done: ['Access Granted 🎉', 'Enjoy your subscription', null],
   recover: ['Recover Access', 'OTP secured · Fast 🔒', null],
   otpScreen: ['Get OTP', 'SMS OTP · Fast & secure', '📲'],
-  account: ['My Account', 'Profile · Wallet · Refer & earn', null],
+  account: ['My Account', 'Profile · Coupons · Refer & earn · Wallet', null],
   renewStart: ['Renew', 'Early discount available', null]
 };
 const BOOT_CACHE_KEY = 'ff_boot_v2';
@@ -8014,6 +8160,7 @@ function App() {
     groupJoined: d.groupJoined
   }), screen === 'pay' && React.createElement(PayScreen, {
     nav: nav,
+    goBack: goBack,
     service: d.service,
     planObj: d.planObj,
     form: d.form,

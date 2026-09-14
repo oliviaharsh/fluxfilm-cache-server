@@ -28,10 +28,13 @@ const navBlock = (html.match(/const navItems = \[[\s\S]*?\}\];/) || [''])[0];
 ok('menu order: home, buy, recover, account, help', ['home', 'buy', 'recover', 'account', 'help'].map((k) => navBlock.indexOf("key: '" + k + "'")).every((v, i, a) => v >= 0 && (i === 0 || v > a[i - 1])), navBlock.slice(0, 80));
 ok('bottom menu has 5 columns', /\.ff-bnav \{[^}]*repeat\(5, minmax\(0,1fr\)\)/.test(html));
 ok('dashboard no longer has Buy / Recover / Account tiles', !/className: "ff-dash-actions"/.test(html) && /className: "ff-dash-stats"/.test(html));
-ok('account has Profile · Wallet · Refer & earn · Coupons tabs', /\['profile', '👤 Profile'\], \['wallet', '👛 Wallet'\], \['referral', '🎁 Refer & earn'\], \['coupons', '🎟️ Coupons'\]/.test(html) && /function ComingSoonCard\(/.test(html));
+ok('account is a list menu (Profile, Coupons, Refer & earn, Wallet) opening sub-pages', /className: "ff-arow"/.test(html) && /k: 'profile'[\s\S]*?k: 'coupons'[\s\S]*?k: 'referral'[\s\S]*?k: 'wallet'/.test(html) && /‹ Account/.test(html) && /function ComingSoonCard\(/.test(html) && !/className: "ff-tabs",/.test(html));
+ok('coupons shown as cards with plain words (no raw ANY / NEW / RENEW)', /function CouponList\(/.test(html) && /ANY: '🛒 New plans & renewals'/.test(html) && !/Valid for \$\{c.scope/.test(html));
+ok('screen slide-in leaves no transform behind (pop-ups were trapped under header/menu)', /\.ff-slide \{ animation: ffSlideIn \.22s ease backwards; \}/.test(html) && !/el\.style\.transform = .translateX\(0\)./.test(html));
 
 // Numbered checkout: buy = Plan, Details, Review, Pay, Access; renew = Plan, Pay, Access.
-ok('checkout steps defined for buy and renew', /buy: \[\['Plan', \['buy2', 'groupJoin'\]\], \['Details', \['details'\]\], \['Review', \['review'\]\], \['Pay', \['pay'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html) && /renew: \[\['Plan', \['renewStart'\]\], \['Pay', \['pay'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html));
+ok('checkout steps: buy = Plan, Details (incl. review), Pay, Access; renew = Plan, Pay, Access', /buy: \[\['Plan', \['buy2', 'groupJoin'\]\], \['Details', \['details', 'review'\]\], \['Pay', \['pay'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html) && /renew: \[\['Plan', \['renewStart'\]\], \['Pay', \['pay'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html));
+ok('details goes straight to pay; failed order goes back to the filled-in details', /nav\('pay', \{\s*service,\s*planObj,\s*form,\s*couponState,\s*creating: true/.test(html) && !/nav\('review', \{\}\)/.test(html) && (html.match(/goBack \? goBack\(\) : nav\('home', \{\}\)/g) || []).length === 2);
 ok('steps shown above every screen; flow tracked on nav + navReset', /React.createElement\(CheckoutSteps, \{\s*flow: flow,\s*screen: screen\s*\}\)/.test(html) && (html.match(/    trackFlow\(s\);/g) || []).length === 2);
 
 console.log('\n---------------------------------------');
