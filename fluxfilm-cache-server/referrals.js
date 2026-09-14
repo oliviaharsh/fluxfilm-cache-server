@@ -372,6 +372,33 @@ async function reconcile(opts) {
   }
 }
 
+// An order was refunded or erased (admin order actions). Runs on the caller's connection inside its transaction.
+//  - rewards for it not paid yet (PENDING / FAILED) → CANCELLED, so "Fix missed rewards" never pays them;
+//  - rewards already PAID are NOT taken back automatically — they are returned in `alreadyPaid` so the owner can
+//    decide (🪙 Coins → remove coins by hand);
+//  - if this was the friend's rewarding first order and no FIRST reward was paid, the invite goes back to PENDING,
+//    so the friend's next real paid order counts as their first. Idempotent.
+async function cancelForOrderOn(conn, orderId, reason) {
+  const oid = s(orderId);
+  const out = { cancelled: 0, alreadyPaid: [], linkReset: false };
+  if (!oid) return out;
+  try {
+    const [rows] = await conn.query('SELECT beneficiary_phone, kind, coins, status FROM referral_rewards WHERE order_id = ? FOR UPDATE', [oid]);
+    const [u] = await conn.query("UPDATE referral_rewards SET status = 'CANCELLED', reason = ? WHERE order_id = ? AND status IN ('PENDING', 'FAILED')", [('cancelled: ' + (s(reason) || 'order refunded')).slice(0, 200), oid]);
+    out.cancelled = (u && u.affectedRows) || 0;
+    const paid = rows.filter((r) => s(r.status).toUpperCase() === 'PAID' && num(r.coins) > 0);
+    out.alreadyPaid = paid.map((r) => ({ kind: s(r.kind), coins: num(r.coins), to: maskPhone(r.beneficiary_phone) }));
+    if (!paid.some((r) => s(r.kind).toUpperCase() === 'FIRST')) {
+      const [l] = await conn.query("UPDATE referrals SET status = 'PENDING', friend_order_id = NULL, reward_coins = 0, rewarded_at = NULL, updated_at = NOW() WHERE friend_order_id = ? AND status IN ('REWARDED', 'CAPPED')", [oid]);
+      out.linkReset = !!(l && l.affectedRows);
+    }
+    return out;
+  } catch (e) {
+    if (missingTable(e)) return Object.assign(out, { skipped: 'no referral tables' });
+    throw e;
+  }
+}
+
 let timer = null;
 function startReconcileTimer() {
   if (timer || process.env.NODE_ENV === 'test') return;
@@ -382,7 +409,7 @@ function startReconcileTimer() {
 }
 
 module.exports = {
-  getReferralInfo, checkReferral, attachToOrder, attachOnSignup, onOrderPaid, reconcile, startReconcileTimer,
+  getReferralInfo, checkReferral, attachToOrder, attachOnSignup, onOrderPaid, reconcile, startReconcileTimer, cancelForOrderOn,
   getSettings, saveSettings, validateSettings, coinsFor, DEFAULTS,
   _internal: { genCode, normCode, maskPhone, ensureCode, resetCache: () => { cache = null; } },
 };

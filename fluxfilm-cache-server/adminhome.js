@@ -13,6 +13,8 @@
 const s = (v) => String(v == null ? '' : v).trim();
 const missingTable = (e) => /doesn't exist|ER_NO_SUCH_TABLE/i.test(String(e && e.message));
 const SCHEMA_MSG = 'Run db/schema-v14.sql in phpMyAdmin first.';
+// Paid but not delivered (refunded orders are REFUNDED, not PAID, so they drop out by themselves).
+const UNDELIVERED = "UPPER(o.status) = 'PAID' AND UPPER(COALESCE(o.fulfillment_status, '')) NOT IN ('FULFILLED', 'MANUAL_PENDING') AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.order_id = o.order_id) AND NOT (COALESCE(o.source, '') <> 'node' AND COALESCE(o.renew_sub_id, '') <> '' AND EXISTS (SELECT 1 FROM subscriptions r WHERE r.sub_id = o.renew_sub_id))";
 
 function mount(app, deps) {
   const { db, auth, audit } = deps;
@@ -24,10 +26,10 @@ function mount(app, deps) {
   app.get('/admin/api/today', async (req, res) => {
     if (!auth(req, res)) return;
     try {
-      const [unpaid, undelivered, manual, ending, endingList, expiredOn, restock, unmatched, todos, stock] = await Promise.all([
+      const [unpaid, undelivered, manual, ending, endingList, expiredOn, restock, unmatched, todos, stock, stuckList] = await Promise.all([
         // Checkouts started on the new site in the last 3 days but not paid: worth a nudge.
         one("SELECT COUNT(*) n FROM orders WHERE UPPER(status) = 'CREATED' AND source = 'node' AND created_at_sheet > NOW() - INTERVAL 3 DAY"),
-        one("SELECT COUNT(*) n FROM orders o WHERE UPPER(o.status) = 'PAID' AND UPPER(COALESCE(o.fulfillment_status, '')) NOT IN ('FULFILLED', 'MANUAL_PENDING') AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.order_id = o.order_id) AND NOT (COALESCE(o.source, '') <> 'node' AND COALESCE(o.renew_sub_id, '') <> '' AND EXISTS (SELECT 1 FROM subscriptions r WHERE r.sub_id = o.renew_sub_id))"),
+        one('SELECT COUNT(*) n FROM orders o WHERE ' + UNDELIVERED),
         one("SELECT COUNT(*) n FROM subscriptions WHERE UPPER(COALESCE(fulfillment_status, '')) = 'MANUAL_PENDING' AND UPPER(status) = 'ACTIVE'"),
         one("SELECT COUNT(*) n FROM subscriptions WHERE UPPER(status) = 'ACTIVE' AND expiry_date BETWEEN NOW() AND NOW() + INTERVAL 3 DAY"),
         many("SELECT sub_id, phone_norm, service, plan, expiry_date FROM subscriptions WHERE UPPER(status) = 'ACTIVE' AND expiry_date BETWEEN NOW() AND NOW() + INTERVAL 3 DAY ORDER BY expiry_date LIMIT 5"),
@@ -36,6 +38,8 @@ function mount(app, deps) {
         one('SELECT COUNT(*) n FROM bank_credits WHERE consumed_order_id IS NULL AND received_at > NOW() - INTERVAL 14 DAY'),
         many('SELECT id, title, note, due_date, done, created_at FROM admin_todos WHERE done = 0 ORDER BY due_date IS NULL, due_date, id LIMIT 50'),
         catalog().getStockLevels().catch(() => ({ levels: {} })),
+        // The stuck orders themselves, so a tap on one opens it with its actions (fulfil / refund / erase).
+        many('SELECT o.order_id, o.name, o.phone_norm, o.service, o.plan, o.final_amount, o.fulfillment_status, o.created_at_sheet FROM orders o WHERE ' + UNDELIVERED + ' ORDER BY o.created_at_sheet DESC LIMIT 5'),
       ]);
       const levels = (stock && stock.levels) || {};
       const out = Object.keys(levels).filter((k) => levels[k].stockLevel === 'OUT').map((k) => k.replace('|||', ' · '));
@@ -44,7 +48,7 @@ function mount(app, deps) {
       res.json({
         ok: true,
         items: [
-          { key: 'undelivered', icon: '⚠️', title: 'Paid but not delivered', count: +undelivered.n || 0, tone: 'bad', go: { view: 'orders', orders: 'undelivered' } },
+          { key: 'undelivered', icon: '⚠️', title: 'Paid but not delivered', count: +undelivered.n || 0, tone: 'bad', go: { view: 'orders', orders: 'undelivered' }, orders: Array.isArray(stuckList) ? stuckList : [] },
           { key: 'manual', icon: '🛠', title: 'Manual plans to activate', count: +manual.n || 0, tone: 'warn', go: { view: 'orders', orders: 'manual' } },
           { key: 'unmatched', icon: '💸', title: 'Payments not matched to an order (14 days)', count: +unmatched.n || 0, tone: 'warn', go: { view: 'data', table: 'bank_credits' } },
           { key: 'ending', icon: '⏳', title: 'Plans ending in 3 days', count: +ending.n || 0, tone: 'warn', go: { view: 'reminders' }, list: endingList },

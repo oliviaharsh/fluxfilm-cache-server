@@ -3615,6 +3615,10 @@ function DashboardScreen({
   }, "No orders found."), !ordersLoading && orders.map(o => {
     const paid = String(o.status || '').toUpperCase() === 'PAID';
     const fulfilled = String(o.fulfillmentStatus || '').toUpperCase() === 'FULFILLED';
+    // Refunded by FluxFilm (admin order actions): no "Verify Payment" / pay again, show amount + date + where to.
+    const refunded = String(o.status || '').toUpperCase() === 'REFUNDED';
+    const refundDate = (() => { try { const d = new Date(o.refundedAt); return o.refundedAt && !isNaN(d.getTime()) ? d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''; } catch (e) { return ''; } })();
+    const refundTo = /coin/i.test(o.refundMethod || '') ? 'Refunded as FluxFilm coins' : /upi/i.test(o.refundMethod || '') ? 'Refunded to your UPI' : '';
     return React.createElement(Card, {
       key: o.orderId,
       style: {
@@ -3642,8 +3646,24 @@ function DashboardScreen({
         marginTop: 3
       }
     }, o.plan, " · ", o.orderId)), React.createElement(Badge, {
-      tone: fulfilled ? 'ok' : paid ? 'info' : 'warn'
-    }, fulfilled ? '✅ Fulfilled' : paid ? '💰 Paid' : '⏳ Pending')), React.createElement("div", {
+      tone: refunded ? 'info' : fulfilled ? 'ok' : paid ? 'info' : 'warn'
+    }, refunded ? '💸 Refunded' : fulfilled ? (o.redelivered ? '✅ Delivered' : '✅ Fulfilled') : paid ? '💰 Paid' : '⏳ Pending')), refunded && React.createElement("div", {
+      style: {
+        marginTop: 8,
+        fontFamily: PJS,
+        fontSize: 12.5,
+        fontWeight: 700,
+        color: '#1e40af'
+      }
+    }, '💸 ', refundTo || 'Refunded', ' · ₹', o.refundAmount != null ? o.refundAmount : o.amount, refundDate ? ' · ' + refundDate : ''), fulfilled && o.redelivered && React.createElement("div", {
+      style: {
+        marginTop: 8,
+        fontFamily: PJS,
+        fontSize: 12.5,
+        fontWeight: 700,
+        color: '#15803d'
+      }
+    }, '🔁 Re-delivered — your login details are in My Subscriptions'), React.createElement("div", {
       style: {
         marginTop: 10,
         display: 'flex',
@@ -3681,7 +3701,7 @@ function DashboardScreen({
       } catch (e) {
         return '';
       }
-    })())), !fulfilled && React.createElement("div", {
+    })())), !fulfilled && !refunded && React.createElement("div", {
       style: {
         marginTop: 12
       }
@@ -6128,7 +6148,7 @@ function VerifyScreen({
       }, r => {
         if (stopped.current) return;
         const fs = String(r?.fulfillment || '').toUpperCase();
-        if (fs === 'FULFILLED' || fs === 'RENEWED') {
+        if (fs === 'FULFILLED' || fs === 'RENEWED' || fs === 'REFUNDED') {
           goToDone(r);
         } else if (fs === 'MANUAL_PENDING') {
           goToDone(r);
@@ -6155,6 +6175,8 @@ function VerifyScreen({
       setChecks(c => c + 1);
       API.verifyPayment(orderId, r => {
         if (stopped.current) return;
+        // Refunded by FluxFilm: stop checking and say so (never ask to pay again).
+        if (r?.refunded) { goToDone({ ...r, fulfillment: 'REFUNDED' }); return; }
         const fs = String(r?.fulfillment || '').toUpperCase();
         if (fs === 'FULFILLED' || fs === 'RENEWED') {
           setPhase('found');
@@ -7285,6 +7307,7 @@ function DoneScreen({
   const access = normalizeAccess_(r.access || r.data?.access || r.credentials || {});
   const isManual = r.fulfillment === 'MANUAL_PENDING';
   const isNoStock = r.fulfillment === 'NO_STOCK';
+  const isRefunded = r.fulfillment === 'REFUNDED';
   const isOtpService = !!access.isOtpService || ['jiohotstar', 'zee5', 'sonyliv'].some(s => String(service || '').toLowerCase().includes(s));
   const postMsg = String(r.postPaymentMessage || '').trim();
   // Delivered chime: only straight after a payment (not Recover), once per order.
@@ -7297,8 +7320,8 @@ function DoneScreen({
       history: []
     }
   } : {};
-  const title = !r.found ? '❌ Verify Error' : isNoStock ? '⚠️ Accounts Temporarily Unavailable' : isManual ? '✅ Payment Received' : '✅ Access Granted 🎉';
-  const msgBase = !r.found ? 'Please try verifying again.' : isNoStock ? r.message || 'Please contact support.' : isManual ? r.message || 'Activation will be done manually soon.' : r.accessWithheld ? r.message || 'Your login details were emailed to you. You can also view them using Recover.' : r.accountChanged ? r.message || 'Your login has changed — your new details are below.' : r.renewMessage ? r.message + ' ' + r.renewMessage : 'Your details are shown below. We also sent confirmation to your email.';
+  const title = !r.found ? '❌ Verify Error' : isRefunded ? '💸 Order Refunded' : isNoStock ? '⚠️ Accounts Temporarily Unavailable' : isManual ? '✅ Payment Received' : '✅ Access Granted 🎉';
+  const msgBase = !r.found ? 'Please try verifying again.' : isRefunded ? r.message || 'This order was refunded.' : isNoStock ? r.message || 'Please contact support.' : isManual ? r.message || 'Activation will be done manually soon.' : r.accessWithheld ? r.message || 'Your login details were emailed to you. You can also view them using Recover.' : r.accountChanged ? r.message || 'Your login has changed — your new details are below.' : r.renewMessage ? r.message + ' ' + r.renewMessage : 'Your details are shown below. We also sent confirmation to your email.';
   // F1: why the logins differ from what was chosen (e.g. not enough separate accounts right now).
   const msg = msgBase + (r.found && !isNoStock && !isManual && r.loginNotice ? ' ℹ️ ' + r.loginNotice : '');
   return React.createElement(Slide, null, React.createElement("div", {
@@ -7318,7 +7341,7 @@ function DoneScreen({
       marginBottom: 12,
       animation: r.found ? undefined : 'popIn .35s ease both'
     }
-  }, !r.found ? '❌' : isManual ? '⏳' : '🎉'), React.createElement("div", {
+  }, !r.found ? '❌' : isRefunded ? '💸' : isManual ? '⏳' : '🎉'), React.createElement("div", {
     className: r.found ? 'ff-3d-rise' : undefined,
     style: {
       fontFamily: PJS,
@@ -7370,7 +7393,7 @@ function DoneScreen({
       lineHeight: 1.55,
       whiteSpace: 'pre-line'
     }
-  }, postMsg)), r.found && !isManual && !isNoStock && !r.accessWithheld && React.createElement(React.Fragment, null, React.createElement(CredCard, {
+  }, postMsg)), r.found && !isManual && !isNoStock && !isRefunded && !r.accessWithheld && React.createElement(React.Fragment, null, React.createElement(CredCard, {
     access: access,
     service: service,
     isOtpService: isOtpService,
@@ -7432,6 +7455,18 @@ function DoneScreen({
     variant: "ghost",
     full: true,
     onClick: () => nav('home', {})
+  }, "🏠 Back to Home"))), isRefunded && React.createElement(Card, null, React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    onClick: () => API.openWhatsApp()
+  }, "💬 Contact WhatsApp Support"), React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    onClick: () => nav(homeTarget, homeData)
   }, "🏠 Back to Home")))));
 }
 function RecoverScreen({
