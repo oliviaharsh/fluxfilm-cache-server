@@ -1620,6 +1620,7 @@ function wireGlobalSearch() {
     tmr = setTimeout(function () {
       api('/admin/api/search', { q: q }).then(function (r) {
         if (input.value.trim() !== q) return;
+        if (!r || !r.ok) { data = null; drop.innerHTML = '<div class="muted" style="padding:10px 12px;font-size:.85rem">⚠️ Search failed: ' + esc((r && r.message) || 'error') + '</div>'; drop.hidden = false; return; }
         data = r;
         var sec = function (title, rows, fn) { return rows && rows.length ? '<div class="gsec">' + title + '</div>' + rows.map(fn).join('') : ''; };
         var html = sec('👤 Customers', r.customers, function (c, i) { return '<button class="qopt" data-k="c" data-i="' + i + '"><b>' + esc(c.name || '(no name)') + '</b><small>' + esc(c.phone_norm || '') + (c.email ? ' · ' + esc(c.email) : '') + (c.customer_id ? ' · ' + esc(c.customer_id) : '') + '</small></button>'; }) +
