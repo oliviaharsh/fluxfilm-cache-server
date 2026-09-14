@@ -148,6 +148,8 @@ function mountAdmin(app, deps) {
   require('./profit').mount(app, Object.assign({ db, auth, audit }, deps.profit || {}));
   // Refer & earn settings, overview and "fix missed rewards" (adminreferrals.js).
   require('./adminreferrals').mount(app, Object.assign({ db, auth, audit }, deps.referrals || {}));
+  // Coins: earning + paying with coins settings, overview, add/remove coins (admincoins.js).
+  require('./admincoins').mount(app, Object.assign({ db, auth, audit }, deps.coins || {}));
 
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};

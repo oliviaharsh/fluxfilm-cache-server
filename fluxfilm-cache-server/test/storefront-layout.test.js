@@ -52,6 +52,11 @@ ok('new orders send the invite code; checkout shows the invite discount unless a
 ok('Account → Refer & earn and Wallet are real pages (not "coming soon")', /section === 'referral' && React\.createElement\(ReferralPanel/.test(html) && /section === 'wallet' && React\.createElement\(WalletPanel/.test(html) && /Share on WhatsApp/.test(html));
 ok('own / used / invalid codes are forgotten', (html.match(/r\.invalid \|\| r\.own \|\| r\.notNew\)\) clearRefCode_\(\)/g) || []).length === 2);
 
+// Paying with coins.
+ok('coins toggle at checkout and on renew; totals subtract coins', /function CoinToggle\(/.test(html) && (html.match(/React\.createElement\(CoinToggle, \{/g) || []).length === 2 && /kind: 'NEW'/.test(html) && /kind: 'RENEW'/.test(html) && /\['🪙 Coins', `− ₹\$\{coinRupees\}`\]/.test(html) && /Math\.max\(0, finalPrice - coinRupees\)/.test(html));
+ok('orders send useCoins (new: in the form, renew: 4th API arg)', /useCoins: form\?\.useCoins === true,/.test(html) && /useCoins: coinRupees > 0/.test(html) && /\[subId, plan, coupon, useCoins === true\]/.test(html) && /\}, coinRupees > 0\);/.test(html));
+ok('wallet shows coin history + real rules', /API\.getCoinHistory\(phone/.test(html) && /Pay with coins at checkout: 1 coin = ₹/.test(html));
+
 console.log('\n---------------------------------------');
 console.log('PASS ' + pass + '   FAIL ' + fail);
 process.exitCode = fail ? 1 : 0;
