@@ -14,6 +14,9 @@ const mockDb = {
   ENABLED: true,
   query: async (sql, params) => {
     sql = sql.replace(/\s+/g, ' ').trim(); calls.push({ sql, params });
+    // MariaDB live: a parameter compared with a text literal fails on collation.
+    if (/\? <> '/.test(sql)) throw new Error("Illegal mix of collations (utf8mb4_general_ci,COERCIBLE) and (utf8mb4_unicode_ci,COERCIBLE) for operation '<>'");
+    if ((sql.match(/\?/g) || []).length !== (params || []).length) throw new Error('placeholder count mismatch: ' + sql);
     if (/admin_todos|audit_log/.test(sql) && !schema) noTable();
     if (/FROM orders WHERE UPPER\(status\) = 'CREATED' AND source = 'node'/.test(sql)) return [{ n: 5 }];
     if (/FROM orders o WHERE UPPER\(o.status\) = 'PAID'/.test(sql)) return [{ n: 1 }];
@@ -93,6 +96,12 @@ const catalog = { getStockLevels: async () => ({ ok: true, levels: { 'SonyLiv Pr
   r = await get('/admin/api/search?q=rah');
   const cs = calls.filter((c) => /FROM customers WHERE name LIKE/.test(c.sql)).pop();
   ok('finds customers, orders and subscriptions', r.body.ok && r.body.customers[0].customer_id === 'CUS-1' && Array.isArray(r.body.orders) && Array.isArray(r.body.subs) && cs.params[0] === '%rah%');
+  r = await get('/admin/api/search?q=98765');
+  const ph = calls.filter((c) => /FROM (customers|orders|subscriptions) WHERE/.test(c.sql)).slice(-3);
+  ok('phone digits search customers, orders AND subscriptions by phone (no collation error)', r.body.ok && ph.length === 3 && ph.every((c) => /phone_norm LIKE \?/.test(c.sql) && c.params.includes('%98765%')), r.body);
+  r = await get('/admin/api/search?q=harsh');
+  const nm = calls.filter((c) => /FROM (customers|orders|subscriptions) WHERE/.test(c.sql)).slice(-3);
+  ok('a name searches customers + order names, no phone clause when there are no digits', r.body.ok && nm.every((c) => !/phone_norm LIKE/.test(c.sql)) && /name LIKE \?/.test(nm[1].sql), nm.map((c) => c.sql));
   r = await get('/admin/api/search?q=r');
   ok('1 letter -> nothing (no full scans)', r.body.customers.length === 0);
 
