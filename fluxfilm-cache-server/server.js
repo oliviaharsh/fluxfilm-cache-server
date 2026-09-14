@@ -390,6 +390,11 @@ app.get('/olivia.js', (_req, res) => {
   res.set('Cache-Control', 'public, max-age=0');
   res.set('Content-Type', 'application/javascript; charset=utf-8').sendFile(path.join(__dirname, 'oliviawidget.js'));
 });
+// Olivia's photo for the chat header / Help sheet (AI-generated, 256 px). The widget asks for ?v=N, so it can be cached long.
+app.get('/olivia-avatar.jpg', (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=604800');
+  res.type('image/jpeg').sendFile(path.join(__dirname, 'olivia-avatar.jpg'));
+});
 // -- Installable app: manifests, service worker, icons (pwa.js) — before the storefront catch-all --
 try { require('./pwa').mount(app); } catch (e) { console.log('[pwa] not mounted:', e.message); }
 // SEO (seo.js): /robots.txt, /sitemap.xml, /og-image.png and the crawlable /plans, /plans/<service>, /faq, /whats-new, /about pages.

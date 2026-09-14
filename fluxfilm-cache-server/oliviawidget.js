@@ -98,7 +98,7 @@
     '.ffo-sheet{width:100%;max-width:440px;background:#fff;border-radius:22px 22px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -10px 40px rgba(15,23,42,.2)}' +
     '.ffo-sheet h3{margin:0 0 4px;font-size:18px;font-weight:900;color:#0f172a}.ffo-sheet p{margin:0 0 14px;color:#475569;font-size:14px;font-weight:600}' +
     '.ffo-opt{display:flex;gap:12px;align-items:center;width:100%;border:1.5px solid #e2e8f0;background:#fff;border-radius:16px;padding:14px;margin-bottom:10px;text-align:left;font:inherit;cursor:pointer;min-height:64px}' +
-    '.ffo-opt b{display:block;font-size:16px;color:#0f172a}.ffo-opt span{display:block;font-size:13px;color:#64748b;font-weight:600}.ffo-opt i{font-style:normal;font-size:30px}' +
+    '.ffo-opt b{display:block;font-size:16px;color:#0f172a}.ffo-opt div>span{display:block;font-size:13px;color:#64748b;font-weight:600}.ffo-opt i{font-style:normal;font-size:30px}' +
     '.ffo-opt.ai{border-color:#25d366;background:#f0fdf4}' +
     // WhatsApp-style chat
     '.ffo-panel{position:fixed;inset:0;z-index:91;display:flex;flex-direction:column;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Plus Jakarta Sans",sans-serif;background-color:#efeae2;' +
@@ -107,6 +107,8 @@
     '.ffo-top{display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 10px 8px;background:#008069;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.15)}' +
     '.ffo-top .av{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#dcf8c6,#25d366);display:grid;place-items:center;font-size:23px;flex:none;overflow:hidden}' +
     '.ffo-top .av img{width:100%;height:100%;object-fit:cover;display:block}' +
+    '.ffo-ai{display:inline-block;vertical-align:2px;margin-left:6px;padding:1px 6px;border-radius:6px;font-size:10.5px;font-weight:800;letter-spacing:.06em;line-height:1.5;background:#d9fdd3;color:#005c4b}' +
+    '.ffo-opt .av{width:48px;height:48px;border-radius:50%;overflow:hidden;flex:none;display:grid;place-items:center;font-size:28px;background:#dcf8c6}.ffo-opt .av img{width:100%;height:100%;object-fit:cover;display:block}' +
     '.ffo-top b{display:block;font-size:17px;font-weight:600}.ffo-top small{display:block;font-size:12.5px;color:#d9fdd3;font-weight:500;min-height:16px}' +
     '.ffo-x{margin-left:auto;border:0;background:rgba(255,255,255,.14);color:#fff;width:40px;height:40px;border-radius:50%;font-size:24px;line-height:1;cursor:pointer}' +
     '.ffo-list{flex:1;overflow-y:auto;padding:10px 12px 14px;display:flex;flex-direction:column;gap:3px}' +
@@ -160,7 +162,17 @@
     if (!/^https:\/\/(chat\.whatsapp\.com|wa\.me|api\.whatsapp\.com)\//i.test(String(url))) return;
     try { var w = window.open(url, '_blank'); if (w) w.opener = null; else location.href = url; } catch (e) { location.href = url; }
   }
-  function avatarEl() { return h('div', 'av', '\uD83E\uDD16'); }
+  // Olivia's photo (AI-generated, 256 px, ~12 KB). If it cannot load, the robot emoji stays.
+  var AVATAR = '/olivia-avatar.jpg?v=1';
+  function avatarEl(size) {
+    var box = h('div', 'av' + (size === 'big' ? ' big' : ''), '\uD83E\uDD16');
+    var img = h('img'); img.alt = 'Olivia'; img.width = 84; img.height = 84; img.decoding = 'async';
+    img.onload = function () { box.textContent = ''; box.appendChild(img); };
+    img.src = AVATAR;
+    return box;
+  }
+  // She looks like a real person, so customers are always told she is an AI assistant.
+  function aiTag() { var t = h('span', 'ffo-ai', 'AI'); t.title = 'Olivia is an AI assistant'; return t; }
   function timeText(at) {
     var d = new Date(at || Date.now());
     var hh = d.getHours(), mm = d.getMinutes();
@@ -175,13 +187,14 @@
     var sh = h('div', 'ffo-sheet');
     sh.appendChild(h('h3', null, 'How can we help? \uD83D\uDE0A'));
     sh.appendChild(h('p', null, 'Chat with Olivia here, or message our team on WhatsApp.'));
-    function opt(cls, icon, title, sub, fn) {
-      var b = h('button', 'ffo-opt ' + cls); b.appendChild(h('i', null, icon));
-      var d = h('div'); d.appendChild(h('b', null, title)); d.appendChild(h('span', null, sub)); b.appendChild(d);
+    function opt(cls, icon, title, sub, fn, tag) {
+      var b = h('button', 'ffo-opt ' + cls); b.appendChild(typeof icon === 'string' ? h('i', null, icon) : icon);
+      var name = h('b', null, title); if (tag) name.appendChild(aiTag());
+      var d = h('div'); d.appendChild(name); d.appendChild(h('span', null, sub)); b.appendChild(d);
       b.onclick = function () { close(); fn(); }; sh.appendChild(b);
     }
     function close() { if (bg.parentNode) bg.parentNode.removeChild(bg); }
-    opt('ai', '\uD83E\uDD16', 'Chat with Olivia', 'Buy a plan, pay, get your login \u2014 step by step', openChat);
+    opt('ai', avatarEl('big'), 'Chat with Olivia', 'Our AI assistant: buy a plan, pay, get your login \u2014 step by step', openChat, true);
     opt('', '\uD83D\uDCAC', 'WhatsApp our team', 'Talk to a person', function () { openLink('whatsapp'); });
     bg.onclick = function (e) { if (e.target === bg) close(); };
     bg.appendChild(sh); document.body.appendChild(bg);
@@ -196,7 +209,8 @@
     if (ui) { ui.panel.hidden = false; st.open = true; render(); return; }
     var panel = h('div', 'ffo-panel'); panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Chat with Olivia');
     var top = h('div', 'ffo-top'); top.appendChild(avatarEl());
-    var t = h('div'); t.appendChild(h('b', null, 'Olivia')); var sub = h('small', null, 'online'); t.appendChild(sub); top.appendChild(t);
+    var name = h('b', null, 'Olivia'); name.appendChild(aiTag());
+    var t = h('div'); t.appendChild(name); var sub = h('small', null, 'online'); t.appendChild(sub); top.appendChild(t);
     var x = h('button', 'ffo-x', '\u00D7'); x.setAttribute('aria-label', 'Close chat'); x.onclick = closeChat; top.appendChild(x);
     var list = h('div', 'ffo-list'); list.setAttribute('aria-live', 'polite');
     var foot = h('form', 'ffo-foot');
