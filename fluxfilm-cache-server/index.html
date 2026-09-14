@@ -1,9 +1,27 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-IN">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<title>FluxFilm</title>
+<title>FluxFilm – Cheap Netflix, Prime Video &amp; JioHotstar Subscriptions</title>
+<!-- SEO: the server (seo.js) swaps the three descriptions for one with today's lowest price and adds JSON-LD. -->
+<meta name="description" content="Buy Netflix, Prime Video, JioHotstar, SonyLiv &amp; Zee5 plans at low prices. Pay by UPI and get your login instantly. India's easy subscription store." />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<link rel="canonical" href="https://shop.fluxfilm.in/" />
+<link rel="alternate" hreflang="en-IN" href="https://shop.fluxfilm.in/" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="FluxFilm" />
+<meta property="og:locale" content="en_IN" />
+<meta property="og:title" content="FluxFilm – Cheap Netflix, Prime Video &amp; JioHotstar Subscriptions" />
+<meta property="og:description" content="Buy Netflix, Prime Video, JioHotstar, SonyLiv &amp; Zee5 plans at low prices. Pay by UPI and get your login instantly. India's easy subscription store." />
+<meta property="og:url" content="https://shop.fluxfilm.in/" />
+<meta property="og:image" content="https://shop.fluxfilm.in/og-image.png?v=1" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="FluxFilm — streaming subscription plans at low prices" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="FluxFilm – Cheap Netflix, Prime Video &amp; JioHotstar Subscriptions" />
+<meta name="twitter:description" content="Buy Netflix, Prime Video, JioHotstar, SonyLiv &amp; Zee5 plans at low prices. Pay by UPI and get your login instantly. India's easy subscription store." />
 <link rel="manifest" href="/manifest.webmanifest" />
 <meta name="theme-color" content="#04140e" />
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
@@ -696,6 +714,7 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
 })();
 </script>
 <div id="root"></div>
+<noscript><div style="max-width:640px;margin:0 auto;padding:32px 16px;font-family:system-ui,sans-serif;color:#0f172a;line-height:1.55"><h1 style="font-size:26px;margin:0 0 10px">FluxFilm – streaming subscriptions at low prices</h1><p>Buy subscription plans for Netflix, Prime Video, JioHotstar, SonyLiv, Zee5, Crunchyroll and YouTube Premium. Pay by UPI and get your login instantly. Please turn on JavaScript to buy in the app.</p><p><a href="/plans">All plans &amp; prices</a> · <a href="/faq">FAQ</a> · <a href="/whats-new">What's new</a> · <a href="/about">About FluxFilm</a></p></div></noscript>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script>
@@ -3615,7 +3634,19 @@ function Buy1Screen({
     svc: svc,
     plans: plans,
     nav: nav
-  })))));
+  }))), React.createElement("a", {
+    href: "/plans",
+    className: "ff-all-plans",
+    style: {
+      display: 'block',
+      textAlign: 'center',
+      marginTop: 18,
+      fontFamily: PJS,
+      fontSize: 13,
+      fontWeight: 700,
+      color: C.muted
+    }
+  }, "📋 All plans & prices")));
 }
 function ServiceTile({
   svc,
@@ -10017,6 +10048,34 @@ function feedClearUrl_() {
     window.history.replaceState(null, '', u.pathname + u.search + u.hash);
   } catch (e) {}
 }
+// /?buy=<slug> links from the server-rendered plan pages (seo.js). Same slug rule as serviceSlug() in seo.js.
+function ffServiceSlug_(name) {
+  const x = String(name || '').toLowerCase().replace(/\+/g, ' ').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return {
+    'sonyliv-premium': 'sonyliv',
+    'zee5-premium': 'zee5'
+  }[x] || x;
+}
+function buyLinkFromUrl_(search) {
+  try {
+    const v = String(new URLSearchParams(search || '').get('buy') || '').toLowerCase();
+    return /^[a-z0-9-]{1,60}$/.test(v) ? v : '';
+  } catch (e) {
+    return '';
+  }
+}
+function buyLinkService_(slug, plans) {
+  const p = (Array.isArray(plans) ? plans : []).find(x => x && x.service && ffServiceSlug_(x.service) === slug);
+  return p ? p.service : '';
+}
+function buyClearUrl_() {
+  try {
+    const u = new URL(window.location.href);
+    if (!u.searchParams.has('buy')) return;
+    u.searchParams.delete('buy');
+    window.history.replaceState(null, '', u.pathname + u.search + u.hash);
+  } catch (e) {}
+}
 // Catalog match: the exact service name, else one that starts with it ("Netflix" → "Netflix (Group Offer)"). Cheapest active plan.
 function feedServiceInfo_(service, plans) {
   const all = Array.isArray(plans) ? plans : [];
@@ -11915,6 +11974,18 @@ function App() {
       postId: id
     });
   }, [restoring, screen]);
+  // "Buy on FluxFilm" from the /plans pages: /?buy=<service-slug> opens that service's plan picker (all → Buy screen).
+  const buyLink = useRef(buyLinkFromUrl_(window.location.search));
+  useEffect(() => {
+    const slug = buyLink.current;
+    if (!slug || !boot || restoring || getFFSession().phone && screen === 'home') return;
+    buyLink.current = '';
+    buyClearUrl_();
+    const service = buyLinkService_(slug, boot.plans);
+    if (service) nav('buy2', {
+      service
+    });else nav('buy1', {});
+  }, [boot, restoring, screen]);
   function goLoggedHome() {
     const saved = getFFSession(),
       ph = normPhone_(screenData.phone || saved.phone || localStorage.getItem('ff_phone') || '');
