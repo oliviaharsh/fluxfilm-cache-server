@@ -8,8 +8,9 @@ const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + 
 const section = (t) => console.log('\n=== ' + t + ' ===');
 const tick = () => new Promise((r) => setTimeout(r, 5));
 const ROOT = path.join(__dirname, '..');
-const admin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
-const store = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+// Line endings normalised: a Windows checkout (core.autocrlf) has CRLF, the server / GitHub copy LF.
+const admin = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8').replace(/\r\n/g, '\n');
+const store = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').replace(/\r\n/g, '\n');
 const slice = (src, from, to) => { const a = src.indexOf(from); const b = src.indexOf(to, a); if (a < 0 || b < 0) throw new Error('not found: ' + from + ' … ' + to); return src.slice(a, b + to.length); };
 
 (async () => {
