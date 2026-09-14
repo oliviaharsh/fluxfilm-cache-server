@@ -124,7 +124,11 @@ async function startWatcher() {
             do {
               scanAgain = false;
               const r = await scanInbox(client, 1);
-              if (r.ingested) console.log('[imap] ingested', r.ingested, 'new credit(s)');
+              if (r.ingested) {
+                console.log('[imap] ingested', r.ingested, 'new credit(s)');
+                // New bank money: re-check "I've paid" claims right away (payment fallback).
+                try { require('./paymatch').sweep().catch((e) => console.log('[paymatch] sweep failed:', e.message)); } catch (_) {}
+              }
             } while (scanAgain && _watching);
           } catch (e) {
             console.log('[imap] event scan failed:', e.message);

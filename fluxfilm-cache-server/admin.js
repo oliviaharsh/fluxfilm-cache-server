@@ -150,6 +150,8 @@ function mountAdmin(app, deps) {
   require('./adminreferrals').mount(app, Object.assign({ db, auth, audit }, deps.referrals || {}));
   // Coins: earning + paying with coins settings, overview, add/remove coins (admincoins.js).
   require('./admincoins').mount(app, Object.assign({ db, auth, audit }, deps.coins || {}));
+  // Payment fallback: backup UPI ID / QR settings + "I've paid" review queue (adminpayments.js).
+  require('./adminpayments').mount(app, Object.assign({ db, auth, audit }, deps.payments || {}));
 
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};
