@@ -26,7 +26,10 @@ html, body { background: #f5f7fb; }
 .page-inner { padding: 0 16px; margin: 0 auto; width: 100%; }
 .ff-w-wide { max-width: 1120px; }
 .ff-w-flow { max-width: 620px; }
-.ff-has-bnav { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+.ff-has-bnav { padding-bottom: calc(72px + env(safe-area-inset-bottom)); padding-bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 24px); }
+/* Installed app on newer Android draws behind the system bars, so the page's end sits ~60 px lower than the
+   visible screen and the last button hid under the menu (owner report 2026-09-15: Account → Logout). Extra room there. */
+@media (display-mode: standalone) { .ff-has-bnav { padding-bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 96px); } }
 .ff-topbar { position: sticky; top: 0; z-index: 20; padding-top: env(safe-area-inset-top); background: rgba(255,255,255,.92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid rgba(15,23,42,.08); }
 .ff-topbar-in { max-width: 1120px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
 .ff-desk-nav { display: none; }
@@ -1825,7 +1828,31 @@ function BottomNav({
   items,
   activeKey
 }) {
+  // The page reserves room under its content for this bar (.ff-has-bnav). Measure the bar's real height
+  // (bigger phone text, gesture bar) instead of trusting a fixed 72 px, so the last button (e.g. Logout) is never hidden.
+  const ref = React.useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      if (r.height > 0) root.style.setProperty('--ff-bnav-h', Math.ceil(r.height) + 'px');
+    };
+    update();
+    let ro = null;
+    try { ro = new ResizeObserver(update); ro.observe(el); } catch (e) {}
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update);
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', update);
+      window.removeEventListener('orientationchange', update);
+      root.style.removeProperty('--ff-bnav-h');
+    };
+  }, []);
   return React.createElement("nav", {
+    ref: ref,
     className: "ff-bnav"
   }, items.map(i => React.createElement("button", {
     key: i.key,
