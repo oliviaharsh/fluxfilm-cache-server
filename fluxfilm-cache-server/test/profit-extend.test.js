@@ -7,6 +7,7 @@ const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + 
 const section = (t) => console.log('\n=== ' + t + ' ===');
 
 let costsTable = true;
+let EXTRA = [];
 const calls = [];
 const COSTS = [{ service: 'Netflix', account_id: 'NF-01', monthly_cost: '300.00', note: '' }, { service: 'Prime Video', account_id: 'PRI-01', monthly_cost: '100', note: 'annual / 12' }];
 let SUB = { sub_id: 'SUB-1', phone_norm: '9876543210', service: 'Netflix', plan: 'Private 1M', expiry_date: '2026-09-10 10:00:00', release_eligible_at: '2026-09-20 10:00:00', status: 'EXPIRED' };
@@ -15,12 +16,12 @@ const mockDb = {
   query: async (sql, params) => {
     sql = sql.replace(/\s+/g, ' ').trim(); calls.push({ sql, params });
     if (/FROM orders o LEFT JOIN subscriptions s1/.test(sql)) return [
-      { order_id: 'O1', service: 'Netflix (Group Offer)', final_amount: '199.00', order_type: 'NEW', ref: 'NF-01#P2' },
-      { order_id: 'O2', service: 'Netflix', final_amount: '199', order_type: 'RENEW', ref: 'NF-01#P3' },
-      { order_id: 'O3', service: 'Prime Video', final_amount: '39', order_type: 'NEW', ref: 'PRI-01' },
-      { order_id: 'O4', service: 'YouTube Premium', final_amount: '99', order_type: 'NEW', ref: null },
-      { order_id: 'O5', service: 'Prime Video', final_amount: '40', order_type: 'NEW', ref: 'PRI-OLD' },
-    ];
+      { order_id: 'O1', service: 'Netflix (Group Offer)', final_amount: '199.00', order_type: 'NEW', ref: 'NF-01#P2', paid_at: '2026-08-10 12:00:00' },
+      { order_id: 'O2', service: 'Netflix', final_amount: '199', order_type: 'RENEW', ref: 'NF-01#P3', paid_at: '2026-08-11 12:00:00' },
+      { order_id: 'O3', service: 'Prime Video', final_amount: '39', order_type: 'NEW', ref: 'PRI-01', paid_at: '2026-08-12 12:00:00' },
+      { order_id: 'O4', service: 'YouTube Premium', final_amount: '99', order_type: 'NEW', ref: null, paid_at: '2026-08-13 12:00:00' },
+      { order_id: 'O5', service: 'Prime Video', final_amount: '40', order_type: 'NEW', ref: 'PRI-OLD', paid_at: '2026-08-31 23:59:00' },
+    ].concat(EXTRA);
     if (/^SELECT service, account_id, login_id, is_active FROM inventory_accounts/.test(sql)) return [
       { service: 'Netflix', account_id: 'NF-01', login_id: 'n@x', is_active: 'TRUE' },
       { service: 'Prime Video', account_id: 'PRI-01', login_id: 'p@x', is_active: 'TRUE' },
@@ -69,7 +70,7 @@ const mockDb = {
   let r = await get('/admin/api/profit?period=last_month');
   const b = r.body; const acc = (id) => b.accounts.find((a) => a.accountId === id);
   const months = 31 / 30.4375;
-  ok('paid orders in the period, by payment time', b.ok && /UPPER\(o.status\) = 'PAID' AND COALESCE\(o.verified_at, o.created_at_sheet\) >= \?/.test(last(/FROM orders o LEFT JOIN/).sql) && last(/FROM orders o LEFT JOIN/).params.join() === b.range.from + ',' + b.range.to && b.range.period === 'last_month' && /-01 00:00:00$/.test(b.range.from), b.range);
+  ok('paid orders in the period, by payment time', b.ok && /UPPER\(o.status\) = 'PAID' AND COALESCE\(o.verified_at, o.created_at_sheet\) >= DATE_SUB\(\?, INTERVAL 400 DAY\)/.test(last(/FROM orders o LEFT JOIN/).sql) && last(/FROM orders o LEFT JOIN/).params.join() === b.range.from + ',' + b.range.to && b.range.period === 'last_month' && /-01 00:00:00$/.test(b.range.from), b.range);
   ok('totals: revenue 576, 5 orders, 1 renewal', b.totals.revenue === 576 && b.totals.orders === 5 && b.totals.renewals === 1, b.totals);
   ok('Netflix account: 2 orders across profiles (Group Offer counts as Netflix), cost 300/month', acc('NF-01').revenue === 398 && acc('NF-01').orders === 2 && Math.abs(acc('NF-01').cost - 300 * months) < 0.02 && acc('NF-01').activeCustomers === 2, acc('NF-01'));
   ok('profit = revenue - cost for the period', Math.abs(acc('PRI-01').profit - (39 - 100 * months)) < 0.02, acc('PRI-01'));
@@ -78,6 +79,25 @@ const mockDb = {
   const nf = b.services.find((x) => x.family === 'netflix');
   ok('by service family, sorted by revenue', b.services[0].family === 'netflix' && nf.revenue === 398 && nf.renewals === 1 && nf.services.includes('Netflix (Group Offer)'), b.services);
   ok('6-month trend', b.trend.length === 2 && b.trend[0].month === '2026-08' && b.trend[0].revenue === 5000);
+
+  section('earned = spread over the plan days');
+  const { durationDays, orderSplit, istMs } = require('../profit');
+  ok('duration from duration_days, else the plan name', durationDays({ duration_days: 90 }) === 90 && durationDays({ plan: 'Private 3M' }) === 90 && durationDays({ plan: 'Sharing 1 Month' }) === 30 && durationDays({ plan: '1 Year' }) === 365 && durationDays({ plan: 'Premium' }) === 0);
+  const F = istMs('2026-09-01 00:00:00'), T = istMs('2026-09-15 00:00:00');
+  let x = orderSplit({ final_amount: '499', duration_days: 90, paid_at: '2026-09-03 00:00:00' }, F, T);
+  ok('₹499 3-month plan paid 3 Sep: cash 499, earned 12 of 90 days, rest counted as paid ahead', x.cash === 499 && Math.abs(x.earned - 499 * 12 / 90) < 0.01 && Math.abs(x.ahead - 499 * 78 / 90) < 0.01, x);
+  x = orderSplit({ final_amount: '900', plan: 'Private 3M', paid_at: '2026-08-01 00:00:00' }, F, T);
+  ok('3-month plan paid in August still earns in September (14 days), no cash now', x.cash === 0 && x.inPeriod === false && Math.abs(x.earned - 900 * 14 / 90) < 0.01, x);
+  x = orderSplit({ final_amount: '50', plan: 'Top-up', paid_at: '2026-09-05 10:00:00' }, F, T);
+  ok('no known duration -> counted fully when paid', x.cash === 50 && x.earned === 50);
+  x = orderSplit({ final_amount: '99', duration_days: 30, paid_at: '2026-06-01 00:00:00' }, F, T);
+  ok('plan that already ended before the period earns nothing', x.earned === 0 && x.cash === 0);
+  EXTRA = [{ order_id: 'O6', service: 'Netflix', plan: 'Private 3M', duration_days: 90, final_amount: '900', order_type: 'RENEW', ref: 'NF-01#P1', paid_at: '2026-07-17 00:00:00' },
+    { order_id: 'O7', service: 'Netflix', plan: 'Private 1M', duration_days: 30, final_amount: '99', order_type: 'NEW', ref: 'NF-01#P1', paid_at: '2026-05-01 00:00:00' }];
+  r = await get('/admin/api/profit?period=last_month');
+  const nf2 = r.body.accounts.find((a) => a.accountId === 'NF-01');
+  ok('API: July 3-month plan earns its August days; cash/orders unchanged; profit uses earned', nf2.revenue === 398 && nf2.orders === 2 && Math.abs(nf2.earned - (398 + 900 * 31 / 90)) < 0.02 && Math.abs(nf2.profit - (nf2.earned - nf2.cost)) < 0.02 && r.body.totals.orders === 5 && Math.abs(r.body.totals.earned - (576 + 300 * 31 / 90 * 3)) < 0.05, { nf2, totals: r.body.totals });
+  EXTRA = [];
   costsTable = false;
   r = await get('/admin/api/profit');
   ok('before schema-v14: revenue still shown, costsReady false', r.body.ok && r.body.costsReady === false && r.body.totals.cost === 0);

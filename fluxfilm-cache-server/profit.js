@@ -6,9 +6,12 @@
  *        every = months the cost covers: 1 (monthly, default), 3, 6 or 12 (yearly). Old { monthlyCost } still works.
  *   POST /admin/api/subs/extend        { subId, days, reason }                     (+/- days, change log)
  *
- * Revenue = paid orders in the period (by payment time), credited to the account the
- * order's subscription sits on (renewals: the renewed subscription). Cost = each
- * account's monthly cost × months in the period. Orders with no account (manual
+ * Cash in = paid orders in the period (by payment time), credited to the account the
+ * order's subscription sits on (renewals: the renewed subscription).
+ * Earned = each paid order spread evenly over the days it covers (duration_days, or
+ * "3M"/"1Y" in the plan name), counting only the days inside the period - so a ₹499
+ * 3-month plan adds ~₹5.5/day, not ₹499 to the month it was paid.
+ * Cost = each account's monthly cost × months in the period. Profit = earned − cost. Orders with no account (manual
  * services, undelivered) show as "No account".
  */
 const s = (v) => String(v == null ? '' : v).trim();
@@ -22,6 +25,31 @@ function parseBilling(note, monthly) {
   const m = s(note).match(/^\[billing:(\d+):([\d.]+)\]\s*/);
   if (m && EVERY.includes(Number(m[1]))) return { every: Number(m[1]), amount: num(m[2]), note: s(note).slice(m[0].length) };
   return { every: 1, amount: monthly, note: s(note) };
+}
+const DAY = 86400000;
+// DB datetimes are India time without a zone (dateStrings: true).
+const istMs = (v) => { const x = s(v); if (!x) return NaN; return Date.parse(x.replace(' ', 'T').slice(0, 19) + '+05:30'); };
+function durationDays(o) {
+  const d = Math.round(num(o.duration_days));
+  if (d > 0) return d;
+  const plan = s(o.plan);
+  let m = plan.match(/(\d+)\s*(?:m|mo|month|months)\b/i); if (m) return Number(m[1]) * 30;
+  m = plan.match(/(\d+)\s*(?:y|yr|year|years)\b/i); if (m) return Number(m[1]) * 365;
+  if (/\b(?:year|annual|yearly)\b/i.test(plan)) return 365;
+  if (/\bmonth(?:ly)?\b/i.test(plan)) return 30;
+  return 0;
+}
+// { cash, earned, ahead, inPeriod } for one order within [fromMs, toMs).
+function orderSplit(o, fromMs, toMs) {
+  const amt = num(o.final_amount); const paid = istMs(o.paid_at);
+  const inPeriod = paid >= fromMs && paid < toMs;
+  const cash = inPeriod ? amt : 0;
+  const dur = durationDays(o);
+  if (!dur || isNaN(paid)) return { cash, earned: cash, ahead: 0, inPeriod };
+  const end = paid + dur * DAY;
+  const earned = amt * Math.max(0, Math.min(toMs, end) - Math.max(fromMs, paid)) / (dur * DAY);
+  const ahead = inPeriod ? amt * Math.max(0, end - Math.max(toMs, paid)) / (dur * DAY) : 0;
+  return { cash, earned, ahead, inPeriod };
 }
 const missingTable = (e) => /doesn't exist|ER_NO_SUCH_TABLE/i.test(String(e && e.message));
 
@@ -56,9 +84,10 @@ function mount(app, deps) {
     try {
       const [orders, accounts, occ, trend] = await Promise.all([
         db.query(
-          'SELECT o.order_id, o.service, o.final_amount, o.order_type, COALESCE(s1.inventory_ref, s2.inventory_ref) AS ref ' +
+          'SELECT o.order_id, o.service, o.plan, o.duration_days, o.final_amount, o.order_type, COALESCE(o.verified_at, o.created_at_sheet) AS paid_at, COALESCE(s1.inventory_ref, s2.inventory_ref) AS ref ' +
           'FROM orders o LEFT JOIN subscriptions s1 ON s1.order_id = o.order_id LEFT JOIN subscriptions s2 ON s2.sub_id = o.renew_sub_id ' +
-          "WHERE UPPER(o.status) = 'PAID' AND COALESCE(o.verified_at, o.created_at_sheet) >= ? AND COALESCE(o.verified_at, o.created_at_sheet) < ?", [range.from, range.to]),
+          // Also orders paid up to ~13 months before the period: a yearly plan bought last year still earns now.
+          "WHERE UPPER(o.status) = 'PAID' AND COALESCE(o.verified_at, o.created_at_sheet) >= DATE_SUB(?, INTERVAL 400 DAY) AND COALESCE(o.verified_at, o.created_at_sheet) < ?", [range.from, range.to]),
         db.query('SELECT service, account_id, login_id, is_active FROM inventory_accounts ORDER BY service, account_id', []),
         db.query("SELECT inventory_ref, COUNT(*) n FROM subscriptions WHERE UPPER(status) = 'ACTIVE' AND expiry_date > NOW() GROUP BY inventory_ref", []),
         db.query("SELECT DATE_FORMAT(COALESCE(verified_at, created_at_sheet), '%Y-%m') ym, SUM(final_amount) revenue, COUNT(*) n, SUM(UPPER(COALESCE(order_type, '')) = 'RENEW') renewals FROM orders WHERE UPPER(status) = 'PAID' AND COALESCE(verified_at, created_at_sheet) >= DATE_FORMAT(NOW() - INTERVAL 5 MONTH, '%Y-%m-01') GROUP BY ym ORDER BY ym", []),
@@ -71,18 +100,22 @@ function mount(app, deps) {
       for (const o of occ) { const a = s(o.inventory_ref).split('#')[0]; if (a) active.set(a, (active.get(a) || 0) + num(o.n)); }
 
       // Revenue per account (by id; ids are unique enough across services in practice, service family breaks ties).
-      const revByAcc = new Map(); const noAccount = { revenue: 0, orders: 0 };
+      const revByAcc = new Map(); const noAccount = { revenue: 0, earned: 0, orders: 0 };
       const bySvc = new Map();
-      const svcRow = (fam) => { if (!bySvc.has(fam)) bySvc.set(fam, { family: fam, services: new Set(), revenue: 0, orders: 0, renewals: 0, cost: 0, accounts: 0, accountsWithoutCost: 0 }); return bySvc.get(fam); };
-      let revenue = 0, orderCount = 0, renewals = 0;
+      const svcRow = (fam) => { if (!bySvc.has(fam)) bySvc.set(fam, { family: fam, services: new Set(), revenue: 0, earned: 0, orders: 0, renewals: 0, cost: 0, accounts: 0, accountsWithoutCost: 0 }); return bySvc.get(fam); };
+      let revenue = 0, earnedTotal = 0, ahead = 0, orderCount = 0, renewals = 0;
+      const fromMs = istMs(range.from), toMs = istMs(range.to);
       for (const o of orders) {
-        const amt = num(o.final_amount); revenue += amt; orderCount++;
-        const isRenew = s(o.order_type).toUpperCase() === 'RENEW'; if (isRenew) renewals++;
-        const sv = svcRow(family(o.service)); sv.services.add(s(o.service)); sv.revenue += amt; sv.orders++; if (isRenew) sv.renewals++;
+        const x = orderSplit(o, fromMs, toMs);
+        if (!x.inPeriod && x.earned <= 0) continue;
+        const amt = x.cash; const n = x.inPeriod ? 1 : 0;
+        revenue += amt; earnedTotal += x.earned; ahead += x.ahead; orderCount += n;
+        const isRenew = n && s(o.order_type).toUpperCase() === 'RENEW'; if (isRenew) renewals++;
+        const sv = svcRow(family(o.service)); sv.services.add(s(o.service)); sv.revenue += amt; sv.earned += x.earned; sv.orders += n; if (isRenew) sv.renewals++;
         const acc = s(o.ref).split('#')[0];
-        if (!acc) { noAccount.revenue += amt; noAccount.orders++; continue; }
+        if (!acc) { noAccount.revenue += amt; noAccount.earned += x.earned; noAccount.orders += n; continue; }
         const key = family(o.service) + '|' + acc;
-        const cur = revByAcc.get(key) || { revenue: 0, orders: 0 }; cur.revenue += amt; cur.orders++; revByAcc.set(key, cur);
+        const cur = revByAcc.get(key) || { revenue: 0, earned: 0, orders: 0 }; cur.revenue += amt; cur.earned += x.earned; cur.orders += n; revByAcc.set(key, cur);
       }
 
       let cost = 0, monthlyTotal = 0;
@@ -93,22 +126,22 @@ function mount(app, deps) {
         const monthly = bill ? bill.amount / bill.every : null;
         const periodCost = monthly != null ? monthly * range.months : 0;
         if (monthly != null && s(a.is_active).toUpperCase() === 'TRUE') monthlyTotal += monthly;
-        const rv = revByAcc.get(fam + '|' + s(a.account_id)) || { revenue: 0, orders: 0 };
+        const rv = revByAcc.get(fam + '|' + s(a.account_id)) || { revenue: 0, earned: 0, orders: 0 };
         revByAcc.delete(fam + '|' + s(a.account_id));
         const sv = svcRow(fam); sv.services.add(s(a.service)); sv.accounts++; sv.cost += periodCost; if (monthly == null && s(a.is_active).toUpperCase() === 'TRUE') sv.accountsWithoutCost++;
         cost += periodCost;
         return { service: s(a.service), accountId: s(a.account_id), login: s(a.login_id), isActive: s(a.is_active).toUpperCase() === 'TRUE', activeCustomers: active.get(s(a.account_id)) || 0,
-          monthlyCost: monthly == null ? null : r2(monthly), billedEvery: bill ? bill.every : 1, billedAmount: bill ? r2(bill.amount) : null, note: bill ? bill.note : '', revenue: r2(rv.revenue), orders: rv.orders, cost: r2(periodCost), profit: r2(rv.revenue - periodCost) };
+          monthlyCost: monthly == null ? null : r2(monthly), billedEvery: bill ? bill.every : 1, billedAmount: bill ? r2(bill.amount) : null, note: bill ? bill.note : '', revenue: r2(rv.revenue), earned: r2(rv.earned), orders: rv.orders, cost: r2(periodCost), profit: r2(rv.earned - periodCost) };
       });
       // Revenue on accounts that are no longer in inventory (deleted / renamed).
-      for (const [key, rv] of revByAcc) { noAccount.revenue += rv.revenue; noAccount.orders += rv.orders; }
+      for (const [key, rv] of revByAcc) { noAccount.revenue += rv.revenue; noAccount.earned += rv.earned; noAccount.orders += rv.orders; }
 
       res.json({
         ok: true, range, costsReady,
-        totals: { revenue: r2(revenue), cost: r2(cost), monthlyCost: r2(monthlyTotal), profit: r2(revenue - cost), margin: revenue > 0 ? Math.round(((revenue - cost) / revenue) * 1000) / 10 : null, orders: orderCount, renewals, newOrders: orderCount - renewals, accountsWithoutCost: accRows.filter((a) => a.isActive && a.monthlyCost == null).length },
-        services: [...bySvc.values()].map((x) => ({ family: x.family, services: [...x.services].sort(), revenue: r2(x.revenue), orders: x.orders, renewals: x.renewals, cost: r2(x.cost), profit: r2(x.revenue - x.cost), accounts: x.accounts, accountsWithoutCost: x.accountsWithoutCost })).sort((a, b) => b.revenue - a.revenue),
+        totals: { revenue: r2(revenue), earned: r2(earnedTotal), paidAhead: r2(ahead), cost: r2(cost), monthlyCost: r2(monthlyTotal), profit: r2(earnedTotal - cost), margin: earnedTotal > 0 ? Math.round(((earnedTotal - cost) / earnedTotal) * 1000) / 10 : null, orders: orderCount, renewals, newOrders: orderCount - renewals, accountsWithoutCost: accRows.filter((a) => a.isActive && a.monthlyCost == null).length },
+        services: [...bySvc.values()].map((x) => ({ family: x.family, services: [...x.services].sort(), revenue: r2(x.revenue), earned: r2(x.earned), orders: x.orders, renewals: x.renewals, cost: r2(x.cost), profit: r2(x.earned - x.cost), accounts: x.accounts, accountsWithoutCost: x.accountsWithoutCost })).sort((a, b) => b.revenue - a.revenue),
         accounts: accRows,
-        noAccount: { revenue: r2(noAccount.revenue), orders: noAccount.orders },
+        noAccount: { revenue: r2(noAccount.revenue), earned: r2(noAccount.earned), orders: noAccount.orders },
         trend: trend.map((t) => ({ month: s(t.ym), revenue: r2(num(t.revenue)), orders: num(t.n), renewals: num(t.renewals) })),
       });
     } catch (e) { fail(res, e); }
@@ -165,4 +198,4 @@ function mount(app, deps) {
   });
 }
 
-module.exports = { mount, periodRange, family, parseBilling };
+module.exports = { mount, periodRange, family, parseBilling, durationDays, orderSplit, istMs };
