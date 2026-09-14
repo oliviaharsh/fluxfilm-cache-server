@@ -26,13 +26,13 @@ html, body { background: #f5f7fb; }
 .page-inner { padding: 0 16px; margin: 0 auto; width: 100%; }
 .ff-w-wide { max-width: 1120px; }
 .ff-w-flow { max-width: 620px; }
-.ff-has-bnav { padding-bottom: calc(72px + env(safe-area-inset-bottom) + 88px); padding-bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 88px); }
+.ff-has-bnav { padding-bottom: calc(72px + env(safe-area-inset-bottom) + 88px); padding-bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 88px + var(--ff-bnav-extra, 0px)); }
 /* +88 px and a real spacer after the content: Android Chrome on some phones (owner's OnePlus Nord 5, also incognito,
    2026-09-15) still hid Logout and the referral stats under the bottom menu with only +24 px. */
 .ff-has-bnav::after { content: ""; display: block; height: calc(env(safe-area-inset-bottom) + 24px); }
 /* Installed app on newer Android draws behind the system bars, so the page's end sits ~60 px lower than the
    visible screen and the last button hid under the menu (owner report 2026-09-15: Account → Logout). Extra room there. */
-@media (display-mode: standalone) { .ff-has-bnav { padding-bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 96px); } }
+@media (display-mode: standalone) { .ff-has-bnav { padding-bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 96px + var(--ff-bnav-extra, 0px)); } }
 .ff-topbar { position: sticky; top: 0; z-index: 20; padding-top: env(safe-area-inset-top); background: rgba(255,255,255,.92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid rgba(15,23,42,.08); }
 .ff-topbar-in { max-width: 1120px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
 .ff-desk-nav { display: none; }
@@ -519,6 +519,23 @@ window.ffInstall = { evt: null, installed: false };
 window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); window.ffInstall.evt = e; window.dispatchEvent(new Event('ff-install-ready')); });
 window.addEventListener('appinstalled', function () { window.ffInstall.installed = true; window.ffInstall.evt = null; window.dispatchEvent(new Event('ff-install-done')); });
 if ('serviceWorker' in navigator) window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
+</script>
+<script>
+// Layout check for phones: open the shop with ?layout=1 (remembered for this visit) to show a small box with the screen
+// numbers the bottom-menu self-heal uses. Screenshot it for support. Nothing is sent anywhere.
+(function () {
+  var on = false;
+  try { if (/[?&]layout=1\b/.test(location.search)) sessionStorage.setItem('ff_layout_debug', '1'); on = sessionStorage.getItem('ff_layout_debug') === '1'; } catch (e) {}
+  if (!on) return;
+  var box = null;
+  window.ffLayoutDebug = function (m) {
+    if (!box) { box = document.createElement('div'); box.setAttribute('style', 'position:fixed;left:8px;top:calc(env(safe-area-inset-top) + 76px);z-index:9999;background:rgba(15,23,42,.88);color:#fff;font:11px/1.35 monospace;padding:6px 8px;border-radius:8px;pointer-events:none;white-space:pre'); document.body.appendChild(box); }
+    var probe = document.createElement('div'); probe.setAttribute('style', 'position:fixed;bottom:0;height:env(safe-area-inset-bottom);width:1px;visibility:hidden'); document.body.appendChild(probe);
+    var inset = Math.round(probe.getBoundingClientRect().height); probe.remove();
+    var standalone = false; try { standalone = window.matchMedia('(display-mode: standalone)').matches; } catch (e) {}
+    box.textContent = 'innerH ' + m.innerH + ' · vvH ' + m.vvH + ' · visH ' + Math.round(m.visH) + '\ndocH ' + m.docH + ' · scrollY ' + m.scrollY + '\nnavTop ' + m.navTop + ' · lastBottom ' + m.lastBottom + '\nextra ' + m.extra + ' · inset ' + inset + ' · app ' + standalone + ' · dpr ' + window.devicePixelRatio;
+  };
+})();
 </script>
 <script>
 // Sounds + light vibration (Web Audio, no files, no requests). ffSound('delivered' | 'paid' | 'coupon' | 'coins' | 'copy' | 'error' | 'tap').
@@ -1850,10 +1867,39 @@ function BottomNav({
     try { ro = new ResizeObserver(update); ro.observe(el); } catch (e) {}
     window.addEventListener('resize', update);
     window.addEventListener('orientationchange', update);
+    // Self-heal (owner's OnePlus Nord 5, installed app + Chrome, 2026-09-15: Logout, referral stats and "Change profile
+    // picture" still ended under this bar even with extra CSS room). When the page is scrolled to its end, measure the last
+    // content against the top of this bar / the visible screen and add exactly the missing room (--ff-bnav-extra).
+    let extra = 0;
+    const heal = () => {
+      const page = document.querySelector('.ff-has-bnav');
+      if (!page) return;
+      const doc = document.scrollingElement || root;
+      const vv = window.visualViewport;
+      const visH = vv ? Math.min(window.innerHeight, vv.height + vv.offsetTop) : window.innerHeight;
+      if (doc.scrollTop + visH < doc.scrollHeight - 4) return; // only at the very end
+      let last = page.lastElementChild;
+      while (last && last.getBoundingClientRect().height === 0) last = last.previousElementSibling;
+      if (!last) return;
+      const limit = Math.min(el.getBoundingClientRect().top, visH);
+      const missing = Math.ceil(last.getBoundingClientRect().bottom - limit + 20);
+      if (missing > 0 && extra < 480) {
+        extra = Math.min(480, extra + missing);
+        root.style.setProperty('--ff-bnav-extra', extra + 'px');
+      }
+      if (window.ffLayoutDebug) window.ffLayoutDebug({ visH, innerH: window.innerHeight, vvH: vv ? Math.round(vv.height) : null, docH: doc.scrollHeight, scrollY: Math.round(doc.scrollTop), navTop: Math.round(el.getBoundingClientRect().top), lastBottom: Math.round(last.getBoundingClientRect().bottom), extra });
+    };
+    let healT = 0;
+    const onScroll = () => { clearTimeout(healT); healT = setTimeout(heal, 120); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', onScroll);
     return () => {
       if (ro) ro.disconnect();
+      clearTimeout(healT);
       window.removeEventListener('resize', update);
       window.removeEventListener('orientationchange', update);
+      window.removeEventListener('scroll', onScroll);
+      if (window.visualViewport) window.visualViewport.removeEventListener('resize', onScroll);
       root.style.removeProperty('--ff-bnav-h');
     };
   }, []);
