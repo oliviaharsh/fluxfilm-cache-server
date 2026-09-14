@@ -482,6 +482,6 @@ function mount(app) {
 
 module.exports = {
   mount, decorateIndex, serviceSlug, servicesOf, indexDescription, robotsTxt, sitemapXml,
-  plansPage, servicePage, faqPage, whatsNewPage, aboutPage, clearCache, esc, ldJson, durationLabel,
+  plansPage, servicePage, faqPage, whatsNewPage, aboutPage, clearCache, esc, ldJson, durationLabel, catalogData,
   SITE, GENERAL_FAQ, _internal: { store, postImage, devicesOf, typeOf, monthly },
 };
