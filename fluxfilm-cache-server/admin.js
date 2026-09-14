@@ -150,6 +150,8 @@ function mountAdmin(app, deps) {
   require('./adminreferrals').mount(app, Object.assign({ db, auth, audit }, deps.referrals || {}));
   // Coins: earning + paying with coins settings, overview, add/remove coins (admincoins.js).
   require('./admincoins').mount(app, Object.assign({ db, auth, audit }, deps.coins || {}));
+  // 🎮 Games: free plays, prices, prizes, difficulty, questions, stats (admingames.js).
+  require('./admingames').mount(app, Object.assign({ db, auth, audit }, deps.games || {}));
   // Payment fallback: backup UPI ID / QR settings + "I've paid" review queue (adminpayments.js).
   require('./adminpayments').mount(app, Object.assign({ db, auth, audit }, deps.payments || {}));
   // Maintenance: pause / resume new orders (adminstore.js).

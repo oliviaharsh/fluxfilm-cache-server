@@ -267,14 +267,16 @@ async function adjust({ phone, delta, reason }) {
 async function history(phone) {
   const ph = norm(phone);
   if (!ph) return { ok: false, message: 'Phone required.' };
-  const LABEL = { NEW_PURCHASE: 'Earned on your order', RENEW: 'Earned on your renewal', REFERRAL: 'Invite reward', REFERRAL_REPEAT: 'Invite reward (friend ordered again)', REFERRAL_L2: "Invite reward (friend's friend)", SPEND: 'Used at checkout', SPEND_RELEASE: 'Coins given back', ADMIN_ADJUST: 'Adjusted by FluxFilm' };
+  const LABEL = { NEW_PURCHASE: 'Earned on your order', RENEW: 'Earned on your renewal', REFERRAL: 'Invite reward', REFERRAL_REPEAT: 'Invite reward (friend ordered again)', REFERRAL_L2: "Invite reward (friend's friend)", SPEND: 'Used at checkout', SPEND_RELEASE: 'Coins given back', ADMIN_ADJUST: 'Adjusted by FluxFilm', GAME_WIN: '🎮 Won in Games', GAME_STREAK: '🔥 Games streak bonus', GAME_PLAY: '🎮 Extra game play' };
   const rows = await db.query('SELECT ts, event, order_id, coins_delta, balance_after FROM coins_ledger WHERE phone_norm = ? ORDER BY id DESC LIMIT 25', [ph]);
-  return { ok: true, items: rows.map((r) => ({ at: r.ts, label: LABEL[s(r.event).toUpperCase()] || s(r.event), coins: asNum(r.coins_delta), orderId: /^ADJ/.test(s(r.order_id)) ? '' : s(r.order_id), balanceAfter: asNum(r.balance_after) })) };
+  return { ok: true, items: rows.map((r) => ({ at: r.ts, label: LABEL[s(r.event).toUpperCase()] || s(r.event), coins: asNum(r.coins_delta), orderId: /^(ADJ|GP)/.test(s(r.order_id)) ? '' : s(r.order_id), balanceAfter: asNum(r.balance_after) })) };
 }
 
 module.exports = {
   awardCoins, computeCoins, WALLET_ORDER,
   getSettings, saveSettings, validateSettings, defaults,
   spendAllowed, quoteSpend, holdSpend, releaseSpend, onOrderPaid, maintain, startTimer, adjust, history,
+  // Games (games.js) change balances with its own caps inside the same wallet lock + ledger.
+  withWallet, writeLedger: ledger,
   _internal: { resetCache: () => { cache = null; } },
 };

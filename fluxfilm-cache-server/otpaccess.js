@@ -70,11 +70,15 @@ async function check(phone, token) {
   };
 }
 
+// deps.eligible(phone) / deps.notEligibleMessage / deps.tool let 🎮 Games reuse the same code + token (games.js):
+// a device verified once works for both Get OTP and Games prizes.
 async function sendCode(phone, deps) {
   const mailer = (deps && deps.mailer) || require('./mailer');
+  const tool = (deps && deps.tool) || 'Get OTP';
   const ph = norm(phone);
   if (!ph || ph.length < 10) return { ok: false, message: 'Enter your phone number.' };
-  if (!(await hasActivePlan(ph))) return { ok: false, message: 'Get OTP works only for a number with an active plan.' };
+  const eligible = deps && typeof deps.eligible === 'function' ? await deps.eligible(ph) : await hasActivePlan(ph);
+  if (!eligible) return { ok: false, message: (deps && deps.notEligibleMessage) || 'Get OTP works only for a number with an active plan.' };
   const email = await emailFor(ph);
   if (!email) return { ok: false, noEmail: true, message: 'We don\'t have an email for this number. Please message us on WhatsApp for your OTP.' };
   const prev = codes.get(ph);
@@ -83,7 +87,7 @@ async function sendCode(phone, deps) {
   codes.set(ph, { hash: hmac('code.' + ph + '.' + code), exp: Date.now() + CODE_TTL_MS, tries: 0 });
   const html = '<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:460px;margin:auto">' +
     '<h2 style="color:#16a34a;margin-bottom:4px">🔒 Your FluxFilm verification code</h2>' +
-    '<p style="color:#475569">Enter this code in <b>Get OTP</b> to confirm it\'s you. It expires in 10 minutes.</p>' +
+    '<p style="color:#475569">Enter this code in <b>' + tool + '</b> to confirm it\'s you. It expires in 10 minutes.</p>' +
     '<div style="font-size:34px;font-weight:800;letter-spacing:8px;background:#f1f5f9;border-radius:12px;padding:16px;text-align:center;margin:14px 0">' + code + '</div>' +
     '<p style="color:#94a3b8;font-size:12px">Didn\'t ask for this? Someone may have typed your number — you can ignore this email; nobody gets your OTP without this code. 💚</p></div>';
   try {
