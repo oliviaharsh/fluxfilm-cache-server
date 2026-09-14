@@ -32,7 +32,7 @@ function mount(app, deps) {
   const { db, auth } = deps;
   const audit = deps.audit || { record: () => {} };
   const lazy = (name) => () => deps[name] || require('./' + name);
-  const M = { fulfill: lazy('fulfill'), catalog: lazy('catalog'), stock: lazy('stock') };
+  const M = { fulfill: lazy('fulfill'), catalog: lazy('catalog'), stock: lazy('stock'), expiredusers: lazy('expiredusers') };
   const fail = (res, e) => res.status(500).json({ ok: false, message: String((e && e.message) || e) });
 
   app.get('/admin/api/orders/search', async (req, res) => {
@@ -113,8 +113,8 @@ function mount(app, deps) {
         db.query('SELECT service, account_id, profile_number, profile_name, raw_json FROM inventory_profiles', []),
         db.query(
           "SELECT inventory_ref, COUNT(*) subs, SUM(COALESCE(device_count, 1)) devices, SUM(CASE WHEN tv_count IS NOT NULL THEN tv_count WHEN UPPER(device_type) = 'TV' THEN COALESCE(device_count, 1) ELSE 0 END) tv FROM subscriptions WHERE " + OCC_ACTIVE + ' GROUP BY inventory_ref', []),
-        // Ended in the last 60 days but not ticked "removed": still watching on our account.
-        db.query("SELECT inventory_ref, COUNT(*) n FROM subscriptions WHERE expiry_date < NOW() AND expiry_date > NOW() - INTERVAL 60 DAY AND COALESCE(removed, 0) = 0 GROUP BY inventory_ref", []).catch(() => []),
+        // Expired, not ticked "removed", on a login that still has active customers (Sheet rule, expiredusers.js).
+        M.expiredusers().load((sql, p) => db.query(sql, p)).catch((e) => { console.log('[stock] expired users failed:', e.message); return null; }),
       ]);
       const plans = (boot && boot.plans) || [];
       const lv = (levels && levels.levels) || {};
@@ -133,7 +133,8 @@ function mount(app, deps) {
       };
 
       const accOf = (ref) => s(ref).split('#')[0];
-      const use = new Map(); const exp = new Map(); const profUsed = new Map();
+      const use = new Map(); const profUsed = new Map();
+      const expBy = (expired && expired.byAccount) || {};
       for (const r of occ) {
         const a = accOf(r.inventory_ref); if (!a) continue;
         const u = use.get(a) || { subs: 0, devices: 0, tv: 0 };
@@ -141,7 +142,6 @@ function mount(app, deps) {
         use.set(a, u);
         if (s(r.inventory_ref).includes('#P')) { if (!profUsed.has(a)) profUsed.set(a, new Set()); profUsed.get(a).add(s(r.inventory_ref)); }
       }
-      for (const r of expired) { const a = accOf(r.inventory_ref); if (a) exp.set(a, (exp.get(a) || 0) + asNum(r.n)); }
       const capMap = new Map(); for (const c of caps) capMap.set(s(c.account_id), c);
       const profCount = new Map(); for (const p of profiles) { const a = s(p.account_id); profCount.set(a, (profCount.get(a) || 0) + 1); }
 
@@ -152,7 +152,7 @@ function mount(app, deps) {
         const cap = capMap.get(id);
         const u = use.get(id) || { subs: 0, devices: 0, tv: 0 };
         const active = s(a.is_active).toUpperCase() === 'TRUE' && (!cap || s(cap.is_active).toUpperCase() !== 'FALSE');
-        const row = { service: s(a.service), accountId: id, login: s(a.login_id), plan: s(a.plan), notes: s(a.notes), policy, isActive: active, activeSubs: u.subs, expiredOnAccount: exp.get(id) || 0 };
+        const row = { service: s(a.service), accountId: id, login: s(a.login_id), plan: s(a.plan), notes: s(a.notes), policy, isActive: active, activeSubs: u.subs, expiredOnAccount: expBy[id] ? expBy[id].pending : 0, expiredOldUsers: expBy[id] ? expBy[id].oldUsers : 0 };
         if (policy === 'CAPACITY') {
           row.cap = asNum(cap && cap.max_total) || primeMax; row.used = u.devices;
           row.tvCap = asNum(cap && cap.max_tv) || primeTv; row.tvUsed = u.tv; row.unit = 'devices';
@@ -175,6 +175,8 @@ function mount(app, deps) {
           return { service: p.service, plan: p.plan, price: p.price, durationDays: p.durationDays, stock: l.stock == null ? null : l.stock, stockLevel: l.stockLevel || 'OK', source: l.source || '' };
         }),
         accounts: out,
+        // Who to remove, per login: main list (Netflix / Prime …) and the whole-account / OTP services (collapsed in the panel).
+        expiredUsers: expired ? { main: expired.main, other: expired.other } : null,
       });
     } catch (e) { fail(res, e); }
   });

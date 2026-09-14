@@ -552,7 +552,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
   ['DATA'], ['golive', '🚚', 'Go-live import'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
@@ -597,7 +597,7 @@ function nav(v) {
   route();
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -1642,7 +1642,7 @@ function openOrder(id, flash) {
       kv('Devices', o.device_count ? esc(o.device_count) + (o.tv_count != null ? ' (' + esc(o.tv_count) + ' TV)' : '') + (m.loginMode ? ' · asked for ' + (m.loginMode === 'separate' ? 'separate logins' : 'the same login') : '') : '') + kv('Note', esc(m.adminNote || o.notes || '')) + '</div>' +
       (subs ? '<h4 style="margin:14px 0 0">Subscription' + ((r.subs || []).length > 1 ? 's (' + r.subs.length + ' logins)' : '') + '</h4>' + subs : (paid ? '<div class="qnote bad" style="margin-top:12px">No subscription was created for this paid order.</div>' : '')) +
       // Fulfil / Re-fulfil, Deliver manually, Refund, Erase — whichever fit this order (adminorderactions.js).
-      '<div id="od_actions"></div>';
+      '<div id="od_actions"></div><div id="od_cleanup"></div>';
     var foot = '';
     if (!paid && o.source === 'node' && String(o.status).toUpperCase() !== 'REFUNDED') foot += '<button class="btn green" id="od_paid">✅ Mark paid</button>';
     foot +='<button class="btn ghost" id="od_c360">👤 Customer 360</button><a class="btn wa" target="_blank" href="' + waLink(o.phone_norm || o.phone, 'Hi ' + (o.name || '') + ', about your FluxFilm order ' + o.order_id + ': ') + '">💬 WhatsApp</a><span id="od_msg" class="muted"></span>';
@@ -1656,6 +1656,7 @@ function openOrder(id, flash) {
       post('/admin/api/quick/mark-paid', { orderId: o.order_id, payMethod: method, txnRef: ref }).then(function (x) { $('#od_msg').textContent = x.ok ? '✅ ' + ((x.fulfillment && x.fulfillment.message) || 'Paid') : '⚠️ ' + (x.message || 'failed'); if (x.ok) { openOrder(o.order_id); loadOrders(); } else mp.disabled = false; });
     };
     loadOrderActions(o.order_id);
+    loadOrderCleanup(o.order_id);
   });
 }
 function asNumber(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
@@ -1806,6 +1807,7 @@ function renderStock() {
   renderAccounts();
   var t; $('#kq').addEventListener('input', function () { K.q = $('#kq').value.trim().toLowerCase(); clearTimeout(t); t = setTimeout(renderAccounts, 200); });
   $('#kbody').onclick = function (e) {
+    if (expiredClick(e)) return;
     var f = e.target.closest('[data-kf]'); if (f) { K.filter = f.getAttribute('data-kf'); $$('#kbody [data-kf]').forEach(function (c) { c.classList.toggle('on', c === f); }); renderAccounts(); return; }
     var sv = e.target.closest('[data-ksvc]'); if (sv) { var k = sv.getAttribute('data-ksvc'); K.open[k] = !K.open[k]; renderAccounts(); return; }
     var see = e.target.closest('[data-see]'); if (see) { store('ff_f_subscriptions', [{ col: 'inventory_ref', op: 'contains', value: see.getAttribute('data-see') }].concat(see.getAttribute('data-exp') ? [{ col: 'expiry_date', op: 'before_now' }, { col: 'removed', op: 'eq', value: '0' }] : [{ col: 'status', op: 'eq', value: 'ACTIVE' }, { col: 'expiry_date', op: 'after_now' }])); store('ff_tab', 'subscriptions'); S.tab = 'subscriptions'; S.offset = 0; S.q = ''; nav('data'); }
@@ -1823,13 +1825,14 @@ function renderAccounts() {
   var groups = {}; list.forEach(function (a) { (groups[a.service] = groups[a.service] || []).push(a); });
   var names = Object.keys(groups).sort();
   var expandAll = !!(K.q || K.filter !== 'all');
-  el.innerHTML = names.length ? names.map(function (sv) {
+  // 🚪 filter: who to remove per account login (Sheet rule) above the accounts themselves.
+  el.innerHTML = (K.filter === 'expired' ? renderExpiredUsers(K.data.expiredUsers) + '<div class="subhead"><h3>Accounts with expired customers</h3></div>' : '') + (names.length ? names.map(function (sv) {
     var rows = groups[sv], open = expandAll || K.open[sv];
     var used = rows.reduce(function (n, a) { return n + (a.used || 0); }, 0), cap = rows.reduce(function (n, a) { return n + (a.isActive && a.cap ? a.cap : 0); }, 0);
     return '<div class="card" style="padding:0;margin-bottom:10px;overflow:hidden"><button class="ksvc" data-ksvc="' + esc(sv) + '"><span>' + (open ? '▾' : '▸') + ' ' + svcIcon(sv) + ' <b>' + esc(sv) + '</b> <span class="muted">· ' + rows.length + ' accounts' + (cap ? ' · ' + used + ' / ' + cap + ' ' + esc(rows[0].unit || '') + ' used' : '') + '</span></span>' +
-      '<span>' + (rows.some(function (a) { return a.status === 'FULL' || a.status === 'TV_FULL'; }) ? '<span class="pill p-warn">has full</span> ' : '') + (rows.some(function (a) { return a.expiredOnAccount > 0; }) ? '<span class="pill p-bad">' + rows.reduce(function (n, a) { return n + a.expiredOnAccount; }, 0) + ' expired on accounts</span>' : '') + '</span></button>' +
+      '<span>' + (rows.some(function (a) { return a.status === 'FULL' || a.status === 'TV_FULL'; }) ? '<span class="pill p-warn">has full</span> ' : '') + (rows.some(function (a) { return a.expiredOnAccount > 0; }) ? '<span class="pill p-bad">' + rows.reduce(function (n, a) { return n + a.expiredOnAccount; }, 0) + ' expired to remove</span>' : '') + '</span></button>' +
       (open ? '<div class="list" style="padding:0 14px 8px">' + rows.map(accountRow).join('') + '</div>' : '') + '</div>';
-  }).join('') : '<div class="card muted">No accounts match.</div>';
+  }).join('') : '<div class="card muted">No accounts match.</div>');
 }
 function accountRow(a) {
   var pct = a.cap ? Math.min(100, Math.round((a.used / a.cap) * 100)) : 0;
@@ -1837,7 +1840,7 @@ function accountRow(a) {
   return '<div class="li"><div class="grow"><b style="font-family:Consolas,monospace">' + esc(a.accountId) + '</b> ' + pill + (a.plan ? ' <span class="pill p-blue">' + esc(a.plan) + '</span>' : '') +
     '<div class="muted" style="font-size:.72rem">' + esc(a.login || '(no login)') + (a.notes ? ' · ' + esc(a.notes) : '') + '</div>' +
     (a.cap ? '<div class="bar' + (pct >= 100 ? ' b' : pct >= 75 ? ' w' : '') + '" style="margin-top:6px;max-width:320px"><i style="width:' + pct + '%"></i></div><div class="muted" style="font-size:.7rem;margin-top:3px">' + a.used + ' / ' + a.cap + ' ' + esc(a.unit) + (a.tvCap != null ? ' · TV ' + a.tvUsed + ' / ' + a.tvCap : '') + '</div>' : '') + '</div>' +
-    '<div class="row" style="gap:6px"><button class="chip" data-see="' + esc(a.accountId) + '">👥 ' + a.activeSubs + ' active</button>' + (a.expiredOnAccount ? '<button class="chip clear" data-see="' + esc(a.accountId) + '" data-exp="1">🚪 ' + a.expiredOnAccount + ' expired, not removed</button>' : '') + '</div></div>';
+    '<div class="row" style="gap:6px"><button class="chip" data-see="' + esc(a.accountId) + '">👥 ' + a.activeSubs + ' active</button>' + (a.expiredOnAccount ? '<button class="chip clear" data-see="' + esc(a.accountId) + '" data-exp="1">🚪 ' + a.expiredOnAccount + ' to remove</button>' : '') + (a.expiredOldUsers ? '<span class="pill p-grey" title="Nobody active on this login: safe to reset devices / change the password">🧹 ' + a.expiredOldUsers + ' old users</span>' : '') + '</div></div>';
 }
 
 /* ================= Today (action list + to-dos) ================= */
@@ -1904,6 +1907,8 @@ function todayGo(go) {
   if (!go) return;
   if (go.view === 'orders') { O.view = go.orders || 'all'; O.q = ''; }
   if (go.view === 'data' && go.table) { S.tab = go.table; store('ff_tab', go.table); S.offset = 0; S.q = ''; }
+  if (go.view === 'stock' && go.stock) { K.filter = go.stock; K.data = null; }
+  if (go.view === 'bank') { BK.filter = 'after'; BK.q = ''; }
   nav(go.view);
 }
 function renderTodos() {
@@ -1970,7 +1975,7 @@ function wireGlobalSearch() {
 
 /* ================= change log ================= */
 var AUD = { q: '', action: '' };
-var AUD_LABELS = { 'login.ok': '🔐 Signed in', 'login.failed': '🚫 Wrong password', 'sub.removed': '🚪 Removed tick', 'sub.unremoved': '↩️ Removed tick cleared', 'coupon.save': '🎟️ Coupon saved', 'row.edit': '✏️ Row edited', 'row.add': '➕ Row added', 'row.delete': '🗑️ Row deleted', 'quick.new': '⚡ Quick order', 'quick.renew': '🔁 Quick renew', 'order.markPaid': '✅ Marked paid', 'order.retryDelivery': '📦 Delivery retried', 'todo.add': '📝 To-do added', 'todo.done': '☑️ To-do done', 'todo.reopen': '📝 To-do reopened', 'todo.delete': '🗑️ To-do deleted', 'account.passwordChange': '🔑 Password changed', 'reminders.email': '✉️ Reminder emails', 'sub.extend': '⏱ Days added', 'sub.shorten': '⏱ Days taken off', 'cost.save': '💰 Account cost', 'cost.clear': '💰 Account cost cleared', 'push.settings': '🔔 Notification settings', 'push.test': '🧪 Test notification', 'push.send': '📨 Notification sent', 'push.broadcast': '📢 Broadcast', 'push.adminSubscribe': '🔔 Admin device on' };
+var AUD_LABELS = { 'login.ok': '🔐 Signed in', 'login.failed': '🚫 Wrong password', 'sub.removed': '🚪 Removed tick', 'sub.unremoved': '↩️ Removed tick cleared', 'sub.removedBulk': '🚪 Order subscriptions ticked removed', 'bank.ignore': '🙈 Bank payment: not a sale', 'bank.unignore': '↩️ Bank payment: not-a-sale undone', 'bank.link': '🔗 Bank payment linked', 'bank.unlink': '✂️ Bank payment unlinked', 'bank.cutoff': '🏦 Go-live time changed','coupon.save': '🎟️ Coupon saved', 'row.edit': '✏️ Row edited', 'row.add': '➕ Row added', 'row.delete': '🗑️ Row deleted', 'quick.new': '⚡ Quick order', 'quick.renew': '🔁 Quick renew', 'order.markPaid': '✅ Marked paid', 'order.retryDelivery': '📦 Delivery retried', 'todo.add': '📝 To-do added', 'todo.done': '☑️ To-do done', 'todo.reopen': '📝 To-do reopened', 'todo.delete': '🗑️ To-do deleted', 'account.passwordChange': '🔑 Password changed', 'reminders.email': '✉️ Reminder emails', 'sub.extend': '⏱ Days added', 'sub.shorten': '⏱ Days taken off', 'cost.save': '💰 Account cost', 'cost.clear': '💰 Account cost cleared', 'push.settings': '🔔 Notification settings', 'push.test': '🧪 Test notification', 'push.send': '📨 Notification sent', 'push.broadcast': '📢 Broadcast', 'push.adminSubscribe': '🔔 Admin device on' };
 function auditView() {
   $('#view').innerHTML = '<div class="ph"><div><h1>🕘 Change log</h1><p>Every change made from the admin panel — newest first. Deleted rows are kept here (passwords hidden).</p></div></div>' +
     '<div class="search"><input class="inp" id="aq" placeholder="Search order ID, subscription, coupon, table…" value="' + esc(AUD.q) + '"/></div>' +
@@ -3262,6 +3267,185 @@ document.addEventListener('click', function (e) {
     delete PM.pick[id]; loadClaims();
   });
 });
+
+/* ================= 🏦 bank payments: unmatched since go-live · "Not a sale" · link to an order (adminbankcredits.js) ================= */
+var BK = { filter: 'after', q: '', data: null };
+var BK_FILTERS = [['after', '⚠️ No order · since go-live'], ['before', '🕰 No order · before go-live'], ['ignored', '🙈 Not a sale'], ['matched', '🔗 Matched']];
+var BK_REASONS = [['PERSONAL', '👤 Personal'], ['PAYTM_SETTLEMENT', '🏦 Paytm settlement'], ['REFUND', '↩️ Refund'], ['TEST', '🧪 Test'], ['OTHER', '✍️ Other']];
+function bkReason(k) { var f = BK_REASONS.filter(function (x) { return x[0] === String(k || '').toUpperCase(); })[0]; return f ? f[1] : String(k || ''); }
+function bankView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🏦 Bank payments</h1><p>Every UPI payment from the bank alerts. Payments before go-live were confirmed by the old site, so only newer ones without an order need you.</p></div><button class="btn ghost" id="bkref">⟳ Refresh</button></div>' +
+    '<div id="bkwarn"></div><div class="card"><div class="seg" id="bkseg" style="margin-bottom:10px">' + BK_FILTERS.map(function (f) { return '<button data-f="' + f[0] + '"' + (BK.filter === f[0] ? ' class="on"' : '') + '>' + f[1] + '</button>'; }).join('') + '</div>' +
+    '<input class="inp" id="bkq" placeholder="Search UPI ref, payer name, amount or order ID…" style="width:100%;margin-bottom:12px" value="' + esc(BK.q) + '"/>' +
+    '<div id="bklist"><p class="muted">Loading…</p></div><div class="muted" id="bkcut" style="font-size:.75rem;margin-top:10px"></div></div>';
+  $('#bkref').onclick = loadBank;
+  $('#bkseg').onclick = function (e) { var b = e.target.closest('[data-f]'); if (!b) return; BK.filter = b.getAttribute('data-f'); $$('#bkseg button').forEach(function (x) { x.className = x === b ? 'on' : ''; }); loadBank(); };
+  var t; $('#bkq').addEventListener('input', function () { BK.q = $('#bkq').value.trim(); clearTimeout(t); t = setTimeout(loadBank, 350); });
+  $('#bklist').onclick = bankClick;
+  $('#bkcut').onclick = function (e) {
+    if (!e.target.closest('#bkcutbtn') || !BK.data) return;
+    var v = prompt('Go-live time (India time, like 2026-09-14 21:00). Payments before it were confirmed by the old site.', String(BK.data.cutoff || '').slice(0, 16)); if (v == null) return;
+    post('/admin/api/bank-credits/cutoff', { cutoff: v.trim() }).then(function (r) { toast(r.ok ? '✅ Go-live time saved' : '⚠️ ' + (r.message || 'failed')); if (r.ok) loadBank(); });
+  };
+  loadBank();
+}
+function loadBank() {
+  var f = BK.filter, q = BK.q;
+  api('/admin/api/bank-credits', { filter: f, q: q }).then(function (r) {
+    if (!$('#bklist') || BK.filter !== f || BK.q !== q) return;
+    if (!r.ok) { $('#bklist').innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
+    BK.data = r;
+    BK_FILTERS.forEach(function (x) { var b = $('#bkseg [data-f="' + x[0] + '"]'); if (b) b.textContent = x[1] + ' (' + ((r.counts || {})[x[0]] || 0) + ')'; });
+    $('#bkwarn').innerHTML = r.schemaReady ? '' : '<div class="qnote warn" style="margin:0 0 14px">"Not a sale" is kept in settings for now. Run <b>' + esc(r.schemaFile || 'db/schema-v23.sql') + '</b> in phpMyAdmin when you can — nothing is lost.</div>';
+    $('#bklist').innerHTML = r.credits.length ? r.credits.map(bankCard).join('') + (r.credits.length >= 100 ? '<p class="muted" style="font-size:.75rem">Showing the newest 100 — search to narrow down.</p>' : '') :
+      '<p class="muted" style="margin:6px 0">' + (f === 'after' && !q ? '🎉 Every payment since go-live has an order.' : 'No payments here.') + '</p>';
+    $('#bkcut').innerHTML = 'Go-live time: <b>' + prettyDate(r.cutoff, true) + '</b> <button class="btn ghost sm" id="bkcutbtn">Change</button>';
+  });
+}
+function bankCard(c) {
+  var pill = c.orderId ? '<span class="pill p-ok">🔗 matched</span>' : c.ignored ? '<span class="pill p-grey">🙈 not a sale</span>' : c.beforeGoLive ? '<span class="pill p-grey">before go-live</span>' : '<span class="pill p-warn">no order</span>';
+  var h = '<div class="pmc" data-bk="' + c.id + '"><div class="row" style="justify-content:space-between;gap:8px;align-items:flex-start">' +
+    '<div style="min-width:0"><div class="pmname">' + esc(c.payerName || '(no name in the alert)') + '</div><div class="muted" style="font-size:.76rem;margin-top:2px">' + prettyDate(c.receivedAt, true) + ' · ref <b>' + esc(c.upiRef) + '</b>' + (c.note && c.note !== 'UPI' ? ' · note ' + esc(c.note) : '') + (c.ifsc ? ' · ' + esc(c.ifsc) : '') + '</div></div>' +
+    '<div style="text-align:right;flex-shrink:0"><div class="pmamt">' + money(c.amount) + '</div>' + pill + '</div></div>';
+  if (c.orderId) h += '<div class="qnote" style="margin-top:8px">🔗 <a href="#" data-bkorder="' + esc(c.orderId) + '"><b>' + esc(c.orderId) + '</b></a>' + (c.order ? ' · ' + esc(c.order.name || '') + ' · ' + esc(c.order.service || '') + ' ' + esc(c.order.plan || '') + ' · ' + money(c.order.amount) + ' ' + statusPill(c.order.status) : '') + '</div>';
+  if (c.ignored) h += '<div class="qnote" style="margin-top:8px">🙈 Not a sale: <b>' + esc(bkReason(c.ignored.reason)) + '</b>' + (c.ignored.note ? ' · ' + esc(c.ignored.note) : '') + (c.ignored.at ? ' <span class="muted">(' + prettyDate(String(c.ignored.at).replace('T', ' '), true) + ')</span>' : '') + '</div>';
+  h += '<div class="pmbtns" style="margin-top:10px">';
+  if (!c.orderId && !c.ignored) h += '<button class="btn sm" data-bkact="link">🔗 Link to order</button><button class="btn ghost sm" data-bkact="ignore">🙈 Not a sale</button>';
+  if (c.ignored) h += '<button class="btn ghost sm" data-bkact="unignore">↩️ Undo "Not a sale"</button>';
+  if (c.orderId && c.order && String(c.order.status).toUpperCase() === 'CREATED') h += '<button class="btn green sm" data-bkact="paid" data-oid="' + esc(c.orderId) + '" data-ref="' + esc(c.upiRef) + '">✅ Mark paid + deliver</button>';
+  if (c.orderId) h += '<button class="btn ghost sm" data-bkact="unlink">✂️ Unlink</button>';
+  return h + '</div><div class="bkform"></div><div class="rf-state bkres"></div></div>';
+}
+function bkMarkPaid(orderId, ref, res) {
+  if (!confirm('Mark ' + orderId + ' paid with bank ref ' + ref + ' and deliver the plan now?\n\nThe customer gets the login by email, like a website order.')) return;
+  res.className = 'rf-state bkres'; res.textContent = '⏳ Working…';
+  post('/admin/api/quick/mark-paid', { orderId: orderId, payMethod: 'UPI', txnRef: ref }).then(function (x) {
+    res.className = 'rf-state bkres ' + (x.ok ? 'ok' : 'bad');
+    res.textContent = x.ok ? '✅ ' + ((x.fulfillment && x.fulfillment.message) || 'Paid') : '⚠️ ' + (x.message || 'failed');
+    if (x.ok) { toast('✅ ' + orderId + ' paid'); setTimeout(loadBank, 1200); }
+  });
+}
+function bankClick(e) {
+  var card = e.target.closest('[data-bk]'); if (!card) return;
+  var id = Number(card.getAttribute('data-bk')), form = card.querySelector('.bkform'), res = card.querySelector('.bkres');
+  var c = ((BK.data && BK.data.credits) || []).filter(function (x) { return x.id === id; })[0] || {};
+  var ord = e.target.closest('[data-bkorder]'); if (ord) { e.preventDefault(); openOrder(ord.getAttribute('data-bkorder')); return; }
+  var pick = e.target.closest('[data-bkpick]'); if (pick) { var inp = form.querySelector('.bkoid'); if (inp) inp.value = pick.getAttribute('data-bkpick'); return; }
+  var reason = e.target.closest('[data-bkreason]'); if (reason) { $$('[data-bkreason]', form).forEach(function (b) { b.classList.toggle('on', b === reason); }); form.setAttribute('data-reason', reason.getAttribute('data-bkreason')); return; }
+  var b = e.target.closest('[data-bkact]'); if (!b) return;
+  var act = b.getAttribute('data-bkact');
+  res.className = 'rf-state bkres'; res.textContent = '';
+  if (act === 'paid') return bkMarkPaid(b.getAttribute('data-oid'), b.getAttribute('data-ref'), res);
+  if (act === 'ignore') {
+    form.innerHTML = '<div class="oaform" data-nodirty style="margin-top:8px"><b>🙈 Not a sale — why?</b><div class="row" style="gap:6px;flex-wrap:wrap;margin:6px 0">' + BK_REASONS.map(function (r) { return '<button class="chip" data-bkreason="' + r[0] + '">' + r[1] + '</button>'; }).join('') + '</div>' +
+      '<input class="inp bknote" placeholder="Note (needed for Other)" autocomplete="off"/><div class="row" style="gap:6px;margin-top:8px"><button class="btn sm" data-bkact="ignore-save">Save</button><button class="btn ghost sm" data-bkact="close">Cancel</button></div></div>';
+    return;
+  }
+  if (act === 'close') { form.innerHTML = ''; return; }
+  if (act === 'ignore-save') {
+    var body = { id: id, reason: form.getAttribute('data-reason') || '', note: (form.querySelector('.bknote') || {}).value || '' };
+    if (!body.reason) { res.className = 'rf-state bkres bad'; res.textContent = 'Pick a reason first.'; return; }
+    b.disabled = true;
+    post('/admin/api/bank-credits/ignore', body).then(function (x) { b.disabled = false; if (!x.ok) { res.className = 'rf-state bkres bad'; res.textContent = '⚠️ ' + (x.message || 'failed'); return; } form.removeAttribute('data-reason'); toast(x.message || 'Saved'); loadBank(); });
+    return;
+  }
+  if (act === 'unignore') { b.disabled = true; post('/admin/api/bank-credits/unignore', { id: id }).then(function (x) { b.disabled = false; toast(x.ok ? (x.message || 'Undone') : '⚠️ ' + (x.message || 'failed')); if (x.ok) loadBank(); }); return; }
+  if (act === 'unlink') {
+    var why = prompt('Unlink this payment from ' + c.orderId + '? Write why (kept in the change log). The order itself is not changed.', ''); if (why == null) return;
+    post('/admin/api/bank-credits/unlink', { id: id, reason: why }).then(function (x) { toast(x.ok ? (x.message || 'Unlinked') : '⚠️ ' + (x.message || 'failed')); if (x.ok) loadBank(); });
+    return;
+  }
+  if (act === 'link') {
+    form.innerHTML = '<div class="oaform" data-nodirty style="margin-top:8px"><b>🔗 Link ' + money(c.amount) + ' to an order</b><div class="bksug muted" style="font-size:.78rem;margin:6px 0">Looking for orders of ' + money(c.amount) + ' around that time…</div>' +
+      '<label>Order ID<input class="inp bkoid" placeholder="FF…" autocomplete="off" autocapitalize="characters"/></label><div class="bkover"></div>' +
+      '<div class="row" style="gap:6px;margin-top:8px"><button class="btn sm" data-bkact="link-save">🔗 Link</button><button class="btn ghost sm" data-bkact="close">Cancel</button></div></div>';
+    api('/admin/api/bank-credits/suggest', { id: id }).then(function (r) {
+      var box = form.querySelector('.bksug'); if (!box) return;
+      if (!r.ok || !r.orders.length) { box.textContent = 'No order of this amount around that time — type the order ID if you know it.'; return; }
+      box.innerHTML = 'Tap to pick:' + r.orders.map(function (o) { return '<button class="pmopt" style="margin-top:6px" data-bkpick="' + esc(o.order_id) + '"' + (o.linkedCreditId ? ' disabled' : '') + '><span style="flex:1;min-width:0;text-align:left"><b>' + esc(o.order_id) + '</b> · ' + esc(o.name || '') + ' ' + (o.inNote ? '<span class="pill p-ok">in the payment note</span> ' : '') + statusPill(o.status) + '<small>' + esc(o.service) + ' ' + esc(o.plan) + ' · ' + money(o.final_amount) + ' · ' + prettyDate(o.created_at_sheet, true) + (o.linkedCreditId ? ' · already has a bank payment' : '') + '</small></span></button>'; }).join('');
+    });
+    return;
+  }
+  if (act === 'link-save') {
+    var oid = ((form.querySelector('.bkoid') || {}).value || '').trim();
+    if (!oid) { res.className = 'rf-state bkres bad'; res.textContent = 'Type or pick the order ID.'; return; }
+    var over = form.querySelector('.bkreasonin');
+    var lb = { id: id, orderId: oid };
+    if (over) { lb.override = true; lb.reason = over.value; }
+    b.disabled = true; res.textContent = '⏳';
+    post('/admin/api/bank-credits/link', lb).then(function (x) {
+      b.disabled = false;
+      if (!x.ok) {
+        if (x.amountMismatch && !over) {
+          form.querySelector('.bkover').innerHTML = '<div class="qnote warn" style="margin-top:8px">⚠️ ' + esc(x.message) + '</div><label>Why do the amounts differ?<input class="inp bkreasonin" placeholder="e.g. paid ₹10 extra by mistake" autocomplete="off"/></label>';
+          b.textContent = '🔗 Link anyway'; res.textContent = ''; return;
+        }
+        res.className = 'rf-state bkres bad'; res.textContent = '⚠️ ' + (x.message || 'failed'); return;
+      }
+      toast(x.message || 'Linked'); res.textContent = '';
+      if (x.needsPaid && x.canMarkPaid) {
+        form.innerHTML = '<div class="qnote" style="margin-top:8px">🔗 Linked to <b>' + esc(x.orderId) + '</b>. It is still unpaid — deliver it now?</div><div class="row" style="gap:6px;margin-top:8px"><button class="btn green sm" data-bkact="paid" data-oid="' + esc(x.orderId) + '" data-ref="' + esc(x.upiRef) + '">✅ Mark paid + deliver</button><button class="btn ghost sm" data-bkact="refresh">Not now</button></div>';
+        return;
+      }
+      loadBank();
+    });
+    return;
+  }
+  if (act === 'refresh') loadBank();
+}
+
+/* ================= 🚪 expired customers still on accounts (Stock → 🚪 filter) + order cleanup ================= */
+function renderExpiredUsers(ex) {
+  if (!ex || !ex.main) return '<div class="card muted" style="margin-bottom:10px">Could not work out the expired customers right now — try ⟳ Refresh.</div>';
+  var person = function (p) {
+    return '<div class="li" style="padding:7px 0"><div class="grow"><b>' + esc(p.name) + '</b> <span class="muted">· ' + esc(p.phone) + '</span><div class="muted" style="font-size:.72rem">' + esc(p.service) + ' ' + esc(p.plan) + ' · ' + esc(p.accountRef || p.accountId) + ' · ended ' + prettyDate(p.expiry, true) + (p.orderId ? ' · <a href="#" data-exorder="' + esc(p.orderId) + '">' + esc(p.orderId) + '</a>' : '') + '</div></div>' +
+      '<button class="btn ghost sm" data-exrm="' + esc(p.subId) + '" data-exname="' + esc(p.name) + '">🚪 Removed</button></div>';
+  };
+  var group = function (g) {
+    return '<div class="card" style="padding:10px 14px;margin-bottom:8px"><div class="row" style="justify-content:space-between;gap:6px;flex-wrap:wrap"><b style="font-family:Consolas,monospace">' + esc(g.accountIds.join(' / ') || g.login) + '</b>' +
+      (g.action === 'REMOVE' ? '<span class="pill p-bad">⚠️ Remove ' + g.count + '</span>' : '<span class="pill p-ok">✅ Safe → reset devices / change password</span>') + '</div>' +
+      '<div class="muted" style="font-size:.72rem">' + esc(g.login || '(no login)') + ' · ' + g.activeCount + ' active · ' + esc(g.services.join(', ')) + '</div><div class="list">' + g.people.map(person).join('') + '</div></div>';
+  };
+  var fam = function (bf) { var k = Object.keys(bf || {}); return k.length ? k.map(function (x) { return esc(x) + ' ' + bf[x]; }).join(' · ') : ''; };
+  var m = ex.main, o = ex.other || { groups: [], pending: 0, safeOldUsers: 0 };
+  var rem = m.groups.filter(function (g) { return g.action === 'REMOVE'; }), safe = m.groups.filter(function (g) { return g.action !== 'REMOVE'; });
+  return '<div class="subhead" style="margin-top:4px"><h3>🚪 Expired customers to remove (' + m.pending + ')</h3></div>' +
+    '<p class="muted" style="font-size:.78rem;margin:-4px 0 10px">Same rule as the old Sheet dashboard: only accounts that still have active customers, no day limit. ' + (fam(m.byFamily) ? fam(m.byFamily) + '. ' : '') + 'Tap 🚪 Removed after you removed the profile or signed them out.</p>' +
+    (rem.length ? rem.map(group).join('') : '<div class="card muted" style="margin-bottom:8px">🎉 Nobody to remove.</div>') +
+    (safe.length ? '<details class="card" style="padding:10px 14px;margin-bottom:8px"><summary style="cursor:pointer"><b>✅ Safe accounts (' + safe.length + ')</b> <span class="muted">— nobody active: reset devices / change password · ' + m.safeOldUsers + ' old users</span></summary>' + safe.map(group).join('') + '</details>' : '') +
+    (o.groups.length ? '<details class="card" style="padding:10px 14px;margin-bottom:8px"><summary style="cursor:pointer"><b>📺 Whole-account & OTP services</b> <span class="muted">(Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube) — ' + o.pending + ' to remove' + (fam(o.byFamily) ? ' (' + fam(o.byFamily) + ')' : '') + ' · ' + o.safeOldUsers + ' old users</span></summary>' + o.groups.map(group).join('') + '</details>' : '');
+}
+function expiredClick(e) {
+  var ord = e.target.closest('[data-exorder]'); if (ord) { e.preventDefault(); openOrder(ord.getAttribute('data-exorder')); return true; }
+  var rm = e.target.closest('[data-exrm]'); if (!rm) return false;
+  var sid = rm.getAttribute('data-exrm');
+  if (!confirm('Tick ' + (rm.getAttribute('data-exname') || sid) + ' (' + sid + ') as removed from the account (now)?')) return true;
+  rm.disabled = true;
+  post('/admin/api/sub-removed', { sub_id: sid, removed: true, removed_at: '' }).then(function (r) {
+    if (!r.ok) { rm.disabled = false; toast('⚠️ ' + (r.message || 'failed')); return; }
+    toast('🚪 Ticked removed'); K.data = null; stockView();
+  });
+  return true;
+}
+function loadOrderCleanup(id) {
+  var box = $('#od_cleanup'); if (!box) return;
+  api('/admin/api/order/subs-removed', { id: id }).then(function (r) {
+    box = $('#od_cleanup'); if (!box) return;
+    if (!r.ok || !r.total) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="oact"><h4>🚪 Accounts cleanup</h4><div class="muted" style="font-size:.8rem">' + r.total + ' subscription' + (r.total === 1 ? '' : 's') + ' · ' + r.alreadyRemoved + ' already removed · ' + r.ended + ' ended · ' + r.running + ' still running</div>' +
+      (r.ended ? '<button class="btn dark sm" id="od_rmall" style="margin-top:8px">🚪 Mark all subscriptions of this order as removed (' + r.ended + ')</button>' : '<div class="qnote" style="margin-top:6px">' + (r.running ? 'Nothing ended to tick — running subscriptions are never ticked from here.' : '✅ All removed.') + '</div>') +
+      (r.ended && r.running ? '<div class="muted" style="font-size:.72rem;margin-top:4px">The ' + r.running + ' running subscription(s) are not touched.</div>' : '') + '<div id="od_rmmsg"></div></div>';
+    var b = $('#od_rmall'); if (!b) return;
+    b.onclick = function () {
+      if (!confirm('Tick ' + r.ended + ' ended subscription(s) of ' + id + ' as removed from their accounts (removed now)?\n\nUse this for test orders, or after you removed these customers.')) return;
+      b.disabled = true;
+      post('/admin/api/order/subs-removed', { orderId: id }).then(function (x) {
+        var m = $('#od_rmmsg'); if (m) m.innerHTML = '<div class="qnote' + (x.ok ? '' : ' bad') + '" style="margin-top:6px">' + esc(x.message || (x.ok ? 'Done' : 'failed')) + '</div>';
+        if (x.ok) { toast(x.message || 'Done'); setTimeout(function () { loadOrderCleanup(id); }, 1200); } else b.disabled = false;
+      });
+    };
+  });
+}
 
 /* ================= coins ================= */
 var CN = { s: null };

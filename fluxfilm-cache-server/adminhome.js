@@ -33,9 +33,11 @@ function mount(app, deps) {
         one("SELECT COUNT(*) n FROM subscriptions WHERE UPPER(COALESCE(fulfillment_status, '')) = 'MANUAL_PENDING' AND UPPER(status) = 'ACTIVE'"),
         one("SELECT COUNT(*) n FROM subscriptions WHERE UPPER(status) = 'ACTIVE' AND expiry_date BETWEEN NOW() AND NOW() + INTERVAL 3 DAY"),
         many("SELECT sub_id, phone_norm, service, plan, expiry_date FROM subscriptions WHERE UPPER(status) = 'ACTIVE' AND expiry_date BETWEEN NOW() AND NOW() + INTERVAL 3 DAY ORDER BY expiry_date LIMIT 5"),
-        one('SELECT COUNT(*) n FROM subscriptions WHERE expiry_date < NOW() AND expiry_date > NOW() - INTERVAL 60 DAY AND COALESCE(removed, 0) = 0'),
+        // Sheet DASHBOARD rule (expiredusers.js): only logins that still have active customers, no 60-day cap.
+        (deps.expiredusers || require('./expiredusers')).load((sql, p) => db.query(sql, p)).catch((e) => ({ error: e.message })),
         one("SELECT COUNT(*) n FROM restock_requests WHERE UPPER(COALESCE(status, '')) <> 'DONE'"),
-        one('SELECT COUNT(*) n FROM bank_credits WHERE consumed_order_id IS NULL AND received_at > NOW() - INTERVAL 14 DAY'),
+        // Since go-live only (older payments were confirmed by the old site), minus "Not a sale" (adminbankcredits.js).
+        (deps.bankcredits || require('./adminbankcredits')).storeFor(db).countUnmatched().then((x) => ({ n: x.count }), (e) => ({ error: e.message })),
         many('SELECT id, title, note, due_date, done, created_at FROM admin_todos WHERE done = 0 ORDER BY due_date IS NULL, due_date, id LIMIT 50'),
         catalog().getStockLevels().catch(() => ({ levels: {} })),
         // The stuck orders themselves, so a tap on one opens it with its actions (fulfil / refund / erase).
@@ -50,11 +52,11 @@ function mount(app, deps) {
         items: [
           { key: 'undelivered', icon: '⚠️', title: 'Paid but not delivered', count: +undelivered.n || 0, tone: 'bad', go: { view: 'orders', orders: 'undelivered' }, orders: Array.isArray(stuckList) ? stuckList : [] },
           { key: 'manual', icon: '🛠', title: 'Manual plans to activate', count: +manual.n || 0, tone: 'warn', go: { view: 'orders', orders: 'manual' } },
-          { key: 'unmatched', icon: '💸', title: 'Payments not matched to an order (14 days)', count: +unmatched.n || 0, tone: 'warn', go: { view: 'data', table: 'bank_credits' } },
+          { key: 'unmatched', icon: '💸', title: 'Payments since go-live not matched to an order', count: +unmatched.n || 0, tone: 'warn', go: { view: 'bank' } },
           { key: 'ending', icon: '⏳', title: 'Plans ending in 3 days', count: +ending.n || 0, tone: 'warn', go: { view: 'reminders' }, list: endingList },
           { key: 'out', icon: '🔴', title: 'Plans out of stock', count: out.length, tone: 'bad', names: out, go: { view: 'stock' } },
           { key: 'low', icon: '🟡', title: 'Plans running low', count: low.length, tone: 'warn', names: low, go: { view: 'stock' } },
-          { key: 'expired', icon: '🚪', title: 'Expired customers still on accounts', count: +expiredOn.n || 0, tone: 'warn', go: { view: 'stock' } },
+          { key: 'expired', icon: '🚪', title: 'Expired customers to remove (accounts still in use)', count: expiredOn && expiredOn.main ? expiredOn.main.pending : 0, tone: 'warn', go: { view: 'stock', stock: 'expired' }, names: expiredOn && expiredOn.main ? (deps.expiredusers || require('./expiredusers')).todayNames(expiredOn, 20) : [] },
           { key: 'unpaid', icon: '🧾', title: 'Unpaid website checkouts (3 days)', count: +unpaid.n || 0, tone: 'info', go: { view: 'orders', orders: 'unpaid' } },
           { key: 'restock', icon: '🔔', title: 'Customers waiting for restock', count: +restock.n || 0, tone: 'info', go: { view: 'data', table: 'restock_requests' } },
         ],
