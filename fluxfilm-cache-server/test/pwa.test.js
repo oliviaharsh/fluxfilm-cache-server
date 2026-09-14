@@ -9,7 +9,7 @@ const pngSize = (p) => { const b = fs.readFileSync(p); return b.slice(1, 4).toSt
 
 (async () => {
   // Manifests + icons.
-  for (const [name, m, color] of [['store', pwa.storeManifest(), '#16a34a'], ['admin', pwa.adminManifest(), '#e11d48']]) {
+  for (const [name, m, color] of [['store', pwa.storeManifest(), '#04140e'], ['admin', pwa.adminManifest(), '#12040a']]) {
     ok(name + ': standalone app with name, start_url inside scope, theme colour', m.display === 'standalone' && m.name && m.start_url.startsWith(m.scope) && m.theme_color === color);
     const sizes = m.icons.map((i) => i.sizes + ':' + i.purpose);
     ok(name + ': 192 + 512 + maskable icons (what Chrome needs to offer Install)', sizes.includes('192x192:any') && sizes.includes('512x512:any') && sizes.includes('512x512:maskable'), sizes);
@@ -60,7 +60,7 @@ const pngSize = (p) => { const b = fs.readFileSync(p); return b.slice(1, 4).toSt
   const srv = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   ok('routes mounted before the storefront catch-all', srv.indexOf("require('./pwa').mount(app)") > 0 && srv.indexOf("require('./pwa').mount(app)") < srv.indexOf("app.get('*'"));
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  ok('storefront head: manifest, theme colour, apple icon, service worker', /<link rel="manifest" href="\/manifest\.webmanifest" \/>/.test(html) && /name="theme-color" content="#16a34a"/.test(html) && /apple-touch-icon-180\.png/.test(html) && /navigator\.serviceWorker\.register\('\/sw\.js'\)/.test(html));
+  ok('storefront head: manifest, theme colour, apple icon, service worker', /<link rel="manifest" href="\/manifest\.webmanifest" \/>/.test(html) && /name="theme-color" content="#04140e"/.test(html) && /apple-touch-icon-180\.png/.test(html) && /navigator\.serviceWorker\.register\('\/sw\.js'\)/.test(html));
   ok('install prompt kept for our own buttons', /addEventListener\('beforeinstallprompt', function \(e\) \{ e\.preventDefault\(\); window\.ffInstall\.evt = e;/.test(html));
   ok('pop-up: not when already installed, only on home / my plans / buy, once per visit, "don\'t show again" = 30 days', /if \(isStandalone_\(\) \|\| !\['home', 'dashboard', 'buy1'\]\.includes\(screen\)\) return;/.test(html) && /sessionStorage\.setItem\('ff_install_asked', '1'\)/.test(html) && /Date\.now\(\) \+ 30 \* 86400000/.test(html));
   ok('iPhone gets Add to Home Screen steps; other browsers get Chrome menu steps', /Add to Home Screen/.test(html) && /mode === 'manual'/.test(html));
