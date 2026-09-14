@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const db = require('./db');
 const pay = require('./payments');
 const referrals = require('./referrals');
+const coins = require('./coins');
 
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -179,14 +180,23 @@ async function createOrder(p, opts) {
   }
   const referralDiscount = referral && !couponCode ? discount : 0;
   const listPrice = hasAmountOverride ? Math.max(basePrice, overrideAmount) : basePrice;
-  const finalAmount = Math.max(0, listPrice - discount);
   const orderId = genOrderId();
+  // Pay part with coins (customer ticked "Use my coins"): the coins are held now, kept when paid, given back if not.
+  let coinsUsed = 0; let coinsRupees = 0; let coinsMessage = '';
+  if (p.useCoins === true && !hasAmountOverride && typeof coins.holdSpend === 'function') {
+    try {
+      const h = await coins.holdSpend({ phone, orderId, amount: Math.max(0, listPrice - discount), kind: orderType, service, plan });
+      if (h.ok) { coinsUsed = h.coins; coinsRupees = h.rupees; } else coinsMessage = h.message || '';
+    } catch (e) { console.log('[coins] hold failed for', orderId, e.message); coinsMessage = 'Coins could not be used right now.'; }
+  }
+  const totalDiscount = discount + coinsRupees;
+  const finalAmount = Math.max(0, listPrice - totalDiscount);
   const accessToken = newAccessToken();
 
   const orderRaw = {
     OrderID: orderId, Service: service, Plan: plan, DurationDays: durationDays,
     Name: name, Email: email, Phone: p.phone || phone, CouponCode: couponCode,
-    Discount: discount, Price: listPrice, FinalAmount: finalAmount, Currency: 'INR',
+    Discount: totalDiscount, Price: listPrice, FinalAmount: finalAmount, Currency: 'INR',
     Notes: notes, ExtraFieldKey: extraKey, ExtraFieldValue: extraVal,
     Status: 'CREATED', FulfillmentStatus: 'PENDING', OrderType: orderType,
     RenewSubID: renewSubId, DeviceConcurrency: deviceCount, TVCount: tvCount,
@@ -195,17 +205,24 @@ async function createOrder(p, opts) {
     AccessTokenHash: hashAccessToken(accessToken),
   };
   if (referral) { orderRaw.ReferralCode = referral.code; orderRaw.ReferralDiscount = referralDiscount; }
+  if (coinsUsed) { orderRaw.CoinsUsed = coinsUsed; orderRaw.CoinsDiscount = coinsRupees; }
   if (opts.rawExtra && typeof opts.rawExtra === 'object') Object.assign(orderRaw, opts.rawExtra);
 
+  try {
   await db.query(
     `INSERT INTO orders (order_id, created_at_sheet, service, plan, duration_days, name, email, phone, phone_norm,
        coupon_code, discount, price, final_amount, currency, notes, extra_field_key, extra_field_value,
        status, fulfillment_status, order_type, renew_sub_id, device_count, tv_count, group_join_required, group_join_link, source, raw_json)
      VALUES (?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, 'CREATED', 'PENDING', ?, ?, ?, ?, ?, ?, 'node', ?)`,
     [orderId, service, plan, durationDays, name, email, p.phone || phone, phone,
-      couponCode, discount, listPrice, finalAmount, notes, extraKey, extraVal,
+      couponCode, totalDiscount, listPrice, finalAmount, notes, extraKey, extraVal,
       orderType, renewSubId, deviceCount, tvCount, groupJoinRequired ? 'TRUE' : 'FALSE', groupJoinLink,
       JSON.stringify(orderRaw)]);
+  } catch (e) {
+    // The order was not saved: give the held coins straight back.
+    if (coinsUsed) await coins.releaseSpend(orderId, 'order could not be saved').catch((x) => console.log('[coins] release failed', orderId, x.message));
+    throw e;
+  }
 
   if (referral) {
     try {
@@ -237,7 +254,8 @@ async function createOrder(p, opts) {
     '&am=' + encodeURIComponent(finalAmount) + '&cu=INR&tn=' + encodeURIComponent(orderId);
 
   return {
-    ok: true, orderId, amount: finalAmount, baseAmount: listPrice, planPrice: price, discount,
+    ok: true, orderId, amount: finalAmount, baseAmount: listPrice, planPrice: price, discount: totalDiscount,
+    coinsUsed, coinsDiscount: coinsRupees, coinsMessage,
     couponCode: couponCode || '', currency: 'INR', upiVpa, payee, upiLink,
     paymentNote: orderId, groupJoinRequired, groupJoinLink,
     deviceCount, tvCount,
@@ -282,6 +300,10 @@ async function _markPaid(orderId, txnRef) {
     throw e;
   } finally { conn.release(); }
   // Refer & earn: a friend's first paid order rewards whoever invited them. Never blocks payment.
+  if (becamePaid && typeof coins.onOrderPaid === 'function') {
+    // Coins used on this order are now kept (maintain() retries if this fails).
+    coins.onOrderPaid(orderId).catch((e) => console.log('[coins] settle failed for', orderId, e.message));
+  }
   if (becamePaid) {
     referrals.onOrderPaid(orderId)
       .then((r) => { if (r && r.status) console.log('[referral]', orderId, JSON.stringify(r)); })
@@ -370,7 +392,7 @@ async function createRenewOrder(subId, planOverride, couponCode, opts) {
 
   const out = await createOrder({
     service: sub.service, plan, name, email: sub.email, phone: sub.phone,
-    couponCode: cc, notes: opts.notes || ('RENEW:' + sub.sub_id),
+    couponCode: cc, notes: opts.notes || ('RENEW:' + sub.sub_id), useCoins: opts.useCoins === true,
   }, {
     action: 'RENEW', renewSubId: sub.sub_id, discountOverride: q.earlyDiscount,
     amountOverride: opts.amountOverride, allowNoEmail: true, rawExtra: opts.rawExtra,

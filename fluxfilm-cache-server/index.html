@@ -56,6 +56,16 @@ html, body { background: #f5f7fb; }
 .ff-friend + .ff-friend { border-top: 1px solid rgba(15,23,42,.07); }
 .ff-wallet-hero { text-align: center; padding: 24px 18px !important; background: linear-gradient(160deg,#fffbeb,#f0fdf4) !important; border-color: rgba(245,158,11,.22) !important; }
 .ff-wallet-n { font-size: 44px; font-weight: 800; color: #0f172a; line-height: 1; margin-top: 6px; }
+.ff-coin { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 12px 14px; border-radius: 16px; border: 1.5px solid rgba(245,158,11,.35); background: linear-gradient(135deg,#fffbeb,#fff); cursor: pointer; user-select: none; }
+.ff-coin.on { border-color: #d97706; background: linear-gradient(135deg,#fef3c7,#fffbeb); box-shadow: 0 4px 16px rgba(245,158,11,.18); }
+.ff-coin-box { width: 24px; height: 24px; border-radius: 8px; border: 2px solid #d97706; display: grid; place-items: center; font-size: 14px; font-weight: 900; color: #fff; flex-shrink: 0; background: #fff; }
+.ff-coin.on .ff-coin-box { background: #d97706; }
+.ff-coin-t { font-size: 14.5px; font-weight: 800; color: #78350f; }
+.ff-coin-s { font-size: 12px; font-weight: 600; color: #92400e; margin-top: 2px; }
+.ff-coin-amt { margin-left: auto; font-size: 17px; font-weight: 800; color: #b45309; white-space: nowrap; }
+.ff-coin-note { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: #fffbeb; font-size: 12.5px; font-weight: 600; color: #92400e; }
+.ff-hist { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
+.ff-hist + .ff-hist { border-top: 1px solid rgba(15,23,42,.07); }
 .ff-acard { display: flex; align-items: center; gap: 14px; cursor: pointer; }
 .ff-avatar { flex-shrink: 0; border-radius: 999px; background: linear-gradient(135deg,#34d399,#16a34a); display: grid; place-items: center; color: #fff; font-weight: 800; overflow: hidden; box-shadow: 0 4px 14px rgba(22,163,74,.22); }
 .ff-avatar img { width: 100%; height: 100%; object-fit: cover; }
@@ -1152,10 +1162,63 @@ function ReferralPanel({
     }
   }, "No friends invited yet — share your link to start earning.")));
 }
+// "🪙 Use my coins" at checkout. The server re-checks the balance and limits when the order is created.
+function CoinToggle({
+  phone,
+  amount,
+  kind,
+  on,
+  onChange
+}) {
+  const [q, setQ] = useState(null);
+  useEffect(() => {
+    if (!phone) return;
+    const t = setTimeout(() => API.getCoinQuote(phone, amount, kind, r => {
+      setQ(r || null);
+      onChange && onChange(!!(on && r && r.ok && r.enabled && r.coins > 0), r || null);
+    }, () => setQ(null)), 200);
+    return () => clearTimeout(t);
+  }, [phone, amount, kind]);
+  if (!q || !q.ok || !q.enabled || !(q.balance > 0)) return null;
+  const R = q.rules || {};
+  if (!(q.coins > 0)) {
+    const why = q.reason === 'min' ? `You have ${q.balance} coins — you can use them once you have ${R.minCoins}.` : q.reason === 'not on renewals' ? `You have ${q.balance} coins — they can be used on new plans.` : q.reason === 'not on new orders' ? `You have ${q.balance} coins — they can be used when you renew.` : '';
+    return why ? React.createElement("div", {
+      className: "ff-coin-note"
+    }, "🪙 ", why) : null;
+  }
+  return React.createElement("div", {
+    className: 'ff-coin' + (on ? ' on' : ''),
+    role: "checkbox",
+    "aria-checked": !!on,
+    tabIndex: 0,
+    onClick: () => onChange && onChange(!on, q),
+    onKeyDown: e => {
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        onChange && onChange(!on, q);
+      }
+    }
+  }, React.createElement("span", {
+    className: "ff-coin-box"
+  }, on ? '✓' : ''), React.createElement("span", {
+    style: {
+      minWidth: 0
+    }
+  }, React.createElement("div", {
+    className: "ff-coin-t"
+  }, "🪙 Use ", q.coins, " coins"), React.createElement("div", {
+    className: "ff-coin-s"
+  }, "You have ", q.balance, " · 1 coin = ₹", R.coinValue, " · up to ", R.maxPercent, "% of an order")), React.createElement("span", {
+    className: "ff-coin-amt"
+  }, "−₹", q.rupees));
+}
 function WalletPanel({
   phone
 }) {
   const [w, setW] = useState(null);
+  const [rules, setRules] = useState(null);
+  const [hist, setHist] = useState(null);
   useEffect(() => {
     if (!phone) return;
     API.getWalletByPhone(phone, r => setW(r || {
@@ -1163,6 +1226,8 @@ function WalletPanel({
     }), () => setW({
       ok: false
     }));
+    API.getCoinQuote(phone, 0, 'NEW', r => setRules(r && r.ok ? r : null), () => {});
+    API.getCoinHistory(phone, r => setHist(r && r.ok ? r.items : []), () => setHist([]));
   }, [phone]);
   const bal = w && w.ok ? Number(w.coinsBalance || 0) : null;
   return React.createElement("div", null, React.createElement(Card, {
@@ -1203,14 +1268,55 @@ function WalletPanel({
     }
   }, "How to earn coins"), React.createElement("div", {
     className: "ff-ref-steps"
-  }, ['🛒 Every plan you buy or renew earns coins automatically.', '🎁 Invite friends from Refer & earn — coins when they pay.', '🚀 Using coins to pay for renewals is coming soon.'].map((txt, i) => React.createElement("div", {
+  }, ['🛒 Every plan you buy or renew earns coins automatically.', '🎁 Invite friends from Refer & earn — coins when they pay.', rules && rules.enabled ? `🪙 Pay with coins at checkout: 1 coin = ₹${rules.rules.coinValue}, up to ${rules.rules.maxPercent}% of an order${rules.rules.spendOnNew && !rules.rules.spendOnRenew ? ' (new plans)' : !rules.rules.spendOnNew && rules.rules.spendOnRenew ? ' (renewals)' : ''}.` : '🚀 Paying with coins at checkout is coming soon.'].map((txt, i) => React.createElement("div", {
     key: i,
     className: "ff-ref-step"
   }, React.createElement("div", {
     style: {
       paddingTop: 0
     }
-  }, txt))))));
+  }, txt))))), hist && hist.length > 0 && React.createElement(Card, {
+    style: {
+      marginTop: 12
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 15,
+      fontWeight: 800,
+      color: C.text,
+      marginBottom: 6
+    }
+  }, "Coin history"), hist.map((h, i) => React.createElement("div", {
+    key: i,
+    className: "ff-hist"
+  }, React.createElement("div", {
+    style: {
+      minWidth: 0,
+      flex: 1
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13.5,
+      fontWeight: 700,
+      color: C.text
+    }
+  }, h.label), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11.5,
+      fontWeight: 600,
+      color: C.muted
+    }
+  }, String(h.at || '').slice(0, 10), h.orderId ? ' · ' + h.orderId : '')), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 15,
+      fontWeight: 800,
+      color: h.coins < 0 ? '#b45309' : C.green
+    }
+  }, h.coins > 0 ? '+' : '', h.coins)))));
 }
 function BottomNav({
   items,
@@ -3885,7 +3991,10 @@ function DetailsScreen({
     nav('pay', {
       service,
       planObj,
-      form,
+      form: {
+        ...form,
+        useCoins: coinRupees > 0
+      },
       couponState,
       creating: true,
       groupJoined: !!groupJoined
@@ -3902,7 +4011,13 @@ function DetailsScreen({
     }, () => {});
   }, [form.phone]);
   const refDiscount = !couponState.applied && refState && refState.ok ? Math.min(baseAmount, Number(refState.friendDiscount || 0)) : 0;
-  const payable = couponState.applied ? Number(couponState.finalAmount || 0) : Math.max(0, baseAmount - refDiscount);
+  const beforeCoins = couponState.applied ? Number(couponState.finalAmount || 0) : Math.max(0, baseAmount - refDiscount);
+  const [coinSel, setCoinSel] = useState({
+    on: false,
+    q: null
+  });
+  const coinRupees = coinSel.on && coinSel.q && coinSel.q.coins > 0 ? Math.min(beforeCoins, Number(coinSel.q.rupees || 0)) : 0;
+  const payable = Math.max(0, beforeCoins - coinRupees);
   return React.createElement(Slide, null, React.createElement("div", {
     style: {
       paddingBottom: 90
@@ -4187,13 +4302,22 @@ function DetailsScreen({
     placeholder: "Any request? e.g. preferred profile name",
     value: form.notes,
     onChange: set('notes')
-  })), React.createElement("div", {
+  })), React.createElement(CoinToggle, {
+    phone: form.phone,
+    amount: beforeCoins,
+    kind: 'NEW',
+    on: coinSel.on,
+    onChange: (on, q) => setCoinSel({
+      on,
+      q
+    })
+  }), React.createElement("div", {
     style: {
       marginTop: 16,
       borderTop: `1px dashed ${C.borderMd}`,
       paddingTop: 12
     }
-  }, [['Plan price', `₹${baseAmount}`], ...(couponState.applied && couponState.discount > 0 ? [['Coupon discount', `− ₹${couponState.discount}`]] : []), ...(refDiscount > 0 ? [['🎁 Invite discount', `− ₹${refDiscount}`]] : [])].map(([k, v]) => React.createElement("div", {
+  }, [['Plan price', `₹${baseAmount}`], ...(couponState.applied && couponState.discount > 0 ? [['Coupon discount', `− ₹${couponState.discount}`]] : []), ...(refDiscount > 0 ? [['🎁 Invite discount', `− ₹${refDiscount}`]] : []), ...(coinRupees > 0 ? [['🪙 Coins', `− ₹${coinRupees}`]] : [])].map(([k, v]) => React.createElement("div", {
     key: k,
     style: {
       display: 'flex',
@@ -4206,7 +4330,7 @@ function DetailsScreen({
     }
   }, React.createElement("span", null, k), React.createElement("span", {
     style: {
-      color: k === 'Coupon discount' || k === '🎁 Invite discount' ? C.green : C.text,
+      color: k === 'Coupon discount' || k === '🎁 Invite discount' ? C.green : k === '🪙 Coins' ? '#b45309' : C.text,
       fontWeight: 700
     }
   }, v))), React.createElement("div", {
@@ -4356,6 +4480,7 @@ function PayScreen({
       extraFieldValue: form?.extraVal || '',
       deviceCount: planDeviceCount_(planObj?.plan),
       tvCount: form?.tvCount != null ? form.tvCount : '',
+      useCoins: form?.useCoins === true,
       groupJoined: !!groupJoined
     }, r => {
       setLoading(null);
@@ -4371,6 +4496,7 @@ function PayScreen({
         currency: r.currency || 'INR',
         accessToken: r.accessToken || ''
       };
+      if (form?.useCoins && !r.coinsUsed && r.coinsMessage) alert('🪙 Coins were not used: ' + r.coinsMessage);
       setOrderData(oi);
       try {
         localStorage.setItem('FF_RESUME', JSON.stringify({
@@ -5178,6 +5304,10 @@ function RenewStartScreen({
 }) {
   const [working, setWorking] = useState(false);
   const submitting = useRef(false);
+  const [coinSel, setCoinSel] = useState({
+    on: false,
+    q: null
+  });
   const [couponCode, setCouponCode] = useState('');
   const [couponState, setCouponState] = useState({
     applied: false,
@@ -5229,6 +5359,7 @@ function RenewStartScreen({
   const tier = !isExpired && isSamePlan ? sub.earlyRenewDiscountTier === '8PLUS' ? '8+ days early' : sub.earlyRenewDiscountTier === '7TO2' ? '2–7 days early' : '' : '';
   const basePrice = Number(chosenPlanObj?.price || 0);
   const finalPrice = Math.max(0, basePrice - earlyDisc - (couponState.applied ? couponState.discount : 0));
+  const coinRupees = coinSel.on && coinSel.q && coinSel.q.coins > 0 ? Math.min(finalPrice, Number(coinSel.q.rupees || 0)) : 0;
   function applyCoupon() {
     if (!couponCode.trim()) return alert('Enter a coupon code.');
     setCouponState(s => ({
@@ -5276,6 +5407,7 @@ function RenewStartScreen({
     const planOverride = isSamePlan ? '' : selectedPlan;
     const coupon = couponState.applied ? couponCode.trim() : '';
     API.createRenewOrder(subId, planOverride, coupon, r => {
+      if (coinRupees > 0 && r && r.ok && !r.coinsUsed && r.coinsMessage) alert('🪙 Coins were not used: ' + r.coinsMessage);
       submitting.current = false;
       setWorking(false);
       if (setLoading) setLoading(null);
@@ -5329,7 +5461,7 @@ function RenewStartScreen({
       setWorking(false);
       if (setLoading) setLoading(null);
       alert('Renew failed: ' + (err?.message || err));
-    });
+    }, coinRupees > 0);
   }
   return React.createElement(Slide, null, React.createElement("div", {
     style: {
@@ -5635,7 +5767,29 @@ function RenewStartScreen({
       fontWeight: 800,
       color: '#15803d'
     }
-  }, "−₹", couponState.discount)), React.createElement("div", {
+  }, "−₹", couponState.discount)), coinRupees > 0 && React.createElement("div", {
+    style: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '10px 0',
+      borderBottom: `1px solid ${C.border}`
+    }
+  }, React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13,
+      fontWeight: 600,
+      color: '#b45309'
+    }
+  }, "🪙 Coins"), React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 14,
+      fontWeight: 800,
+      color: '#b45309'
+    }
+  }, "−₹", coinRupees)), React.createElement("div", {
     style: {
       display: 'flex',
       justifyContent: 'space-between',
@@ -5656,7 +5810,16 @@ function RenewStartScreen({
       fontWeight: 800,
       color: C.green
     }
-  }, "₹", finalPrice)), !isExpired && isSamePlan && (sub.earlyDiscount8Plus > 0 || sub.earlyDiscount7to2 > 0) && React.createElement("div", {
+  }, "₹", Math.max(0, finalPrice - coinRupees))), React.createElement(CoinToggle, {
+    phone: phone,
+    amount: finalPrice,
+    kind: 'RENEW',
+    on: coinSel.on,
+    onChange: (on, q) => setCoinSel({
+      on,
+      q
+    })
+  }), !isExpired && isSamePlan && (sub.earlyDiscount8Plus > 0 || sub.earlyDiscount7to2 > 0) && React.createElement("div", {
     style: {
       marginTop: 10,
       padding: '12px 13px',
@@ -8658,7 +8821,7 @@ const API = {
   getOrderStatus(orderId, onSuccess, onFailure) {
     apiCall_('getOrderStatus', [orderId], onSuccess, onFailure);
   },
-  createRenewOrder(subId, planOrSuccess, couponOrFailure, onSuccess, onFailure) {
+  createRenewOrder(subId, planOrSuccess, couponOrFailure, onSuccess, onFailure, useCoins) {
     let plan = '',
       coupon = '',
       success = onSuccess,
@@ -8672,7 +8835,7 @@ const API = {
       plan = String(planOrSuccess || '');
       coupon = String(couponOrFailure || '');
     }
-    apiCall_('createRenewOrder', [subId, plan, coupon], r => {
+    apiCall_('createRenewOrder', [subId, plan, coupon, useCoins === true], r => {
       if (typeof success === 'function') success(r);
     }, err => {
       if (typeof failure === 'function') failure(err);else console.error('createRenewOrder failed:', err);
@@ -8716,6 +8879,12 @@ const API = {
   },
   getWalletByPhone(phone, onSuccess, onFailure) {
     apiCall_('getWalletByPhone', [phone], onSuccess, onFailure);
+  },
+  getCoinQuote(phone, amount, kind, onSuccess, onFailure) {
+    apiCall_('getCoinQuote', [phone, amount, kind], onSuccess, onFailure);
+  },
+  getCoinHistory(phone, onSuccess, onFailure) {
+    apiCall_('getCoinHistory', [phone], onSuccess, onFailure);
   },
   getNetflixHouseholdLink(email, onSuccess, onFailure) {
     apiCall_('getNetflixHouseholdLink', [email], onSuccess, onFailure);
