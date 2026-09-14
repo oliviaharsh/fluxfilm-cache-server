@@ -2,7 +2,7 @@
  * FluxFilm - Recover access on MySQL (fully self-contained; no Apps Script).
  * Flow: sendOtp (email a code) -> verifyOtp (issue token) -> listSubscriptions ->
  * getAccess. OTPs + tokens are held server-side (in-memory, short TTL). The OTP
- * email is sent via Gmail SMTP using the same app password used for IMAP.
+ * email is sent through smtp.js (support@ mailbox, else the IMAP Gmail).
  *
  * Reassign (swap a dead profile for a fresh one) is intentionally NOT here yet.
  */
@@ -33,19 +33,8 @@ function purge() {
   for (const [k, v] of tokenStore) if (now > v.exp) tokenStore.delete(k);
 }
 
-// ---- Gmail SMTP (lazy) ----
-let _transport = null;
-function transport() {
-  if (_transport) return _transport;
-  const nodemailer = require('nodemailer');
-  _transport = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: Number(process.env.SMTP_PORT || 465),
-    secure: true,
-    auth: { user: process.env.IMAP_USER, pass: String(process.env.IMAP_PASS || '').replace(/\s+/g, '') },
-  });
-  return _transport;
-}
+// ---- Email (smtp.js: support@ mailbox, else the IMAP Gmail) ----
+const smtp = require('./smtp');
 async function sendOtpEmail(to, otp) {
   const html =
     '<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:460px;margin:auto">' +
@@ -53,10 +42,8 @@ async function sendOtpEmail(to, otp) {
     '<p style="color:#475569">Use this code to recover your subscription access. It expires in 10 minutes.</p>' +
     '<div style="font-size:34px;font-weight:800;letter-spacing:8px;background:#f1f5f9;border-radius:12px;padding:16px;text-align:center;margin:14px 0">' + otp + '</div>' +
     '<p style="color:#94a3b8;font-size:12px">If you didn\'t request this, you can ignore this email. 💚</p></div>';
-  await transport().sendMail({
-    from: '"FluxFilm" <' + process.env.IMAP_USER + '>',
-    to, subject: 'Your FluxFilm recovery code: ' + otp, html,
-  });
+  const r = await smtp.sendMail({ to, subject: 'Your FluxFilm recovery code: ' + otp, html });
+  if (!r.ok) throw new Error('Email is not set up on the server.');
 }
 
 // ---- Steps ----
