@@ -1049,8 +1049,8 @@ function ReferralPanel({
   const R = info.rules || {};
   const range = R.firstMax > 0 ? `${R.firstMin}–${R.firstMax}` : `${R.firstMin}+`;
   const STATUS = {
-    PENDING: ['⏳ Waiting for first order', 'warn'],
-    REWARDED: ['✅ Joined', 'ok'],
+    PENDING: ['👋 Joined · no order yet', 'warn'],
+    REWARDED: ['✅ Bought', 'ok'],
     NOT_NEW: ['Already a customer', 'bad'],
     CAPPED: ['Monthly limit reached', 'bad']
   };
@@ -1103,7 +1103,7 @@ function ReferralPanel({
     }
   }, React.createElement("div", {
     className: "ff-stats3"
-  }, [['Invited', info.invited], ['Joined', info.joined], ['Coins earned', info.coinsEarned]].map(([l, n]) => React.createElement("div", {
+  }, [['Joined', info.joined], ['Bought', info.bought || 0], ['Coins earned', info.coinsEarned]].map(([l, n]) => React.createElement("div", {
     key: l,
     className: "ff-stat"
   }, React.createElement("div", {
@@ -1445,7 +1445,8 @@ function AccountCreateModal({
     API.createOrUpdateCustomerProfile({
       name,
       phone,
-      email
+      email,
+      referralCode: getRefCode_()
     }, r => {
       setLoading(false);
       if (!r || r.ok === false) {
