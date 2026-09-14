@@ -33,6 +33,7 @@ let paymatch = null; try { paymatch = require('./paymatch'); } catch (e) { conso
 let storeMod = null; try { storeMod = require('./store'); } catch (e) { console.log('[store] not loaded:', e.message); }
 let promosMod = null; try { promosMod = require('./promos'); } catch (e) { console.log('[promos] not loaded:', e.message); }
 let pushMod = null; try { pushMod = require('./push'); } catch (e) { console.log('[push] not loaded:', e.message); }
+let feedMod = null; try { feedMod = require('./feed'); } catch (e) { console.log('[feed] not loaded:', e.message); }
 // Self-contained Node actions (recover + Get-OTP tool) — MySQL/IMAP, no Apps Script.
 const DB_RECOVER = Object.assign(
   recover ? {
@@ -190,6 +191,18 @@ const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTre
 const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota', 'otpSendCode', 'otpVerifyCode']);
 const DB_WRITE_ACTIONS = new Set(['createOrder', 'createRenewOrder', 'validateCoupon', 'verifyPayment', 'verifyPaymentByRef', 'fulfillAndGetAccess']);
 const DB_NOT_YET_PORTED = new Set(['recoverReassignAccount']);
+// 🍿 What's new feed (admin → 🍿 Feed): public posts + view / like / click counts. Viewing works in maintenance too.
+if (feedMod) {
+  Object.assign(DB_STOREFRONT, { getFeed: () => feedMod.publicList(), feedEvent: (a) => feedMod.record(a[0], a[1], a[2]) });
+  // Ticker: when no trending rows are set, show the newest feed titles instead.
+  if (DB_STOREFRONT.getTrendingItems) {
+    const trendingFromDb = DB_STOREFRONT.getTrendingItems;
+    DB_STOREFRONT.getTrendingItems = async () => { const r = await trendingFromDb(); if (r && r.ok && !(r.items || []).length) r.items = await feedMod.trendingLines(); return r; };
+  }
+  DB_STOREFRONT_ACTIONS.add('getFeed'); DB_STOREFRONT_ACTIONS.add('feedEvent');
+  LIMITS.getFeed = security.rateLimiter(200, TEN_MIN);
+  LIMITS.feedEvent = security.rateLimiter(300, TEN_MIN);
+}
 
 // -- Locate the canonical root index.html --
 // Nested storefront fallbacks are deliberately unsupported: an old public/
@@ -341,6 +354,16 @@ app.get('/promo-img/:id', async (req, res) => {
   } catch (e) { res.status(500).type('text/plain').send('error'); }
 });
 
+// Feed pictures (stored in app_settings) — before the storefront catch-all. The URL carries ?v=<updatedAt>.
+app.get('/feed-img/:id', async (req, res) => {
+  try {
+    const img = feedMod && await feedMod.image(req.params.id);
+    if (!img) return res.status(404).type('text/plain').send('not found');
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.type(img.type).send(img.buf);
+  } catch (e) { res.status(500).type('text/plain').send('error'); }
+});
+
 // -- Admin panel (read-only) --
 if (admin) admin.mountAdmin(app, { db, ADMIN_KEY, sync });
 
@@ -386,6 +409,8 @@ if (coinsMod && db.ENABLED) coinsMod.startTimer();
 if (paymatch && db.ENABLED) paymatch.startTimer();
 // Offers: save view / click counts once a minute.
 if (promosMod && db.ENABLED) promosMod.startTimer();
+// Feed: save view / like / click counts once a minute; TMDB auto-publish only if the owner switched it on.
+try { if (feedMod && db.ENABLED) feedMod.startTimer({ audit: require('./audit').makeAudit(db) }); } catch (e) { console.log('[feed] timer not started:', e.message); }
 // Mark plans EXPIRED once expiry + release date have passed (every hour; replaces the old Apps Script job).
 try { if (db.ENABLED) require('./subexpiry').startTimer(); } catch (e) { console.log('[subexpiry] not started:', e.message); }
 // Push renewal reminders (3 / 1 days before, expiry day, day after; 09:00-21:00 IST): every hour + 60 s after start.

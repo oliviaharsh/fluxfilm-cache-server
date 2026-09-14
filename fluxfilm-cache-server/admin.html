@@ -372,7 +372,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['promos', '📣', 'Offers'], ['maintenance', '🚧', 'Maintenance'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'],
   ['DATA'], ['golive', '🚚', 'Go-live import'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
@@ -408,7 +408,7 @@ function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
   $$('.bnav a').forEach(function (a) { a.className = a.id === 'bnav-' + S.view ? 'on' : ''; });
   window.scrollTo(0, 0);
-  ({ today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, payments: paymentsView, maintenance: maintenanceView, golive: goliveView, promos: promosView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
+  ({ today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, payments: paymentsView, maintenance: maintenanceView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
 }
 
 /* ================= dashboard ================= */
@@ -1960,6 +1960,243 @@ function prPreview(e) {
   if (e.type === 'bar') return '<div class="ff-promo ff-promo-bar' + th + '">' + (e.emoji ? '<span class="ff-promo-emoji">' + esc(e.emoji) + '</span>' : '') + '<span class="ff-promo-text">' + (e.title ? '<b>' + esc(e.title) + '</b> ' : '') + esc(e.message || '') + '</span>' + left + code + cta + '<span class="ff-promo-x">×</span></div>';
   if (e.type === 'card') return '<div class="ff-promo ff-promo-card' + th + '"><div class="ff-promo-glow"></div>' + art + '<div class="ff-promo-body">' + (e.title ? '<div class="ff-promo-title">' + esc(e.title) + '</div>' : '') + (e.message ? '<div class="ff-promo-msg">' + esc(e.message) + '</div>' : '') + '<div class="ff-promo-row">' + left + code + '</div>' + cta + '</div></div>';
   return '<div class="pr-phone"><div class="ff-promo ff-promo-pop' + th + '"><span class="ff-promo-x">×</span><div class="ff-promo-glow"></div>' + art + (e.title ? '<div class="ff-promo-title">' + esc(e.title) + '</div>' : '') + (e.message ? '<div class="ff-promo-msg">' + esc(e.message) + '</div>' : '') + '<div class="ff-promo-row center">' + left + code + '</div>' + cta + '<span class="ff-promo-later">Maybe later</span></div></div>';
+}
+
+/* ================= 🍿 What's new feed: posts, pictures, TMDB (feed.js, adminfeed.js) ================= */
+var FD = { list: [], services: [], settings: {}, edit: null, panel: '', found: [] };
+var FD_STATUS = { LIVE: ['🟢 Live', 'p-ok'], SCHEDULED: ['🕒 Scheduled', 'p-blue'], HIDDEN: ['🙈 Hidden (ended)', 'p-grey'], OFF: ['⏸ Off', 'p-grey'] };
+var FD_TYPES = [['movie', '🎬 Movie', 'A film'], ['series', '📺 Series', 'A show / new season'], ['announcement', '📣 News', 'An update from FluxFilm']];
+// Own styles (injected once) so this view does not touch the shared stylesheet. .ff-feed-* mirrors index.html.
+var FD_CSS = '.fd-item .fd-thumb{width:54px;height:68px;border-radius:10px;object-fit:cover;flex:none;background:#0f172a;display:grid;place-items:center;font-size:24px}' +
+  '.fd-num{display:grid;gap:6px;font-size:.85rem;font-weight:600}.fd-count{font-weight:500;color:var(--mut);font-size:.75rem}.fd-steps{margin:6px 0 10px;padding-left:20px;font-size:.84rem;line-height:1.7}' +
+  '.fd-res{display:grid;gap:10px;margin-top:12px}.fd-row{display:flex;gap:12px;align-items:flex-start;padding:10px;border:1px solid var(--line);border-radius:12px;background:#fff}' +
+  '.fd-row img,.fd-row .fd-noimg{width:62px;height:93px;border-radius:8px;object-fit:cover;flex:none;background:#0f172a;display:grid;place-items:center;font-size:22px}.fd-row p{margin:4px 0 0;font-size:.78rem;color:var(--ink2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}' +
+  '.fd-row .pr-actions{margin-top:8px}.fd-prov{max-height:260px;overflow:auto;font-size:.8rem;columns:2;margin-top:8px}.fd-attr{font-size:.72rem;color:var(--mut);margin-top:10px}' +
+  '.fd-phone{max-width:360px;margin:0 auto;background:#f3f5f9;border-radius:22px;padding:12px}' +
+  '.ff-feed-post{background:#fff;border:1px solid rgba(15,23,42,.09);border-radius:22px;overflow:hidden;font-family:"Plus Jakarta Sans",system-ui,sans-serif}' +
+  '.ff-feed-head{display:flex;align-items:center;gap:10px;padding:10px 12px}.ff-feed-av{width:38px;height:38px;border-radius:50%;flex:none;padding:2px;background:linear-gradient(135deg,#f59e0b,#db2777,#7c3aed)}' +
+  '.ff-feed-av span{width:100%;height:100%;border-radius:50%;background:#fff;display:grid;place-items:center;color:#0f172a;font-weight:900}.ff-feed-name{flex:1;min-width:0;line-height:1.25}.ff-feed-name b{display:block;font-size:14px;color:#0f172a}.ff-feed-name span{font-size:12px;color:#64748b;font-weight:600}.ff-feed-pin{font-size:12px;font-weight:700;color:#b45309}' +
+  '.ff-feed-media{position:relative;aspect-ratio:4/5;background:#eef2f7;overflow:hidden}.ff-feed-media img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.ff-feed-noimg{position:absolute;inset:0;display:grid;place-items:center;font-size:64px;background:linear-gradient(135deg,#0f172a,#1e293b)}' +
+  '.ff-feed-acts{display:flex;align-items:center;gap:14px;padding:10px 14px 0;font-size:14px;font-weight:800}.ff-feed-acts .ff-feed-trailer{margin-left:auto;background:#fee2e2;color:#b91c1c;border-radius:12px;padding:6px 10px;font-size:13px}' +
+  '.ff-feed-body{padding:6px 14px 14px}.ff-feed-title{font-size:16px;font-weight:900;color:#0f172a}.ff-feed-rel{margin-top:3px;font-size:12.5px;font-weight:700;color:#15803d}.ff-feed-cap{margin-top:6px;font-size:14px;color:#334155;line-height:1.5;white-space:pre-line}' +
+  '.ff-feed-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.ff-feed-tags span{padding:3px 9px;border-radius:999px;background:#f1f5f9;font-size:11.5px;font-weight:700;color:#475569}' +
+  '.ff-feed-cta{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:10px 16px;border-radius:16px;background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff;font-size:15px;font-weight:800}.ff-feed-cta small{display:block;font-size:11.5px;font-weight:600;opacity:.92}' +
+  '@media(max-width:600px){.fd-item .pr-actions{width:100%}.fd-item .pr-actions .btn{flex:1;justify-content:center;min-height:40px}}';
+function fdCss() { if (!document.getElementById('fdcss')) { var st = document.createElement('style'); st.id = 'fdcss'; st.textContent = FD_CSS; document.head.appendChild(st); } }
+function fdType(t) { return (FD_TYPES.filter(function (x) { return x[0] === t; })[0] || [0, t])[1]; }
+function fdTags(v) { return (Array.isArray(v) ? v : String(v || '').split(',')).map(function (x) { return String(x).trim(); }).filter(Boolean).slice(0, 6); }
+function fdImg(p, size) {
+  var u = p._img || (p.hasImage && p.id ? '/feed-img/' + p.id + '?v=' + encodeURIComponent(p.updatedAt || '') : (p.imageUrl || ''));
+  return size && /^https:\/\/image\.tmdb\.org\/t\/p\/w780\//.test(u) ? u.replace('/w780/', '/' + size + '/') : u;
+}
+function fdSvcOpts(sel, allLabel) {
+  var list = FD.services.slice(); if (sel && list.indexOf(sel) < 0) list.unshift(sel);
+  return (allLabel != null ? '<option value="">' + esc(allLabel) + '</option>' : '') + list.map(function (s) { return '<option' + (s === sel ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('');
+}
+function feedView() {
+  fdCss();
+  $('#view').innerHTML = '<div class="ph"><div><h1>🍿 What\'s new</h1><p>Instagram-style posts about new movies &amp; shows. Each post has a “Get Netflix from ₹…” button that opens that platform\'s plans.</p></div>' +
+    '<div class="row"><button class="btn ghost" id="fdset">⚙️ Settings</button><button class="btn ghost" id="fdtmdb">🔎 Find on TMDB</button><button class="btn ghost" id="fdsug">✨ Suggest new arrivals</button><button class="btn" id="fdnew">➕ New post</button></div></div><div id="fdbody"><p class="muted">Loading…</p></div>';
+  $('#fdnew').onclick = function () { fdEdit({ type: 'movie', active: false, cta: 'service', service: FD.services[0] || '', languages: [], genres: [] }); };
+  $('#fdset').onclick = fdSettings;
+  $('#fdtmdb').onclick = fdSearch;
+  $('#fdsug').onclick = fdSuggest;
+  FD.edit = null; FD.panel = '';
+  fdLoad();
+}
+function fdLoad(then) {
+  api('/admin/api/feed').then(function (r) {
+    if (!$('#fdbody')) return;
+    if (!r.ok) { $('#fdbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
+    FD.list = r.posts || []; FD.services = r.services || []; FD.settings = r.settings || {}; FD.job = r.job || null;
+    if (then) then(); else if (!FD.panel) fdRenderList();
+  });
+}
+function fdBack() { FD.edit = null; FD.panel = ''; fdLoad(); }
+// Import job status: last / next run, counts, last error, Run now.
+function fdJobCard() {
+  var j = FD.job || {}, x = j.lastResult || {}, st = FD.settings;
+  return '<div class="card" style="margin-bottom:12px"><div class="row" style="justify-content:space-between"><div><b>🤖 Automatic import from TMDB</b> <span class="pill ' + (st.autoPublish ? 'p-ok">Auto-publish ON' : 'p-warn">Drafts wait for you') + '</span></div><button class="btn sm" id="fdrun"' + (j.running ? ' disabled' : '') + '>▶️ Run now</button></div>' +
+    '<div class="muted" style="font-size:.8rem;margin-top:6px">Last run: <b>' + (j.lastRun ? prNice(j.lastRun) : 'not yet') + '</b> · Next: <b>' + (j.nextRun ? prNice(j.nextRun) : '—') + '</b> · Today: ' + (j.today || 0) + ' / ' + st.maxPerDay + ' new</div>' +
+    (j.lastRun ? '<div class="muted" style="font-size:.8rem;margin-top:2px">Last run: ' + (x.imported || 0) + ' imported (' + (x.published || 0) + ' published, ' + (x.drafts || 0) + ' drafts) · ' + (x.refreshed || 0) + ' refreshed · ' + (x.skipped || 0) + ' skipped</div>' : '') +
+    (j.lastError ? '<div class="qnote bad">⚠️ Last error: ' + esc(j.lastError) + '</div>' : '') + (j.lastNote ? '<div class="qnote warn">' + esc(j.lastNote) + '</div>' : '') + '</div>';
+}
+function fdRenderList() {
+  FD.panel = ''; FD.edit = null;
+  var h = FD.settings.hasKey ? fdJobCard() : '<div class="qnote" style="margin:0 0 12px">🤖 Add a free TMDB key in ⚙️ Settings and the feed fills itself: new movies &amp; shows on your platforms in India, with poster, story, genres and trailer.</div>';
+  if (!FD.list.length) h += '<div class="card" style="text-align:center;padding:28px"><div style="font-size:2.4rem">🍿</div><h3>No posts yet</h3><p class="muted">➕ New post, or 🔎 Find on TMDB once you have a key.</p></div>';
+  else h += '<div class="pr-list">' + FD.list.map(function (p) {
+    var st = FD_STATUS[p.status] || [p.status, 'p-grey']; var img = fdImg(p, 'w185');
+    return '<div class="card pr-item fd-item">' + (img ? '<img class="fd-thumb" src="' + esc(img) + '" alt="" loading="lazy"/>' : '<div class="fd-thumb">🍿</div>') +
+      '<div class="grow" style="min-width:0"><div class="row" style="gap:6px"><b>' + esc(p.title) + '</b><span class="pill ' + st[1] + '">' + st[0] + '</span>' + (p.pinned ? '<span class="pill p-warn">📌 Pinned</span>' : '') + '</div>' +
+      '<div class="muted" style="font-size:.78rem;margin-top:4px">' + esc(p.service || 'No platform') + ' · ' + fdType(p.type) + (p.publishAt ? ' · from ' + prNice(p.publishAt) : '') + (p.hideAfter ? ' · hides ' + prNice(p.hideAfter) : '') + (p.source === 'tmdb' ? ' · TMDB' : '') + '</div>' +
+      '<div class="muted" style="font-size:.78rem;margin-top:2px">👀 ' + p.views + ' views · ❤️ ' + p.likes + ' likes · 👆 ' + p.clicks + ' button taps · 📤 ' + p.shares + ' shares</div></div>' +
+      '<div class="pr-actions"><button class="btn sm ' + (p.active ? 'ghost' : 'green') + '" data-tog="' + p.id + '">' + (p.active ? '⏸ Turn off' : '▶️ Turn on') + '</button><button class="btn sm ghost" data-pin="' + p.id + '">' + (p.pinned ? 'Unpin' : '📌 Pin') + '</button><button class="btn sm dark" data-ed="' + p.id + '">✏️ Edit</button><button class="btn sm ghost" data-dup="' + p.id + '">⧉ Copy</button><button class="btn sm ghost" data-del="' + p.id + '" aria-label="Delete">🗑</button></div></div>';
+  }).join('') + '</div>';
+  var body = $('#fdbody');
+  body.innerHTML = h; body.oninput = body.onchange = null;
+  body.onclick = function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    var find = function (id) { return FD.list.filter(function (x) { return x.id === id; })[0]; };
+    var quick = function (p, patch, msg) { b.disabled = true; post('/admin/api/feed/save', Object.assign({}, p, patch)).then(function (r) { toast(r.ok ? msg(r.post) : '⚠️ ' + (r.message || 'error')); fdLoad(); }); };
+    if (b.id === 'fdrun') { b.disabled = true; b.textContent = '⏳ Importing…'; post('/admin/api/feed/run', {}).then(function (r) { var x = r.result || {}; toast(r.ok ? '🤖 Imported ' + (x.imported || 0) + ' (' + (x.published || 0) + ' published, ' + (x.drafts || 0) + ' drafts)' : '⚠️ ' + (r.message || 'error')); fdLoad(); }); return; }
+    if (b.dataset.ed) fdEdit(find(b.dataset.ed));
+    if (b.dataset.dup) { var c = Object.assign({}, find(b.dataset.dup)); delete c.id; c.title = c.title + ' (copy)'; c.active = false; c.hasImage = false; c.tmdbKey = ''; c.source = 'manual'; fdEdit(c); }
+    if (b.dataset.tog) quick(find(b.dataset.tog), { active: !find(b.dataset.tog).active }, function (p) { return p.active ? '▶️ Post on — live within 30 seconds' : '⏸ Post off'; });
+    if (b.dataset.pin) quick(find(b.dataset.pin), { pinned: !find(b.dataset.pin).pinned }, function (p) { return p.pinned ? '📌 Pinned to the top' : 'Unpinned'; });
+    if (b.dataset.del) { var d = find(b.dataset.del); if (confirm('Delete the post "' + d.title + '"? This cannot be undone.')) post('/admin/api/feed/delete', { id: d.id }).then(function (r) { toast(r.ok ? '🗑 Deleted' : '⚠️ ' + (r.message || 'error')); fdLoad(); }); }
+  };
+}
+function fdEdit(p) {
+  FD.panel = 'edit';
+  FD.edit = Object.assign({ languages: [], genres: [], cta: 'service' }, p);
+  var e = FD.edit;
+  var tags = function (v) { return esc(fdTags(v).join(', ')); };
+  $('#fdbody').innerHTML = '<div class="pr-edit"><div class="card"><div class="row" style="justify-content:space-between"><h3 style="margin:0">' + (e.id ? '✏️ Edit post' : '➕ New post') + '</h3><button class="btn ghost sm" id="fdback">← Back</button></div>' +
+    '<div class="pr-f"><label>Kind<div class="pr-types">' + FD_TYPES.map(function (x) { return '<button type="button" class="pr-type' + (e.type === x[0] ? ' on' : '') + '" data-type="' + x[0] + '"><b>' + x[1] + '</b><span>' + x[2] + '</span></button>'; }).join('') + '</div></label>' +
+    '<label>Title<input class="inp" data-k="title" maxlength="100" value="' + esc(e.title || '') + '" placeholder="Name of the movie or show"/></label>' +
+    '<div class="pr-two"><label>Platform<select class="inp" data-k="service">' + fdSvcOpts(e.service, '— none (news only) —') + '</select></label>' +
+    '<label>Button<select class="inp" data-k="cta"><option value="service"' + (e.cta !== 'none' ? ' selected' : '') + '>“Get ' + esc(e.service || 'platform') + '” → its plans</option><option value="none"' + (e.cta === 'none' ? ' selected' : '') + '>No button</option></select></label></div>' +
+    '<label>Caption <span class="fd-count" id="fdcount"></span><textarea class="inp" data-k="caption" maxlength="600" rows="5" placeholder="What is it about? Why watch it?">' + esc(e.caption || '') + '</textarea></label>' +
+    '<div class="pr-two"><label>Release date <span class="muted">(optional)</span><input class="inp" type="date" data-k="releaseDate" value="' + esc(e.releaseDate || '') + '"/></label>' +
+    '<label>Trailer <span class="muted">(YouTube link, optional)</span><input class="inp" data-k="trailerUrl" value="' + esc(e.trailerUrl || '') + '" placeholder="https://www.youtube.com/watch?v=…"/></label></div>' +
+    '<div class="pr-two"><label>Languages <span class="muted">(commas)</span><input class="inp" data-k="languages" value="' + tags(e.languages) + '" placeholder="Hindi, English"/></label>' +
+    '<label>Genres <span class="muted">(commas)</span><input class="inp" data-k="genres" value="' + tags(e.genres) + '" placeholder="Thriller, Drama"/></label></div>' +
+    '<div><div class="muted" style="font-size:.8rem;margin-bottom:4px">Picture — poster (4:5 or 2:3) looks best</div>' + (e.id ? '<input type="file" accept="image/png,image/jpeg,image/webp" id="fdimg"/>' + (e.hasImage ? ' <button type="button" class="btn ghost sm" id="fdimgdel">Remove uploaded picture</button>' : '') : '<span class="muted" style="font-size:.8rem">Save first, then upload a picture — or paste a TMDB picture link below.</span>') + '</div>' +
+    '<label>…or picture link <span class="muted">(https://image.tmdb.org/… — used when no picture is uploaded)</span><input class="inp" data-k="imageUrl" value="' + esc(e.imageUrl || '') + '" placeholder="https://image.tmdb.org/t/p/w780/…"/></label>' +
+    '<div class="pr-two"><label>Publish at <span class="muted">(empty = now)</span><input class="inp" type="datetime-local" data-k="publishAt" value="' + prLocal(e.publishAt) + '"/></label><label>Hide after <span class="muted">(optional)</span><input class="inp" type="datetime-local" data-k="hideAfter" value="' + prLocal(e.hideAfter) + '"/></label></div>' +
+    '<label class="rf-tog"><input type="checkbox" data-k="pinned"' + (e.pinned ? ' checked' : '') + '/> 📌 Pin to the top of the feed</label>' +
+    '<label class="rf-tog"><input type="checkbox" data-k="active"' + (e.active ? ' checked' : '') + '/> <b>Post ON</b> (shows between publish and hide times)</label></div>' +
+    '<div class="rf-save"><button class="btn green" id="fdsave">💾 Save post</button><span class="rf-state" id="prstate"></span></div></div>' +
+    '<div class="card pr-prev"><h3>👀 Phone preview</h3><div id="fdpreview"></div><p class="muted" style="font-size:.75rem;margin-top:10px">Customers see it within 30 seconds of saving (when it is ON and inside the times).</p></div></div>';
+  var body = $('#fdbody');
+  var refresh = function () { $('#fdpreview').innerHTML = fdPreview(FD.edit); var c = $('#fdcount'); if (c) c.textContent = String(FD.edit.caption || '').length + ' / 600'; };
+  body.oninput = body.onchange = function (ev) {
+    var el = ev.target; if (!el.dataset.k) return;
+    var k = el.dataset.k, v = el.type === 'checkbox' ? el.checked : el.value;
+    if (k === 'publishAt' || k === 'hideAfter') v = el.value ? el.value + ':00+05:30' : '';
+    FD.edit[k] = v;
+    rfStateSet('dirty', '● Not saved yet'); refresh();
+  };
+  body.onclick = function (ev) { var tb = ev.target.closest('[data-type]'); if (tb) { FD.edit.type = tb.dataset.type; fdEdit(FD.edit); } };
+  $('#fdback').onclick = fdBack;
+  $('#fdsave').onclick = function () {
+    var body2 = Object.assign({}, FD.edit, { languages: fdTags(FD.edit.languages), genres: fdTags(FD.edit.genres) });
+    saveSettingsBtn(this, '/admin/api/feed/save', body2, rfStateSet, function (r) { r.changed = ['x']; var st = r.status; FD.edit = Object.assign({}, r.post); fdLoad(function () { fdEdit(FD.edit); rfStateSet('ok', '✅ Saved — ' + ((FD_STATUS[st] || [st])[0])); }); });
+  };
+  var fi = $('#fdimg');
+  if (fi) fi.onchange = function () {
+    var f = fi.files[0]; if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        var k = Math.min(1, 1000 / Math.max(img.width, img.height)), cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        var q = 0.85, url = cv.toDataURL('image/jpeg', q);
+        while (url.length > 440000 && q > 0.45) { q -= 0.1; url = cv.toDataURL('image/jpeg', q); }
+        post('/admin/api/feed/image', { id: FD.edit.id, dataUrl: url }).then(function (r) { if (!r.ok) return toast('⚠️ ' + (r.message || 'error')); toast('🖼️ Picture saved'); FD.edit.hasImage = true; FD.edit.updatedAt = r.updatedAt; FD.edit._img = url; fdEdit(FD.edit); });
+      };
+      img.src = rd.result;
+    };
+    rd.readAsDataURL(f);
+  };
+  var del = $('#fdimgdel'); if (del) del.onclick = function () { post('/admin/api/feed/image', { id: FD.edit.id, dataUrl: '' }).then(function (r) { if (r.ok) { FD.edit.hasImage = false; FD.edit._img = ''; fdEdit(FD.edit); } }); };
+  refresh();
+}
+function fdPreview(e) {
+  var img = fdImg(e), svc = e.service || 'FluxFilm', tags = fdTags(e.languages).concat(fdTags(e.genres));
+  var rel = ''; if (/^\d{4}-\d{2}-\d{2}$/.test(e.releaseDate || '')) { var t = Date.parse(e.releaseDate + 'T00:00:00+05:30'); rel = (t > Date.now() ? '📅 Streaming from ' : (e.type === 'series' ? '📺 Out since ' : '🎬 Released ')) + prettyDate(e.releaseDate); }
+  return '<div class="fd-phone"><div class="ff-feed-post"><div class="ff-feed-head"><div class="ff-feed-av"><span>' + esc(svc.charAt(0).toUpperCase()) + '</span></div><div class="ff-feed-name"><b>' + esc(svc) + '</b><span>' + fdType(e.type) + ' · just now</span></div>' + (e.pinned ? '<span class="ff-feed-pin">📌 Pinned</span>' : '') + '</div>' +
+    '<div class="ff-feed-media">' + (img ? '<img src="' + esc(img) + '" alt=""/>' : '<div class="ff-feed-noimg">🍿</div>') + '</div>' +
+    '<div class="ff-feed-acts"><span>🤍</span><span>📤 Share</span>' + (e.trailerUrl ? '<span class="ff-feed-trailer">▶ Trailer</span>' : '') + '</div>' +
+    '<div class="ff-feed-body"><div class="ff-feed-title">' + esc(e.title || 'Title') + '</div>' + (rel ? '<div class="ff-feed-rel">' + rel + '</div>' : '') + (e.caption ? '<div class="ff-feed-cap">' + esc(e.caption) + '</div>' : '') +
+    (tags.length ? '<div class="ff-feed-tags">' + tags.map(function (x) { return '<span>' + esc(x) + '</span>'; }).join('') + '</div>' : '') +
+    (e.cta !== 'none' && e.service ? '<div class="ff-feed-cta"><span>Get ' + esc(e.service) + ' from ₹…<small>Streaming on ' + esc(e.service) + '</small></span><span>›</span></div>' : '') + '</div></div></div>';
+}
+function fdPanel(title, inner) {
+  $('#fdbody').innerHTML = '<div class="card"><div class="row" style="justify-content:space-between"><h3 style="margin:0">' + title + '</h3><button class="btn ghost sm" id="fdback">← Back</button></div>' + inner + '</div>';
+  var body = $('#fdbody'); body.oninput = body.onchange = body.onclick = null;
+  $('#fdback').onclick = fdBack;
+}
+function fdSettings() {
+  FD.panel = 'settings';
+  var st = FD.settings, pm = st.providerMap || {};
+  fdPanel('⚙️ Feed settings',
+    '<h4 style="margin:16px 0 4px">🎬 TMDB key (free) — turns on the automatic feed</h4><p class="muted" style="margin:0;font-size:.84rem">' + (st.hasKey ? '✅ A key is saved (' + esc(st.keyType) + '). It stays on the server and is never shown again.' : 'No key yet — posts can still be made by hand.') + '</p>' +
+    '<ol class="fd-steps"><li>Open <b>themoviedb.org</b> → Sign up (free) → verify your email.</li><li>Profile → <b>Settings → API</b> → create an API key (personal use).</li><li>Copy the <b>API Read Access Token</b> (long) or the <b>API Key</b> and paste it here.</li></ol>' +
+    '<div class="row"><input class="inp grow" id="fdkey" type="password" autocomplete="off" spellcheck="false" placeholder="' + (st.hasKey ? 'Paste a new key to replace it' : 'Paste TMDB key or token') + '"/><button class="btn green" id="fdkeysave">💾 Save key</button>' + (st.hasKey ? '<button class="btn ghost" id="fdkeydel">Remove key</button><button class="btn ghost" id="fdprov">🔌 Test + provider ids</button>' : '') + '</div><div id="fdprovout"></div>' +
+    '<h4 style="margin:20px 0 4px">🤖 Automatic import (every 6 hours)</h4><label class="rf-tog"><input type="checkbox" id="fdauto"' + (st.autoPublish ? ' checked' : '') + '/> <b>Publish imported posts by themselves</b></label>' +
+    '<p class="muted" style="margin:0 0 10px;font-size:.8rem">ON: new titles go live at once. OFF: they wait as drafts (⏸ Off) until you turn them on. Posts you edit are never changed by the import.</p>' +
+    '<div class="muted" style="font-size:.8rem;margin-bottom:4px">Platforms <span>(none ticked = every platform you sell)</span></div><div class="row" style="gap:12px">' + FD.services.map(function (s) { return '<label class="rf-tog" style="margin:0"><input type="checkbox" data-plat="' + esc(s) + '"' + ((st.platforms || []).indexOf(s) >= 0 ? ' checked' : '') + '/> ' + esc(s) + '</label>'; }).join('') + '</div>' +
+    '<div class="muted" style="font-size:.8rem;margin:12px 0 4px">Languages <span>(not used for Crunchyroll anime)</span></div><div class="row" style="gap:12px">' + Object.keys(st.languageNames || {}).map(function (c) { return '<label class="rf-tog" style="margin:0"><input type="checkbox" data-lang="' + c + '"' + ((st.languages || []).indexOf(c) >= 0 ? ' checked' : '') + '/> ' + esc(st.languageNames[c]) + '</label>'; }).join('') + '</div>' +
+    '<div class="pr-two" style="margin-top:12px"><label class="fd-num">New posts per day (max)<input class="inp" type="number" min="0" max="50" id="fdmax" value="' + st.maxPerDay + '"/></label><label class="fd-num">Hide posts after (days, 0 = never)<input class="inp" type="number" min="0" max="365" id="fdhide" value="' + st.autoHideDays + '"/></label></div>' +
+    '<div class="pr-two" style="margin-top:8px"><label class="fd-num">Min TMDB popularity<input class="inp" type="number" min="0" step="1" id="fdpop" value="' + st.minPopularity + '"/></label><label class="fd-num">Min TMDB votes<input class="inp" type="number" min="0" step="1" id="fdvotes" value="' + st.minVotes + '"/></label></div>' +
+    '<h4 style="margin:20px 0 4px">🔌 Platform → TMDB provider ids (India)</h4><p class="muted" style="margin:0 0 6px;font-size:.8rem">A platform name containing the word on the left uses these ids (several ids: 2336|122). Use “Test + provider ids” to see TMDB\'s current list.</p>' +
+    '<textarea class="inp" id="fdmap" rows="8" style="width:100%;font-family:ui-monospace,monospace;font-size:.85rem">' + esc(Object.keys(pm).map(function (k) { return k + ' = ' + pm[k]; }).join('\n')) + '</textarea>' +
+    '<div class="rf-save"><button class="btn green" id="fdsetsave">💾 Save settings</button><span class="rf-state" id="prstate"></span></div>');
+  var parseMap = function () { var out = {}; String($('#fdmap').value || '').split('\n').forEach(function (l) { var m = l.split('='); if (m.length === 2 && m[0].trim() && m[1].trim()) out[m[0].trim().toLowerCase()] = m[1].trim(); }); return out; };
+  var after = function (r) { if (r.ok) { FD.settings = r.settings; fdSettings(); } };
+  $('#fdkeysave').onclick = function () { var k = $('#fdkey').value.trim(); if (!k) return toast('Paste the key first'); post('/admin/api/feed/settings', { tmdbKey: k }).then(function (r) { $('#fdkey').value = ''; toast(r.ok ? '✅ Key saved' : '⚠️ ' + (r.message || 'error')); after(r); }); };
+  if ($('#fdkeydel')) $('#fdkeydel').onclick = function () { if (confirm('Remove the TMDB key? Posts already made stay.')) post('/admin/api/feed/settings', { clearKey: true }).then(function (r) { toast(r.ok ? 'Key removed' : '⚠️ ' + (r.message || 'error')); after(r); }); };
+  if ($('#fdprov')) $('#fdprov').onclick = function () {
+    var out = $('#fdprovout'); out.innerHTML = '<p class="muted">Asking TMDB…</p>';
+    post('/admin/api/feed/tmdb/providers', {}).then(function (r) { out.innerHTML = r.ok ? '<div class="qnote">✅ TMDB accepted the key. Streaming apps in India:</div><div class="fd-prov">' + r.providers.map(function (p) { return '<div><b>' + p.id + '</b> ' + esc(p.name) + '</div>'; }).join('') + '</div>' : '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'; });
+  };
+  $('#fdsetsave').onclick = function () {
+    var ticked = function (attr) { return $$('[data-' + attr + ']').filter(function (x) { return x.checked; }).map(function (x) { return x.getAttribute('data-' + attr); }); };
+    saveSettingsBtn(this, '/admin/api/feed/settings', { autoPublish: $('#fdauto').checked, platforms: ticked('plat'), languages: ticked('lang'), maxPerDay: $('#fdmax').value, autoHideDays: $('#fdhide').value, minPopularity: $('#fdpop').value, minVotes: $('#fdvotes').value, providerMap: parseMap() }, rfStateSet, function (r) { FD.settings = r.settings; });
+  };
+}
+function fdResRows(rows, pickSvc) {
+  if (!rows.length) return '<p class="muted">Nothing found.</p>';
+  return rows.map(function (d, i) {
+    var yr = (d.releaseDate || '').slice(0, 4);
+    return '<div class="fd-row">' + (d.imageUrl ? '<img src="' + esc(fdImg(d, 'w185')) + '" alt="" loading="lazy"/>' : '<div class="fd-noimg">🍿</div>') + '<div class="grow" style="min-width:0"><div class="row" style="gap:6px"><b>' + esc(d.title) + '</b>' + (yr ? '<span class="muted">' + yr + '</span>' : '') + '<span class="pill p-grey">' + fdType(d.type) + '</span>' + (d.service && !pickSvc ? '<span class="pill p-blue">' + esc(d.service) + '</span>' : '') + (d.posted ? '<span class="pill p-ok">Already posted</span>' : '') + '</div>' +
+      '<p>' + esc(d.caption || '') + '</p>' + (d.posted ? '' : '<div class="pr-actions"><button class="btn sm ghost" data-mk="' + i + '">📝 Save as draft</button><button class="btn sm green" data-pub="' + i + '">🚀 Publish now</button></div>') + '</div></div>';
+  }).join('');
+}
+function fdWireRows(box, pickSvc) {
+  box.onclick = function (ev) {
+    var b = ev.target.closest('button'); if (!b || !(b.dataset.mk || b.dataset.pub)) return;
+    var d = FD.found[+(b.dataset.mk || b.dataset.pub)], publish = !!b.dataset.pub, svc = pickSvc ? $('#fdsvc').value : d.service;
+    if (!svc) return toast('Pick the platform first');
+    if (publish && !confirm('Publish "' + d.title + '" on ' + svc + ' now?')) return;
+    b.disabled = true;
+    post('/admin/api/feed/tmdb/create', { tmdbKey: d.tmdbKey, service: svc, publish: publish }).then(function (r) {
+      if (!r.ok) { b.disabled = false; return toast('⚠️ ' + (r.message || 'error')); }
+      d.posted = true; toast(publish ? '🚀 Published — live within 30 seconds' : '📝 Draft saved (OFF) — edit it in the list');
+      box.innerHTML = fdResRows(FD.found, pickSvc); fdLoad(function () {});
+    });
+  };
+}
+function fdSearch() {
+  if (!FD.settings.hasKey) { toast('Add your TMDB key first'); return fdSettings(); }
+  FD.panel = 'search'; FD.found = [];
+  fdPanel('🔎 Find on TMDB', '<div class="row" style="margin-top:12px"><input class="inp grow" id="fdq" placeholder="Movie or show name" autocomplete="off"/><select class="inp" id="fdsvc">' + fdSvcOpts('', 'Streams on… (pick)') + '</select><button class="btn" id="fdgo">Search</button></div><div class="fd-res" id="fdres"></div><p class="fd-attr">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>');
+  var go = function () {
+    var q = $('#fdq').value.trim(); if (q.length < 2) return toast('Type at least 2 letters');
+    $('#fdres').innerHTML = '<p class="muted">Searching…</p>';
+    post('/admin/api/feed/tmdb/search', { q: q }).then(function (r) { if (!r.ok) { $('#fdres').innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'; return; } FD.found = r.results; $('#fdres').innerHTML = fdResRows(FD.found, true); });
+  };
+  $('#fdgo').onclick = go; $('#fdq').onkeydown = function (e) { if (e.key === 'Enter') go(); }; $('#fdq').focus();
+  fdWireRows($('#fdres'), true);
+}
+function fdSuggest() {
+  if (!FD.settings.hasKey) { toast('Add your TMDB key first'); return fdSettings(); }
+  FD.panel = 'suggest'; FD.found = [];
+  fdPanel('✨ Suggest new arrivals', '<p class="muted" style="font-size:.84rem">Popular movies &amp; shows that arrived recently (or arrive in the next 2 weeks) on your platforms in India. Nothing is published until you tap it.</p>' +
+    '<div class="row"><select class="inp" id="fdsugsvc">' + fdSvcOpts('', 'All my platforms') + '</select><select class="inp" id="fddays"><option value="7">Last 7 days</option><option value="14">Last 14 days</option><option value="30" selected>Last 30 days</option><option value="60">Last 60 days</option></select><button class="btn" id="fdsuggo">✨ Suggest</button></div><div class="fd-res" id="fdres"></div><p class="fd-attr">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>');
+  $('#fdsuggo').onclick = function () {
+    var svc = $('#fdsugsvc').value, btn = this; btn.disabled = true; $('#fdres').innerHTML = '<p class="muted">Asking TMDB…</p>';
+    post('/admin/api/feed/tmdb/suggest', { services: svc ? [svc] : [], days: +$('#fddays').value }).then(function (r) {
+      btn.disabled = false;
+      if (!r.ok) { $('#fdres').innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'; return; }
+      FD.found = r.drafts;
+      $('#fdres').innerHTML = (r.skipped && r.skipped.length ? '<div class="qnote warn">No TMDB provider id for: ' + esc(r.skipped.join(', ')) + ' (⚙️ Settings).</div>' : '') + fdResRows(FD.found, false);
+    });
+  };
+  fdWireRows($('#fdres'), false);
 }
 
 /* ================= plans: builder, copy, on/off, safe delete (adminplans.js) ================= */

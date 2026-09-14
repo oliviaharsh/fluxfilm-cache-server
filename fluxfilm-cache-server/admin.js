@@ -156,6 +156,8 @@ function mountAdmin(app, deps) {
   require('./adminstore').mount(app, Object.assign({ db, auth, audit }, deps.store || {}));
   // Offers, banners, pop-ups (adminpromos.js).
   require('./adminpromos').mount(app, Object.assign({ db, auth, audit }, deps.promos || {}));
+  // 🍿 What's new feed: posts, pictures, TMDB search / suggestions (adminfeed.js).
+  require('./adminfeed').mount(app, Object.assign({ db, auth, audit }, deps.feed || {}));
   // Push notifications: renewal reminders settings, test, send, broadcast (adminpush.js).
   require('./adminpush').mount(app, Object.assign({ db, auth, audit }, deps.push || {}));
   // Email sender check + test email (adminmail.js).
