@@ -416,6 +416,9 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 @keyframes ffInstallUp { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes ffInstallFade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ff-install, .ff-install-bg { animation: none; } }
+/* ── Renewal reminders pop-up (push notifications) — reuses the install pop-up look ── */
+.ff-push-bell { width: 56px; height: 56px; flex: none; border-radius: 16px; display: grid; place-items: center; font-size: 30px; background: linear-gradient(135deg, #fef3c7, #fde68a); box-shadow: 0 6px 16px rgba(245,158,11,.25); }
+.ff-push-msg { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: #fff7ed; color: #9a3412; font-size: 13.5px; font-weight: 700; line-height: 1.45; }
 /* ── Mobile hardening (added) ── */
 #root{overflow-x:clip}
 #root img,#root svg,#root canvas{max-width:100%}
@@ -7232,6 +7235,14 @@ function AccountScreen({
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [pendingAvatar, setPendingAvatar] = useState('');
   const [avatarSaving, setAvatarSaving] = useState(false);
+  // Account → Notifications row (renewal reminders on this device).
+  const [pushSt, setPushSt] = useState('off');
+  useEffect(() => {
+    const load = () => pushState_().then(setPushSt);
+    load();
+    window.addEventListener('ff-push-changed', load);
+    return () => window.removeEventListener('ff-push-changed', load);
+  }, []);
   useEffect(() => {
     if (passedProfile) {
       setProfile(passedProfile);
@@ -7406,7 +7417,13 @@ function AccountScreen({
     bg: 'rgba(245,158,11,.12)',
     title: 'Wallet',
     sub: 'Your FluxFilm coins'
-  }].concat(isStandalone_() ? [] : [{
+  }].concat(pushEligible_(allSubs) ? [{
+    k: 'push',
+    icon: '🔔',
+    bg: 'rgba(245,158,11,.12)',
+    title: 'Notifications',
+    sub: PUSH_ROW_SUB_[pushSt] || PUSH_ROW_SUB_.off
+  }] : []).concat(isStandalone_() ? [] : [{
     k: 'install',
     icon: '📲',
     bg: 'rgba(22,163,74,.12)',
@@ -7415,7 +7432,7 @@ function AccountScreen({
   }]).map(r => React.createElement("button", {
     key: r.k,
     className: "ff-arow",
-    onClick: () => r.k === 'install' ? window.dispatchEvent(new Event('ff-install-open')) : openSection(r.k)
+    onClick: () => r.k === 'install' ? window.dispatchEvent(new Event('ff-install-open')) : r.k === 'push' ? window.dispatchEvent(new Event('ff-push-open')) : openSection(r.k)
   }, React.createElement("span", {
     className: "ff-arow-ic",
     style: {
@@ -8592,6 +8609,7 @@ function InstallPrompt({
     if (!ready && !isIos_()) return;
     const t = setTimeout(() => {
       if (window.ffPromoOpen) return; // an offer pop-up is showing — ask on the next screen instead
+      if (window.ffPushOpen) return; // the renewal reminders pop-up is showing
       try {
         sessionStorage.setItem('ff_install_asked', '1');
       } catch (e) {}
@@ -8659,6 +8677,298 @@ function InstallPrompt({
     className: "ff-install-never",
     onClick: never
   }, "Don’t show this again")));
+}
+// ── Push notifications: renewal reminders (admin → 🔔 Notifications) ──
+function pushSupported_() {
+  try {
+    return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  } catch (e) {
+    return false;
+  }
+}
+function pushSnoozedUntil_() {
+  try {
+    return Number(localStorage.getItem('ff_push_snooze') || 0);
+  } catch (e) {
+    return 0;
+  }
+}
+function pushSnooze_() {
+  try {
+    localStorage.setItem('ff_push_snooze', String(Date.now() + 7 * 86400000));
+  } catch (e) {}
+}
+function pushAskedThisVisit_() {
+  try {
+    return !!sessionStorage.getItem('ff_push_asked');
+  } catch (e) {
+    return false;
+  }
+}
+function pushMarkAsked_() {
+  try {
+    sessionStorage.setItem('ff_push_asked', '1');
+  } catch (e) {}
+}
+function pushOnPhone_() {
+  try {
+    return localStorage.getItem('ff_push_phone') || '';
+  } catch (e) {
+    return '';
+  }
+}
+// Reminders make sense for customers with a running plan or one that ended in the last 15 days.
+function pushEligible_(subs) {
+  return (subs || []).some(s => s && s.daysLeft != null && s.daysLeft !== '' && Number(s.daysLeft) >= -15);
+}
+function pushB64ToBytes_(b64) {
+  const s = String(b64 || '');
+  const raw = atob((s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+// 'on' · 'off' · 'denied' · 'ios-install' (iPhone: works only from the Home Screen app, iOS 16.4+) · 'unsupported'
+function pushState_() {
+  if (isIos_() && !isStandalone_()) return Promise.resolve('ios-install');
+  if (!pushSupported_()) return Promise.resolve('unsupported');
+  if (Notification.permission === 'denied') return Promise.resolve('denied');
+  return navigator.serviceWorker.getRegistration('/').then(reg => reg && reg.pushManager ? reg.pushManager.getSubscription() : null).then(sub => sub && Notification.permission === 'granted' && pushOnPhone_() ? 'on' : 'off').catch(() => 'off');
+}
+// Only ever called from a tap (browsers — and iPhones — require a tap for the permission question).
+function pushEnable_(phone) {
+  if (!pushSupported_()) return Promise.resolve({
+    ok: false,
+    message: 'This browser cannot show notifications.'
+  });
+  const ask = () => new Promise(res => {
+    const p = Notification.requestPermission(res);
+    if (p && p.then) p.then(res);
+  });
+  return ask().then(perm => {
+    if (perm !== 'granted') return {
+      ok: false,
+      denied: perm === 'denied',
+      message: perm === 'denied' ? 'Notifications are blocked for this site. Allow them in your browser settings, then try again.' : 'No problem — you can switch reminders on any time in Account → Notifications.'
+    };
+    return new Promise(res => API.getPushKey(r => res(r), () => res(null))).then(k => {
+      if (!k || !k.ok || !k.publicKey) return {
+        ok: false,
+        message: 'Reminders are not available right now. Please try again later.'
+      };
+      return navigator.serviceWorker.register('/sw.js').then(() => navigator.serviceWorker.ready).then(reg => reg.pushManager.getSubscription().then(old => old || reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: pushB64ToBytes_(k.publicKey)
+      }))).then(sub => new Promise(res => API.pushSubscribe(phone, sub.toJSON(), r => res(r || {
+        ok: false
+      }), () => res({
+        ok: false,
+        message: 'No internet — please try again.'
+      })))).then(r => {
+        if (r && r.ok) {
+          try {
+            localStorage.setItem('ff_push_phone', normPhone_(phone));
+          } catch (e) {}
+          window.dispatchEvent(new Event('ff-push-changed'));
+        }
+        return r;
+      });
+    });
+  }).catch(() => ({
+    ok: false,
+    message: 'Could not switch on reminders on this device. Please try again.'
+  }));
+}
+// Stops reminders for this phone on this device. The browser keeps its notification address, so the admin app
+// on the same phone keeps working.
+function pushDisable_() {
+  try {
+    localStorage.removeItem('ff_push_phone');
+  } catch (e) {}
+  const done = r => {
+    window.dispatchEvent(new Event('ff-push-changed'));
+    return r || {
+      ok: true
+    };
+  };
+  if (!pushSupported_()) return Promise.resolve(done());
+  return navigator.serviceWorker.getRegistration('/').then(reg => reg && reg.pushManager ? reg.pushManager.getSubscription() : null).then(sub => sub ? new Promise(res => API.pushUnsubscribe(sub.endpoint, r => res(r), () => res(null))) : null).catch(() => null).then(done);
+}
+// Tapping a reminder opens /?source=push&renew=<sub_id>: renew that plan if it belongs to the logged-in phone.
+function pushRenewTarget_(search, manageResp) {
+  let id = '';
+  try {
+    const q = new URLSearchParams(search || '');
+    if (q.get('source') !== 'push') return null;
+    id = String(q.get('renew') || '');
+  } catch (e) {
+    return null;
+  }
+  if (!id) return null;
+  const m = manageResp || {};
+  return [...(m.actionable || []), ...(m.history || [])].find(s => s && String(s.subId) === id && s.showRenewButton !== false) || null;
+}
+function pushClearUrl_() {
+  try {
+    const u = new URL(window.location.href);
+    if (u.searchParams.get('source') !== 'push') return;
+    u.searchParams.delete('source');
+    u.searchParams.delete('renew');
+    window.history.replaceState(null, '', u.pathname + u.search + u.hash);
+  } catch (e) {}
+}
+const PUSH_ROW_SUB_ = {
+  on: 'On — we remind you before a plan ends',
+  off: 'Off — tap to get renewal reminders',
+  denied: 'Blocked in your browser settings',
+  'ios-install': 'iPhone: add FluxFilm to your Home Screen first',
+  unsupported: 'Not available in this browser'
+};
+function PushPrompt({
+  screen,
+  phone,
+  success
+}) {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState('ask'); // ask · ios · on · done · offdone · blocked · unsupported
+  const [manual, setManual] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  // Account → Notifications.
+  useEffect(() => {
+    const onOpen = () => pushState_().then(st => {
+      setManual(true);
+      setMsg('');
+      setMode(st === 'on' ? 'on' : st === 'ios-install' ? 'ios' : st === 'denied' ? 'blocked' : st === 'unsupported' ? 'unsupported' : 'ask');
+      setOpen(true);
+    });
+    window.addEventListener('ff-push-open', onOpen);
+    return () => window.removeEventListener('ff-push-open', onOpen);
+  }, []);
+  // After a successful purchase / renewal: at most once per visit; "Not now" waits 7 days.
+  useEffect(() => {
+    if (screen !== 'done' || !success || !phone) return;
+    if (pushAskedThisVisit_() || pushSnoozedUntil_() > Date.now()) return;
+    let live = true;
+    const t = setTimeout(() => {
+      if (window.ffPromoOpen || window.ffPushOpen) return;
+      pushState_().then(st => {
+        if (!live || st !== 'off' && st !== 'ios-install') return;
+        pushMarkAsked_();
+        setManual(false);
+        setMsg('');
+        setMode(st === 'ios-install' ? 'ios' : 'ask');
+        setOpen(true);
+      });
+    }, 4000);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [screen, success, phone]);
+  useEffect(() => {
+    window.ffPushOpen = open;
+    return () => {
+      window.ffPushOpen = false;
+    };
+  }, [open]);
+  if (!open) return null;
+  const close = () => setOpen(false);
+  const notNow = () => {
+    if (!manual) pushSnooze_();
+    setOpen(false);
+  };
+  const turnOn = () => {
+    if (busy) return;
+    setBusy(true);
+    setMsg('');
+    pushEnable_(phone).then(r => {
+      setBusy(false);
+      if (r && r.ok) {
+        setMode('done');
+        setTimeout(() => setOpen(false), 2600);
+        return;
+      }
+      if (r && r.denied) setMode('blocked');
+      setMsg(r && r.message || 'Could not switch on reminders.');
+    });
+  };
+  const turnOff = () => {
+    if (busy) return;
+    setBusy(true);
+    pushDisable_().then(() => {
+      setBusy(false);
+      setMode('offdone');
+      setTimeout(() => setOpen(false), 2000);
+    });
+  };
+  const h = React.createElement;
+  const head = {
+    ask: ['🔔 Get renewal reminders', 'We’ll remind you before your plan ends, so your shows never stop. Only about your plans — no spam.'],
+    ios: ['🔔 Reminders on iPhone', 'On iPhone, reminders work only in the FluxFilm app on your Home Screen (iOS 16.4 or newer). Add it, open it from the Home Screen, then tap Account → Notifications.'],
+    on: ['🔔 Reminders are ON', 'This device gets a reminder before your plan ends.'],
+    done: ['✅ Reminders are on', 'We’ll remind you before your plan ends.'],
+    offdone: ['🔕 Reminders are off', 'You can switch them on again any time in Account.'],
+    blocked: ['🔕 Notifications are blocked', 'Tap the 🔒 next to the website address → Notifications → Allow. Then try again.'],
+    unsupported: ['🔕 Not available here', 'This browser can’t show notifications. Try Chrome on Android, or the FluxFilm app on iPhone.']
+  }[mode] || ['🔔 Notifications', ''];
+  return h("div", {
+    className: "ff-install-bg",
+    onClick: e => {
+      if (e.target === e.currentTarget) close();
+    }
+  }, h("div", {
+    className: "ff-install",
+    role: "dialog",
+    "aria-label": "Renewal reminders"
+  }, h("div", {
+    className: "ff-install-top"
+  }, h("div", {
+    className: "ff-push-bell",
+    "aria-hidden": "true"
+  }, "🔔"), h("div", null, h("b", null, head[0]), h("span", null, head[1])), h("button", {
+    className: "ff-install-x",
+    onClick: close,
+    "aria-label": "Close"
+  }, "×")), msg && h("div", {
+    className: "ff-push-msg",
+    role: "status"
+  }, msg), mode === 'ask' && h("div", {
+    className: "ff-install-btns"
+  }, h(Btn, {
+    variant: "primary",
+    full: true,
+    onClick: turnOn,
+    disabled: busy
+  }, busy ? '⏳ Switching on…' : '🔔 Yes, remind me'), h(Btn, {
+    variant: "ghost",
+    full: true,
+    onClick: notNow
+  }, manual ? 'Close' : 'Not now')), mode === 'on' && h("div", {
+    className: "ff-install-btns"
+  }, h(Btn, {
+    variant: "primary",
+    full: true,
+    onClick: close
+  }, "👍 Keep them on"), h(Btn, {
+    variant: "ghost",
+    full: true,
+    onClick: turnOff,
+    disabled: busy
+  }, busy ? '⏳ Turning off…' : '🔕 Turn off reminders')), mode === 'ios' && h(React.Fragment, null, h("ol", {
+    className: "ff-install-steps"
+  }, h("li", null, "Tap the ", h("b", null, "Share"), " button ", h("span", {
+    className: "ff-ios-share"
+  }, "⬆️"), " at the bottom of Safari"), h("li", null, "Choose ", h("b", null, "Add to Home Screen"), " → ", h("b", null, "Add")), h("li", null, "Open ", h("b", null, "FluxFilm"), " from your Home Screen → Account → ", h("b", null, "Notifications"))), !manual && h("button", {
+    className: "ff-install-never",
+    onClick: notNow
+  }, "Not now")), (mode === 'blocked' || mode === 'unsupported') && h("div", {
+    className: "ff-install-btns"
+  }, h(Btn, {
+    variant: "ghost",
+    full: true,
+    onClick: close
+  }, "OK"))));
 }
 // ── Offers: announcement bar, banner card, pop-up (admin → 📣 Offers) ──
 const PROMO_PAGE_ = {
@@ -10276,6 +10586,21 @@ function App() {
       });
       setScreen(targetScreen === 'account' ? 'account' : 'dashboard');
       setRestoring(false);
+      // Opened from a renewal reminder: go straight to renewing that plan (only if it belongs to this phone).
+      const pushSub = pushRenewTarget_(window.location.search, manageResp);
+      pushClearUrl_();
+      if (pushSub) {
+        trackFlow('renewStart');
+        setHistory([{
+          screen: 'dashboard',
+          data: fp
+        }]);
+        setScreenData({
+          ...fp,
+          sub: pushSub
+        });
+        setScreen('renewStart');
+      }
       API.getActiveCouponsForCustomer(ph, cr => {
         const coupons = ffNormalizeCoupons_(cr);
         setScreenData(prev => ({
@@ -10364,7 +10689,7 @@ function App() {
     } else {
       if (!saved.phone) setLoading('⏳ Loading…', 'Checking latest plans');
     }
-    if (saved.phone) setRestoring(true);
+    if (saved.phone) setRestoring(true);else pushClearUrl_(); // reminder tapped while logged out: just the home page
     API.getBootstrap(r => {
       if (r && r.ok !== false) {
         setBoot(r);
@@ -10778,6 +11103,10 @@ function App() {
     nav: nav
   }), !storeBlocked && React.createElement(InstallPrompt, {
     screen: screen
+  }), React.createElement(PushPrompt, {
+    screen: screen,
+    phone: sessionPhone,
+    success: !!(d.verifyResult && d.verifyResult.found && d.verifyResult.fulfillment !== 'NO_STOCK')
   }));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App, null));
@@ -10810,6 +11139,15 @@ const API = {
   },
   promoEvent(id, kind, onSuccess, onFailure) {
     apiCall_('promoEvent', [id, kind], onSuccess, onFailure);
+  },
+  getPushKey(onSuccess, onFailure) {
+    apiCall_('getPushKey', [], onSuccess, onFailure);
+  },
+  pushSubscribe(phone, subscription, onSuccess, onFailure) {
+    apiCall_('pushSubscribe', [phone, subscription], onSuccess, onFailure);
+  },
+  pushUnsubscribe(endpoint, onSuccess, onFailure) {
+    apiCall_('pushUnsubscribe', [endpoint], onSuccess, onFailure);
   },
   getTrendingItems(onSuccess, onFailure) {
     apiCall_('getTrendingItems', [], onSuccess, onFailure);

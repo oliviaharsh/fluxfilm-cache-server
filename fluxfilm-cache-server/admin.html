@@ -352,7 +352,7 @@ function logout() { post('/admin/api/logout', {}).then(function () { loginView('
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
   ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['promos', '📣', 'Offers'], ['maintenance', '🚧', 'Maintenance'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
-  ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'],
+  ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'],
   ['DATA'], ['golive', '🚚', 'Go-live import'], ['data', '📋', 'Sheets'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
 function shell() {
@@ -387,7 +387,7 @@ function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
   $$('.bnav a').forEach(function (a) { a.className = a.id === 'bnav-' + S.view ? 'on' : ''; });
   window.scrollTo(0, 0);
-  ({ today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, payments: paymentsView, maintenance: maintenanceView, golive: goliveView, promos: promosView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
+  ({ today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, payments: paymentsView, maintenance: maintenanceView, golive: goliveView, promos: promosView, push: pushView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
 }
 
 /* ================= dashboard ================= */
@@ -1436,7 +1436,7 @@ function wireGlobalSearch() {
 
 /* ================= change log ================= */
 var AUD = { q: '', action: '' };
-var AUD_LABELS = { 'login.ok': '🔐 Signed in', 'login.failed': '🚫 Wrong password', 'sub.removed': '🚪 Removed tick', 'sub.unremoved': '↩️ Removed tick cleared', 'coupon.save': '🎟️ Coupon saved', 'row.edit': '✏️ Row edited', 'row.add': '➕ Row added', 'row.delete': '🗑️ Row deleted', 'quick.new': '⚡ Quick order', 'quick.renew': '🔁 Quick renew', 'order.markPaid': '✅ Marked paid', 'order.retryDelivery': '📦 Delivery retried', 'todo.add': '📝 To-do added', 'todo.done': '☑️ To-do done', 'todo.reopen': '📝 To-do reopened', 'todo.delete': '🗑️ To-do deleted', 'account.passwordChange': '🔑 Password changed', 'reminders.email': '✉️ Reminder emails', 'sub.extend': '⏱ Days added', 'sub.shorten': '⏱ Days taken off', 'cost.save': '💰 Account cost', 'cost.clear': '💰 Account cost cleared' };
+var AUD_LABELS = { 'login.ok': '🔐 Signed in', 'login.failed': '🚫 Wrong password', 'sub.removed': '🚪 Removed tick', 'sub.unremoved': '↩️ Removed tick cleared', 'coupon.save': '🎟️ Coupon saved', 'row.edit': '✏️ Row edited', 'row.add': '➕ Row added', 'row.delete': '🗑️ Row deleted', 'quick.new': '⚡ Quick order', 'quick.renew': '🔁 Quick renew', 'order.markPaid': '✅ Marked paid', 'order.retryDelivery': '📦 Delivery retried', 'todo.add': '📝 To-do added', 'todo.done': '☑️ To-do done', 'todo.reopen': '📝 To-do reopened', 'todo.delete': '🗑️ To-do deleted', 'account.passwordChange': '🔑 Password changed', 'reminders.email': '✉️ Reminder emails', 'sub.extend': '⏱ Days added', 'sub.shorten': '⏱ Days taken off', 'cost.save': '💰 Account cost', 'cost.clear': '💰 Account cost cleared', 'push.settings': '🔔 Notification settings', 'push.test': '🧪 Test notification', 'push.send': '📨 Notification sent', 'push.broadcast': '📢 Broadcast', 'push.adminSubscribe': '🔔 Admin device on' };
 function auditView() {
   $('#view').innerHTML = '<div class="ph"><div><h1>🕘 Change log</h1><p>Every change made from the admin panel — newest first. Deleted rows are kept here (passwords hidden).</p></div></div>' +
     '<div class="search"><input class="inp" id="aq" placeholder="Search order ID, subscription, coupon, table…" value="' + esc(AUD.q) + '"/></div>' +
@@ -1690,6 +1690,103 @@ function saveSettingsBtn(btn, path, body, stateFn, onOk) {
   });
 }
 
+/* ================= push notifications: renewal reminders, test, send, broadcast (adminpush.js) ================= */
+var PN = { d: null };
+var PN_TPL = [['before', '⏰ Before the plan ends', 'Sent on each “days before” day'], ['today', '⚠️ On the expiry day', ''], ['after', '😟 The day after it ended', ''], ['delivered', '🎬 When a plan is delivered', 'Right after payment, with the login ready']];
+function pushView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🔔 Notifications</h1><p>Renewal reminders on customers’ phones — automatic, never twice, only in the daytime. Only customers who tapped “Yes, remind me” get them.</p></div></div><div id="pnbody"><p class="muted">Loading…</p></div>';
+  pnLoad();
+}
+function pnLoad() {
+  api('/admin/api/push').then(function (r) {
+    if (!$('#pnbody')) return;
+    if (!r.ok) { $('#pnbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
+    PN.d = r; pnRender();
+  });
+}
+function pnB64(s) { s = String(s || ''); var raw = atob((s + '===='.slice(0, (4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/')); var out = new Uint8Array(raw.length); for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i); return out; }
+function pnSupported() { try { return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; } catch (e) { return false; } }
+// This admin phone / computer: 'on' · 'off' · 'denied' · 'ios' (add the admin app to the Home Screen first) · 'unsupported'
+function pnDeviceState() {
+  if (adminIos() && !adminStandalone()) return Promise.resolve('ios');
+  if (!pnSupported()) return Promise.resolve('unsupported');
+  if (Notification.permission === 'denied') return Promise.resolve('denied');
+  return navigator.serviceWorker.getRegistration('/').then(function (reg) { return reg && reg.pushManager ? reg.pushManager.getSubscription() : null; }).then(function (sub) { return sub && Notification.permission === 'granted' && store('ff_admin_push') ? 'on' : 'off'; }).catch(function () { return 'off'; });
+}
+function pnDeviceOn(btn) {
+  if (!pnSupported()) return toast('This browser cannot show notifications');
+  btn.disabled = true;
+  var ask = new Promise(function (res) { var p = Notification.requestPermission(res); if (p && p.then) p.then(res); });
+  ask.then(function (perm) {
+    if (perm !== 'granted') throw new Error(perm === 'denied' ? 'Notifications are blocked — allow them in the browser settings for this site' : 'Permission not given');
+    return navigator.serviceWorker.register('/sw.js').then(function () { return navigator.serviceWorker.ready; });
+  }).then(function (reg) {
+    return reg.pushManager.getSubscription().then(function (old) { return old || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pnB64(PN.d.publicKey) }); });
+  }).then(function (sub) { return post('/admin/api/push/subscribe', { subscription: sub.toJSON() }); })
+    .then(function (r) { btn.disabled = false; if (!r.ok) throw new Error(r.message || 'error'); store('ff_admin_push', 1); toast('🔔 This device is on'); pnLoad(); })
+    .catch(function (e) { btn.disabled = false; toast('⚠️ ' + e.message); });
+}
+function pnDeviceOff(btn) {
+  btn.disabled = true;
+  navigator.serviceWorker.getRegistration('/').then(function (reg) { return reg && reg.pushManager ? reg.pushManager.getSubscription() : null; })
+    .then(function (sub) { return sub ? post('/admin/api/push/unsubscribe', { endpoint: sub.endpoint }) : { ok: true }; })
+    .then(function () { btn.disabled = false; store('ff_admin_push', 0); toast('🔕 This device is off'); pnLoad(); })
+    .catch(function (e) { btn.disabled = false; toast('⚠️ ' + e.message); });
+}
+function pnFill(tpl, days) {
+  var map = { service: 'Netflix', plan: 'Premium 1 Month', days: days + (days === 1 ? ' day' : ' days'), date: '30 Sep' };
+  return esc(String(tpl || '').replace(/\{(service|plan|days|date)\}/g, function (_, k) { return map[k]; }));
+}
+function pnRender() {
+  var d = PN.d, s = d.settings, st = d.stats || {}, t = s.templates;
+  var hours = function (id, val, from, to) { var o = ''; for (var h = from; h <= to; h++) o += '<option value="' + h + '"' + (h === val ? ' selected' : '') + '>' + (h < 10 ? '0' : '') + h + ':00</option>'; return '<select class="inp" id="' + id + '">' + o + '</select>'; };
+  var tog = function (id, on, label) { return '<label class="rf-tog"><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + '/> ' + label + '</label>'; };
+  $('#pnbody').innerHTML = (d.needSchema ? '<div class="qnote warn" style="margin:0 0 14px">⚠️ ' + esc(d.schemaMessage) + '</div>' : '') +
+    '<div class="kpis">' + [['👥', 'Customers with reminders on', st.customers || 0], ['📱', 'Customer devices', st.devices || 0], ['📨', 'Reminders sent today', st.sentToday || 0], ['📅', 'Sent in 7 days', st.sent7 || 0], ['⚠️', 'Failed in 7 days', st.failed7 || 0]].map(function (k) { return '<div class="kpi"><div class="ic">' + k[0] + '</div><div><div class="n">' + esc(k[2]) + '</div><div class="l">' + k[1] + '</div></div></div>'; }).join('') + '</div>' +
+    '<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">⚙️ Automatic renewal reminders</h3><div class="mt-f">' +
+    tog('pnauto', s.auto, '<b>Automatic reminders ON</b>') +
+    '<label>Days before the plan ends <span class="muted">(comma separated, e.g. 3, 1)</span><input class="inp" id="pndays" value="' + esc((s.daysBefore || []).join(', ')) + '" inputmode="numeric" placeholder="3, 1"/></label>' +
+    tog('pnday0', s.onExpiryDay, 'Also on the expiry day') + tog('pnafter', s.afterExpiry, 'Also the day after it ended (“renew now to keep your profile”)') + tog('pndeliv', s.delivered, '“Your access is ready” when a plan is delivered') +
+    '<div class="pr-two"><label>Send from (India time)' + hours('pnqs', s.quietStart, 0, 23) + '</label><label>Until' + hours('pnqe', s.quietEnd, 1, 24) + '</label></div>' +
+    '<div class="muted" style="font-size:.8rem">Messages — you can use <b>{service}</b> <b>{plan}</b> <b>{days}</b> <b>{date}</b>. Tapping a reminder opens the renewal for that plan.</div>' +
+    PN_TPL.map(function (x) { return '<div class="card" style="padding:12px;background:#f8fafc"><b>' + x[1] + '</b>' + (x[2] ? ' <span class="muted" style="font-size:.78rem">' + x[2] + '</span>' : '') + '<label style="margin-top:8px">Title<input class="inp" data-tpl="' + x[0] + 'Title" maxlength="80" value="' + esc(t[x[0] + 'Title']) + '"/></label><label style="margin-top:8px">Message<textarea class="inp" data-tpl="' + x[0] + 'Body" maxlength="200" rows="2">' + esc(t[x[0] + 'Body']) + '</textarea></label><div class="qnote" data-prev="' + x[0] + '"></div></div>'; }).join('') +
+    '</div><div class="rf-save"><button class="btn green" id="pnsave">💾 Save settings</button><span class="rf-state" id="pnstate"></span></div></div>' +
+    '<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">📱 This device</h3><p class="muted" id="pndev" style="margin:0 0 10px">Checking…</p><div class="row" id="pndevbtns"></div><p class="muted" style="font-size:.78rem;margin:10px 0 0">Admin devices: ' + (st.adminDevices || 0) + '. On iPhone, open the FluxFilm Admin app from the Home Screen first (iOS 16.4+).</p></div>' +
+    '<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">👤 Send to one customer</h3><div class="mt-f"><label>Phone<input class="inp" id="pn1ph" inputmode="tel" maxlength="15" placeholder="98765 43210"/></label><label>Title<input class="inp" id="pn1t" maxlength="80" placeholder="🎁 A gift for you"/></label><label>Message<textarea class="inp" id="pn1b" maxlength="240" rows="2"></textarea></label><label>Link when tapped <span class="muted">(optional, / = home)</span><input class="inp" id="pn1u" maxlength="300" placeholder="/"/></label></div><div class="row" style="margin-top:12px"><button class="btn" id="pn1go">📨 Send</button></div></div>' +
+    '<div class="card"><h3 style="margin-top:0">📢 Broadcast to all customers with reminders on</h3><div class="mt-f"><label>Title<input class="inp" id="pnbt" maxlength="80" placeholder="🎉 FluxFilm Anniversary Sale"/></label><label>Message<textarea class="inp" id="pnbb" maxlength="240" rows="3" placeholder="Extra discount on every plan — only till 30 September."></textarea></label><label>Link when tapped <span class="muted">(optional, / = home)</span><input class="inp" id="pnbu" maxlength="300" placeholder="/"/></label></div>' +
+    '<div class="row" style="margin-top:12px"><button class="btn ghost" id="pnbtpl">🎉 Anniversary text</button><button class="btn red" id="pnbgo">📢 Send to ' + (st.customers || 0) + ' customer(s)</button></div></div>';
+
+  var prev = function () { PN_TPL.forEach(function (x) { var el = $('[data-prev="' + x[0] + '"]'); var ti = $('[data-tpl="' + x[0] + 'Title"]').value, bo = $('[data-tpl="' + x[0] + 'Body"]').value; if (el) el.innerHTML = 'Preview: <b>' + pnFill(ti, x[0] === 'after' ? 1 : 3) + '</b><br>' + pnFill(bo, x[0] === 'after' ? 1 : 3); }); };
+  $$('[data-tpl]').forEach(function (el) { el.oninput = prev; }); prev();
+  var state = function (k, x) { var el = $('#pnstate'); if (el) { el.className = 'rf-state ' + k; el.textContent = x; } };
+  $('#pnsave').onclick = function () {
+    var tpl = {}; $$('[data-tpl]').forEach(function (el) { tpl[el.getAttribute('data-tpl')] = el.value; });
+    saveSettingsBtn(this, '/admin/api/push/settings', { auto: $('#pnauto').checked, daysBefore: $('#pndays').value, onExpiryDay: $('#pnday0').checked, afterExpiry: $('#pnafter').checked, delivered: $('#pndeliv').checked, quietStart: +$('#pnqs').value, quietEnd: +$('#pnqe').value, templates: tpl }, state, function (r) { PN.d.settings = r.settings; $('#pndays').value = r.settings.daysBefore.join(', '); });
+  };
+  pnDeviceState().then(function (ds) {
+    var el = $('#pndev'), b = $('#pndevbtns'); if (!el) return;
+    el.textContent = { on: '🟢 This device gets admin notifications.', off: '⚪ Off on this device.', denied: '🔕 Notifications are blocked in this browser’s settings for this site.', ios: '📲 On iPhone: add FluxFilm Admin to the Home Screen and open it from there.', unsupported: 'This browser cannot show notifications.' }[ds];
+    b.innerHTML = (ds === 'on' ? '<button class="btn ghost" id="pndoff">🔕 Turn off for this device</button>' : ds === 'off' ? '<button class="btn green" id="pndon">🔔 Turn on for this device</button>' : '') + '<button class="btn dark" id="pntest">🧪 Send test to me</button>';
+    if ($('#pndon')) $('#pndon').onclick = function () { pnDeviceOn(this); };
+    if ($('#pndoff')) $('#pndoff').onclick = function () { pnDeviceOff(this); };
+    $('#pntest').onclick = function () { var btn = this; btn.disabled = true; post('/admin/api/push/test', {}).then(function (r) { btn.disabled = false; toast((r.ok ? '🧪 ' : '⚠️ ') + (r.message || 'error')); pnLoad(); }); };
+  });
+  $('#pn1go').onclick = function () {
+    var btn = this, body = { phone: $('#pn1ph').value, title: $('#pn1t').value, body: $('#pn1b').value, url: $('#pn1u').value };
+    if (String(body.phone).replace(/\D/g, '').length < 10) return toast('Enter a 10-digit phone number');
+    if (!body.title.trim()) return toast('Write a title');
+    btn.disabled = true;
+    post('/admin/api/push/send', body).then(function (r) { btn.disabled = false; toast((r.ok ? '📨 ' : '⚠️ ') + (r.message || 'error')); });
+  };
+  $('#pnbtpl').onclick = function () { $('#pnbt').value = '🎉 FluxFilm Anniversary Sale'; $('#pnbb').value = 'Thank you for being with us! Extra discount on every plan — only till 30 September. Tap to shop.'; $('#pnbu').value = '/'; };
+  $('#pnbgo').onclick = function () {
+    var btn = this, body = { title: $('#pnbt').value.trim(), body: $('#pnbb').value.trim(), url: $('#pnbu').value.trim(), confirm: true };
+    if (!body.title || !body.body) return toast('Write a title and a message');
+    if (!confirm('Send this notification to ALL ' + (st.customers || 0) + ' customer(s) with reminders on?\n\n' + body.title + '\n' + body.body)) return;
+    btn.disabled = true; btn.textContent = '⏳ Sending…';
+    post('/admin/api/push/broadcast', body).then(function (r) { btn.disabled = false; btn.textContent = '📢 Send again'; toast((r.ok ? '📢 ' : '⚠️ ') + (r.message || 'error')); if (r.ok) pnLoad(); });
+  };
+}
 /* ================= offers: announcement bar, banner card, pop-up (promos.js) ================= */
 var PR = { list: [], edit: null };
 var PR_STATUS = { LIVE: ['🟢 Live now', 'p-ok'], SCHEDULED: ['🕒 Scheduled', 'p-blue'], ENDED: ['⏹ Ended', 'p-grey'], OFF: ['⏸ Off', 'p-grey'] };
