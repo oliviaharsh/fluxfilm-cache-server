@@ -18,6 +18,8 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
+/* hidden always wins over display rules (the pause bar rule display:block kept "Shop is PAUSED" visible while open) */
+[hidden]{display:none!important}
 :root{--brand:#e11d48;--brand2:#f43f5e;--brandbg:#fff1f2;--ink:#0f172a;--ink2:#334155;--mut:#64748b;--line:#e5e9f0;--grid:#e3e7ee;--bg:#f3f5f9;--card:#fff;
 --ok:#16a34a;--okbg:#dcfce7;--warn:#b45309;--warnbg:#fef3c7;--bad:#dc2626;--badbg:#fee2e2;--sel:#1a73e8;--side:236px}
 *{box-sizing:border-box}
