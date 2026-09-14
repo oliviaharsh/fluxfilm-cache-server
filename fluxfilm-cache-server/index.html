@@ -8299,8 +8299,12 @@ function OtpScreen({
     style: {
       position: 'fixed',
       top: 72,
-      left: '50%',
-      transform: 'translateX(-50%)',
+      // Centred with auto margins, not left 50% + a transform: the fadeSlide keyframes set transform and
+      // would override it, pushing the toast off the right edge on phones.
+      left: 0,
+      right: 0,
+      margin: '0 auto',
+      width: 'fit-content',
       zIndex: 99,
       padding: '10px 20px',
       borderRadius: 14,
@@ -8310,7 +8314,6 @@ function OtpScreen({
       fontSize: 13.5,
       fontWeight: 800,
       boxShadow: '0 4px 20px rgba(22,163,74,.35)',
-      whiteSpace: 'nowrap',
       animation: 'fadeSlide .2s ease both',
       maxWidth: 'calc(100vw - 32px)',
       textAlign: 'center'
@@ -8662,6 +8665,7 @@ const TOPBAR_META = {
   details: ['Confirm Order', 'Check details & pay', null],
   review: ['Review Order', 'Confirm before payment', null],
   pay: ['Payment', 'UPI · Instant verification', null],
+  payhelp: ['Backup Payment', 'Pay to our backup UPI ID', null],
   verify: ['Verifying Payment', 'Secure payment check', null],
   done: ['Access Granted 🎉', 'Enjoy your subscription', null],
   recover: ['Recover Access', 'OTP secured · Fast 🔒', null],
