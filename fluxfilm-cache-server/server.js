@@ -27,6 +27,7 @@ let recover = null; try { recover = require('./recover'); } catch (e) { console.
 let otptool = null; try { otptool = require('./otp'); } catch (e) { console.log('[otp] not loaded:', e.message); }
 let catalog = null; try { catalog = require('./catalog'); } catch (e) { console.log('[catalog] not loaded:', e.message); }
 let account = null; try { account = require('./account'); } catch (e) { console.log('[account] not loaded:', e.message); }
+let referrals = null; try { referrals = require('./referrals'); } catch (e) { console.log('[referrals] not loaded:', e.message); }
 // Self-contained Node actions (recover + Get-OTP tool) — MySQL/IMAP, no Apps Script.
 const DB_RECOVER = Object.assign(
   recover ? {
@@ -54,6 +55,11 @@ const DB_STOREFRONT = Object.assign(
     getStockLevels: () => catalog.getStockLevels(),
     getTrendingItems: () => catalog.getTrendingItems(),
     getNetflixHouseholdLink: (a) => catalog.getNetflixHouseholdLink(a[0]),
+  } : {},
+  referrals ? {
+    getReferralInfo: (a) => referrals.getReferralInfo(a[0]),
+    // Public: (code, phone). Never returns the referrer's phone.
+    checkReferral: async (a) => { const r = await referrals.checkReferral(a[0], a[1]); delete r.referrerPhone; return r; },
   } : {},
   account ? {
     createOrUpdateCustomerProfile: (a) => account.createOrUpdateCustomerProfile(a[0]),
@@ -89,6 +95,8 @@ const LIMITS = {
   createRenewOrder: security.rateLimiter(30, TEN_MIN),
   fulfillAndGetAccess: security.rateLimiter(90, TEN_MIN),
   profileWrite: security.rateLimiter(30, TEN_MIN),
+  checkReferral: security.rateLimiter(60, TEN_MIN),
+  getReferralInfo: security.rateLimiter(60, TEN_MIN),
   any: security.rateLimiter(3000, TEN_MIN),
 };
 const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'submitRestockRequest']);
@@ -132,7 +140,7 @@ const DB_WRITES = order ? {
   },
 } : {};
 const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
-const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest']);
+const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral']);
 const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota']);
 const DB_WRITE_ACTIONS = new Set(['createOrder', 'createRenewOrder', 'validateCoupon', 'verifyPayment', 'verifyPaymentByRef', 'fulfillAndGetAccess']);
 const DB_NOT_YET_PORTED = new Set(['recoverReassignAccount']);
@@ -312,3 +320,5 @@ if (db.ENABLED && SYNC_INTERVAL_MIN > 0) {
 if (db.ENABLED && payments) { try { payments.startWatcher(); } catch (e) { console.log('[imap] start error', e.message); } }
 
 app.listen(PORT, () => console.log('[FluxFilm] listening on :' + PORT + ' (MySQL-only storefront)'));
+// Refer & earn: every 30 min pay any referral reward that failed or was missed (e.g. a restart right after a payment).
+if (referrals && db.ENABLED) referrals.startReconcileTimer();

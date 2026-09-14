@@ -16,6 +16,8 @@ const TABLES = {
   inventory_capacity: { cols: '*', order: 'account_id ASC', phone: null, like: ['account_id', 'service'] },
   bank_credits: { cols: '*', order: 'received_at DESC', phone: null, like: ['upi_ref', 'order_ids', 'consumed_order_id'] },
   restock_requests: { cols: '*', order: 'ts DESC', phone: 'phone_norm', like: ['service', 'plan'] },
+  referrals: { cols: '*', order: 'created_at DESC', phone: 'friend_phone', like: ['code', 'referrer_phone', 'friend_order_id', 'status'] },
+  referral_codes: { cols: '*', order: 'created_at DESC', phone: 'phone_norm', like: ['code'] },
 };
 const security = require('./security');
 
@@ -144,6 +146,8 @@ function mountAdmin(app, deps) {
   require('./accounttools').mount(app, Object.assign({ db, auth, audit }, deps.tools || {}));
   // Profit view + extend subscription days (profit.js).
   require('./profit').mount(app, Object.assign({ db, auth, audit }, deps.profit || {}));
+  // Refer & earn settings, overview and "fix missed rewards" (adminreferrals.js).
+  require('./adminreferrals').mount(app, Object.assign({ db, auth, audit }, deps.referrals || {}));
 
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};
@@ -252,7 +256,7 @@ function mountAdmin(app, deps) {
         db.query('SELECT phone, name, email, member_since FROM customers WHERE phone_norm = ? LIMIT 1', [ph]),
         db.query('SELECT order_id, created_at_sheet, service, plan, final_amount, status, fulfillment_status FROM orders WHERE phone_norm = ? ORDER BY created_at_sheet DESC LIMIT 50', [ph]),
         db.query('SELECT * FROM subscriptions WHERE phone_norm = ? ORDER BY expiry_date DESC', [ph]),
-        db.query('SELECT coins_balance, coins_lifetime, last_event FROM wallet WHERE phone_norm = ? LIMIT 1', [ph]),
+        db.query('SELECT coins_balance, coins_lifetime, last_event FROM wallet WHERE phone_norm = ? ORDER BY coins_lifetime DESC, coins_balance DESC LIMIT 1', [ph]),
       ]);
       for (const x of subs) delete x.raw_json;
       res.json({ ok: true, phone: ph, profile: profile[0] || null, orders, subs, wallet: wallet[0] || null });

@@ -7,6 +7,7 @@
 const crypto = require('crypto');
 const db = require('./db');
 const pay = require('./payments');
+const referrals = require('./referrals');
 
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -113,6 +114,7 @@ async function createOrder(p, opts) {
   const notes = String(p.notes || '').trim();
   const extraKey = String(p.extraFieldKey || '').trim();
   const extraVal = String(p.extraFieldValue || '').trim();
+  const referralCode = String(p.referralCode || '').trim();
 
   if (!service || !plan) return { ok: false, message: 'Select service and plan.' };
   if (!phone) return { ok: false, message: 'Phone number is required.' };
@@ -153,6 +155,15 @@ async function createOrder(p, opts) {
   const hasAmountOverride = opts.amountOverride != null && opts.amountOverride !== '';
   const overrideAmount = hasAmountOverride ? Math.max(0, Math.round(asNum(opts.amountOverride))) : 0;
   let discount = 0;
+  // Invite link (Refer & earn): new customers get a discount on their first order. A coupon
+  // takes priority over it, but the friend is still recorded so the referrer gets rewarded.
+  let referral = null; let referralMessage = '';
+  if (referralCode && orderType === 'NEW' && !hasAmountOverride) {
+    try {
+      const rq = await referrals.checkReferral(referralCode, phone, basePrice);
+      if (rq.ok) referral = rq; else referralMessage = rq.message || '';
+    } catch (e) { console.log('[referral] check failed:', e.message); }
+  }
   if (couponCode) {
     const cd = await couponDiscount(couponCode, phone, basePrice, { action: orderType, service, plan });
     if (!cd.ok) return cd;
@@ -163,7 +174,10 @@ async function createOrder(p, opts) {
   } else if (asNum(opts.discountOverride) > 0) {
     // early-renew discount (no coupon on this order); never stacks with a coupon
     discount = Math.min(basePrice, Math.round(asNum(opts.discountOverride)));
+  } else if (referral) {
+    discount = Math.min(basePrice, referral.discount);
   }
+  const referralDiscount = referral && !couponCode ? discount : 0;
   const listPrice = hasAmountOverride ? Math.max(basePrice, overrideAmount) : basePrice;
   const finalAmount = Math.max(0, listPrice - discount);
   const orderId = genOrderId();
@@ -180,6 +194,7 @@ async function createOrder(p, opts) {
     Source: 'node',
     AccessTokenHash: hashAccessToken(accessToken),
   };
+  if (referral) { orderRaw.ReferralCode = referral.code; orderRaw.ReferralDiscount = referralDiscount; }
   if (opts.rawExtra && typeof opts.rawExtra === 'object') Object.assign(orderRaw, opts.rawExtra);
 
   await db.query(
@@ -191,6 +206,12 @@ async function createOrder(p, opts) {
       couponCode, discount, listPrice, finalAmount, notes, extraKey, extraVal,
       orderType, renewSubId, deviceCount, tvCount, groupJoinRequired ? 'TRUE' : 'FALSE', groupJoinLink,
       JSON.stringify(orderRaw)]);
+
+  if (referral) {
+    try {
+      await referrals.attachToOrder({ code: referral.code, referrerPhone: referral.referrerPhone, friendPhone: phone, orderId, discount: referralDiscount });
+    } catch (e) { console.log('[referral] attach failed for', orderId, e.message); }
+  }
 
   // HOLD records attempts but does not count against coupon limits. Payment
   // confirmation adds the USED row below, entirely in MySQL.
@@ -220,6 +241,7 @@ async function createOrder(p, opts) {
     couponCode: couponCode || '', currency: 'INR', upiVpa, payee, upiLink,
     paymentNote: orderId, groupJoinRequired, groupJoinLink,
     deviceCount, tvCount,
+    referralApplied: !!referral && !couponCode, referralDiscount, referralMessage: referral ? '' : referralMessage,
     accessToken,
   };
 }
@@ -230,6 +252,7 @@ async function _order(orderId) {
 }
 async function _markPaid(orderId, txnRef) {
   const conn = await db.getPool().getConnection();
+  let becamePaid = false;
   try {
     await conn.beginTransaction();
     const [rows] = await conn.query(
@@ -238,6 +261,7 @@ async function _markPaid(orderId, txnRef) {
     if (!o) throw new Error('Order not found.');
     if (String(o.status || '').toUpperCase() !== 'PAID') {
       await conn.query('UPDATE orders SET status = ?, txn_ref = ?, verified_at = NOW() WHERE order_id = ?', ['PAID', txnRef || '', orderId]);
+      becamePaid = true;
       const code = String(o.coupon_code || '').trim().toUpperCase();
       if (code && asNum(o.discount) > 0) {
         await conn.query(
@@ -257,6 +281,12 @@ async function _markPaid(orderId, txnRef) {
     try { await conn.rollback(); } catch (_) {}
     throw e;
   } finally { conn.release(); }
+  // Refer & earn: a friend's first paid order rewards whoever invited them. Never blocks payment.
+  if (becamePaid) {
+    referrals.onOrderPaid(orderId)
+      .then((r) => { if (r && r.status) console.log('[referral]', orderId, JSON.stringify(r)); })
+      .catch((e) => console.log('[referral] reward failed for', orderId, e.message));
+  }
 }
 
 async function verifyPayment(orderId) {

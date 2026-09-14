@@ -154,6 +154,17 @@ table.sheet{border-collapse:separate;border-spacing:0;table-layout:fixed;font-si
 .seg{display:flex;gap:6px;flex-wrap:wrap}
 .seg button{flex:1 1 0;min-width:56px;padding:11px 10px;border:2px solid var(--line);background:#fafafa;border-radius:11px;font-weight:600;cursor:pointer;color:var(--ink2)}
 .seg button.on{border-color:var(--brand);background:var(--brandbg);color:var(--brand)}
+.rf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:16px}
+.rf-sec{border:1px solid var(--line);border-radius:14px;padding:14px;background:#fff}
+.rf-sec h4{margin:0 0 4px;font-size:.9rem;font-weight:700}.rf-sec p{margin:0 0 10px;color:var(--mut);font-size:.74rem;line-height:1.45}
+.rf-f{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.rf-f.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.rf-f label{display:flex;flex-direction:column;gap:4px;font-size:.7rem;font-weight:600;color:var(--mut)}
+.rf-f .inp{padding:8px 10px;font-size:.9rem;font-weight:600;color:var(--ink);width:100%}
+.rf-tog{display:flex;align-items:center;gap:10px;font-size:.84rem;font-weight:600;cursor:pointer;margin-bottom:10px}
+.rf-tog input{width:20px;height:20px;accent-color:#16a34a}
+.rf-ex{width:100%;border-collapse:collapse;font-size:.8rem}.rf-ex th,.rf-ex td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right}.rf-ex th:first-child,.rf-ex td:first-child{text-align:left}.rf-ex th{color:var(--mut);font-weight:600;font-size:.72rem}
+.rf-save{position:sticky;bottom:0;background:linear-gradient(transparent,var(--bg) 30%);padding:14px 0 6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;z-index:5}
+@media(max-width:600px){.rf-f{grid-template-columns:repeat(3,minmax(0,1fr))}.rf-f.two{grid-template-columns:repeat(2,minmax(0,1fr))}#rfbody .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}#rfbody .kpi{padding:12px;gap:10px;align-items:flex-start}#rfbody .kpi .ic{width:34px;height:34px;font-size:1rem}#rfbody .kpi .n{font-size:1.15rem}}
 .qnote{margin-top:10px;padding:9px 12px;border-radius:10px;background:#f1f5f9;font-size:.8rem;color:var(--ink2)}
 .qnote.warn{background:#fef3c7;color:#92400e}.qnote.bad{background:#fee2e2;color:#991b1b}
 .qsubs{display:flex;flex-direction:column;gap:8px}
@@ -252,7 +263,7 @@ function logout() { post('/admin/api/logout', {}).then(function () { loginView('
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
   ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
-  ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'],
+  ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['referrals', '🎁', 'Referrals'],
   ['DATA'], ['data', '📋', 'Sheets'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
 function shell() {
@@ -271,7 +282,7 @@ function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
   $$('.bnav a').forEach(function (a) { a.className = a.id === 'bnav-' + S.view ? 'on' : ''; });
   window.scrollTo(0, 0);
-  ({ today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
+  ({ today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
 }
 
 /* ================= dashboard ================= */
@@ -1552,6 +1563,106 @@ function renderProfit() {
     try { if (PF.chart) PF.chart.destroy(); } catch (e) {}
     PF.chart = new Chart($('#pfchart'), { type: 'bar', data: { labels: d.trend.map(function (x) { var m = x.month.split('-'); return MON[+m[1] - 1] + ' ' + m[0].slice(2); }), datasets: [{ label: 'Revenue', data: d.trend.map(function (x) { return x.revenue; }), backgroundColor: '#fb7185', borderRadius: 6 }] }, options: { maintainAspectRatio: false, plugins: { legend: { display: false } } } });
   }
+}
+
+/* ================= referrals ================= */
+var RF = { s: null, dirty: false };
+var RF_KIND = { FIRST: ['🥇 1st order', 'p-ok'], REPEAT: ['🔁 Next order', 'p-blue'], LEVEL2: ['🔗 Friend of friend', 'p-warn'] };
+var RF_STATUS = { PAID: 'p-ok', PENDING: 'p-warn', FAILED: 'p-bad', SKIPPED: 'p-grey' };
+function rfCoins(amount, pct, min, max) {
+  amount = Number(amount) || 0; pct = Number(pct) || 0;
+  if (amount <= 0 || pct <= 0) return 0;
+  var c = Math.round(amount * pct / 100); c = Math.max(c, Math.round(Number(min) || 0));
+  if (Number(max) > 0) c = Math.min(c, Math.round(Number(max)));
+  return Math.max(0, c);
+}
+function referralsView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🎁 Referrals</h1><p>What invited friends get and what referrers earn. Changes apply to the website straight away — no Hostinger needed.</p></div>' +
+    '<button class="btn ghost sm" id="rffix">🔁 Fix missed rewards</button></div><div id="rfbody"><p class="muted">Loading…</p></div>';
+  $('#rffix').onclick = function () {
+    var b = $('#rffix'); b.disabled = true; b.textContent = 'Checking…';
+    post('/admin/api/referrals/reconcile', { days: 90 }).then(function (r) {
+      b.disabled = false; b.textContent = '🔁 Fix missed rewards';
+      if (!r.ok) { toast('⚠️ ' + (r.message || 'failed')); return; }
+      toast(r.paid || r.failed ? '✅ ' + r.paid + ' reward(s) paid' + (r.failed ? ', ⚠️ ' + r.failed + ' still failing' : '') : '✅ Nothing missed — all rewards are paid');
+      loadReferrals();
+    });
+  };
+  loadReferrals();
+}
+function loadReferrals() {
+  Promise.all([api('/admin/api/referrals/settings'), api('/admin/api/referrals/overview')]).then(function (res) {
+    if (!$('#rfbody')) return;
+    var st = res[0], ov = res[1];
+    if (!st.ok) { $('#rfbody').innerHTML = '<div class="card muted">' + esc(st.message || 'error') + '</div>'; return; }
+    RF.s = st.settings; RF.dirty = false;
+    renderReferrals(st, ov.ok ? ov : null);
+  });
+}
+function rfInput(key, label, suffix, step) {
+  return '<label>' + label + '<input class="inp" type="number" inputmode="decimal" min="0" step="' + (step || 1) + '" data-rf="' + key + '" value="' + esc(RF.s[key]) + '"/>' + (suffix ? '<span style="font-weight:500">' + suffix + '</span>' : '') + '</label>';
+}
+function rfExamples() {
+  var s = RF.s;
+  return '<table class="rf-ex"><tr><th>Friend pays</th><th>You get on 1st order</th><th>Next ' + (s.repeatOrders || 0) + ' orders (each)</th><th>Friend-of-friend</th></tr>' +
+    [39, 99, 169, 499, 1849].map(function (a) {
+      return '<tr><td><b>₹' + a + '</b></td><td>' + rfCoins(a, s.firstPercent, s.firstMin, s.firstMax) + ' coins</td><td>' + (s.repeatOrders > 0 ? rfCoins(a, s.repeatPercent, s.repeatMin, s.repeatMax) + ' coins' : '—') + '</td><td>' + (s.level2Enabled ? rfCoins(a, s.level2Percent, s.level2Min, s.level2Max) + ' coins' : 'off') + '</td></tr>';
+    }).join('') + '</table>';
+}
+function renderReferrals(st, ov) {
+  var s = RF.s;
+  var h = st.needsSchema ? '<div class="qnote warn" style="margin:0 0 14px">Run <b>db/schema-v15.sql</b> in phpMyAdmin to switch referrals on. Until then the website checkout works normally without invite discounts.</div>' : '';
+  if (ov && !ov.needsSchema) {
+    h += '<div class="kpis"><div class="kpi"><div class="ic">📨</div><div><div class="n">' + ov.invited + '</div><div class="l">Friends invited · ' + ov.waiting + ' waiting to pay</div></div></div>' +
+      '<div class="kpi"><div class="ic">🤝</div><div><div class="n">' + ov.joined + '</div><div class="l">Became customers (1st order paid)</div></div></div>' +
+      '<div class="kpi"><div class="ic">🪙</div><div><div class="n">' + ov.coinsPaid + '</div><div class="l">Coins given · ' + ov.month.coins + ' this month</div></div></div>' +
+      '<div class="kpi"><div class="ic">' + (ov.problems.length ? '⚠️' : '✅') + '</div><div><div class="n">' + ov.problems.length + '</div><div class="l">' + (ov.problems.length ? 'Rewards not paid yet — tap Fix missed rewards' : 'Rewards not paid') + '</div></div></div></div>';
+  }
+  h += '<div class="card" style="margin-bottom:16px"><h3>⚙️ Settings</h3>' +
+    '<label class="rf-tog"><input type="checkbox" data-rf="enabled"' + (s.enabled ? ' checked' : '') + '/> Refer & earn is ON <span class="muted" style="font-weight:500">(untick to pause invites and rewards)</span></label>' +
+    '<div class="rf-grid">' +
+    '<div class="rf-sec"><h4>🧑‍🤝‍🧑 Invited friend</h4><p>Money off their first order. New customers only; a coupon replaces it.</p><div class="rf-f two">' + rfInput('friendDiscount', 'Discount', '₹ off') + rfInput('minOrder', 'Min. order', '₹ (0 = any)') + '</div></div>' +
+    '<div class="rf-sec"><h4>🥇 Referrer · friend\'s 1st order</h4><p>Coins = % of what the friend paid, kept between min and max (max 0 = no cap).</p><div class="rf-f">' + rfInput('firstPercent', 'Percent', '%', 0.5) + rfInput('firstMin', 'Min', 'coins') + rfInput('firstMax', 'Max', 'coins') + '</div>' +
+      '<div class="rf-f two" style="margin-top:8px">' + rfInput('maxPerMonth', 'Limit per referrer', 'friends / month (0 = none)') + '</div></div>' +
+    '<div class="rf-sec"><h4>🔁 Referrer · friend\'s next orders</h4><p>Smaller reward on the friend\'s next paid orders (renewals count).</p><div class="rf-f two">' + rfInput('repeatOrders', 'How many orders', 'after the 1st (0 = off)') + rfInput('repeatPercent', 'Percent', '%', 0.5) + '</div>' +
+      '<div class="rf-f two" style="margin-top:8px">' + rfInput('repeatMin', 'Min', 'coins') + rfInput('repeatMax', 'Max', 'coins') + '</div></div>' +
+    '<div class="rf-sec"><h4>🔗 2 levels · friend\'s friend</h4><p>When your friend invites someone, you also get coins once — on that person\'s 1st paid order.</p>' +
+      '<label class="rf-tog"><input type="checkbox" data-rf="level2Enabled"' + (s.level2Enabled ? ' checked' : '') + '/> 2-level rewards ON</label><div class="rf-f">' + rfInput('level2Percent', 'Percent', '%', 0.5) + rfInput('level2Min', 'Min', 'coins') + rfInput('level2Max', 'Max', 'coins') + '</div></div>' +
+    '</div><h3 style="margin-top:4px">👀 What people get</h3><div id="rfex" style="overflow-x:auto">' + rfExamples() + '</div>' +
+    '<div class="rf-save"><button class="btn green" id="rfsave">💾 Save settings</button><span class="muted" id="rfstate" style="font-size:.8rem"></span></div></div>';
+  if (ov && !ov.needsSchema) {
+    if (ov.problems.length) {
+      h += '<div class="card" style="margin-bottom:16px;border-color:#fecaca"><h3>⚠️ Not paid yet</h3><div class="list">' + ov.problems.map(function (p) {
+        return '<div class="li"><div class="grow"><b>' + esc(p.name || p.beneficiary_phone) + '</b> <span class="muted">· ' + esc(p.beneficiary_phone) + '</span><div class="muted" style="font-size:.72rem">' + (RF_KIND[p.kind] || [p.kind])[0] + ' · order ' + esc(p.order_id) + ' · ' + prettyDate(p.created_at, true) + (p.reason ? ' · ' + esc(p.reason) : '') + '</div></div><b>' + p.coins + ' coins</b> <span class="pill ' + (RF_STATUS[p.status] || 'p-grey') + '">' + esc(p.status) + '</span></div>';
+      }).join('') + '</div></div>';
+    }
+    h += '<div class="g2"><div class="card"><h3>🕘 Recent rewards</h3><div class="list">' + (ov.recent.length ? ov.recent.map(function (r) {
+      return '<div class="li"><div class="grow" style="min-width:0"><b>' + esc(r.beneficiary_name || r.beneficiary_phone) + '</b> <span class="pill ' + (RF_KIND[r.kind] || ['', 'p-grey'])[1] + '">' + (RF_KIND[r.kind] || [r.kind])[0] + '</span>' +
+        '<div class="muted" style="font-size:.72rem">friend ' + esc(r.friend_name || r.friend_phone) + ' paid ' + money(r.order_amount) + ' (' + esc(r.order_id) + ') · ' + Number(r.percent) + '% · ' + prettyDate(r.created_at, true) + (r.reason ? ' · ' + esc(r.reason) : '') + '</div></div>' +
+        '<div style="text-align:right"><b>' + r.coins + '</b> <span class="muted" style="font-size:.72rem">coins</span><div><span class="pill ' + (RF_STATUS[r.status] || 'p-grey') + '">' + esc(r.status) + '</span></div></div></div>';
+    }).join('') : '<p class="muted">No rewards yet.</p>') + '</div></div>' +
+      '<div class="card"><h3>🏆 Top referrers</h3><div class="list">' + (ov.top.length ? ov.top.map(function (x, i) {
+        return '<div class="li"><span>' + (['🥇', '🥈', '🥉'][i] || (i + 1) + '.') + '</span><div class="grow"><b>' + esc(x.name || x.phone) + '</b><div class="muted" style="font-size:.72rem">' + esc(x.phone) + ' · ' + x.friends + ' friend' + (x.friends == 1 ? '' : 's') + '</div></div><b>' + x.coins + '</b></div>';
+      }).join('') : '<p class="muted">Nobody yet.</p>') + '</div></div></div>';
+  }
+  $('#rfbody').innerHTML = h;
+  var body = $('#rfbody');
+  var onChange = function (e) {
+    var el = e.target.closest('[data-rf]'); if (!el) return;
+    var k = el.getAttribute('data-rf');
+    RF.s[k] = el.type === 'checkbox' ? el.checked : (el.value === '' ? '' : Number(el.value));
+    RF.dirty = true; $('#rfstate').textContent = 'Unsaved changes'; $('#rfex').innerHTML = rfExamples();
+  };
+  body.addEventListener('input', onChange); body.addEventListener('change', onChange);
+  $('#rfsave').onclick = function () {
+    var b = $('#rfsave'); b.disabled = true;
+    post('/admin/api/referrals/settings', RF.s).then(function (r) {
+      b.disabled = false;
+      if (!r.ok) { $('#rfstate').textContent = '⚠️ ' + (r.message || 'Not saved'); toast('⚠️ ' + (r.message || 'Not saved')); return; }
+      RF.s = r.settings; RF.dirty = false; $('#rfstate').textContent = '✅ Saved ' + new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      toast(r.changed && r.changed.length ? '✅ Saved — live on the website now' : 'Saved (nothing changed)'); $('#rfex').innerHTML = rfExamples();
+    });
+  };
 }
 
 /* ================= extend a subscription ================= */
