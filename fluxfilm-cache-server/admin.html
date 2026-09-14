@@ -1694,8 +1694,31 @@ function saveSettingsBtn(btn, path, body, stateFn, onOk) {
 var PN = { d: null };
 var PN_TPL = [['before', '⏰ Before the plan ends', 'Sent on each “days before” day'], ['today', '⚠️ On the expiry day', ''], ['after', '😟 The day after it ended', ''], ['delivered', '🎬 When a plan is delivered', 'Right after payment, with the login ready']];
 function pushView() {
-  $('#view').innerHTML = '<div class="ph"><div><h1>🔔 Notifications</h1><p>Renewal reminders on customers’ phones — automatic, never twice, only in the daytime. Only customers who tapped “Yes, remind me” get them.</p></div></div><div id="pnbody"><p class="muted">Loading…</p></div>';
-  pnLoad();
+  $('#view').innerHTML = '<div class="ph"><div><h1>🔔 Notifications</h1><p>Renewal reminders on customers’ phones — automatic, never twice, only in the daytime. Only customers who tapped “Yes, remind me” get them.</p></div></div><div id="pnbody"><p class="muted">Loading…</p></div><div id="mailcard"></div>';
+  pnLoad(); mailLoad();
+}
+// ✉️ Which address sends customer email (support@ mailbox or the Gmail fallback) + a test email.
+function mailLoad() {
+  api('/admin/api/email/status').then(function (r) {
+    var el = $('#mailcard'); if (!el) return;
+    if (!r.ok) { el.innerHTML = ''; return; }
+    var pill = !r.configured ? '<span class="pill p-bad">NOT SET</span>' : r.senderKind === 'support' ? '<span class="pill p-ok">SUPPORT MAILBOX</span>' : '<span class="pill p-grey">GMAIL</span>';
+    el.innerHTML = '<div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><b>✉️ Customer email sender</b>' + pill + '</div>' +
+      '<p class="muted" style="font-size:.8rem;margin:6px 0 10px">Access details, recovery codes and reminder emails are sent from <b>' + esc(r.sender || '—') + '</b>' +
+      (r.replyTo ? ' · replies go to <b>' + esc(r.replyTo) + '</b>' : '') + (r.fallback ? '<br>If that login fails, email is sent from <b>' + esc(r.fallback) + '</b> instead.' : '') + '</p>' +
+      (r.supportHalfSet ? '<p style="font-size:.8rem;color:#b45309;margin:0 0 10px">⚠️ Only one of SMTP_USER / SMTP_PASS is set in Hostinger — add both to send from the support mailbox.</p>' : '') +
+      (r.lastError ? '<p style="font-size:.78rem;color:#dc2626;margin:0 0 10px">Last failure (' + esc(new Date(r.lastError.at).toLocaleString('en-IN')) + ', ' + esc(r.lastError.sender) + '): ' + esc(r.lastError.message) + '</p>' : '') +
+      '<div class="row" style="gap:8px;flex-wrap:wrap"><input class="inp" id="mailto" type="email" placeholder="your@email.com" style="flex:1;min-width:180px"/><button class="btn sm" id="mailbtn" onclick="mailTest(this)">Send test email</button></div></div>';
+  });
+}
+function mailTest(btn) {
+  var to = $('#mailto').value.trim(); if (!to) return toast('Type an email address');
+  btn.disabled = true;
+  post('/admin/api/email/test', { to: to }).then(function (r) {
+    btn.disabled = false;
+    toast(r.ok ? '✅ Sent from ' + r.sender + (r.fellBack ? ' (support mailbox failed — used Gmail)' : '') + ' — check Inbox and Spam' : '⚠️ ' + (r.message || 'failed'));
+    mailLoad();
+  });
 }
 function pnLoad() {
   api('/admin/api/push').then(function (r) {

@@ -1,19 +1,9 @@
 /**
- * FluxFilm - transactional email from Node (Gmail SMTP, same app password as IMAP).
+ * FluxFilm - transactional email from Node. Sending goes through smtp.js (support@ mailbox when SMTP_USER/SMTP_PASS
+ * are set, else the IMAP Gmail).
  * Replaces the Apps Script credentials/manual email so the buy flow is Apps-Script-free.
  */
-let _t = null;
-function transport() {
-  if (_t) return _t;
-  const nodemailer = require('nodemailer');
-  _t = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: Number(process.env.SMTP_PORT || 465),
-    secure: true,
-    auth: { user: process.env.IMAP_USER, pass: String(process.env.IMAP_PASS || '').replace(/\s+/g, '') },
-  });
-  return _t;
-}
+const smtp = require('./smtp');
 function row(label, val) {
   if (!val) return '';
   return '<tr><td style="padding:8px 12px;color:#64748b;font-size:13px">' + label +
@@ -26,8 +16,7 @@ async function sendAccessEmail(payload) {
   const p = payload || {};
   const to = String(p.email || '').trim();
   if (!to || to.indexOf('@') < 0) return { ok: false, skipped: 'no email' };
-  const user = process.env.IMAP_USER;
-  if (!user) return { ok: false, skipped: 'smtp not configured' };
+  if (!smtp.status().configured) return { ok: false, skipped: 'smtp not configured' };
 
   let html, subject;
   if (p.manual) {
@@ -57,8 +46,7 @@ async function sendAccessEmail(payload) {
       (p.postPaymentMessage ? '<div style="background:#fef9c3;border-radius:10px;padding:12px;white-space:pre-line;font-size:13px">' + p.postPaymentMessage + '</div>' : '') +
       '<p style="color:#94a3b8;font-size:12px;margin-top:18px">Need help? Just reply to this email or message us on WhatsApp. 💚</p></div>';
   }
-  await transport().sendMail({ from: '"FluxFilm" <' + user + '>', to, subject, html });
-  return { ok: true };
+  return smtp.sendMail({ to, subject, html });
 }
 
 const escHtml = (v) => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -69,10 +57,8 @@ const wrap = (inner) => '<div style="font-family:system-ui,Segoe UI,Roboto,sans-
 async function send(to, subject, html) {
   const addr = String(to || '').trim();
   if (!addr || addr.indexOf('@') < 0) return { ok: false, skipped: 'no email' };
-  const user = process.env.IMAP_USER;
-  if (!user) return { ok: false, skipped: 'smtp not configured' };
-  await transport().sendMail({ from: '"FluxFilm" <' + user + '>', to: addr, subject, html });
-  return { ok: true };
+  if (!smtp.status().configured) return { ok: false, skipped: 'smtp not configured' };
+  return smtp.sendMail({ to: addr, subject, html });
 }
 
 // payload: { email, name, service, plan, expiryText, daysLeft }  (daysLeft < 0 = already ended)
