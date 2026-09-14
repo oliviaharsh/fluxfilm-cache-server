@@ -137,14 +137,36 @@ function titleOf(p, lang) {
 
 // ── understanding free text (deterministic first) ──
 const SERVICE_WORDS = [
-  [/netflix|netflik|नेटफ्लिक्स/i, /^netflix$/i], [/prime|amazon/i, /^prime video$/i], [/hotstar|jio/i, /hotstar/i],
-  [/sony/i, /sony/i], [/zee/i, /zee/i], [/crunchy|anime/i, /crunchy/i], [/youtube|\byt\b/i, /youtube/i],
+  [/netflix|netflik|netfix|netflx|netlix|nteflix|\bnflx\b|\bnf\b|नेटफ्लिक्स/i, /^netflix$/i], [/prime|amazon|amzn|प्राइम/i, /^prime video$/i], [/hot\s?star|jio|हॉटस्टार/i, /hotstar/i],
+  [/sony|soni\s?liv/i, /sony/i], [/zee|ze5/i, /zee/i], [/crunch|anime/i, /crunchy/i], [/you\s?tube|\byt\b|यूट्यूब/i, /youtube/i],
 ];
+// Typos older customers make ("netfilx", "hotsar", "youtub"): a word within 2 letters of a service name counts.
+const SERVICE_TYPO_WORDS = [['netflix', /^netflix$/i], ['amazon', /^prime video$/i], ['hotstar', /hotstar/i], ['jiohotstar', /hotstar/i], ['sonyliv', /sony/i], ['crunchyroll', /crunchy/i], ['youtube', /youtube/i]];
+function editDistance(a, b) {
+  const m = a.length, n = b.length;
+  if (Math.abs(m - n) > 2) return 9;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+function typoService(t) {
+  for (const w of String(t).toLowerCase().match(/[a-z]{4,}/g) || []) {
+    for (const [name, svc] of SERVICE_TYPO_WORDS) {
+      if (editDistance(w, name) <= (name.length <= 5 ? 1 : 2)) return svc;
+    }
+  }
+  return null;
+}
 function entities(text, plans) {
   const t = String(text || '').toLowerCase();
   const e = {};
   const services = servicesOf(plans);
-  for (const [word, svc] of SERVICE_WORDS) {
+  const typo = typoService(t);
+  for (const [word, svc] of SERVICE_WORDS.concat(typo ? [[{ test: () => true }, typo]] : [])) {
     if (!word.test(t)) continue;
     const wantGroup = /group/.test(t);
     const hits = services.filter((x) => svc.test(x) || word.test(x));
@@ -166,6 +188,7 @@ function globalIntentOf(text) {
   if (/coupon|cupon|coupan|promo|voucher|discount code|offer code|\bcode\b.*(apply|lagao|lagana|use|dalna|daalna|hai)|(apply|use|lagao|lagana).*\bcode\b/.test(t)) return 'coupon';
   if (/(change|badal|badlo|dusra|doosra|another|different|wrong|galat).{0,12}(plan|pack)|cancel|nahi chahiye|don'?t want/.test(t)) return 'change';
   if (/cheap|sasta|saste|kam (kar|price|daam)|discount|less price|best price|mehnga|mahanga|expensive|costly|earlier|pehle|before|last time|pichli baar|group offer|₹\s?\d+|\brs\.?\s?\d+|\d+\s?(rs|rupees|rupay)\b|kitne ka|kitna (hai|lagega)|price|rate|daam/.test(t)) return 'price';
+  if (/\b(for|at|in|mein|me|mai|ka|ki|only|sirf|just)\s+\d{2,4}\b(?!\s*(months?|mahin|din|days?|years?|saal|device))/.test(t) || /\b\d{2,4}\s*(rs|rupees?|rupay|inr|ka|ki|mein|me|mai)\b/.test(t) || (/\b(bought|buy|liya|kharida|paid|mila)\b/.test(t) && /\b\d{2,4}\b(?!\s*(months?|mahin|din|days?|years?|saal|device))/.test(t))) return 'price';
   if (/renew|रिन्यू/.test(t)) return 'renew';
   if (/household|house hold|tv code|not part of|घर/.test(t)) return 'household';
   if (/human|agent|real person|call me|whatsapp|talk to|baat karni|baat karo|team se/.test(t)) return 'other';
@@ -338,6 +361,7 @@ function menuReply(st, lang, name) {
 const firstName = (n) => s(n).split(/\s+/)[0].replace(/[^\p{L}.'-]/gu, '').slice(0, 20);
 function resetPurchase(st) { for (const k of ['service', 'variant', 'days', 'plan', 'extraValue', 'options', 'title', 'price', 'coupon', 'groupJoined', 'flow', 'renew', 'renewSubs', 'renewOptions']) delete st[k]; }
 
+const CHOOSING_STEPS = new Set(['service', 'variant', 'duration', 'tv', 'extra_email', 'own_email', 'group', 'confirm', 'coupon', 'renew_pick', 'renew_duration', 'renew_confirm']);
 const PAY_STEPS = new Set(['paying', 'backup_name', 'backup_review', 'delivering']);
 const payButtons = (lang) => [btn('paid', lang), btn('cantpay', lang), btn('coupon', lang), btn('change', lang)];
 function payCard(st) {
@@ -605,7 +629,7 @@ async function turn(c, input, ctx) {
       else if (it === 'no' && st.step === 'tv') action = 'tv:no';
       else if (it === 'menu' && PAY_STEPS.has(st.step)) action = 'backpay';
       else if (it === 'menu') action = 'menu';
-      else if (it === 'buy' && !inPayment) action = 'buy';
+      else if (it === 'buy' && !inPayment && !CHOOSING_STEPS.has(st.step)) action = 'buy'; // "I want to buy" while already choosing: keep going
       // A question ("does it work on TV?") is answered, never mapped onto a button.
       if (!action && !QUESTION_RE.test(text) && (st.lastButtons || []).length) {
         const pick = await deps.words.classify(text, (st.lastButtons || []).filter((b) => !LINK_BUTTONS[b.id] && !/^group/.test(b.id)), lang, ctx.settings);
@@ -891,5 +915,5 @@ async function messagesOf(id) {
 
 module.exports = {
   DEFAULTS, validateSettings, getSettings, saveSettings, status, handle, recent, messagesOf, schemaReady,
-  _internal: { setDeps: (d) => { deps = Object.assign({}, deps, d); }, reset: () => { cache = null; schemaOk = null; }, entities, intentOf, globalIntentOf, couponCodeIn, couponReason, chatPlans, needsVariant, optionsFor, titleOf, phoneList },
+  _internal: { typoService, setDeps: (d) => { deps = Object.assign({}, deps, d); }, reset: () => { cache = null; schemaOk = null; }, entities, intentOf, globalIntentOf, couponCodeIn, couponReason, chatPlans, needsVariant, optionsFor, titleOf, phoneList },
 };
