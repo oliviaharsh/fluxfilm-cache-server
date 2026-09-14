@@ -441,6 +441,90 @@ window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault()
 window.addEventListener('appinstalled', function () { window.ffInstall.installed = true; window.ffInstall.evt = null; window.dispatchEvent(new Event('ff-install-done')); });
 if ('serviceWorker' in navigator) window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
 </script>
+<script>
+// Sounds + light vibration (Web Audio, no files, no requests). ffSound('delivered' | 'paid' | 'coupon' | 'coins' | 'copy' | 'error' | 'tap').
+// Quiet by default; Account → Sounds / Vibration turn them off. Never throws, silent until the first tap, skipped while the page is hidden.
+(function () {
+  var PREF = { sound: ['ff_sound', true], vibe: ['ff_vibe', true], tap: ['ff_sound_tap', false] };
+  function pref(k) { var p = PREF[k]; try { var v = localStorage.getItem(p[0]); return v == null ? p[1] : v === '1'; } catch (e) { return p[1]; } }
+  function setPref(k, on) { try { localStorage.setItem(PREF[k][0], on ? '1' : '0'); } catch (e) {} }
+  var ctx = null, out = null, echo = null;
+  function audio() {
+    if (ctx) return ctx;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    try {
+      ctx = new AC();
+      out = ctx.createGain(); out.gain.value = 0.35; out.connect(ctx.destination);
+      // Soft room: a short filtered echo under the bell sounds.
+      var d = ctx.createDelay(1), fb = ctx.createGain(), lp = ctx.createBiquadFilter();
+      echo = ctx.createGain(); echo.gain.value = 0.2; d.delayTime.value = 0.15; fb.gain.value = 0.3; lp.type = 'lowpass'; lp.frequency.value = 2600;
+      echo.connect(d); d.connect(lp); lp.connect(fb); fb.connect(d); lp.connect(out);
+    } catch (e) { ctx = null; }
+    return ctx;
+  }
+  function tone(t, f, dur, o) {
+    o = o || {};
+    var osc = ctx.createOscillator(), g = ctx.createGain(), v = o.vol == null ? 0.4 : o.vol;
+    osc.type = o.type || 'sine';
+    osc.frequency.setValueAtTime(f, t);
+    if (o.to) osc.frequency.exponentialRampToValueAtTime(o.to, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t + (o.attack || 0.006));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g); g.connect(out); if (o.dry !== true && echo) g.connect(echo);
+    osc.start(t); osc.stop(t + dur + 0.05);
+  }
+  function bell(t, f, dur, v) { tone(t, f, dur, { vol: v }); tone(t, f * 2, dur * 0.5, { vol: v * 0.22 }); tone(t, f * 3.01, dur * 0.25, { vol: v * 0.07 }); }
+  var SOUNDS = {
+    // The hero: warm rising C-E-G-C chime with a sparkle on top (~1.1 s).
+    delivered: function (t) { [523.25, 659.25, 783.99, 1046.5].forEach(function (f, i) { bell(t + i * 0.1, f, 0.75, 0.34); }); tone(t + 0.42, 2093, 0.45, { vol: 0.05, type: 'triangle' }); tone(t + 0.5, 2637, 0.4, { vol: 0.04, type: 'triangle' }); },
+    paid: function (t) { bell(t, 659.25, 0.5, 0.32); bell(t + 0.11, 987.77, 0.65, 0.3); },
+    coupon: function (t) { tone(t, 880, 0.2, { vol: 0.22, type: 'triangle' }); tone(t + 0.07, 1318.5, 0.4, { vol: 0.22, type: 'triangle' }); },
+    coins: function (t) { tone(t, 1975.5, 0.12, { vol: 0.16, type: 'triangle' }); tone(t + 0.06, 2637, 0.35, { vol: 0.16, type: 'triangle' }); },
+    copy: function (t) { tone(t, 1760, 0.05, { vol: 0.12, type: 'triangle', dry: true }); },
+    error: function (t) { tone(t, 233, 0.26, { vol: 0.3, to: 165, dry: true }); tone(t, 117, 0.24, { vol: 0.18, to: 90, dry: true }); },
+    tap: function (t) { tone(t, 1200, 0.03, { vol: 0.05, dry: true }); }
+  };
+  function resume(then) {
+    try { var p = ctx && ctx.resume && ctx.resume(); if (p && p.then) p.then(function () { try { if (then && ctx.state === 'running') then(); } catch (e) {} }, function () {}); } catch (e) {}
+  }
+  var BUZZ = { delivered: [30, 60, 30], error: [60] };
+  function vibrate(name) {
+    try { if (BUZZ[name] && pref('vibe') && navigator.vibrate && !document.hidden) navigator.vibrate(BUZZ[name]); } catch (e) {}
+  }
+  function play(name, opts) {
+    try {
+      if (!SOUNDS[name] || document.hidden) return false;
+      vibrate(name);
+      if (!(opts && opts.force) && !pref('sound')) return false;
+      if (!ctx) return false; // no tap yet: stay silent (and no autoplay warning)
+      var go = function () { SOUNDS[name](ctx.currentTime + 0.02); };
+      if (ctx.state !== 'running') { resume(go); return false; }
+      go();
+      return true;
+    } catch (e) { return false; }
+  }
+  // Once per order per tab session (re-renders / reopened screens stay quiet).
+  function once(name, id) {
+    var k = 'ff_snd_' + name + '_' + id;
+    try { if (sessionStorage.getItem(k)) return false; sessionStorage.setItem(k, '1'); } catch (e) {}
+    return play(name);
+  }
+  // Browsers allow audio only after a tap: create/resume the context on the first touches.
+  function unlock(e) {
+    try {
+      if (!audio()) return;
+      if (ctx.state !== 'running') resume();
+      if (e && e.type === 'pointerdown' && pref('tap') && e.target && e.target.closest && e.target.closest('button')) play('tap');
+    } catch (err) {}
+  }
+  ['pointerdown', 'touchend', 'keydown'].forEach(function (k) { window.addEventListener(k, unlock, true); });
+  window.ffSound = play;
+  window.ffSoundOnce = once;
+  window.ffSoundPrefs = { get: pref, set: setPref };
+})();
+</script>
 </head>
 <body>
 <div id="ff-splash" hidden aria-hidden="true"><div class="ff-sp-stage"><div class="ff-sp-cube"><div class="ff-sp-edge ff-sp-e2"></div><div class="ff-sp-edge ff-sp-e1"></div><div class="ff-sp-face"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="ffsp-bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#12382a"/><stop offset="1" stop-color="#04140e"/></linearGradient><radialGradient id="ffsp-hi" cx="143" cy="61" r="460" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset=".55" stop-color="#ffffff" stop-opacity="0"/></radialGradient><linearGradient id="ffsp-mk" x1="0" y1="96" x2="0" y2="416" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#a7f3d0"/><stop offset="1" stop-color="#34d399"/></linearGradient><filter id="ffsp-sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity=".45"/></filter><mask id="ffsp-f" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect width="512" height="512" fill="#fff"/><g fill="#000"><rect x="198" y="186" width="36" height="148" rx="6"/><rect x="198" y="186" width="98" height="32" rx="6"/><rect x="198" y="244" width="78" height="30" rx="6"/></g></mask></defs><rect width="512" height="512" rx="112" fill="url(#ffsp-bg)"/><rect width="512" height="512" rx="112" fill="url(#ffsp-hi)"/><g filter="url(#ffsp-sh)"><path transform="translate(8 0)" d="M170 128V384L392 256Z" fill="url(#ffsp-mk)" stroke="url(#ffsp-mk)" stroke-width="64" stroke-linejoin="round" mask="url(#ffsp-f)"/></g></svg></div></div><div class="ff-sp-shadow"></div><div class="ff-sp-word"><span>F</span><span>l</span><span>u</span><span>x</span><span>F</span><span>i</span><span>l</span><span>m</span></div></div></div>
@@ -949,6 +1033,7 @@ function KV({
   function doCopy() {
     const tx = String(value || '');
     if (!tx || tx === '-') return;
+    window.ffSound?.('copy');
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(tx).then(() => {
         setCopied(true);
@@ -1266,6 +1351,7 @@ function RefBanner({
   }, "×"));
 }
 function copyText_(text, done) {
+  window.ffSound?.('copy');
   const fallback = () => {
     try {
       const ta = document.createElement('textarea');
@@ -1469,7 +1555,10 @@ function CoinToggle({
     role: "checkbox",
     "aria-checked": !!on,
     tabIndex: 0,
-    onClick: () => onChange && onChange(!on, q),
+    onClick: () => {
+      if (!on) window.ffSound?.('coins');
+      onChange && onChange(!on, q);
+    },
     onKeyDown: e => {
       if (e.key === ' ' || e.key === 'Enter') {
         e.preventDefault();
@@ -4122,6 +4211,7 @@ function DetailsScreen({
           finalAmount: baseAmount,
           msg: '❌ ' + (res?.message || 'Coupon invalid')
         }));
+        window.ffSound?.('error');
         return;
       }
       const disc = Number(res.discount || 0),
@@ -4133,6 +4223,7 @@ function DetailsScreen({
         loading: false,
         msg: `✅ Coupon applied! You save ₹${disc}`
       });
+      window.ffSound?.('coupon');
     }, () => setCouponState(s => ({
       ...s,
       loading: false,
@@ -4177,6 +4268,7 @@ function DetailsScreen({
     if (!code || !form.phone) return;
     API.checkReferral(code, form.phone, r => {
       setRefState(r || null);
+      if (r && r.ok && Number(r.friendDiscount) > 0) window.ffSound?.('coupon');
       if (r && r.invalid) clearRefCode_();
     }, () => {});
   }, [form.phone]);
@@ -4721,6 +4813,7 @@ function PayScreen({
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=8&data=${encodeURIComponent(upiLink || '')}`;
   function copyText(text, setter) {
     if (!text || text === '-') return;
+    window.ffSound?.('copy');
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(text).then(() => {
         setter(true);
@@ -5083,6 +5176,7 @@ function PayHelpScreen({
     return () => clearTimeout(timer.current);
   }, [phase, claim]);
   function copy(text, key) {
+    window.ffSound?.('copy');
     const done = () => {
       setCopied(key);
       setTimeout(() => setCopied(''), 2000);
@@ -5576,7 +5670,8 @@ function VerifyScreen({
     nav('done', {
       verifyResult: {
         ...(result || {}),
-        found: true
+        found: true,
+        _soundOid: orderId
       },
       service
     });
@@ -5659,6 +5754,8 @@ function VerifyScreen({
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [orderId]);
+  useEffect(() => { if (phase === 'found') window.ffSoundOnce?.('paid', orderId); }, [phase]);
+  useEffect(() => { if (timedOut) window.ffSound?.('error'); }, [timedOut]);
   function submitRef() {
     const v = String(refVal || '').replace(/\D/g, '');
     if (v.length < 6) { setRefMsg('Please enter the full UPI reference number.'); return; }
@@ -6105,6 +6202,7 @@ function RenewStartScreen({
           discount: 0,
           msg: '❌ ' + (res?.message || 'Coupon invalid')
         }));
+        window.ffSound?.('error');
         return;
       }
       const disc = Number(res.discount || 0);
@@ -6114,6 +6212,7 @@ function RenewStartScreen({
         loading: false,
         msg: `✅ Coupon applied! You save ₹${disc}`
       });
+      window.ffSound?.('coupon');
     }, () => setCouponState(s => ({
       ...s,
       loading: false,
@@ -6752,6 +6851,8 @@ function DoneScreen({
   const isNoStock = r.fulfillment === 'NO_STOCK';
   const isOtpService = !!access.isOtpService || ['jiohotstar', 'zee5', 'sonyliv'].some(s => String(service || '').toLowerCase().includes(s));
   const postMsg = String(r.postPaymentMessage || '').trim();
+  // Delivered chime: only straight after a payment (not Recover), once per order.
+  useEffect(() => { if (r.found && r._soundOid && /^(FULFILLED|RENEWED)$/.test(String(r.fulfillment || '').toUpperCase())) window.ffSoundOnce?.('delivered', r._soundOid); }, []);
   const homeTarget = savedPhone ? 'dashboard' : 'home';
   const homeData = savedPhone ? {
     phone: savedPhone,
@@ -7224,6 +7325,42 @@ function RecoverScreen({
     onClick: revealAccess
   }, "🔓 Reveal Password")))));
 }
+// Account → 🔊 Sounds / 📳 Vibration switches (this device only; the sound module is in <head>).
+function SoundRows() {
+  const P = window.ffSoundPrefs;
+  const [st, setSt] = useState(() => ({
+    sound: P ? P.get('sound') : true,
+    vibe: P ? P.get('vibe') : true
+  }));
+  if (!P) return null;
+  const flip = k => {
+    const on = !st[k];
+    P.set(k, on);
+    setSt(s => ({ ...s, [k]: on }));
+    if (on && k === 'sound') window.ffSound?.('coupon', { force: true });
+    if (on && k === 'vibe') try { navigator.vibrate && navigator.vibrate(30); } catch (e) {}
+  };
+  const rows = [['sound', '🔊', 'Sounds', 'A soft chime when your plan is delivered'], ['vibe', '📳', 'Vibration', 'A light buzz on delivery and errors (Android)']];
+  return React.createElement(Card, {
+    pad: 0,
+    className: "ff-alist"
+  }, rows.map(([k, icon, title, sub]) => React.createElement("button", {
+    key: k,
+    className: "ff-arow",
+    role: "switch",
+    "aria-checked": !!st[k],
+    "data-sound-pref": k,
+    onClick: () => flip(k)
+  }, React.createElement("span", {
+    className: "ff-arow-ic",
+    style: { background: 'rgba(99,102,241,.10)' }
+  }, icon), React.createElement("span", {
+    style: { minWidth: 0 }
+  }, React.createElement("div", { className: "ff-arow-t" }, title), React.createElement("div", { className: "ff-arow-s" }, sub)), React.createElement("span", {
+    className: 'ff-pill' + (st[k] ? ' count' : ''),
+    style: st[k] ? undefined : { background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#64748b' }
+  }, st[k] ? 'On' : 'Off'))));
+}
 function AccountScreen({
   nav,
   subs,
@@ -7469,7 +7606,7 @@ function AccountScreen({
     className: "ff-pill count"
   }, r.count) : React.createElement("span", {
     className: "ff-arow-go"
-  }, "›"))))), section === 'profile' && React.createElement("div", {
+  }, "›")))), React.createElement(SoundRows, null)), section === 'profile' && React.createElement("div", {
     style: {
       textAlign: 'center',
       padding: '24px 0 20px'
@@ -7831,6 +7968,7 @@ function CouponList({
     badge: ''
   });
   const copy = code => {
+    window.ffSound?.('copy');
     try {
       navigator.clipboard.writeText(code);
     } catch (e) {}
@@ -9916,6 +10054,7 @@ function OtpScreen({
   }
   function copyOtp() {
     if (!otp) return;
+    window.ffSound?.('copy');
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(otp).then(() => {
         setCopied(true);

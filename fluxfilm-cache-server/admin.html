@@ -14,6 +14,49 @@ window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault()
 window.addEventListener('appinstalled', function () { window.ffInstall.evt = null; if (window.adminInstallRefresh) adminInstallRefresh(); if (window.toast) toast('✅ FluxFilm Admin is on your home screen'); });
 if ('serviceWorker' in navigator) window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
 </script>
+<script>
+// New-order bell: a soft "ka-ching" (Web Audio, no files) when a new paid order arrives while the panel is open.
+// ffBell.on() / ffBell.set(bool) / ffBell.play(force). Silent until the first tap (browser rule); never throws.
+(function () {
+  var KEY = 'ff_admin_bell', ctx = null, out = null;
+  function on() { try { return localStorage.getItem(KEY) !== '0'; } catch (e) { return true; } }
+  function set(v) { try { localStorage.setItem(KEY, v ? '1' : '0'); } catch (e) {} }
+  function resume(then) { try { var p = ctx.resume && ctx.resume(); if (p && p.then) p.then(function () { if (then && ctx.state === 'running') then(); }, function () {}); } catch (e) {} }
+  function unlock() {
+    try {
+      if (!ctx) { var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; ctx = new AC(); out = ctx.createGain(); out.gain.value = 0.35; out.connect(ctx.destination); }
+      if (ctx.state !== 'running') resume();
+    } catch (e) { ctx = null; }
+  }
+  ['pointerdown', 'touchend', 'keydown'].forEach(function (k) { window.addEventListener(k, unlock, true); });
+  function tone(t, f, dur, v, type) {
+    var o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(f, t);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.05);
+  }
+  function kaching() {
+    var t = ctx.currentTime + 0.02;
+    // "ka": a tiny filtered noise click like a till drawer.
+    var n = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.04), ctx.sampleRate), d = n.getChannelData(0);
+    for (var i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+    var src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = n; bp.type = 'bandpass'; bp.frequency.value = 3200; g.gain.value = 0.5;
+    src.connect(bp); bp.connect(g); g.connect(out); src.start(t);
+    // "ching": two bright bells.
+    [[1318.5, 0.07], [1975.5, 0.15]].forEach(function (b) { tone(t + b[1], b[0], 0.7, 0.3); tone(t + b[1], b[0] * 2.01, 0.35, 0.07, 'triangle'); });
+  }
+  function play(force) {
+    try {
+      if (document.hidden || !(force || on()) || !ctx) return false;
+      if (ctx.state !== 'running') { resume(kaching); return false; }
+      kaching();
+      return true;
+    } catch (e) { return false; }
+  }
+  window.ffBell = { on: on, set: set, play: play };
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -391,6 +434,7 @@ function shell() {
   wireGlobalSearch();
   refreshPauseBar();
   adminInstallRefresh();
+  bellStart();
 }
 function refreshPauseBar(st) {
   var show = function (s) { var b = $('#pausebar'); if (b) b.hidden = !(s && s.paused); };
@@ -1373,10 +1417,39 @@ var T = { data: null, showDone: false, done: null };
 function todayView() {
   var d = new Date();
   var hello = d.getHours() < 12 ? 'Good morning' : d.getHours() < 17 ? 'Good afternoon' : 'Good evening';
-  $('#view').innerHTML = '<div class="ph"><div><h1>✅ Today</h1><p>' + hello + '! Here is what needs attention right now.</p></div><button class="btn ghost" id="tref">⟳ Refresh</button></div>' +
+  $('#view').innerHTML = '<div class="ph"><div><h1>✅ Today</h1><p>' + hello + '! Here is what needs attention right now.</p></div><div class="row"><button class="btn ghost sm" id="tbell" role="switch"></button><button class="btn ghost sm" id="tbelltest">▶ Test sound</button><button class="btn ghost" id="tref">⟳ Refresh</button></div></div>' +
     '<div class="tgrid"><div id="titems"><p class="muted">Loading…</p></div><div id="ttodos"></div></div>';
   $('#tref').onclick = loadToday;
+  bellWire();
   loadToday();
+}
+/* ---------- new-order bell: checks today's orders every 60 s while the panel is visible ---------- */
+var BELL = { seen: null, timer: null };
+function bellWire() {
+  var b = $('#tbell'); if (!b || !window.ffBell) return;
+  var paint = function () { var on = ffBell.on(); b.textContent = '🔔 Sound for new orders: ' + (on ? 'On' : 'Off'); b.setAttribute('aria-checked', on ? 'true' : 'false'); };
+  paint();
+  b.onclick = function () { ffBell.set(!ffBell.on()); paint(); if (ffBell.on()) ffBell.play(true); };
+  $('#tbelltest').onclick = function () { ffBell.play(true); };
+}
+function bellPoll() {
+  if (document.hidden) return;
+  // Plain fetch (not api()): a background check must never bounce the page to the sign-in screen.
+  fetch('/admin/api/orders/search?view=today&limit=50', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (r) {
+    if (r && r.needLogin) { clearInterval(BELL.timer); BELL.timer = null; BELL.seen = null; return; }
+    if (!r || !r.ok || !Array.isArray(r.orders)) return;
+    var paid = r.orders.filter(function (o) { return String(o.status).toUpperCase() === 'PAID'; }).map(function (o) { return o.order_id; });
+    var fresh = BELL.seen ? paid.filter(function (id) { return !BELL.seen[id]; }) : [];
+    if (!BELL.seen) BELL.seen = {};
+    paid.forEach(function (id) { BELL.seen[id] = 1; });
+    if (fresh.length) { if (window.ffBell) ffBell.play(); toast('💸 New paid order' + (fresh.length > 1 ? 's: ' + fresh.length : ': ' + fresh[0])); }
+  }).catch(function () {});
+}
+function bellStart() {
+  if (BELL.timer) return;
+  bellPoll();
+  BELL.timer = setInterval(bellPoll, 60000);
+  if (!BELL.vis) { BELL.vis = true; document.addEventListener('visibilitychange', function () { if (!document.hidden && BELL.timer) bellPoll(); }); }
 }
 function loadToday() {
   api('/admin/api/today').then(function (r) {
