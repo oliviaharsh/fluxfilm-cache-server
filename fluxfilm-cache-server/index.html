@@ -1352,6 +1352,8 @@ function PopcornLogo({
 }
 // Help: ONE action + ONE button for the whole storefront. To change what Help opens, change ffOpenHelp_ only.
 function ffOpenHelp_() {
+  // 🤖 Olivia on for this customer (admin → 🤖 Olivia) → "Chat with Olivia / WhatsApp us"; otherwise WhatsApp as before.
+  if (window.ffOlivia && window.ffOlivia.open()) return;
   API.openWhatsApp();
 }
 function HelpButton() {
@@ -12588,5 +12590,6 @@ const API = {
   }
 };
 </script>
+<script src="/olivia.js" defer></script>
 </body>
 </html>

@@ -34,6 +34,7 @@ let storeMod = null; try { storeMod = require('./store'); } catch (e) { console.
 let promosMod = null; try { promosMod = require('./promos'); } catch (e) { console.log('[promos] not loaded:', e.message); }
 let pushMod = null; try { pushMod = require('./push'); } catch (e) { console.log('[push] not loaded:', e.message); }
 let feedMod = null; try { feedMod = require('./feed'); } catch (e) { console.log('[feed] not loaded:', e.message); }
+let oliviaMod = null; try { oliviaMod = require('./olivia'); } catch (e) { console.log('[olivia] not loaded:', e.message); }
 let photosMod = null; try { photosMod = require('./photos'); } catch (e) { console.log('[photos] not loaded:', e.message); }
 // Self-contained Node actions (recover + Get-OTP tool) — MySQL/IMAP, no Apps Script.
 const DB_RECOVER = Object.assign(
@@ -213,6 +214,16 @@ if (feedMod) {
   LIMITS.feedEvent = security.rateLimiter(300, TEN_MIN);
 }
 
+// 🤖 Olivia, the AI store manager (olivia.js): Help → "Chat with Olivia". Off until admin → 🤖 Olivia switches it on.
+// a = [phone] / [phone, { conversationId, choice, text, lang, installedApp }].
+if (oliviaMod) {
+  Object.assign(DB_STOREFRONT, { oliviaStatus: (a) => oliviaMod.status(a[0]), oliviaChat: (a) => oliviaMod.handle(a[0], a[1]) });
+  DB_STOREFRONT_ACTIONS.add('oliviaStatus'); DB_STOREFRONT_ACTIONS.add('oliviaChat');
+  LIMITS.oliviaStatus = security.rateLimiter(120, TEN_MIN);
+  LIMITS.oliviaChat = security.rateLimiter(400, TEN_MIN); // the payment screen polls every 6-8 s
+  PHONE_LIMITS.oliviaChat = security.rateLimiter(300, TEN_MIN);
+}
+
 // -- Locate the canonical root index.html --
 // Nested storefront fallbacks are deliberately unsupported: an old public/
 // snapshot previously shadowed the current UI. If the root file is missing,
@@ -351,6 +362,11 @@ app.post('/api', async (req, res) => {
   return res.status(404).json({ ok: false, message: 'This action is not available in the database-only storefront.' });
 });
 
+// Olivia's chat window script (oliviawidget.js), loaded by index.html — before the storefront catch-all.
+app.get('/olivia.js', (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=0');
+  res.set('Content-Type', 'application/javascript; charset=utf-8').sendFile(path.join(__dirname, 'oliviawidget.js'));
+});
 // -- Installable app: manifests, service worker, icons (pwa.js) — before the storefront catch-all --
 try { require('./pwa').mount(app); } catch (e) { console.log('[pwa] not mounted:', e.message); }
 // SEO (seo.js): /robots.txt, /sitemap.xml, /og-image.png and the crawlable /plans, /plans/<service>, /faq, /whats-new, /about pages.
