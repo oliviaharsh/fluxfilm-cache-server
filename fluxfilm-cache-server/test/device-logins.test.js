@@ -569,7 +569,7 @@ const newSubs = () => S.subs.filter((s) => !/^SUB-OTHER|^SUB-ME/.test(s.sub_id))
   const adm = fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8');
   ok('admin shows "Device i of N" on subscription cards', (adm.match(/Device ' \+ esc\(s\.group_index\) \+ ' of ' \+ esc\(s\.group_size\)/g) || []).length === 2);
   const schema = fs.readFileSync(path.join(__dirname, '..', 'db', 'schema-v19.sql'), 'utf8');
-  ok('schema-v19 adds group_id / group_size / group_index / orders.login_mode, guarded (safe to re-run)', ['group_id', 'group_size', 'group_index', 'login_mode'].every((c) => new RegExp("column_name = '" + c + "'\\) = 0").test(schema)) && !/DROP |DELETE |UPDATE /i.test(schema));
+  ok('schema-v19 adds group_id / group_size / group_index / orders.login_mode with plain ALTERs (phpMyAdmin on Hostinger refuses information_schema + PREPARE), no data changes', ['subscriptions ADD COLUMN group_id', 'subscriptions ADD COLUMN group_size', 'subscriptions ADD COLUMN group_index', 'orders ADD COLUMN login_mode'].every((c) => schema.includes('ALTER TABLE ' + c)) && !/PREPARE|information_schema\.columns WHERE/i.test(schema.replace(/^--.*$/gm, '')) && !/DROP |DELETE |UPDATE /i.test(schema));
 
   console.log('\n---------------------------------------');
   console.log('PASS ' + pass + '   FAIL ' + fail);
