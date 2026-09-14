@@ -24,9 +24,10 @@ let plans = [
 let levels = { 'JioHotstar|||1 Month': { stockLevel: 'OUT' }, 'Prime Video|||1 Month': { stockLevel: 'LOW' } };
 let dbDown = false;
 let posts = [
-  { id: 'fpa3a00152db', type: 'series', title: 'Harbour <Lights>', service: 'JioHotstar', caption: 'A '.repeat(150) + 'end', image: '/tmdb-img/t/p/w780/kPKAigYUlWRpnfo4Ptiwlz4FWXU.jpg', tmdb: true, date: '2026-09-14T20:32:16.110Z' },
-  { id: 'fp0123456789', type: 'movie', title: 'Moonlit Heist', service: 'Netflix', caption: 'Heist.', image: 'https://evil.example.com/x.jpg', tmdb: false, date: '2026-09-10T10:00:00.000Z' },
+  { id: 'fpa3a00152db', type: 'series', title: 'Harbour <Lights>', service: 'JioHotstar', caption: 'A '.repeat(150) + 'end', image: '/tmdb-img/t/p/w780/kPKAigYUlWRpnfo4Ptiwlz4FWXU.jpg', instagramUrl: 'https://www.instagram.com/reel/C9xYz_12-ab/', tmdb: true, date: '2026-09-14T20:32:16.110Z' },
+  { id: 'fp0123456789', type: 'movie', title: 'Moonlit Heist', service: 'Netflix', caption: 'Heist.', image: 'https://evil.example.com/x.jpg', trailerUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', tmdb: false, date: '2026-09-10T10:00:00.000Z' },
   { id: '"><script>', type: 'movie', title: 'Bad id', service: 'Netflix', caption: '', image: '', date: '' },
+  { id: 'fpbbbbbbbbbb', type: 'movie', title: 'Fake Clip', service: 'Netflix', caption: '', image: '', instagramUrl: 'https://instagram.com.evil/reel/C9xYz_12-ab/', trailerUrl: 'https://www.youtube.com.evil/watch?v=dQw4w9WgXcQ', date: '' },
 ];
 const mockCatalog = {
   getBootstrap: async () => { if (dbDown) throw new Error('db down'); return { ok: true, plans: JSON.parse(JSON.stringify(plans)), currency: 'INR' }; },
@@ -140,6 +141,7 @@ function checkPage(name, html, pathName) {
   r = checkPage('/whats-new', wn, '/whats-new');
   ok('/whats-new: live posts link to /?post=<id>, bad ids skipped', wn.includes('href="/?post=fpa3a00152db"') && wn.includes('href="/?post=fp0123456789"') && !/Bad id/.test(wn));
   ok('/whats-new: small TMDB poster via /tmdb-img, outside images dropped, TMDB attribution, caption shortened', wn.includes('src="/poster/w185/kPKAigYUlWRpnfo4Ptiwlz4FWXU.jpg"') && !/evil\.example/.test(wn) && !/TMDB/.test(wn) && /Harbour &lt;Lights&gt;/.test(wn) && /…<\/p>/.test(wn));
+  ok('/whats-new: posts with a Reel / YouTube trailer get a plain "Watch" link to the post; no embeds, no scripts, lookalike links ignored', wn.includes('<p class="watch"><a href="/?post=fpa3a00152db">▶ Watch the video</a></p>') && wn.includes('<p class="watch"><a href="/?post=fp0123456789">▶ Watch the trailer</a></p>') && !wn.includes('href="/?post=fpbbbbbbbbbb">▶') && !/<iframe|instagram\.com|youtube\.com|youtu\.be|youtube-nocookie|instgrm/i.test(wn));
   ok('/whats-new: links to the plan page of the platform', wn.includes('href="/plans/jiohotstar">JioHotstar plans from ₹69'));
   checkPage('/about', await seo.aboutPage(), '/about');
 

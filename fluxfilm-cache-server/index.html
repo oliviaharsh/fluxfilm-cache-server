@@ -453,6 +453,27 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-feed-media { position: relative; aspect-ratio: 4 / 5; overflow: hidden; background: linear-gradient(110deg,#eef2f7 30%,#f8fafc 50%,#eef2f7 70%); background-size: 200% 100%; user-select: none; -webkit-user-select: none; }
 .ff-feed-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .ff-feed-noimg { position: absolute; inset: 0; display: grid; place-items: center; font-size: 64px; background: linear-gradient(135deg,#0f172a,#1e293b); }
+/* 🎬 Feed video: tap-to-play card → YouTube (16:9 inside the same 4:5 box, no jump) or Instagram's embed (grows from the box height). */
+.ff-feed-mwrap { position: relative; }
+.ff-feed-noimg.ig { background: linear-gradient(135deg,#f59e0b,#db2777 55%,#7c3aed); }
+.ff-feed-play { position: absolute; inset: 0; width: 100%; border: 0; padding: 0; margin: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; font: inherit; color: #fff; background: linear-gradient(180deg,rgba(15,23,42,0) 35%,rgba(15,23,42,.6)); -webkit-tap-highlight-color: transparent; }
+.ff-feed-play b { width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center; font-size: 30px; background: rgba(220,38,38,.92); box-shadow: 0 8px 24px rgba(0,0,0,.35); transition: transform .15s ease; }
+.ff-feed-play.ig b { background: linear-gradient(135deg,#f59e0b,#db2777,#7c3aed); }
+.ff-feed-play span { max-width: 90%; padding: 6px 14px; border-radius: 999px; background: rgba(15,23,42,.72); font-size: 14px; font-weight: 800; }
+.ff-feed-play:active b { transform: scale(.94); }
+.ff-feed-play-sm { position: absolute; left: 10px; bottom: 10px; min-height: 36px; padding: 0 12px; border: 0; border-radius: 999px; background: rgba(15,23,42,.8); color: #fff; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.ff-feed-media.vid { background: #000; }
+.ff-feed-yt { position: absolute; left: 0; top: 50%; width: 100%; aspect-ratio: 16 / 9; transform: translateY(-50%); border: 0; }
+.ff-feed-vclose { position: absolute; top: 8px; right: 8px; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(15,23,42,.75); color: #fff; font-size: 17px; font-weight: 800; cursor: pointer; }
+.ff-feed-media.ig { aspect-ratio: auto; background: #fff; overflow: visible; display: flex; flex-direction: column; }
+.ff-feed-igbox { flex: 1; min-width: 0; }
+.ff-feed-igbox .instagram-media { margin: 0 auto !important; min-width: 0 !important; width: 100% !important; max-width: 100% !important; border: 0 !important; box-shadow: none !important; }
+.ff-feed-igbox iframe { display: block; width: 100% !important; min-width: 0 !important; max-width: 100% !important; border: 0; }
+.ff-feed-vbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid rgba(15,23,42,.08); }
+.ff-feed-vbar a, .ff-feed-vbar button { min-height: 36px; display: inline-flex; align-items: center; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 800; color: #475569; cursor: pointer; text-decoration: none; }
+.ff-feed-vbar a { color: #be185d; }
+.ff-feed-acts .ff-feed-trailer.sm { background: none; color: #64748b; font-size: 12.5px; }
+.ff-feed-tile-v { position: absolute; right: 6px; bottom: 6px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; background: rgba(15,23,42,.72); }
 .ff-feed-burst { position: absolute; left: 50%; top: 50%; font-size: 90px; line-height: 1; margin: -45px 0 0 -45px; opacity: 0; pointer-events: none; animation: ffFeedBurst .7s ease both; }
 @keyframes ffFeedBurst { 0% { transform: scale(0); opacity: 0; } 30% { transform: scale(1.15); opacity: 1; } 70% { transform: scale(1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
 .ff-feed-acts { display: flex; align-items: center; gap: 2px; padding: 6px 6px 0; }
@@ -588,7 +609,8 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
   }
   function play(name, opts) {
     try {
-      if (!SOUNDS[name] || document.hidden) return false;
+      // A feed video (trailer / Reel) is open: no chime or buzz over it.
+      if (!SOUNDS[name] || document.hidden || window.ffVideoOn) return false;
       vibrate(name);
       if (!(opts && opts.force) && !pref('sound')) return false;
       if (!ctx) return false; // no tap yet: stay silent (and no autoplay warning)
@@ -1643,7 +1665,9 @@ const shareText_ = {
     const caption = shareText_.trim(String(p.caption || '').split(/\n/)[0], 80);
     const quote = caption ? `_"${caption}"_` : '';
     const news = !service || p.type === 'announcement';
-    const text = news ? shareText_.join([`📣 *${title}*`, '', quote, '', '✨ Streaming plans for less on *FluxFilm*', '⚡ Instant login  •  💳 UPI', '👉']) : shareText_.join([`🍿 *${title}*`, [soon ? `🗓️ Coming *${shareText_.date(t)}* on *${service}*` : `${s ? s.emoji : '🎬'} Now streaming on *${service}*`, kind, !soon && t ? '🗓️ ' + shareText_.date(t, true) : ''].filter(Boolean).join('  •  '), genres ? '🎭 ' + genres : null, '', quote, '', price ? `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${service} from *${price}*` : `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${service} at low prices`, '⚡ Instant login  •  💳 UPI', '👉']);
+    // Post with an Instagram Reel: the link opens the post, where the video plays.
+    const video = p.instagramUrl ? '🎬 Watch the video 👇' : null;
+    const text = news ? shareText_.join([`📣 *${title}*`, '', quote, '', '✨ Streaming plans for less on *FluxFilm*', '⚡ Instant login  •  💳 UPI', video, '👉']) : shareText_.join([`🍿 *${title}*`, [soon ? `🗓️ Coming *${shareText_.date(t)}* on *${service}*` : `${s ? s.emoji : '🎬'} Now streaming on *${service}*`, kind, !soon && t ? '🗓️ ' + shareText_.date(t, true) : ''].filter(Boolean).join('  •  '), genres ? '🎭 ' + genres : null, '', quote, '', price ? `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${service} from *${price}*` : `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${service} at low prices`, '⚡ Instant login  •  💳 UPI', video, '👉']);
     return {
       title: news ? title : `${title} — on ${service}`,
       text
@@ -10296,6 +10320,247 @@ function feedRelease_(ymd, type, now) {
 function feedThumb_(url) {
   return /^(https:\/\/image\.tmdb\.org\/t\/p|\/tmdb-img\/t\/p|\/poster)\/w780\//.test(url || '') ? url.replace('/w780/', '/w342/') : url || '';
 }
+// ── 🎬 Video in the feed: YouTube trailers (youtube-nocookie embed) + Instagram Reels (Instagram's official embed).
+// Nothing from YouTube / Instagram loads until the customer taps play, and only one video plays at a time.
+// Same rules as feed.js youtubeId() / instagramUrl().
+function feedYouTubeId_(url) {
+  let u;
+  try {
+    u = new URL(String(url || '').trim());
+  } catch (e) {
+    return '';
+  }
+  if (u.protocol !== 'https:' || !['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'].includes(u.hostname) || u.username || u.password || u.port) return '';
+  let id = '';
+  if (u.hostname === 'youtu.be') id = u.pathname.split('/')[1] || '';else if (u.pathname === '/watch') id = u.searchParams.get('v') || '';else {
+    const m = u.pathname.match(/^\/(?:shorts|embed)\/([^/]+)\/?$/);
+    id = m ? m[1] : '';
+  }
+  return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : '';
+}
+function feedTrailerSrc_(id) {
+  return /^[A-Za-z0-9_-]{11}$/.test(id || '') ? 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&playsinline=1&rel=0&modestbranding=1' : '';
+}
+function feedIgUrl_(url) {
+  const t = String(url || '').trim();
+  if (!t || t.length > 300 || /[\s"'<>\\`]/.test(t)) return '';
+  let u;
+  try {
+    u = new URL(t);
+  } catch (e) {
+    return '';
+  }
+  if (u.protocol !== 'https:' || !['www.instagram.com', 'instagram.com'].includes(u.hostname) || u.username || u.password || u.port) return '';
+  const m = u.pathname.match(/^\/(?:[A-Za-z0-9._]{1,30}\/)?(reels?|p|tv)\/([A-Za-z0-9_-]{5,40})\/?$/);
+  return m ? 'https://www.instagram.com/' + (m[1] === 'p' || m[1] === 'tv' ? 'p' : 'reel') + '/' + m[2] + '/' : '';
+}
+// One video at a time: starting one unmounts the one before. window.ffVideoOn keeps the sounds module quiet meanwhile.
+const feedVideo_ = {
+  key: '',
+  stop: null
+};
+function feedVideoStart_(key, stop) {
+  const prev = feedVideo_.stop;
+  if (prev && feedVideo_.key !== key) try {
+    prev();
+  } catch (e) {}
+  feedVideo_.key = key;
+  feedVideo_.stop = stop;
+  window.ffVideoOn = true;
+}
+function feedVideoEnd_(key) {
+  if (feedVideo_.key !== key) return;
+  feedVideo_.key = '';
+  feedVideo_.stop = null;
+  window.ffVideoOn = false;
+}
+// instagram.com/embed.js: added once, only after the first tap on a Reel.
+const feedIgJs_ = {
+  state: '',
+  wait: []
+};
+function feedIgScript_(cb) {
+  if (window.instgrm && window.instgrm.Embeds) return cb(true);
+  feedIgJs_.wait.push(cb);
+  if (feedIgJs_.state === 'loading') return;
+  feedIgJs_.state = 'loading';
+  const done = ok => {
+    feedIgJs_.state = ok ? 'ok' : '';
+    const w = feedIgJs_.wait;
+    feedIgJs_.wait = [];
+    w.forEach(f => {
+      try {
+        f(ok);
+      } catch (e) {}
+    });
+  };
+  try {
+    const sc = document.createElement('script');
+    sc.async = true;
+    sc.src = 'https://www.instagram.com/embed.js';
+    sc.onload = () => done(!!(window.instgrm && window.instgrm.Embeds));
+    sc.onerror = () => {
+      try {
+        sc.remove();
+      } catch (e) {}
+      done(false);
+    };
+    document.body.appendChild(sc);
+  } catch (e) {
+    done(false);
+  }
+}
+// Blockquote + embed.js; if the script is blocked, or after 8 s there is no embed with a real height (embed.js sizes it by
+// message; some in-app browsers never deliver it) → Instagram's /embed/captioned/ iframe with a fixed height.
+function feedIgMount_(el, url, minH) {
+  if (!el || !feedIgUrl_(url)) return () => {};
+  let dead = false;
+  const iframe = () => {
+    if (dead) return;
+    el.textContent = '';
+    const f = document.createElement('iframe');
+    f.src = feedIgUrl_(url) + 'embed/captioned/';
+    f.title = 'Instagram video';
+    f.loading = 'lazy';
+    f.setAttribute('allow', 'encrypted-media; picture-in-picture');
+    f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox');
+    f.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    f.className = 'ff-feed-igframe';
+    f.style.height = Math.max(480, Math.round((minH || 0) + 160)) + 'px';
+    el.appendChild(f);
+  };
+  el.textContent = '';
+  const bq = document.createElement('blockquote');
+  bq.className = 'instagram-media';
+  bq.setAttribute('data-instgrm-permalink', feedIgUrl_(url));
+  bq.setAttribute('data-instgrm-version', '14');
+  bq.setAttribute('data-instgrm-captioned', '');
+  const a = document.createElement('a');
+  a.href = feedIgUrl_(url);
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.textContent = 'View this post on Instagram';
+  bq.appendChild(a);
+  el.appendChild(bq);
+  const timer = setTimeout(() => {
+    const f = el.querySelector('iframe');
+    if (!f || !(f.offsetHeight >= 60)) iframe();
+  }, 8000);
+  feedIgScript_(ok => {
+    if (dead) return;
+    if (!ok) {
+      clearTimeout(timer);
+      iframe();
+      return;
+    }
+    try {
+      window.instgrm.Embeds.process();
+    } catch (e) {
+      clearTimeout(timer);
+      iframe();
+    }
+  });
+  return () => {
+    dead = true;
+    clearTimeout(timer);
+  };
+}
+function FeedMedia({
+  p,
+  onLike
+}) {
+  const yt = feedYouTubeId_(p.trailerUrl);
+  const ig = feedIgUrl_(p.instagramUrl);
+  const [play, setPlay] = useState('');
+  const [minH, setMinH] = useState(0);
+  const boxRef = useRef(null);
+  const igRef = useRef(null);
+  const key = 'post-' + p.id;
+  useEffect(() => () => feedVideoEnd_(key), []);
+  useEffect(() => {
+    if (play !== 'ig') return;
+    return feedIgMount_(igRef.current, ig, minH);
+  }, [play]);
+  function start(kind) {
+    if (boxRef.current) setMinH(boxRef.current.offsetHeight);
+    feedVideoStart_(key, () => {
+      setPlay('');
+      feedVideoEnd_(key);
+    });
+    setPlay(kind);
+    feedEvent_(p.id, 'play');
+  }
+  function stop() {
+    setPlay('');
+    feedVideoEnd_(key);
+  }
+  const img = p.image ? React.createElement("img", {
+    src: p.image,
+    alt: p.title + (p.type === 'announcement' ? '' : ' poster'),
+    loading: "lazy",
+    decoding: "async",
+    width: 520,
+    height: 650
+  }) : null;
+  if (play === 'ig') return React.createElement("div", {
+    className: "ff-feed-media ig",
+    style: {
+      minHeight: minH || undefined
+    }
+  }, React.createElement("div", {
+    ref: igRef,
+    className: "ff-feed-igbox"
+  }), React.createElement("div", {
+    className: "ff-feed-vbar"
+  }, React.createElement("a", {
+    href: ig,
+    target: "_blank",
+    rel: "noopener noreferrer"
+  }, "Open in Instagram ↗"), React.createElement("button", {
+    type: "button",
+    onClick: stop
+  }, "✕ Close")));
+  if (play === 'yt') return React.createElement("div", {
+    className: "ff-feed-media vid"
+  }, React.createElement("iframe", {
+    className: "ff-feed-yt",
+    src: feedTrailerSrc_(yt),
+    title: 'Trailer: ' + p.title,
+    loading: "lazy",
+    allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
+    allowFullScreen: true,
+    referrerPolicy: "strict-origin-when-cross-origin"
+  }), React.createElement("button", {
+    type: "button",
+    className: "ff-feed-vclose",
+    "aria-label": "Close video",
+    onClick: stop
+  }, "✕"));
+  return React.createElement("div", {
+    ref: boxRef,
+    className: "ff-feed-media",
+    onDoubleClick: onLike
+  }, img || React.createElement("div", {
+    className: ig ? 'ff-feed-noimg ig' : 'ff-feed-noimg',
+    "aria-hidden": "true"
+  }, ig ? '' : '🍿'), ig ? React.createElement("button", {
+    type: "button",
+    className: "ff-feed-play ig",
+    onClick: () => start('ig')
+  }, React.createElement("b", {
+    "aria-hidden": "true"
+  }, "▶️"), React.createElement("span", null, "📸 Watch on Instagram")) : yt ? React.createElement("button", {
+    type: "button",
+    className: "ff-feed-play",
+    onClick: () => start('yt')
+  }, React.createElement("b", {
+    "aria-hidden": "true"
+  }, "▶️"), React.createElement("span", null, "Play trailer")) : null, ig && yt && React.createElement("button", {
+    type: "button",
+    className: "ff-feed-play-sm",
+    onClick: () => start('yt')
+  }, "▶️ Play trailer"));
+}
 function feedShare_(p, info, done) {
   const url = window.location.origin + '/?post=' + encodeURIComponent(p.id);
   const msg = shareText_.post(p, info, 0, shareText_.data);
@@ -10352,7 +10617,10 @@ function FeedStrip({
     height: 130
   }) : React.createElement("i", {
     "aria-hidden": "true"
-  }, "🍿")), React.createElement("span", {
+  }, "🍿"), (feedIgUrl_(p.instagramUrl) || feedYouTubeId_(p.trailerUrl)) && React.createElement("span", {
+    className: "ff-feed-tile-v",
+    "aria-label": "Has a video"
+  }, "▶️")), React.createElement("span", {
     className: "ff-feed-tile-t"
   }, p.title), React.createElement("span", {
     className: "ff-feed-tile-s"
@@ -10429,19 +10697,11 @@ function FeedPost({
   }, React.createElement("b", null, name), React.createElement("span", null, typeLabel, typeLabel && p.date ? ' · ' : '', feedWhen_(p.date))), p.pinned && React.createElement("span", {
     className: "ff-feed-pin"
   }, "📌 Pinned")), React.createElement("div", {
-    className: "ff-feed-media",
-    onDoubleClick: () => like(true)
-  }, p.image ? React.createElement("img", {
-    src: p.image,
-    alt: p.title + (p.type === 'announcement' ? '' : ' poster'),
-    loading: "lazy",
-    decoding: "async",
-    width: 520,
-    height: 650
-  }) : React.createElement("div", {
-    className: "ff-feed-noimg",
-    "aria-hidden": "true"
-  }, "🍿"), burst > 0 && React.createElement("span", {
+    className: "ff-feed-mwrap"
+  }, React.createElement(FeedMedia, {
+    p: p,
+    onLike: () => like(true)
+  }), burst > 0 && React.createElement("span", {
     key: burst,
     className: "ff-feed-burst",
     "aria-hidden": "true"
@@ -10467,9 +10727,9 @@ function FeedPost({
     "aria-hidden": "true"
   }, "📤"), "Share"), p.trailerUrl && React.createElement("button", {
     type: "button",
-    className: "ff-feed-trailer",
+    className: "ff-feed-trailer" + (feedYouTubeId_(p.trailerUrl) ? ' sm' : ''),
     onClick: () => openExternal_(p.trailerUrl)
-  }, "▶ Trailer")), React.createElement("div", {
+  }, feedYouTubeId_(p.trailerUrl) ? 'YouTube ↗' : '▶ Trailer')), React.createElement("div", {
     className: "ff-feed-body"
   }, React.createElement("div", {
     className: "ff-feed-title"

@@ -371,6 +371,11 @@ function postImage(src) {
   const v = s(src);
   return /^\/((?:poster|tmdb-img\/t\/p)\/w\d+\/[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)|feed-img\/fp[0-9a-f]{10}(\?v=[\w%.:-]*)?)$/.test(v) ? v.replace(/^\/(?:poster|tmdb-img\/t\/p)\/w\d+\//, '/poster/w185/') : '';
 }
+// Post with a video (Instagram Reel, or a YouTube trailer that plays in the app): a plain "Watch" link to the post — no embeds here.
+function postVideoLabel(p) {
+  if (/^https:\/\/www\.instagram\.com\/(reel|p)\/[A-Za-z0-9_-]{5,40}\/$/.test(s(p && p.instagramUrl))) return 'the video';
+  return /^https:\/\/((www\.|m\.)?youtube\.com\/(watch\?(.*&)?v=|shorts\/|embed\/)|youtu\.be\/)[A-Za-z0-9_-]{11}([&?#/]|$)/.test(s(p && p.trailerUrl)) ? 'the trailer' : '';
+}
 async function whatsNewPage() {
   const [data, feed] = await Promise.all([catalogData({ waitMs: 4000 }), feedData()]);
   const services = servicesOf(data);
@@ -383,6 +388,7 @@ async function whatsNewPage() {
     return '<article class="card post">' + (img ? '<img src="' + esc(img) + '" alt="' + esc(p.title) + ' poster" width="92" height="138" loading="lazy">' : '') +
       '<div><h3><a href="/?post=' + p.id + '">' + esc(p.title) + '</a></h3><div class="muted">' + esc([p.type === 'series' ? 'Series' : p.type === 'movie' ? 'Movie' : 'News', s(p.service) && 'on ' + s(p.service)].filter(Boolean).join(' ')) + '</div>' +
       (cap ? '<p>' + esc(cap.length > 180 ? cap.slice(0, 177).replace(/\s+\S*$/, '') + '…' : cap) + '</p>' : '') +
+      (postVideoLabel(p) ? '<p class="watch"><a href="/?post=' + p.id + '">▶ Watch ' + postVideoLabel(p) + '</a></p>' : '') +
       (svc ? '<a href="/plans/' + svc.slug + '">' + esc(svc.name) + ' plans from ' + inr(svc.minPrice) + '</a>' : '') + '</div></article>';
   }).join('');
   // Data-source credit lives on /about (Credits), not on this page (owner 2026-09-15).

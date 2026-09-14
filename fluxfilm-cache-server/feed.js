@@ -3,7 +3,7 @@
  * No schema change. app_settings keys:
  *   feed_posts        JSON list of posts (max 200)
  *   feed_img_<id>     uploaded picture (data URL, shrunk in the admin page first)
- *   feed_stats        { <id>: { views, likes, clicks, shares } }  (buffered in memory, written once a minute)
+ *   feed_stats        { <id>: { views, likes, clicks, shares, plays } }  (plays = video / trailer taps; buffered in memory, written once a minute)
  *   feed_settings     { tmdbKey, autoPublish, platforms, languages, minPopularity, minVotes, maxPerDay,
  *                       autoHideDays, providerMap }  — tmdbKey never leaves the server
  *   feed_job          last import run: { lastRun, nextRun, lastResult, lastError, day, dayCount, seen[] }
@@ -30,7 +30,7 @@ const IMG_PREFIX = 'feed_img_';
 const MAX_POSTS = 200;
 const TYPES = ['movie', 'series', 'announcement'];
 const CTAS = ['service', 'none'];
-const KINDS = ['view', 'like', 'unlike', 'click', 'share'];
+const KINDS = ['view', 'like', 'unlike', 'click', 'share', 'play'];
 const IMG_MAX = 450000; // ~330 KB picture; the admin page shrinks uploads first
 const IMG_HOSTS = ['image.tmdb.org', 'i.ytimg.com', 'img.youtube.com'];
 const TRAILER_HOSTS = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'];
@@ -81,6 +81,34 @@ function hostOk(url, hosts) {
   try { const u = new URL(url); return u.protocol === 'https:' && hosts.includes(u.hostname.toLowerCase()) && !/[\s"'<>]/.test(url); } catch (_) { return false; }
 }
 
+/**
+ * 📸 Instagram Reel / post link → the one normalised permalink the storefront embeds (Instagram's official embed;
+ * the video stays on Instagram). Strict: https, instagram.com / www.instagram.com only, /reel/ /reels/ /p/ /tv/ + a
+ * shortcode (the web "/<username>/reel/<code>/" form too); query (?igsh= tracking), hash, user info and ports are refused or dropped. '' = empty, null = not valid.
+ */
+const IG_HOSTS = ['www.instagram.com', 'instagram.com'];
+function instagramUrl(v) {
+  const t = s(v);
+  if (!t) return '';
+  if (t.length > 300 || /[\s"'<>\\`]/.test(t)) return null;
+  let u; try { u = new URL(t); } catch (_) { return null; }
+  if (u.protocol !== 'https:' || !IG_HOSTS.includes(u.hostname) || u.username || u.password || u.port) return null;
+  const m = u.pathname.match(/^\/(?:[A-Za-z0-9._]{1,30}\/)?(reels?|p|tv)\/([A-Za-z0-9_-]{5,40})\/?$/);
+  if (!m) return null;
+  return 'https://www.instagram.com/' + (m[1] === 'p' || m[1] === 'tv' ? 'p' : 'reel') + '/' + m[2] + '/';
+}
+/** YouTube video id (11 chars) from watch?v= · youtu.be/ · /shorts/ · /embed/ links on the allowed trailer hosts; '' otherwise. */
+function youtubeId(v) {
+  let u; try { u = new URL(s(v)); } catch (_) { return ''; }
+  if (u.protocol !== 'https:' || !TRAILER_HOSTS.includes(u.hostname) || u.username || u.password || u.port) return '';
+  const ID = /^[A-Za-z0-9_-]{11}$/;
+  let id = '';
+  if (u.hostname === 'youtu.be') id = u.pathname.split('/')[1] || '';
+  else if (u.pathname === '/watch') id = u.searchParams.get('v') || '';
+  else { const m = u.pathname.match(/^\/(?:shorts|embed)\/([^/]+)\/?$/); id = m ? m[1] : ''; }
+  return ID.test(id) ? id : '';
+}
+
 function validate(input, existing) {
   const i = input || {}; const errors = [];
   const out = Object.assign({}, existing || {});
@@ -101,6 +129,9 @@ function validate(input, existing) {
   if (out.imageUrl && !hostOk(out.imageUrl, IMG_HOSTS)) errors.push('Picture link must be https:// from ' + IMG_HOSTS.join(', ') + ' — or upload a picture.');
   out.trailerUrl = s(i.trailerUrl).slice(0, 300);
   if (out.trailerUrl && !hostOk(out.trailerUrl, TRAILER_HOSTS)) errors.push('Trailer must be an https:// YouTube link.');
+  const ig = instagramUrl(i.instagramUrl);
+  if (ig === null) errors.push('Instagram link must be a public Reel or post link, like https://www.instagram.com/reel/ABC123xyz/');
+  out.instagramUrl = ig || '';
   out.cta = CTAS.includes(i.cta) ? i.cta : (out.service ? 'service' : 'none');
   if (!out.service) out.cta = 'none';
   out.pinned = i.pinned === true || i.pinned === 'true' || i.pinned === 1;
@@ -115,7 +146,7 @@ function validate(input, existing) {
   out.hasImage = !!(existing && existing.hasImage);
   out.importedAt = existing ? (existing.importedAt || '') : (out.source === 'tmdb' && i.importedAt === true ? now : '');
   // An imported post whose words / picture / dates the owner changed is never touched by the import job again.
-  const CONTENT = ['type', 'title', 'service', 'caption', 'releaseDate', 'imageUrl', 'trailerUrl', 'cta', 'languages', 'genres'];
+  const CONTENT = ['type', 'title', 'service', 'caption', 'releaseDate', 'imageUrl', 'trailerUrl', 'instagramUrl', 'cta', 'languages', 'genres'];
   out.edited = !!(existing && (existing.edited || (existing.source === 'tmdb' && CONTENT.some((k) => JSON.stringify(existing[k] == null ? '' : existing[k]) !== JSON.stringify(out[k])))));
   out.createdAt = (existing && existing.createdAt) || now;
   out.updatedAt = now;
@@ -210,7 +241,7 @@ async function publicList(now) {
     ok: true,
     posts: live.map((p) => ({
       id: p.id, type: p.type, title: p.title, service: p.service, caption: p.caption, releaseDate: p.releaseDate,
-      languages: p.languages || [], genres: p.genres || [], trailerUrl: p.trailerUrl, cta: p.cta, pinned: !!p.pinned,
+      languages: p.languages || [], genres: p.genres || [], trailerUrl: p.trailerUrl, instagramUrl: instagramUrl(p.instagramUrl) || '', cta: p.cta, pinned: !!p.pinned,
       date: sortDate(p), likes: (st[p.id] || {}).likes || 0,
       image: p.hasImage ? '/feed-img/' + p.id + '?v=' + encodeURIComponent(p.updatedAt || '') : posterPath(p.imageUrl),
     })),
@@ -234,7 +265,7 @@ function record(id, kind, device) {
   const k = safeId(id);
   if (!k || !KINDS.includes(kind)) return { ok: false };
   const dev = s(device).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
-  const cur = pending.get(k) || { views: 0, likes: 0, clicks: 0, shares: 0 };
+  const cur = pending.get(k) || { views: 0, likes: 0, clicks: 0, shares: 0, plays: 0 };
   if (kind === 'like' || kind === 'unlike') {
     if (!dev) return { ok: false };
     const lk = k + '|' + dev;
@@ -242,6 +273,7 @@ function record(id, kind, device) {
     else { if (!liked.has(lk)) return { ok: true, dup: true }; liked.delete(lk); cur.likes--; }
   } else if (kind === 'view') cur.views++;
   else if (kind === 'click') cur.clicks++;
+  else if (kind === 'play') cur.plays = (cur.plays || 0) + 1;
   else cur.shares++;
   pending.set(k, cur);
   return { ok: true };
@@ -254,7 +286,7 @@ async function flushStats() {
   for (const [id, c] of batch) {
     if (!known.has(id)) continue;
     const cur = st[id] || {};
-    st[id] = { views: (cur.views || 0) + c.views, likes: Math.max(0, (cur.likes || 0) + c.likes), clicks: (cur.clicks || 0) + c.clicks, shares: (cur.shares || 0) + c.shares };
+    st[id] = { views: (cur.views || 0) + c.views, likes: Math.max(0, (cur.likes || 0) + c.likes), clicks: (cur.clicks || 0) + c.clicks, shares: (cur.shares || 0) + c.shares, plays: (cur.plays || 0) + (c.plays || 0) };
   }
   await writeKey(STATS_KEY, JSON.stringify(st));
 }
@@ -262,7 +294,7 @@ async function stats() {
   const st = parseJson(await readKey(STATS_KEY), {});
   for (const [id, c] of pending) {
     const cur = st[id] || {};
-    st[id] = { views: (cur.views || 0) + c.views, likes: Math.max(0, (cur.likes || 0) + c.likes), clicks: (cur.clicks || 0) + c.clicks, shares: (cur.shares || 0) + c.shares };
+    st[id] = { views: (cur.views || 0) + c.views, likes: Math.max(0, (cur.likes || 0) + c.likes), clicks: (cur.clicks || 0) + c.clicks, shares: (cur.shares || 0) + c.shares, plays: (cur.plays || 0) + (c.plays || 0) };
   }
   return st;
 }
@@ -593,8 +625,8 @@ function startTimer(deps) {
 
 module.exports = {
   posterPath, posterImage,
-  TYPES, CTAS, IMG_HOSTS, TRAILER_HOSTS, DEFAULT_PROVIDERS, DEFAULT_LANGS, MAX_POSTS,
-  validate, list, save, remove, setImage, image, statusOf, sortPosts, publicList, trendingLines, record, flushStats, stats,
+  TYPES, CTAS, IMG_HOSTS, TRAILER_HOSTS, IG_HOSTS, DEFAULT_PROVIDERS, DEFAULT_LANGS, MAX_POSTS,
+  validate, instagramUrl, youtubeId, list, save, remove, setImage, image, statusOf, sortPosts, publicList, trendingLines, record, flushStats, stats,
   getSettings, publicSettings, saveSettings, tmdbSearch, tmdbCreate, tmdbSuggest, tmdbProviders, providersFor, draftFrom, catalogServices,
   discover, runImport, jobStatus, startTimer, toIso,
   _internal: { pending, liked, genreCache, setFetch: (f) => { fetchImpl = f; }, reset: () => { cache = null; pending.clear(); liked.clear(); genreCache.at = 0; running = false; } },
