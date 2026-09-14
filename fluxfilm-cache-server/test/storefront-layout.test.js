@@ -46,6 +46,12 @@ ok('device count read from the plan name like the server', planDeviceCount_('2 D
 ok('createOrder payload includes deviceCount + tvCount (and no discountOverride)', /deviceCount: planDeviceCount_\(planObj\?\.plan\),\s*tvCount: form\?\.tvCount != null \? form\.tvCount : ''/.test(html) && !/discountOverride: 0/.test(html));
 ok('multi-device Prime asks how many are TVs; nothing picked by default', /How many will be a TV\?/.test(html) && /tvCount: n, deviceCount: devices, extraVal: n > 0 \? 'TV' : 'NON_TV'/.test(html) && /deviceCount: planDeviceCount_\(planObj\?\.plan\),\s*tvCount: null/.test(html));
 
+// Refer & earn on the storefront.
+ok('invite link ?ref= saved (30 days) and removed from the address bar', /function captureRefFromUrl_\(\)/.test(html) && /searchParams\.delete\('ref'\)/.test(html) && /30 \* 86400000/.test(html));
+ok('new orders send the invite code; checkout shows the invite discount unless a coupon is applied', /referralCode: getRefCode_\(\),/.test(html) && /const refDiscount = !couponState\.applied && refState && refState\.ok/.test(html) && /'🎁 Invite discount'/.test(html));
+ok('Account → Refer & earn and Wallet are real pages (not "coming soon")', /section === 'referral' && React\.createElement\(ReferralPanel/.test(html) && /section === 'wallet' && React\.createElement\(WalletPanel/.test(html) && /Share on WhatsApp/.test(html));
+ok('own / used / invalid codes are forgotten', (html.match(/r\.invalid \|\| r\.own \|\| r\.notNew\)\) clearRefCode_\(\)/g) || []).length === 2);
+
 console.log('\n---------------------------------------');
 console.log('PASS ' + pass + '   FAIL ' + fail);
 process.exitCode = fail ? 1 : 0;

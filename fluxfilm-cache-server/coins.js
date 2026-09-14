@@ -33,7 +33,8 @@ async function awardCoins(payload) {
   const dup = await db.query('SELECT id FROM coins_ledger WHERE order_id = ? AND event = ? LIMIT 1', [oid, event]);
   if (dup.length) return { ok: true, already: true };
 
-  const coins = computeCoins(event, p.amount);
+  // p.coins = a fixed reward (e.g. Refer & earn); otherwise earn from the order amount.
+  const coins = p.coins != null ? Math.max(0, Math.floor(asNum(p.coins))) : computeCoins(event, p.amount);
   if (coins <= 0) return { ok: true, coins: 0 };
 
   const wrows = await db.query('SELECT coins_balance, coins_lifetime FROM wallet WHERE phone_norm = ? LIMIT 1', [ph]);
