@@ -2340,7 +2340,9 @@ function fdType(t) { return (FD_TYPES.filter(function (x) { return x[0] === t; }
 function fdTags(v) { return (Array.isArray(v) ? v : String(v || '').split(',')).map(function (x) { return String(x).trim(); }).filter(Boolean).slice(0, 6); }
 function fdImg(p, size) {
   var u = p._img || (p.hasImage && p.id ? '/feed-img/' + p.id + '?v=' + encodeURIComponent(p.updatedAt || '') : (p.imageUrl || ''));
-  return size && /^https:\/\/image\.tmdb\.org\/t\/p\/w780\//.test(u) ? u.replace('/w780/', '/' + size + '/') : u;
+  // Posters go through the shop (/tmdb-img/…): image.tmdb.org is blocked on many Indian networks.
+  u = String(u || '').replace(/^https:\/\/image\.tmdb\.org\/t\/p\//, '/tmdb-img/t/p/');
+  return size && /^\/tmdb-img\/t\/p\/w780\//.test(u) ? u.replace('/w780/', '/' + size + '/') : u;
 }
 function fdSvcOpts(sel, allLabel) {
   var list = FD.services.slice(); if (sel && list.indexOf(sel) < 0) list.unshift(sel);

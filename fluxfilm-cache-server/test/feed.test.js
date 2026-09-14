@@ -30,7 +30,7 @@ const feed = require('../feed');
 
 // ---- fake TMDB ----
 const calls = [];
-let tmdbDown = false; let tmdbStatus = 200;
+let tmdbDown = false; let tmdbStatus = 200; let blockMainHost = false;
 const day = (n) => new Date(Date.now() + n * 86400e3).toISOString().slice(0, 10);
 const row = (id, title, o) => Object.assign({ id, title, overview: 'A made-up story about ' + title + '.', release_date: day(-3), poster_path: '/p' + id + '.jpg', genre_ids: [28, 18], original_language: 'hi', popularity: 50, vote_count: 40 }, o || {});
 const tvrow = (id, name, o) => Object.assign({ id, name, overview: 'A made-up series ' + name + '.', first_air_date: day(-10), poster_path: '/t' + id + '.jpg', genre_ids: [18], original_language: 'en', popularity: 30, vote_count: 20 }, o || {});
@@ -40,6 +40,7 @@ async function fakeFetch(url, opts) {
   const u = new URL(url);
   calls.push({ url: u, headers: (opts && opts.headers) || {} });
   if (tmdbDown) throw new Error('ECONNREFUSED');
+  if (blockMainHost && u.hostname === 'api.themoviedb.org') throw Object.assign(new Error('Could not reach api.themoviedb.org'), { reason: 'ENOTFOUND / public DNS: ETIMEDOUT' });
   const res = (body, status) => ({ ok: (status || tmdbStatus) < 400, status: status || tmdbStatus, json: async () => body });
   const p = u.pathname.replace('/3', '');
   if (p === '/genre/movie/list') return res({ genres: [{ id: 28, name: 'Action' }, { id: 18, name: 'Drama' }] });
@@ -203,7 +204,21 @@ feed._internal.setFetch(fakeFetch);
   const j3 = job(); j3.day = '2000-01-01'; settings.feed_job = JSON.stringify(j3);
   r = await feed.runImport({ force: true });
   ok('TMDB down: no throw, error kept for admin, posts untouched', r.ok === false && /reach TMDB/.test(job().lastError) && (await feed.list()).length === after.length - 1 + 1);
+  ok('TMDB down: admin sees WHY for both addresses (not just "could not reach")', /api\.themoviedb\.org: ECONNREFUSED; api\.tmdb\.org: ECONNREFUSED/.test(job().lastError), job().lastError);
   tmdbDown = false;
+  // Main address blocked (Indian networks) → TMDB's second address api.tmdb.org is used.
+  blockMainHost = true; calls.length = 0;
+  const sr = await feed.tmdbSearch('moon');
+  ok('api.themoviedb.org blocked → same call succeeds through api.tmdb.org', sr.ok && sr.results.length === 2 && calls.some((c) => c.url.hostname === 'api.tmdb.org' && c.url.pathname === '/3/search/multi'), sr);
+  blockMainHost = false;
+  // Posters through the shop.
+  ok('poster links become /tmdb-img/… (image.tmdb.org is blocked for many customers)', feed.posterPath('https://image.tmdb.org/t/p/w780/p101.jpg') === '/tmdb-img/t/p/w780/p101.jpg' && feed.posterPath('https://i.ytimg.com/vi/x/hq.jpg') === 'https://i.ytimg.com/vi/x/hq.jpg' && feed.posterPath('https://image.tmdb.org/t/p/w780/../x.jpg') === 'https://image.tmdb.org/t/p/w780/../x.jpg');
+  ok('customers get /tmdb-img posters in the feed', (await feed.publicList()).posts.filter((p) => p.tmdb).every((p) => /^\/tmdb-img\/t\/p\/w780\//.test(p.image)));
+  ok('poster proxy is not an open proxy: odd sizes / paths refused', (await feed.posterImage('w9999', 'abcde.jpg')) === null && (await feed.posterImage('w342', '../server.js')) === null && (await feed.posterImage('w342', 'abcde.exe')) === null);
+  const net = require('../tmdbnet')._internal;
+  ok('block-page DNS answers (0.0.0.0, 127.x, private) are treated as blocked', net.bogus('0.0.0.0') && net.bogus('127.0.0.1') && net.bogus('10.1.2.3') && net.bogus('172.20.0.1') && !net.bogus('13.227.1.2') && !net.bogus('172.32.0.1'));
+  const srvSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
+  ok('/tmdb-img route mounted before the storefront catch-all', srvSrc.indexOf("app.get('/tmdb-img/t/p/:size/:file'") > 0 && srvSrc.indexOf("app.get('/tmdb-img/t/p/:size/:file'") < srvSrc.indexOf("app.get('*'"));
   let threw = false; try { await feed.runImport({ force: true }); } catch (e) { threw = true; }
   ok('next run clears the error', !threw && job().lastError === '');
 

@@ -354,6 +354,16 @@ app.get('/promo-img/:id', async (req, res) => {
   } catch (e) { res.status(500).type('text/plain').send('error'); }
 });
 
+// TMDB posters for the feed, fetched by the server (Indian networks often block image.tmdb.org) and cached.
+app.get('/tmdb-img/t/p/:size/:file', async (req, res) => {
+  try {
+    const img = feedMod && await feedMod.posterImage(req.params.size, req.params.file);
+    if (!img) return res.status(404).type('text/plain').send('not found');
+    res.set('Cache-Control', 'public, max-age=604800, immutable');
+    res.type(img.type).send(img.buf);
+  } catch (e) { res.status(502).type('text/plain').send('poster unavailable'); }
+});
+
 // Feed pictures (stored in app_settings) — before the storefront catch-all. The URL carries ?v=<updatedAt>.
 app.get('/feed-img/:id', async (req, res) => {
   try {
