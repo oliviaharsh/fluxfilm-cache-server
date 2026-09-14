@@ -1511,7 +1511,7 @@ function renderProfit() {
   var tone = function (n) { return n > 0 ? 'color:var(--ok)' : n < 0 ? 'color:var(--bad)' : ''; };
   var h = (d.costsReady ? '' : '<div class="qnote warn" style="margin-bottom:12px">Run <b>db/schema-v14.sql</b> to save account costs. Revenue below is already correct.</div>') +
     '<div class="kpis"><div class="kpi"><div class="ic">💵</div><div><div class="n">' + money(t.revenue) + '</div><div class="l">Revenue · ' + t.orders + ' paid orders (' + t.renewals + ' renewals)</div></div></div>' +
-    '<div class="kpi"><div class="ic">🧾</div><div><div class="n">' + money(t.cost) + '</div><div class="l">Account costs' + (t.accountsWithoutCost ? ' · <b style="color:#b45309">' + t.accountsWithoutCost + ' accounts have no cost yet</b>' : '') + '</div></div></div>' +
+    '<div class="kpi"><div class="ic">🧾</div><div><div class="n">' + money(t.cost) + '</div><div class="l">Account costs · ' + money(t.monthlyCost || 0) + ' / month for active accounts' + (t.accountsWithoutCost ? ' · <b style="color:#b45309">' + t.accountsWithoutCost + ' accounts have no cost yet</b>' : '') + '</div></div></div>' +
     '<div class="kpi"><div class="ic">📈</div><div><div class="n" style="' + tone(t.profit) + '">' + money(t.profit) + '</div><div class="l">Profit' + (t.margin != null ? ' · ' + t.margin + '% margin' : '') + '</div></div></div>' +
     '<div class="kpi"><div class="ic">🔁</div><div><div class="n">' + (t.orders ? Math.round((t.renewals / t.orders) * 100) : 0) + '%</div><div class="l">of orders were renewals</div></div></div></div>' +
     '<div class="muted" style="font-size:.75rem;margin:-6px 0 12px">' + esc(d.range.label) + ': ' + prettyDate(d.range.from) + ' – ' + prettyDate(d.range.to) + ' · account costs are counted only for these ' + pfDays(d) + ' days (monthly cost ÷ 30.4 × ' + pfDays(d) + ')</div>';
@@ -1525,25 +1525,28 @@ function renderProfit() {
     '<div class="card list" id="pfaccs" style="padding:4px 16px">' + (accs.length ? accs.map(function (a) {
       return '<div class="li"><span style="font-size:1.05rem">' + svcIcon(a.service) + '</span><div class="grow" style="min-width:180px"><b style="font-family:Consolas,monospace">' + esc(a.accountId) + '</b> <span class="muted">· ' + esc(a.service) + '</span>' + (a.isActive ? '' : ' <span class="pill p-grey">inactive</span>') +
         '<div class="muted" style="font-size:.72rem">' + a.activeCustomers + ' active customers · ' + a.orders + ' orders ' + money(a.revenue) + '</div></div>' +
-        '<div class="row" style="gap:4px;flex-wrap:nowrap"><span class="muted" style="font-size:.72rem">₹/month</span><input class="inp" data-cost="' + esc(a.service) + '|' + esc(a.accountId) + '" value="' + (a.monthlyCost == null ? '' : a.monthlyCost) + '" placeholder="cost" inputmode="decimal" style="width:84px;padding:5px 8px;font-size:.82rem"/></div>' +
-        '<div style="text-align:right;min-width:120px;font-size:.8rem"><div class="muted" title="Monthly cost × ' + pfDays(d) + ' days of this period">cost ' + pfDays(d) + 'd: − ' + money(a.cost) + '</div><b style="' + tone(a.profit) + '">profit ' + money(a.profit) + '</b></div></div>';
+        '<div class="row" style="gap:4px;flex-wrap:nowrap"><span class="muted" style="font-size:.72rem">₹</span><input class="inp" data-cost="' + esc(a.service) + '|' + esc(a.accountId) + '" data-old="' + (a.billedAmount == null ? '' : a.billedAmount) + '/' + (a.billedEvery || 1) + '" value="' + (a.billedAmount == null ? '' : a.billedAmount) + '" placeholder="cost" inputmode="decimal" style="width:84px;padding:5px 8px;font-size:.82rem"/>' +
+        '<select class="inp" data-every style="padding:5px 4px;font-size:.78rem;width:auto">' + [[1, '/ month'], [3, '/ 3 months'], [6, '/ 6 months'], [12, '/ year']].map(function (o) { return '<option value="' + o[0] + '"' + ((a.billedEvery || 1) === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
+        '<div style="text-align:right;min-width:120px;font-size:.8rem"><div class="muted" title="Monthly cost × ' + pfDays(d) + ' days of this period">cost ' + pfDays(d) + 'd: − ' + money(a.cost) + '</div>' + (a.monthlyCost != null ? '<div class="muted" style="font-size:.72rem">' + money(a.monthlyCost) + ' / month</div>' : '') + '<b style="' + tone(a.profit) + '">profit ' + money(a.profit) + '</b></div></div>';
     }).join('') : '<p class="muted">No accounts for this filter.</p>') + '</div>';
   $('#pfbody').innerHTML = h;
   $('#pfacf').onclick = function (e) { var b = e.target.closest('[data-af]'); if (!b) return; PF.filter = b.getAttribute('data-af'); renderProfit(); };
   // Save a cost when the field loses focus or Enter is pressed.
   $$('#pfaccs input[data-cost]').forEach(function (inp) {
     var save = function () {
-      var parts = inp.getAttribute('data-cost').split('|'), v = inp.value.trim(), old = inp.getAttribute('data-old');
-      if (v === (old == null ? inp.defaultValue : old)) return;
-      inp.setAttribute('data-old', v); inp.style.borderColor = '#94a3b8';
-      post('/admin/api/profit/cost', { service: parts[0], accountId: parts.slice(1).join('|'), monthlyCost: v }).then(function (r) {
+      var parts = inp.getAttribute('data-cost').split('|'), v = inp.value.trim(), sel = inp.parentNode.querySelector('[data-every]'), every = sel ? Number(sel.value) : 1;
+      if (v + '/' + every === inp.getAttribute('data-old')) return;
+      if (v === '' && /^\//.test(inp.getAttribute('data-old'))) { inp.setAttribute('data-old', '/' + every); return; }
+      inp.setAttribute('data-old', v + '/' + every); inp.style.borderColor = '#94a3b8';
+      post('/admin/api/profit/cost', { service: parts[0], accountId: parts.slice(1).join('|'), cost: v, every: every }).then(function (r) {
         inp.style.borderColor = r.ok ? 'var(--ok)' : 'var(--bad)';
         if (!r.ok) { toast('⚠️ ' + (r.message || 'failed')); return; }
-        toast(v === '' ? 'Cost cleared' : 'Saved ₹' + v + '/month'); clearTimeout(PF._t); PF._t = setTimeout(loadProfit, 900);
+        toast(v === '' ? 'Cost cleared' : 'Saved ₹' + v + ' ' + ({ 1: '/ month', 3: '/ 3 months', 6: '/ 6 months', 12: '/ year' })[every] + (every > 1 ? ' = ' + money(r.monthlyCost) + ' / month' : '')); clearTimeout(PF._t); PF._t = setTimeout(loadProfit, 900);
       });
     };
     inp.addEventListener('blur', save);
     inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') inp.blur(); });
+    var per = inp.parentNode.querySelector('[data-every]'); if (per) per.addEventListener('change', save);
   });
   if (window.Chart && $('#pfchart')) {
     try { if (PF.chart) PF.chart.destroy(); } catch (e) {}

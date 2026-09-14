@@ -2,7 +2,8 @@
  * FluxFilm - admin profit view + extend a subscription (admin-only).
  *
  *   GET  /admin/api/profit?period=this_month|last_month|30d|90d|365d
- *   POST /admin/api/profit/cost        { service, accountId, monthlyCost, note }   (account_costs, schema-v14)
+ *   POST /admin/api/profit/cost        { service, accountId, cost, every, note }   (account_costs, schema-v14)
+ *        every = months the cost covers: 1 (monthly, default), 3, 6 or 12 (yearly). Old { monthlyCost } still works.
  *   POST /admin/api/subs/extend        { subId, days, reason }                     (+/- days, change log)
  *
  * Revenue = paid orders in the period (by payment time), credited to the account the
@@ -14,6 +15,14 @@ const s = (v) => String(v == null ? '' : v).trim();
 const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const r2 = (n) => Math.round(n * 100) / 100;
 const family = (svc) => (s(svc).toLowerCase().match(/[a-z0-9]+/) || [''])[0];
+// The billing period is kept inside account_costs.note as "[billing:12:4800] user note" so no schema
+// change is needed; monthly_cost always holds the monthly equivalent (4800 / 12 = 400).
+const EVERY = [1, 3, 6, 12];
+function parseBilling(note, monthly) {
+  const m = s(note).match(/^\[billing:(\d+):([\d.]+)\]\s*/);
+  if (m && EVERY.includes(Number(m[1]))) return { every: Number(m[1]), amount: num(m[2]), note: s(note).slice(m[0].length) };
+  return { every: 1, amount: monthly, note: s(note) };
+}
 const missingTable = (e) => /doesn't exist|ER_NO_SUCH_TABLE/i.test(String(e && e.message));
 
 // India-time calendar maths (DB dates are India time, stored without a zone).
@@ -76,25 +85,27 @@ function mount(app, deps) {
         const cur = revByAcc.get(key) || { revenue: 0, orders: 0 }; cur.revenue += amt; cur.orders++; revByAcc.set(key, cur);
       }
 
-      let cost = 0;
+      let cost = 0, monthlyTotal = 0;
       const accRows = accounts.map((a) => {
         const fam = family(a.service);
         const c = costOf.get(s(a.service) + '|' + s(a.account_id));
-        const monthly = c ? num(c.monthly_cost) : null;
+        const bill = c ? parseBilling(c.note, num(c.monthly_cost)) : null;
+        const monthly = bill ? bill.amount / bill.every : null;
         const periodCost = monthly != null ? monthly * range.months : 0;
+        if (monthly != null && s(a.is_active).toUpperCase() === 'TRUE') monthlyTotal += monthly;
         const rv = revByAcc.get(fam + '|' + s(a.account_id)) || { revenue: 0, orders: 0 };
         revByAcc.delete(fam + '|' + s(a.account_id));
         const sv = svcRow(fam); sv.services.add(s(a.service)); sv.accounts++; sv.cost += periodCost; if (monthly == null && s(a.is_active).toUpperCase() === 'TRUE') sv.accountsWithoutCost++;
         cost += periodCost;
         return { service: s(a.service), accountId: s(a.account_id), login: s(a.login_id), isActive: s(a.is_active).toUpperCase() === 'TRUE', activeCustomers: active.get(s(a.account_id)) || 0,
-          monthlyCost: monthly, note: c ? s(c.note) : '', revenue: r2(rv.revenue), orders: rv.orders, cost: r2(periodCost), profit: r2(rv.revenue - periodCost) };
+          monthlyCost: monthly == null ? null : r2(monthly), billedEvery: bill ? bill.every : 1, billedAmount: bill ? r2(bill.amount) : null, note: bill ? bill.note : '', revenue: r2(rv.revenue), orders: rv.orders, cost: r2(periodCost), profit: r2(rv.revenue - periodCost) };
       });
       // Revenue on accounts that are no longer in inventory (deleted / renamed).
       for (const [key, rv] of revByAcc) { noAccount.revenue += rv.revenue; noAccount.orders += rv.orders; }
 
       res.json({
         ok: true, range, costsReady,
-        totals: { revenue: r2(revenue), cost: r2(cost), profit: r2(revenue - cost), margin: revenue > 0 ? Math.round(((revenue - cost) / revenue) * 1000) / 10 : null, orders: orderCount, renewals, newOrders: orderCount - renewals, accountsWithoutCost: accRows.filter((a) => a.isActive && a.monthlyCost == null).length },
+        totals: { revenue: r2(revenue), cost: r2(cost), monthlyCost: r2(monthlyTotal), profit: r2(revenue - cost), margin: revenue > 0 ? Math.round(((revenue - cost) / revenue) * 1000) / 10 : null, orders: orderCount, renewals, newOrders: orderCount - renewals, accountsWithoutCost: accRows.filter((a) => a.isActive && a.monthlyCost == null).length },
         services: [...bySvc.values()].map((x) => ({ family: x.family, services: [...x.services].sort(), revenue: r2(x.revenue), orders: x.orders, renewals: x.renewals, cost: r2(x.cost), profit: r2(x.revenue - x.cost), accounts: x.accounts, accountsWithoutCost: x.accountsWithoutCost })).sort((a, b) => b.revenue - a.revenue),
         accounts: accRows,
         noAccount: { revenue: r2(noAccount.revenue), orders: noAccount.orders },
@@ -108,16 +119,23 @@ function mount(app, deps) {
     const b = req.body || {};
     const service = s(b.service), accountId = s(b.accountId);
     if (!service || !accountId) return res.status(400).json({ ok: false, message: 'Account required.' });
-    const raw = s(b.monthlyCost);
+    const hasNew = b.cost !== undefined;
+    const raw = s(hasNew ? b.cost : b.monthlyCost);
+    const every = hasNew && b.every !== undefined ? Number(b.every) : 1;
+    if (!EVERY.includes(every)) return res.status(400).json({ ok: false, message: 'Billing must be every 1, 3, 6 or 12 months.' });
     if (raw === '') {
       try { await db.query('DELETE FROM account_costs WHERE service = ? AND account_id = ?', [service, accountId]); audit.record(req, { action: 'cost.clear', entity: 'account', id: accountId, summary: service + ': monthly cost cleared' }); return res.json({ ok: true, cleared: true }); } catch (e) { return fail(res, e); }
     }
     const cost = Number(raw);
-    if (!Number.isFinite(cost) || cost < 0 || cost > 1e6) return res.status(400).json({ ok: false, message: 'Monthly cost must be a number.' });
+    if (!Number.isFinite(cost) || cost < 0 || cost > 1e7) return res.status(400).json({ ok: false, message: 'Cost must be a number.' });
+    const monthly = cost / every;
+    const userNote = s(b.note).slice(0, 260);
+    const note = (every === 1 ? userNote : '[billing:' + every + ':' + r2(cost) + '] ' + userNote).trim();
+    const per = { 1: 'month', 3: '3 months', 6: '6 months', 12: 'year' }[every];
     try {
-      await db.query('INSERT INTO account_costs (service, account_id, monthly_cost, note) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE monthly_cost = VALUES(monthly_cost), note = VALUES(note)', [service, accountId, r2(cost), s(b.note).slice(0, 300) || null]);
-      audit.record(req, { action: 'cost.save', entity: 'account', id: accountId, summary: service + ': ₹' + r2(cost) + ' / month' + (s(b.note) ? ' · ' + s(b.note) : '') });
-      res.json({ ok: true, monthlyCost: r2(cost) });
+      await db.query('INSERT INTO account_costs (service, account_id, monthly_cost, note) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE monthly_cost = VALUES(monthly_cost), note = VALUES(note)', [service, accountId, r2(monthly), note || null]);
+      audit.record(req, { action: 'cost.save', entity: 'account', id: accountId, summary: service + ': ₹' + r2(cost) + ' / ' + per + (every === 1 ? '' : ' (= ₹' + r2(monthly) + ' / month)') + (userNote ? ' · ' + userNote : '') });
+      res.json({ ok: true, monthlyCost: r2(monthly), billedEvery: every, billedAmount: r2(cost) });
     } catch (e) { fail(res, e); }
   });
 
@@ -147,4 +165,4 @@ function mount(app, deps) {
   });
 }
 
-module.exports = { mount, periodRange, family };
+module.exports = { mount, periodRange, family, parseBilling };
