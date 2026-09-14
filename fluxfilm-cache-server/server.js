@@ -31,6 +31,7 @@ let referrals = null; try { referrals = require('./referrals'); } catch (e) { co
 let coinsMod = null; try { coinsMod = require('./coins'); } catch (e) { console.log('[coins] not loaded:', e.message); }
 let paymatch = null; try { paymatch = require('./paymatch'); } catch (e) { console.log('[paymatch] not loaded:', e.message); }
 let storeMod = null; try { storeMod = require('./store'); } catch (e) { console.log('[store] not loaded:', e.message); }
+let promosMod = null; try { promosMod = require('./promos'); } catch (e) { console.log('[promos] not loaded:', e.message); }
 // Self-contained Node actions (recover + Get-OTP tool) — MySQL/IMAP, no Apps Script.
 const DB_RECOVER = Object.assign(
   recover ? {
@@ -86,7 +87,9 @@ const DB_STOREFRONT = Object.assign(
     getClaimStatus: (a) => paymatch.getClaimStatus(a[0], a[1]),
   } : {},
   // Maintenance switch (admin → 🚧 Maintenance): the storefront polls this.
-  storeMod ? { getStoreStatus: () => storeMod.getStatus() } : {}
+  storeMod ? { getStoreStatus: () => storeMod.getStatus() } : {},
+  // Offers, banners, pop-ups (admin → 📣 Offers).
+  promosMod ? { getPromos: () => promosMod.publicList(), promoEvent: (a) => promosMod.record(a[0], a[1]) } : {}
 );
 
 const security = require('./security');
@@ -123,6 +126,8 @@ const LIMITS = {
   claimManualPayment: security.rateLimiter(10, TEN_MIN),
   getClaimStatus: security.rateLimiter(400, TEN_MIN),
   getStoreStatus: security.rateLimiter(200, TEN_MIN),
+  getPromos: security.rateLimiter(200, TEN_MIN),
+  promoEvent: security.rateLimiter(120, TEN_MIN),
   any: security.rateLimiter(3000, TEN_MIN),
 };
 const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'submitRestockRequest']);
@@ -170,7 +175,7 @@ const DB_WRITES = order ? {
   },
 } : {};
 const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
-const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus']);
+const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent']);
 const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota', 'otpSendCode', 'otpVerifyCode']);
 const DB_WRITE_ACTIONS = new Set(['createOrder', 'createRenewOrder', 'validateCoupon', 'verifyPayment', 'verifyPaymentByRef', 'fulfillAndGetAccess']);
 const DB_NOT_YET_PORTED = new Set(['recoverReassignAccount']);
@@ -315,6 +320,15 @@ app.post('/api', async (req, res) => {
 
 // -- Installable app: manifests, service worker, icons (pwa.js) — before the storefront catch-all --
 try { require('./pwa').mount(app); } catch (e) { console.log('[pwa] not mounted:', e.message); }
+// Offer pictures (stored in app_settings) — before the storefront catch-all.
+app.get('/promo-img/:id', async (req, res) => {
+  try {
+    const img = promosMod && await promosMod.image(req.params.id);
+    if (!img) return res.status(404).type('text/plain').send('not found');
+    res.set('Cache-Control', 'public, max-age=604800');
+    res.type(img.type).send(img.buf);
+  } catch (e) { res.status(500).type('text/plain').send('error'); }
+});
 
 // -- Admin panel (read-only) --
 if (admin) admin.mountAdmin(app, { db, ADMIN_KEY, sync });
@@ -359,5 +373,7 @@ if (referrals && db.ENABLED) referrals.startReconcileTimer();
 if (coinsMod && db.ENABLED) coinsMod.startTimer();
 // Payment fallback: re-check "I've paid" claims every minute (bank mail also triggers a check, see payments.js).
 if (paymatch && db.ENABLED) paymatch.startTimer();
+// Offers: save view / click counts once a minute.
+if (promosMod && db.ENABLED) promosMod.startTimer();
 // Mark plans EXPIRED once expiry + release date have passed (every hour; replaces the old Apps Script job).
 try { if (db.ENABLED) require('./subexpiry').startTimer(); } catch (e) { console.log('[subexpiry] not started:', e.message); }

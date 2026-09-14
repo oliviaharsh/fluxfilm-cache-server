@@ -62,7 +62,7 @@ const store = require('../store');
   const srv = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   ok('createOrder + createRenewOrder check the switch first', /createOrder: async \(a\) => \(storeMod && await storeMod\.guard\(\)\) \|\| order\.createOrder\(a\[0\]\)/.test(srv) && /createRenewOrder: async \(a\) => \(storeMod && await storeMod\.guard\(\)\) \|\| order\.createRenewOrder/.test(srv));
   ok('paying / verifying / delivering existing orders is NOT blocked', !/verifyPayment: async \(a\) => \(storeMod/.test(srv) && !/fulfillAndGetAccess: async \(a\) => \(storeMod/.test(srv));
-  ok('public getStoreStatus routed + rate-limited', /getStoreStatus: \(\) => storeMod\.getStatus\(\)/.test(srv) && /getStoreStatus: security\.rateLimiter/.test(srv) && /'getStoreStatus'\]\);/.test(srv));
+  ok('public getStoreStatus routed + rate-limited', /getStoreStatus: \(\) => storeMod\.getStatus\(\)/.test(srv) && /getStoreStatus: security\.rateLimiter/.test(srv) && /'getStoreStatus'[,\]]/.test(srv));
   ok('admin routes mounted', /require\('\.\/adminstore'\)\.mount/.test(fs.readFileSync(path.join(__dirname, '..', 'admin.js'), 'utf8')));
 
   // Admin routes (auth + audit).
