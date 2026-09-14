@@ -178,7 +178,7 @@ html.ff-lite .ff-slide { animation-duration: .2s; }
   .ff-home { max-width: 620px; margin: 0 auto; }
 }
 @media (min-width: 900px) {
-  .page-inner { padding: 0 28px; }
+  .page-inner { padding-left: 28px; padding-right: 28px; }
   .ff-topbar-in { padding: 12px 28px; gap: 14px; }
   .ff-desk-nav { display: flex; align-items: center; gap: 4px; margin-left: auto; }
   .ff-desk-nav button { border: 0; background: none; padding: 9px 14px; border-radius: 12px; font-size: 14px; font-weight: 700; color: #334155; cursor: pointer; }
@@ -519,7 +519,9 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 #root img,#root svg,#root canvas{max-width:100%}
 #root input,#root select,#root textarea,#root button{max-width:100%}
 #root{overflow-wrap:break-word}
-@media (max-width:380px){ .page-inner{padding:0 12px} }
+/* Sides only: the old shorthand "padding:0 12px" also set padding-bottom to 0 on narrow phones (≤380 CSS px, e.g. the
+   owner's OnePlus Nord 5 at dpr 3.5 = ~309 px), wiping the room reserved for the bottom menu (?layout=1 showed padB 0px). */
+@media (max-width:380px){ .page-inner{padding-left:12px;padding-right:12px} }
 @media (max-width:330px){ .ff-help-short{display:none} }
 /* New version ready bar (UpdateBar) */
 .ff-upd { position: fixed; left: 50%; top: calc(66px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 80; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px); background: #04140e; color: #fff; border-radius: 999px; padding: 6px 6px 6px 16px; font-size: 14px; font-weight: 600; box-shadow: 0 10px 30px rgba(4,20,14,.35); width: max-content; white-space: nowrap; }
