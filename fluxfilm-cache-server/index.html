@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#04140e" />
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
+<link rel="preload" as="image" type="image/svg+xml" href="/icons/logo.svg" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="FluxFilm" />
@@ -173,7 +174,7 @@ html.ff-lite .ff-slide { animation-duration: .2s; }
   .ff-grid-svc { grid-template-columns: repeat(4, minmax(0,1fr)); }
 }
 @keyframes popcornFloat { 0%,100%{transform:translateY(0) rotate(0) scale(1)} 25%{transform:translateY(-2px) rotate(-1deg) scale(1.02)} 50%{transform:translateY(-4px) rotate(0) scale(1.03)} 75%{transform:translateY(-2px) rotate(1deg) scale(1.02)} }
-@keyframes popcornGlow { 0%,100%{box-shadow:0 6px 18px rgba(22,163,74,.22)} 50%{box-shadow:0 10px 28px rgba(22,163,74,.36)} }
+@keyframes popcornGlow { 0%,100%{box-shadow:0 6px 18px rgba(4,20,14,.22)} 50%{box-shadow:0 10px 28px rgba(4,20,14,.34)} }
 @keyframes popcornPop { 0%{transform:scale(1)} 40%{transform:scale(1.10)} 100%{transform:scale(1)} }
 @keyframes popcornShake { 0%,100%{transform:rotate(0)} 20%{transform:rotate(-4deg)} 40%{transform:rotate(4deg)} 60%{transform:rotate(-3deg)} 80%{transform:rotate(3deg)} }
 @keyframes spin { to{transform:rotate(360deg)} }
@@ -295,19 +296,20 @@ input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; 
 #ff-splash[hidden] { display: none; }
 .ff-sp-stage { perspective: 700px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
 .ff-sp-cube { position: relative; width: 96px; height: 96px; transform-style: preserve-3d; animation: ffSpFlip .78s cubic-bezier(.2,.9,.25,1.15) both; will-change: transform; }
-.ff-sp-face, .ff-sp-edge { position: absolute; inset: 0; border-radius: 28px; }
-.ff-sp-edge { background: #15803d; }
+.ff-sp-face, .ff-sp-edge { position: absolute; inset: 0; border-radius: 21px; }
+.ff-sp-edge { background: #0a2419; }
 .ff-sp-e1 { transform: translateZ(-6px); }
-.ff-sp-e2 { transform: translateZ(-12px); background: #166534; }
-.ff-sp-face { display: grid; place-items: center; font-size: 46px; background: linear-gradient(135deg,#34d399,#16a34a); box-shadow: inset 0 1px 0 rgba(255,255,255,.35); overflow: hidden; transform: translateZ(0); }
+.ff-sp-e2 { transform: translateZ(-12px); background: #04140e; }
+.ff-sp-face { display: grid; place-items: center; background: #04140e; overflow: hidden; transform: translateZ(0); }
+.ff-sp-face svg { display: block; width: 100%; height: 100%; }
 .ff-sp-face::after { content: ''; position: absolute; top: -20%; bottom: -20%; left: 0; width: 45%; background: linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent); transform: translateX(-160%) skewX(-18deg); animation: ffSpShine .55s ease-out .5s both; }
-.ff-sp-shadow { width: 84px; height: 14px; margin-top: -8px; border-radius: 50%; background: radial-gradient(closest-side, rgba(21,128,61,.28), transparent); animation: ffSpShadow .78s cubic-bezier(.2,.9,.25,1.15) both; }
+.ff-sp-shadow { width: 84px; height: 14px; margin-top: -8px; border-radius: 50%; background: radial-gradient(closest-side, rgba(4,20,14,.30), transparent); animation: ffSpShadow .78s cubic-bezier(.2,.9,.25,1.15) both; }
 .ff-sp-word { display: flex; perspective: 400px; font-size: 30px; font-weight: 800; letter-spacing: -.5px; color: #0f172a; font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; }
 .ff-sp-word span { display: inline-block; transform-origin: 50% 100%; animation: ffSpLetter .36s cubic-bezier(.2,.8,.3,1.2) both; }
 .ff-sp-word span:nth-child(1) { animation-delay: .34s; } .ff-sp-word span:nth-child(2) { animation-delay: .38s; }
 .ff-sp-word span:nth-child(3) { animation-delay: .42s; } .ff-sp-word span:nth-child(4) { animation-delay: .46s; }
-.ff-sp-word span:nth-child(5) { animation-delay: .50s; color: #16a34a; } .ff-sp-word span:nth-child(6) { animation-delay: .54s; color: #16a34a; }
-.ff-sp-word span:nth-child(7) { animation-delay: .58s; color: #16a34a; } .ff-sp-word span:nth-child(8) { animation-delay: .62s; color: #16a34a; }
+.ff-sp-word span:nth-child(5) { animation-delay: .50s; color: #059669; } .ff-sp-word span:nth-child(6) { animation-delay: .54s; color: #059669; }
+.ff-sp-word span:nth-child(7) { animation-delay: .58s; color: #059669; } .ff-sp-word span:nth-child(8) { animation-delay: .62s; color: #059669; }
 @keyframes ffSpFlip { 0% { transform: translateY(26px) translateZ(-260px) rotateX(38deg) rotateY(-150deg); opacity: 0; } 35% { opacity: 1; } 72% { transform: translateY(-4px) translateZ(30px) rotateX(-8deg) rotateY(14deg); } 100% { transform: none; opacity: 1; } }
 @keyframes ffSpShadow { 0% { transform: scale(.35); opacity: 0; } 72% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
 @keyframes ffSpShine { to { transform: translateX(360%) skewX(-18deg); } }
@@ -441,7 +443,7 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
 </script>
 </head>
 <body>
-<div id="ff-splash" hidden aria-hidden="true"><div class="ff-sp-stage"><div class="ff-sp-cube"><div class="ff-sp-edge ff-sp-e2"></div><div class="ff-sp-edge ff-sp-e1"></div><div class="ff-sp-face">🍿</div></div><div class="ff-sp-shadow"></div><div class="ff-sp-word"><span>F</span><span>l</span><span>u</span><span>x</span><span>F</span><span>i</span><span>l</span><span>m</span></div></div></div>
+<div id="ff-splash" hidden aria-hidden="true"><div class="ff-sp-stage"><div class="ff-sp-cube"><div class="ff-sp-edge ff-sp-e2"></div><div class="ff-sp-edge ff-sp-e1"></div><div class="ff-sp-face"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="ffsp-bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#12382a"/><stop offset="1" stop-color="#04140e"/></linearGradient><radialGradient id="ffsp-hi" cx="143" cy="61" r="460" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset=".55" stop-color="#ffffff" stop-opacity="0"/></radialGradient><linearGradient id="ffsp-mk" x1="0" y1="96" x2="0" y2="416" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#a7f3d0"/><stop offset="1" stop-color="#34d399"/></linearGradient><filter id="ffsp-sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity=".45"/></filter><mask id="ffsp-f" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect width="512" height="512" fill="#fff"/><g fill="#000"><rect x="198" y="186" width="36" height="148" rx="6"/><rect x="198" y="186" width="98" height="32" rx="6"/><rect x="198" y="244" width="78" height="30" rx="6"/></g></mask></defs><rect width="512" height="512" rx="112" fill="url(#ffsp-bg)"/><rect width="512" height="512" rx="112" fill="url(#ffsp-hi)"/><g filter="url(#ffsp-sh)"><path transform="translate(8 0)" d="M170 128V384L392 256Z" fill="url(#ffsp-mk)" stroke="url(#ffsp-mk)" stroke-width="64" stroke-linejoin="round" mask="url(#ffsp-f)"/></g></svg></div></div><div class="ff-sp-shadow"></div><div class="ff-sp-word"><span>F</span><span>l</span><span>u</span><span>x</span><span>F</span><span>i</span><span>l</span><span>m</span></div></div></div>
 <script>
 // Splash: every page load (incl. reload), skipped for reduced motion, removed by 1.4 s at the latest. The app renders underneath.
 (function () {
@@ -1067,22 +1069,25 @@ function PopcornLogo({
     style: {
       width: size,
       height: size,
-      borderRadius: R.logo,
+      borderRadius: size * .22,
       flexShrink: 0,
-      background: 'linear-gradient(135deg,#34d399,#16a34a)',
-      display: 'grid',
-      placeItems: 'center',
-      fontSize: size * .48,
+      overflow: 'hidden',
       cursor: 'pointer',
       userSelect: 'none',
       animation: pressed ? 'popcornPop .28s ease' : 'popcornFloat 3.2s ease-in-out infinite,popcornGlow 2.6s ease-in-out infinite'
     }
-  }, React.createElement("span", {
+  }, React.createElement("img", {
+    src: "/icons/logo.svg",
+    alt: "FluxFilm",
+    width: size,
+    height: size,
+    draggable: false,
     style: {
-      display: 'inline-block',
-      animation: pressed ? 'popcornShake .35s ease' : 'none'
+      display: 'block',
+      width: '100%',
+      height: '100%'
     }
-  }, "🍿"));
+  }));
 }
 function Topbar({
   title,
@@ -1781,14 +1786,23 @@ function AccountCreateModal({
     style: {
       width: 48,
       height: 48,
-      borderRadius: 18,
-      background: 'linear-gradient(135deg,#34d399,#16a34a)',
-      display: 'grid',
-      placeItems: 'center',
-      fontSize: 24,
-      animation: 'softPulse 2.2s ease-in-out infinite'
+      borderRadius: 11,
+      flexShrink: 0,
+      overflow: 'hidden',
+      animation: 'popcornFloat 3.2s ease-in-out infinite,popcornGlow 2.6s ease-in-out infinite'
     }
-  }, "🍿"), React.createElement("div", null, React.createElement("div", {
+  }, React.createElement("img", {
+    src: "/icons/logo.svg",
+    alt: "FluxFilm",
+    width: 48,
+    height: 48,
+    draggable: false,
+    style: {
+      display: 'block',
+      width: '100%',
+      height: '100%'
+    }
+  })), React.createElement("div", null, React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 17,
@@ -2282,20 +2296,23 @@ function HomeScreen({
     style: {
       width: 64,
       height: 64,
-      borderRadius: 20,
-      background: 'linear-gradient(135deg,#34d399,#16a34a)',
-      display: 'grid',
-      placeItems: 'center',
-      fontSize: 28,
+      borderRadius: 14,
+      overflow: 'hidden',
       margin: '0 auto 16px',
       animation: 'popcornFloat 3s ease-in-out infinite,popcornGlow 2.5s ease-in-out infinite'
     }
-  }, React.createElement("span", {
+  }, React.createElement("img", {
+    src: "/icons/logo.svg",
+    alt: "FluxFilm",
+    width: 64,
+    height: 64,
+    draggable: false,
     style: {
-      display: 'inline-block',
-      animation: 'popcornShake 5s ease-in-out infinite'
+      display: 'block',
+      width: '100%',
+      height: '100%'
     }
-  }, "🍿")), React.createElement("h1", {
+  })), React.createElement("h1", {
     className: "ff-home-h1",
     style: {
       fontFamily: PJS,
@@ -9271,21 +9288,24 @@ function RestoringScreen({
     style: {
       width: 72,
       height: 72,
-      borderRadius: 24,
-      background: 'linear-gradient(135deg,#34d399,#16a34a)',
-      display: 'grid',
-      placeItems: 'center',
-      fontSize: 32,
+      borderRadius: 16,
+      overflow: 'hidden',
       marginBottom: 20,
-      boxShadow: '0 10px 30px rgba(22,163,74,.28)',
+      boxShadow: '0 10px 30px rgba(4,20,14,.28)',
       animation: 'popcornFloat 3s ease-in-out infinite,popcornGlow 2.5s ease-in-out infinite'
     }
-  }, React.createElement("span", {
+  }, React.createElement("img", {
+    src: "/icons/logo.svg",
+    alt: "FluxFilm",
+    width: 72,
+    height: 72,
+    draggable: false,
     style: {
-      display: 'inline-block',
-      animation: 'popcornShake 5s ease-in-out infinite'
+      display: 'block',
+      width: '100%',
+      height: '100%'
     }
-  }, "🍿")), React.createElement("div", {
+  })), React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 21,
