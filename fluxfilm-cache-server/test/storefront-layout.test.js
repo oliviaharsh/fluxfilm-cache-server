@@ -37,6 +37,15 @@ ok('checkout steps: buy = Plan, Details (incl. review), Pay, Access; renew = Pla
 ok('details goes straight to pay; failed order goes back to the filled-in details', /nav\('pay', \{\s*service,\s*planObj,\s*form,\s*couponState,\s*creating: true/.test(html) && !/nav\('review', \{\}\)/.test(html) && (html.match(/goBack \? goBack\(\) : nav\('home', \{\}\)/g) || []).length === 2);
 ok('steps shown above every screen; flow tracked on nav + navReset', /React.createElement\(CheckoutSteps, \{\s*flow: flow,\s*screen: screen\s*\}\)/.test(html) && (html.match(/    trackFlow\(s\);/g) || []).length === 2);
 
+// Devices: checkout sends the plan's device count and how many are TVs (was never sent; a 2-device Prime
+// order with "TV" reserved 2 TV slots even for TV + mobile).
+const script = scripts.join('\n');
+const fnSrc = (script.match(/function planDeviceCount_\(plan\) \{[\s\S]*?\n\}/) || [''])[0];
+const planDeviceCount_ = fnSrc ? new Function(fnSrc + '; return planDeviceCount_;')() : () => NaN;
+ok('device count read from the plan name like the server', planDeviceCount_('2 Devices 1Y') === 2 && planDeviceCount_('1 Month') === 1 && planDeviceCount_('3 devices') === 3);
+ok('createOrder payload includes deviceCount + tvCount (and no discountOverride)', /deviceCount: planDeviceCount_\(planObj\?\.plan\),\s*tvCount: form\?\.tvCount != null \? form\.tvCount : ''/.test(html) && !/discountOverride: 0/.test(html));
+ok('multi-device Prime asks how many are TVs; nothing picked by default', /How many will be a TV\?/.test(html) && /tvCount: n, deviceCount: devices, extraVal: n > 0 \? 'TV' : 'NON_TV'/.test(html) && /deviceCount: planDeviceCount_\(planObj\?\.plan\),\s*tvCount: null/.test(html));
+
 console.log('\n---------------------------------------');
 console.log('PASS ' + pass + '   FAIL ' + fail);
 process.exitCode = fail ? 1 : 0;
