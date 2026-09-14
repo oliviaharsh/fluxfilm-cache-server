@@ -30,7 +30,7 @@ ok('bottom menu has 5 columns', /\.ff-bnav \{[^}]*repeat\(5, minmax\(0,1fr\)\)/.
 ok('dashboard no longer has Buy / Recover / Account tiles', !/className: "ff-dash-actions"/.test(html) && /className: "ff-dash-stats"/.test(html));
 ok('account is a list menu (Profile, Coupons, Refer & earn, Wallet) opening sub-pages', /className: "ff-arow"/.test(html) && /k: 'profile'[\s\S]*?k: 'coupons'[\s\S]*?k: 'referral'[\s\S]*?k: 'wallet'/.test(html) && /‹ Account/.test(html) && /function ComingSoonCard\(/.test(html) && !/className: "ff-tabs",/.test(html));
 ok('coupons shown as cards with plain words (no raw ANY / NEW / RENEW)', /function CouponList\(/.test(html) && /ANY: '🛒 New plans & renewals'/.test(html) && !/Valid for \$\{c.scope/.test(html));
-ok('screen slide-in leaves no transform behind (pop-ups were trapped under header/menu)', /\.ff-slide \{ animation: ffSlideIn \.22s ease backwards; \}/.test(html) && !/el\.style\.transform = .translateX\(0\)./.test(html));
+ok('screen slide-in leaves no transform behind (pop-ups were trapped under header/menu)', /\.ff-slide \{ animation: ffSlideIn [.\d]+s [^;{}]*\bbackwards;[^}]*\}/.test(html) && !/\.ff-slide \{[^}]*will-change/.test(html) && !/el\.style\.transform = .translateX\(0\)./.test(html));
 
 // Numbered checkout: buy = Plan, Details, Review, Pay, Access; renew = Plan, Pay, Access.
 ok('checkout steps: buy = Plan, Details (incl. review), Pay (incl. payment help), Access; renew = Plan, Pay, Access', /buy: \[\['Plan', \['buy2', 'groupJoin'\]\], \['Details', \['details', 'review'\]\], \['Pay', \['pay', 'payhelp'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html) && /renew: \[\['Plan', \['renewStart'\]\], \['Pay', \['pay', 'payhelp'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html));
