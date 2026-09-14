@@ -47,6 +47,8 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
 .top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 0 10px;background:color-mix(in srgb,var(--ground) 92%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .back{min-height:44px;min-width:44px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;font-size:15px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:0 12px;text-decoration:none}
 .top h1{font-size:24px;font-weight:800;margin:0}
+.snd{padding:0;font-size:18px;flex-shrink:0}
+.lvl{font-size:12px;font-weight:800;padding:5px 10px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);color:var(--ink)}
 .coins{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:6px 13px;border-radius:999px;background:var(--gold-soft);border:1px solid var(--gold-line);color:var(--gold-ink);font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
 .coin{width:18px;height:18px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fde68a,#f59e0b 60%,#b45309);box-shadow:inset 0 -1px 0 rgba(0,0,0,.2);flex-shrink:0;display:inline-block}
 .coin.sm{width:14px;height:14px;vertical-align:-2px}
@@ -177,6 +179,7 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
     <a class="back" href="/" aria-label="Back to the shop">← Shop</a>
     <h1 class="disp">Games</h1>
     <span class="coins" id="coinChip" hidden aria-label="Coin balance"><span class="coin"></span><span id="bal">0</span></span>
+    <button class="back snd" id="sndBtn" hidden aria-label="Sound on" title="Sound">🔊</button>
   </header>
   <main id="main" class="phone" style="gap:14px"><div class="skel"></div><div class="skel" style="height:220px"></div></main>
 </div>
@@ -189,6 +192,7 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
       <button class="back" id="gsClose" aria-label="Close game">✕</button>
       <h2 class="disp" id="gsTitle">Game</h2>
       <div class="hud" id="hud"></div>
+      <button class="back snd" id="sndBtn2" hidden aria-label="Sound on" title="Sound">🔊</button>
     </div>
     <div class="stage" id="stage"></div>
   </div>
@@ -246,6 +250,137 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
   var buzz = function (ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} };
   function gameCfg(k) { return ((S.home && S.home.games) || []).filter(function (g) { return g.key === k; })[0]; }
 
+  // ---------- sounds: made on the phone with Web Audio (no sound files, nothing downloaded) ----------
+  // Admin → 🎮 Games → "Game sounds" switches them off for everyone; the 🔊 button mutes this phone (ff_games_sound).
+  var SND = (function () {
+    var ctx = null, out = null, noiseBuf = null, crowd = null, KEY = 'ff_games_sound';
+    function allowed() { return !(S.home && S.home.soundsEnabled === false); }
+    function prefOn() { try { return localStorage.getItem(KEY) !== '0'; } catch (e) { return true; } }
+    function audio() {
+      if (ctx) return ctx;
+      var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
+      try {
+        ctx = new AC();
+        var comp = ctx.createDynamicsCompressor(); comp.connect(ctx.destination);
+        out = ctx.createGain(); out.gain.value = 0.6; out.connect(comp);
+        // Pink-ish noise: sounds like a stadium crowd instead of TV hiss.
+        var len = ctx.sampleRate * 2, d; noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate); d = noiseBuf.getChannelData(0);
+        var b0 = 0, b1 = 0, b2 = 0;
+        for (var i = 0; i < len; i++) { var w = Math.random() * 2 - 1; b0 = .99765 * b0 + w * .099046; b1 = .963 * b1 + w * .2965164; b2 = .57 * b2 + w * 1.0526913; d[i] = (b0 + b1 + b2 + w * .1848) * .2; }
+      } catch (e) { ctx = null; }
+      return ctx;
+    }
+    // Phones allow sound only after a tap: start / wake the audio on every touch.
+    function unlock() { if (!allowed() || !prefOn() || !audio()) return; try { if (ctx.state !== 'running') ctx.resume(); } catch (e) {} }
+    ['pointerdown', 'touchend', 'keydown'].forEach(function (k) { window.addEventListener(k, unlock, true); });
+    function ready() { return allowed() && prefOn() && !document.hidden && ctx && ctx.state === 'running'; }
+    function tone(t, f, dur, o) {
+      o = o || {};
+      var osc = ctx.createOscillator(), g = ctx.createGain(), v = o.vol == null ? .3 : o.vol;
+      osc.type = o.type || 'sine'; osc.frequency.setValueAtTime(f, t);
+      if (o.to) osc.frequency.exponentialRampToValueAtTime(o.to, t + dur);
+      g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(v, t + (o.attack || .006)); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+      osc.connect(g); g.connect(out); osc.start(t); osc.stop(t + dur + .05);
+    }
+    function noise(t, dur, o) {
+      o = o || {};
+      var src = ctx.createBufferSource(), flt = ctx.createBiquadFilter(), g = ctx.createGain(), v = o.vol == null ? .4 : o.vol, a = o.attack || .005;
+      src.buffer = noiseBuf; src.loop = true;
+      flt.type = o.type || 'bandpass'; flt.frequency.setValueAtTime(o.f || 1000, t); if (o.to) flt.frequency.exponentialRampToValueAtTime(o.to, t + dur); flt.Q.value = o.q == null ? 1 : o.q;
+      g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(v, t + a);
+      if (o.hold) g.gain.setValueAtTime(v, t + a + o.hold);
+      g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+      src.connect(flt); flt.connect(g); g.connect(out); src.start(t, Math.random() * 1.5); src.stop(t + dur + .05);
+    }
+    function bell(t, f, dur, v) { tone(t, f, dur, { vol: v }); tone(t, f * 2, dur * .5, { vol: v * .22 }); tone(t, f * 3.01, dur * .25, { vol: v * .07 }); }
+    // Crowd roar: two noise bands swelling up, plus a few rising "whooo" voices. size 0..1
+    function cheer(t, size) {
+      var dur = 1.1 + size * 1.8, v = .22 + size * .5;
+      noise(t, dur, { f: 950, q: .6, vol: v, attack: .22, hold: dur * .35 });
+      noise(t + .05, dur * .9, { f: 2300, q: .8, vol: v * .45, attack: .28, hold: dur * .3 });
+      for (var i = 0; i < 3 + Math.round(size * 6); i++) tone(t + .1 + Math.random() * dur * .5, 380 + Math.random() * 380, .45, { vol: .015 + size * .02, type: 'sawtooth', to: 650 + Math.random() * 500, attack: .1 });
+    }
+    var FX = {
+      tap: function (t) { tone(t, 1200, .03, { vol: .07 }); },
+      tick: function (t) { tone(t, 1900, .022, { vol: .1, type: 'square' }); },
+      beep: function (t) { tone(t, 660, .12, { vol: .2, type: 'triangle' }); },
+      go: function (t) { tone(t, 990, .28, { vol: .25, type: 'triangle' }); },
+      right: function (t) { tone(t, 880, .15, { vol: .24, type: 'triangle' }); tone(t + .08, 1318.5, .3, { vol: .24, type: 'triangle' }); },
+      wrong: function (t) { tone(t, 233, .26, { vol: .28, to: 165 }); tone(t, 117, .24, { vol: .16, to: 90 }); },
+      pop: function (t) { noise(t, .06, { type: 'highpass', f: 1800, vol: .3 }); tone(t, 520, .07, { vol: .18, to: 1150, type: 'triangle' }); },
+      star: function (t) { [1318.5, 1760, 2637].forEach(function (f, i) { tone(t + i * .05, f, .25, { vol: .12, type: 'triangle' }); }); },
+      hurt: function (t) { tone(t, 210, .25, { vol: .22, to: 80, type: 'square' }); },
+      whoosh: function (t) { noise(t, .42, { f: 380, to: 1900, q: 1.2, vol: .16, attack: .16 }); },
+      bat: function (t) { noise(t, .07, { f: 2200, q: 2.5, vol: .9 }); tone(t, 190, .1, { vol: .45, to: 120 }); tone(t, 720, .05, { vol: .2, type: 'triangle' }); },
+      thud: function (t) { tone(t, 140, .14, { vol: .55, to: 70 }); noise(t, .08, { f: 700, q: 1, vol: .35 }); },
+      stumps: function (t) { for (var i = 0; i < 5; i++) { noise(t + i * .045, .09, { f: 2600 + i * 300, q: 4, vol: .45 - i * .06 }); tone(t + i * .045, 900 - i * 80, .08, { vol: .13, type: 'triangle' }); } },
+      kick: function (t) { tone(t, 110, .16, { vol: .8, to: 45 }); noise(t, .05, { type: 'lowpass', f: 900, vol: .45 }); },
+      net: function (t) { noise(t, .45, { type: 'highpass', f: 1200, to: 3200, vol: .2, attack: .02 }); },
+      whistle: function (t) {
+        var o = ctx.createOscillator(), lfo = ctx.createOscillator(), lg = ctx.createGain(), g = ctx.createGain();
+        o.frequency.value = 2900; lfo.frequency.value = 28; lg.gain.value = 120; lfo.connect(lg); lg.connect(o.frequency);
+        g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.1, t + .02); g.gain.setValueAtTime(.1, t + .35); g.gain.exponentialRampToValueAtTime(.0001, t + .45);
+        o.connect(g); g.connect(out); o.start(t); lfo.start(t); o.stop(t + .5); lfo.stop(t + .5);
+      },
+      single: function (t) { FX.bat(t); cheer(t + .12, .12); },
+      four: function (t) { FX.bat(t); cheer(t + .12, .5); },
+      six: function (t) { FX.bat(t); cheer(t + .1, 1); tone(t + .35, 1046.5, .45, { vol: .07, type: 'triangle' }); },
+      wicket: function (t) { FX.stumps(t); cheer(t + .15, .8); },
+      out: function (t) { FX.stumps(t); noise(t + .15, 1.1, { f: 700, to: 320, q: .8, vol: .28, attack: .15 }); },
+      ooh: function (t) { noise(t, .9, { f: 480, to: 900, q: .8, vol: .26, attack: .15 }); },
+      groan: function (t) { noise(t, 1.3, { f: 650, to: 300, q: .8, vol: .28, attack: .2 }); },
+      goal: function (t) { FX.net(t); cheer(t + .05, 1); },
+      coins: function (t) { tone(t, 1975.5, .12, { vol: .18, type: 'triangle' }); tone(t + .06, 2637, .35, { vol: .18, type: 'triangle' }); },
+      coupon: function (t) { tone(t, 880, .2, { vol: .24, type: 'triangle' }); tone(t + .07, 1318.5, .4, { vol: .24, type: 'triangle' }); },
+      win: function (t) { [523.25, 659.25, 783.99, 1046.5].forEach(function (f, i) { bell(t + i * .11, f, .8, .3); }); tone(t + .45, 2093, .45, { vol: .05, type: 'triangle' }); tone(t + .55, 2637, .4, { vol: .04, type: 'triangle' }); },
+      bigwin: function (t) { FX.win(t); cheer(t, 1); },
+      lose: function (t) { [392, 329.6, 261.6].forEach(function (f, i) { tone(t + i * .16, f, .35, { vol: .16, type: 'triangle' }); }); }
+    };
+    // The audio may still be waking up right after a tap: wait for it once, then play.
+    function whenReady(fn) {
+      if (!allowed() || !prefOn() || document.hidden || !ctx) return;
+      if (ctx.state === 'running') { fn(); return; }
+      try { var p = ctx.resume(); if (p && p.then) p.then(function () { if (ready()) fn(); }, function () {}); } catch (e) {}
+    }
+    function play(name, delay) { if (!FX[name]) return; whenReady(function () { try { FX[name](ctx.currentTime + .02 + (delay || 0)); } catch (e) {} }); }
+    // Stadium crowd in the background of the sports games (gently rising and falling).
+    function crowdStart(level) { whenReady(function () { crowdOn(level); }); }
+    function crowdOn(level) {
+      if (!ready() || crowd || !S.current || !S.current.running) return;
+      try {
+        var src = ctx.createBufferSource(), f1 = ctx.createBiquadFilter(), g = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain();
+        src.buffer = noiseBuf; src.loop = true; f1.type = 'bandpass'; f1.frequency.value = 850; f1.Q.value = .5;
+        g.gain.value = .0001; lfo.frequency.value = .23; lg.gain.value = level * .35; lfo.connect(lg); lg.connect(g.gain);
+        src.connect(f1); f1.connect(g); g.connect(out); src.start(); lfo.start();
+        g.gain.setTargetAtTime(level, ctx.currentTime, .8);
+        crowd = { src: src, lfo: lfo, g: g };
+      } catch (e) { crowd = null; }
+    }
+    function crowdStop() {
+      if (!crowd || !ctx) { crowd = null; return; }
+      var c = crowd; crowd = null;
+      try { var n = ctx.currentTime; c.g.gain.cancelScheduledValues(n); c.g.gain.setTargetAtTime(.0001, n, .35); c.src.stop(n + 1.6); c.lfo.stop(n + 1.6); } catch (e) {}
+    }
+    // Wheel clicks that slow down with the spin (the wheel eases out over T seconds).
+    function spinTicks(totalDeg, stepDeg, T) {
+      if (!ready() || !T) return;
+      var t0 = ctx.currentTime + .02, n = Math.floor(totalDeg / stepDeg);
+      for (var k = 1; k <= n; k++) { var at = T * (1 - Math.pow(1 - k * stepDeg / totalDeg, 1 / 3)); if (at > T - .03) break; FX.tick(t0 + at); }
+    }
+    function setOn(v) { try { localStorage.setItem(KEY, v ? '1' : '0'); } catch (e) {} if (!v) crowdStop(); else unlock(); }
+    return { play: play, crowdStart: crowdStart, crowdStop: crowdStop, spinTicks: spinTicks, prefOn: prefOn, setOn: setOn, allowed: allowed };
+  })();
+  function sndButtons() {
+    ['sndBtn', 'sndBtn2'].forEach(function (id) {
+      var b = $(id); if (!b) return;
+      b.hidden = !SND.allowed();
+      b.textContent = SND.prefOn() ? '🔊' : '🔇';
+      b.setAttribute('aria-label', SND.prefOn() ? 'Sound on — tap to mute' : 'Sound off — tap to turn on');
+    });
+  }
+  ['sndBtn', 'sndBtn2'].forEach(function (id) { $(id).addEventListener('click', function () { SND.setOn(!SND.prefOn()); sndButtons(); toast(SND.prefOn() ? '🔊 Sound on' : '🔇 Sound off'); }); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) SND.crowdStop(); });
+
   function loadHome() {
     readLogin();
     return api('getGamesHome', [S.phone, S.token]).then(function (h) { S.home = h; renderHome(); return h; });
@@ -264,6 +399,7 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
     var h = S.home, main = $('main');
     if (!h || !h.ok) { main.innerHTML = '<div class="empty"><div class="big">📡</div><h2 class="disp">Couldn\'t load games</h2><p>' + esc((h && h.message) || 'Please try again.') + '</p><button class="cta" id="retry">Try again</button></div>'; $('retry').onclick = loadHome; return; }
     if (!h.enabled) { main.innerHTML = '<div class="empty"><div class="big">🎮</div><h2 class="disp">Games are coming soon</h2><p>We\'re getting the games ready. Come back soon to play and win coins!</p><a class="cta" href="/" style="text-decoration:none">Back to the shop</a></div>'; return; }
+    sndButtons();
     var chip = $('coinChip');
     if (h.loggedIn) { chip.hidden = false; $('bal').textContent = h.balance; } else chip.hidden = true;
     var el = h.eligibility || {}, out = '';
@@ -432,9 +568,11 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
       if (!r || !r.spin) { S.spinning = false; spinLabel(); return; }
       var g = gameCfg('spin'), n = g.slices.length, step = 360 / n, i = r.spin.index;
       var target = 360 - (i * step + step / 2) + (Math.random() - .5) * step * .6;
+      var oldRot = S.rot;
       S.rot = S.rot + 360 * 5 + ((target - S.rot % 360) + 360) % 360;
       $('wheel').style.transform = 'rotate(' + S.rot + 'deg)';
       var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      SND.play('whoosh'); SND.spinTicks(S.rot - oldRot, step, reduced ? 0 : 3.6);
       setTimeout(function () {
         S.spinning = false; var sp = r.spin, msg;
         if (sp.practice) msg = 'Practice spin: ' + (sp.wouldWin.coins ? sp.wouldWin.coins + ' coins' : sp.wouldWin.coupon ? '₹' + sp.wouldWin.coupon + ' coupon' : 'no prize');
@@ -443,6 +581,10 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
         else if (sp.wouldWin && sp.wouldWin.coins && sp.capped) msg = 'You hit this ' + (sp.capped === 'daily' ? 'day' : 'month') + '\'s coin limit';
         else msg = 'No prize this time';
         if (sp.coins || sp.coupon) buzz([40, 40, 80]);
+        if (sp.coupon) { SND.play('coupon'); SND.play('win', .25); }
+        else if (sp.coins) { SND.play('coins'); if (sp.coins >= 10) SND.play('win', .2); }
+        else if (sp.practice && (sp.wouldWin.coins || sp.wouldWin.coupon)) SND.play('coins');
+        else SND.play('lose');
         loadHome().then(function () { var el = $('spinResult'); if (el) el.textContent = msg; toast(msg); if (sp.streakBonus) toast('🔥 Streak bonus +' + sp.streakBonus.coins + ' coins!'); });
       }, reduced ? 80 : 3700);
     });
@@ -452,7 +594,7 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
   function openGameScreen(k) {
     var g = gameCfg(k); $('gsTitle').textContent = g.name; $('hud').innerHTML = ''; $('gs').hidden = false; document.body.style.overflow = 'hidden';
   }
-  function stopCurrent() { if (S.current && S.current.stop) S.current.stop(); S.current = null; }
+  function stopCurrent() { SND.crowdStop(); if (S.current && S.current.stop) S.current.stop(); S.current = null; }
   function closeGame() {
     if (S.current && S.current.running && !confirm('Leave the game? This play will end without a prize.')) return;
     stopCurrent(); $('gs').hidden = true; document.body.style.overflow = ''; loadHome();
@@ -471,7 +613,8 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
     var g = gameCfg(k); if (!g) return;
     openGameScreen(k);
     var pb = playButton(k), rows = prizeRows(k, g);
-    $('stage').innerHTML = '<div class="card"><div class="big">' + g.icon + '</div><h3 class="disp">' + esc(g.name) + '</h3><p>' + esc(HOW[k] ? HOW[k](g) : '') + '</p>' +
+    var LV = { easy: '🙂 Easy', normal: '😎 Normal', hard: '🔥 Hard', pro: '🏆 Pro', custom: '🎚️ Custom' };
+    $('stage').innerHTML = '<div class="card"><div class="big">' + g.icon + '</div><h3 class="disp">' + esc(g.name) + '</h3>' + (g.level ? '<span class="lvl">' + LV[g.level] + ' level</span>' : '') + '<p>' + esc(HOW[k] ? HOW[k](g) : '') + '</p>' +
       (rows.length ? '<div class="prizes">' + rows.map(function (p) { return '<div><span>' + esc(p[0]) + '</span><b>' + esc(p[1]) + '</b></div>'; }).join('') + '</div>' : '') +
       '<button class="cta ' + pb.cls + '" id="goBtn"' + (pb.disabled ? ' disabled' : '') + '>' + pb.label + '</button></div>';
     $('goBtn').onclick = function () {
@@ -487,6 +630,7 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
   }
   function finishPlay(k, play, input, sub) {
     if (S.current) S.current.running = false;
+    SND.crowdStop();
     $('stage').innerHTML = '<div class="card"><div class="big">⏳</div><p>Counting your score…</p></div>';
     api('gameFinish', [S.phone, S.token, play.playId, input || {}]).then(function (r) {
       if (!r.ok && r.needsVerify) { openVerify(); }
@@ -510,6 +654,13 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
       if (!r.coins && !r.coupon && !r.flagged && !r.capped) chips += '<span class="chip grey">No prize this time — try again!</span>';
       if (r.coins || r.coupon) buzz([40, 40, 90]);
     }
+    // Win music (+ stadium cheer for the sports games), coins / coupon sounds, or a gentle "try again".
+    var celebrate = !r.flagged && (r.won || r.coupon || (r.practice && r.wouldWin && (r.wouldWin.coins || r.wouldWin.coupon)));
+    if (celebrate) SND.play(SPORT[k] ? 'bigwin' : 'win');
+    else if (r.coins) SND.play('coins');
+    else SND.play('lose');
+    if (r.coupon) SND.play('coupon', 1);
+    else if (celebrate && r.coins) SND.play('coins', 1);
     loadHome().then(function () {
       var pb = playButton(k);
       $('stage').innerHTML = '<div class="card"><div class="score disp">' + esc(sub.score) + '</div><p>' + esc(sub.text(r)) + '</p><div class="won">' + chips + '</div>' +
@@ -544,14 +695,15 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
             answered = false; Array.prototype.forEach.call(box.children, function (x) { x.disabled = false; }); return;
           }
           if (box.children[r.correct]) box.children[r.correct].classList.add('right');
-          if (r.right) { right++; buzz(25); } else if (btn) { btn.classList.add('wrong'); buzz(70); }
+          if (r.right) { right++; buzz(25); SND.play('right'); } else { if (btn) btn.classList.add('wrong'); buzz(70); SND.play('wrong'); }
           if (r.late && !btn) toast('Time\'s up!');
           hud(); i++; timer = setTimeout(round, 900);
         });
       }
       (function tick(now) {
         if (!alive || answered) return;
-        var left = Math.max(0, 1 - (now - t0) / (secs * 1000)), bar = $('tbar');
+        var left = Math.max(0, 1 - (now - t0) / (secs * 1000)), bar = $('tbar'), sLeft = Math.ceil(left * secs);
+        if (sLeft <= 3 && sLeft > 0 && sLeft !== tick.last) { tick.last = sLeft; SND.play('tick'); }
         if (bar) { bar.style.width = (left * 100) + '%'; bar.style.background = left < .3 ? 'var(--red)' : 'var(--green)'; }
         if (left <= 0) { answer(-1, null); return; }
         raf = requestAnimationFrame(tick);
@@ -593,7 +745,10 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
     function end(text) { alive = false; cancelAnimationFrame(raf); S.current.stop(); finishPlay(k, play, { score: score, durationMs: Math.round(playMs) }, { score: score, text: function () { return 'points · ' + text; } }); }
     function frame(now) {
       if (!alive) return;
-      var dt = Math.min(.05, (now - last) / 1000); last = now; t += dt;
+      var dt = Math.min(.05, (now - last) / 1000); last = now;
+      if (t < 0 && Math.ceil(-t) !== Math.ceil(-(t + dt))) { if (t + dt >= 0) SND.play('go'); else SND.play('beep'); }
+      else if (t === -3) SND.play('beep');
+      t += dt;
       var g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, col.sky); g.addColorStop(1, col.sky2); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
       if (t >= 0) {
         playMs += dt * 1000;
@@ -605,13 +760,13 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
           var it = items[i]; it.y += it.vy * dt; it.sw += dt * 3;
           if (it.y > box.y - 18 && it.y < box.y + 14 && Math.abs(it.x - box.x) < box.w / 2 + 6) {
             items.splice(i, 1);
-            if (it.v > 0) { score += it.v; pops.push({ x: it.x, y: box.y - 30, txt: '+' + it.v, life: .7 }); }
-            else { lives--; flash = .35; pops.push({ x: it.x, y: box.y - 30, txt: it.e === '⚠️' ? 'Spoiler!' : 'Buffering…', life: .9 }); buzz(60); }
+            if (it.v > 0) { score += it.v; pops.push({ x: it.x, y: box.y - 30, txt: '+' + it.v, life: .7 }); SND.play(it.v >= 50 ? 'star' : 'pop'); }
+            else { lives--; flash = .35; pops.push({ x: it.x, y: box.y - 30, txt: it.e === '⚠️' ? 'Spoiler!' : 'Buffering…', life: .9 }); buzz(60); SND.play('hurt'); }
             hud();
             if (lives <= 0) { end('Game over'); return; }
           } else if (it.y > H + 30) items.splice(i, 1);
         }
-        if (t >= d.seconds) { end('Time\'s up! 🍿'); return; }
+        if (t >= d.seconds) { SND.play('whistle'); end('Time\'s up! 🍿'); return; }
         if (Math.floor(t * 4) !== Math.floor((t - dt) * 4)) hud();
       }
       if (flash > 0) { flash -= dt; ctx.fillStyle = 'rgba(220,38,38,' + (flash * .5) + ')'; ctx.fillRect(0, 0, W, H); }
@@ -665,12 +820,14 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
       msg = { text: r.text, life: 1.1, big: r.runs >= 4 || r.out, bad: r.out };
       ball.fly = r.runs > 0 ? { vx: (Math.random() < .5 ? -1 : 1) * (120 + r.runs * 50), vy: -(260 + r.runs * 95) } : r.out ? null : { vx: 0, vy: 0 };
       if (r.out) { ball.stumps = 1; buzz(120); } else if (r.runs >= 4) buzz([30, 30, 60]);
+      SND.play(r.out ? 'out' : r.runs === 6 ? 'six' : r.runs === 4 ? 'four' : r.runs > 0 ? 'single' : 'ooh');
       hud(); wait = 1.25;
     }
     cv.addEventListener('pointerdown', tap);
     var kd = function (e) { if (e.code === 'Space' || e.key === 'Enter') tap(e); };
     addEventListener('keydown', kd);
     S.current = { running: true, stop: function () { alive = false; cancelAnimationFrame(raf); removeEventListener('keydown', kd); } };
+    SND.crowdStart(.07);
     function frame(now) {
       if (!alive) return;
       var dt = Math.min(.05, (now - last) / 1000); last = now;
@@ -679,6 +836,7 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
         if (wait <= 0) {
           if (done()) { alive = false; S.current.stop(); var won = runs >= d.target; finishPlay(k, play, { taps: taps }, { score: runs + '/' + wkts, text: function () { return won ? 'Target ' + d.target + ' chased! ' + (sixes >= 2 ? 'What a finish 🏆' : '🏏') : 'Needed ' + d.target + '. So close!'; } }); return; }
           ball = { b: d.plan[bi], t: 0, p: 0, live: true, hit: false };
+          SND.play('whoosh');
         }
       }
       if (ball && ball.live) {
@@ -735,6 +893,7 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
     hud();
     function release(pos) {
       var r = yorkerBall(d, pos); taps[bi] = pos; bi++; if (r.wicket) wickets++; runs += r.runs; log.push(r.wicket ? 'W' : r.runs);
+      if (r.wicket) SND.play('wicket'); else if (r.runs >= 4) { SND.play('bat'); SND.play('groan', .25); } else if (r.runs === 0) SND.play('thud'); else SND.play('ooh');
       landed = { p: pos == null ? 1000 : pos, life: 1.2, wicket: r.wicket };
       msg = { text: r.text, life: 1.1, good: r.wicket, bad: r.runs >= 4 }; m = null; wait = 1.3; hud();
       buzz(r.wicket ? [30, 30, 90] : 40);
@@ -744,10 +903,11 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
     var kd = function (e) { if (e.code === 'Space' || e.key === 'Enter') tap(e); };
     addEventListener('keydown', kd);
     S.current = { running: true, stop: function () { alive = false; cancelAnimationFrame(raf); removeEventListener('keydown', kd); } };
+    SND.crowdStart(.06);
     function frame(now) {
       if (!alive) return;
       var dt = Math.min(.05, (now - last) / 1000); last = now;
-      if (!m) { wait -= dt; if (wait <= 0) { if (bi >= d.balls) { alive = false; S.current.stop(); var won = wickets >= d.winWickets; finishPlay(k, play, { taps: taps }, { score: wickets + ' wkts', text: function () { return won ? 'Match-winning spell! 🏆 (' + runs + ' runs given)' : 'Needed ' + d.winWickets + ' wickets. ' + runs + ' runs given.'; } }); return; } m = { p: 0, speed: d.plan[bi].speed }; } }
+      if (!m) { wait -= dt; if (wait <= 0) { if (bi >= d.balls) { alive = false; S.current.stop(); var won = wickets >= d.winWickets; finishPlay(k, play, { taps: taps }, { score: wickets + ' wkts', text: function () { return won ? 'Match-winning spell! 🏆 (' + runs + ' runs given)' : 'Needed ' + d.winWickets + ' wickets. ' + runs + ' runs given.'; } }); return; } m = { p: 0, speed: d.plan[bi].speed }; SND.play('whoosh'); } }
       else { m.p += m.speed * dt; if (m.p > 1000) release(null); }
       ctx.fillStyle = col.turf; ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = col.turf2; for (var s2 = 0; s2 < W; s2 += 40) ctx.fillRect(s2, 0, 20, H);
@@ -795,9 +955,10 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
       if (e) e.preventDefault();
       if (busy || anim) return;
       var r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
-      if (phase === 'aim') { var z = zoneAt(x, y); if (z < 0) { msg = { text: 'Tap inside the goal', life: .8 }; return; } zone = z; phase = 'power'; mt0 = performance.now(); return; }
+      if (phase === 'aim') { var z = zoneAt(x, y); if (z < 0) { msg = { text: 'Tap inside the goal', life: .8 }; return; } zone = z; phase = 'power'; mt0 = performance.now(); SND.play('tap'); return; }
       if (phase === 'power') {
         var p = Math.round(power(performance.now())); busy = true; var kickZone = zone;
+        SND.play('kick');
         api('gameStep', [S.phone, S.token, play.playId, { i: ki, zone: kickZone, power: p }]).then(function (res) {
           busy = false; if (!alive) return;
           if (!res.ok) { if (res.expected != null) ki = res.expected; toast(res.message || 'Connection problem'); if (res.finished) closeGame(); phase = 'aim'; zone = -1; return; }
@@ -805,12 +966,14 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
           anim = { t: 0, zone: kickZone, keeper: res.keeperZone, outcome: res.outcome, why: res.why };
           msg = { text: res.outcome === 'GOAL' ? 'GOAL! ⚽' : res.outcome === 'MISS' ? 'Over the bar!' : res.why === 'weak' ? 'Too soft — saved' : 'SAVED!', life: 1.4, good: res.outcome === 'GOAL' };
           buzz(res.outcome === 'GOAL' ? [30, 30, 90] : 80); hud();
+          if (res.outcome === 'GOAL') SND.play('goal', .4); else if (res.outcome === 'SAVED') { SND.play('thud', .38); SND.play('groan', .55); } else SND.play('ooh', .35);
         });
         phase = 'wait';
       }
     }
     cv.addEventListener('pointerdown', tap);
     S.current = { running: true, stop: function () { alive = false; cancelAnimationFrame(raf); } };
+    SND.crowdStart(.08); SND.play('whistle', .3);
     function frame(now) {
       if (!alive) return;
       var dt = Math.min(.05, (now - last) / 1000); last = now;
@@ -836,7 +999,7 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
         if (anim.outcome === 'MISS') target = [target[0], gy - 40];
         if (anim.outcome === 'SAVED') target = [bx0 + (kx - bx0) * .96, by0 + (ky - by0) * .96];
         bx = bx0 + (target[0] - bx0) * tp; by = by0 + (target[1] - by0) * tp - Math.sin(tp * Math.PI) * 30; bs = 34 - 14 * tp;
-        if (anim.t > 1.5) { anim = null; zone = -1; phase = ki >= d.kicks ? 'end' : 'aim'; if (phase === 'end') { alive = false; S.current.stop(); var won = goals >= d.winGoals; finishPlay(k, play, {}, { score: goals + '/' + d.kicks, text: function () { return won ? 'You beat the keeper! 🏆' : 'Needed ' + d.winGoals + ' goals. Try again!'; } }); return; } }
+        if (anim.t > 1.5) { anim = null; zone = -1; phase = ki >= d.kicks ? 'end' : 'aim'; if (phase === 'end') { alive = false; S.current.stop(); SND.play('whistle'); var won = goals >= d.winGoals; finishPlay(k, play, {}, { score: goals + '/' + d.kicks, text: function () { return won ? 'You beat the keeper! 🏆' : 'Needed ' + d.winGoals + ' goals. Try again!'; } }); return; } }
       }
       ctx.font = bs + 'px ' + EMOJI_FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('⚽', bx, by);
       // power bar

@@ -3448,8 +3448,8 @@ function gmLoad() {
     if (!$('#gmbody')) return;
     var st = res[0], ov = res[1];
     if (!st.ok) { $('#gmbody').innerHTML = '<div class="card muted">' + esc(st.message || 'error') + '</div>'; return; }
-    GM.s = st.settings; GM.f = st.fields;
-    gmRender(st, ov && ov.ok ? ov : null);
+    GM.s = st.settings; GM.f = st.fields; GM.st = st; GM.ov = ov && ov.ok ? ov : null;
+    gmRender(st, GM.ov);
     gmLoadQuestions();
   });
 }
@@ -3459,6 +3459,19 @@ function gmField(f, obj, path) {
   var v = obj[f.k];
   if (f.step === 'bool') return '<label class="rf-tog" style="grid-column:1/-1"><input type="checkbox" data-gm="' + path + '"' + (v ? ' checked' : '') + '/> ' + esc(f.label) + (f.help ? ' <span class="gm-help">' + esc(f.help) + '</span>' : '') + '</label>';
   return '<label>' + esc(f.label) + '<input class="inp" type="number" inputmode="decimal" min="' + f.min + '" max="' + f.max + '" step="' + f.step + '" data-gm="' + path + '" value="' + esc(v) + '"/>' + (f.help ? '<span class="gm-help">' + esc(f.help) + '</span>' : '') + '</label>';
+}
+// ⚡ One-tap difficulty (same levels as games.js PRESETS / levelOf).
+var GM_LEVEL = { easy: '🙂 Easy', normal: '😎 Normal', hard: '🔥 Hard', pro: '🏆 Pro' };
+function gmLevelOf(k) {
+  var p = GM.f.presets && GM.f.presets[k], g = GM.s.games[k]; if (!p) return '';
+  return (GM.f.levels || []).filter(function (lv) { return Object.keys(p[lv]).every(function (x) { return Number(g[x]) === Number(p[lv][x]); }); })[0] || 'custom';
+}
+function gmLevels(k) {
+  if (!(GM.f.presets && GM.f.presets[k])) return '';
+  var cur = gmLevelOf(k);
+  return '<b style="font-size:.82rem">⚡ Difficulty</b>' + GM.f.levels.map(function (lv) {
+    return '<button class="chip" data-gpre="' + k + '.' + lv + '"' + (cur === lv ? ' style="background:#16a34a;color:#fff;border-color:#16a34a"' : '') + '>' + GM_LEVEL[lv] + '</button>';
+  }).join('') + '<span class="gm-help">' + (cur === 'custom' ? 'Custom — you changed single values below.' : 'Tap a level, then Save. Changes speed / timing / target only; prizes stay the same.') + '</span>';
 }
 function gmSlices() {
   var sl = GM.s.games.spin.slices;
@@ -3487,7 +3500,8 @@ function gmRender(st, ov) {
   Object.keys(F.meta).forEach(function (k) {
     var g = s.games[k], meta = F.meta[k];
     h += '<details class="gm-game" id="gm-' + k + '"><summary><span style="font-size:1.3rem">' + meta.icon + '</span>' + esc(meta.name) + ' ' + (g.enabled ? '<span class="pill p-ok">ON</span>' : '<span class="pill p-grey">OFF</span>') +
-      '<span class="muted">' + g.freePerDay + ' free / day · extra ' + g.extraCost + ' coins</span></summary><div class="gm-in">' +
+      '<span class="muted">' + (GM.f.presets && GM.f.presets[k] ? '<span id="gmsum-' + k + '">' + (GM_LEVEL[gmLevelOf(k)] || 'Custom') + '</span> · ' : '') + g.freePerDay + ' free / day · extra ' + g.extraCost + ' coins</span></summary><div class="gm-in">' +
+      (GM.f.presets && GM.f.presets[k] ? '<div class="row" id="gmlv-' + k + '" style="gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">' + gmLevels(k) + '</div>' : '') +
       '<div class="rf-f">' + F.common.map(function (f) { return gmField(f, g, 'games.' + k + '.' + f.k); }).join('') + '</div>' +
       (k === 'spin' ? '<h4 style="margin:14px 0 6px">🎡 Wheel slices</h4><div id="gmslices" style="overflow-x:auto">' + gmSlices() + '</div>' :
         '<h4 style="margin:14px 0 6px">🏆 Prizes &amp; difficulty</h4><div class="rf-f">' + F.games[k].map(function (f) { return gmField(f, g, 'games.' + k + '.' + f.k); }).join('') + '</div>') +
@@ -3523,14 +3537,27 @@ function gmRender(st, ov) {
       var path = el.getAttribute('data-gm').split('.'), o = GM.s;
       for (var i = 0; i < path.length - 1; i++) o = o[path[i]];
       o[path[path.length - 1]] = el.type === 'checkbox' ? el.checked : (el.value === '' ? '' : Number(el.value));
+      if (path[0] === 'games') gmLevelRefresh(path[1]);
     }
     mark();
+  };
+  var gmLevelRefresh = function (k) {
+    var row = $('#gmlv-' + k), sum = $('#gmsum-' + k);
+    if (row) row.innerHTML = gmLevels(k);
+    if (sum) sum.textContent = GM_LEVEL[gmLevelOf(k)] || 'Custom';
   };
   body.addEventListener('input', onChange); body.addEventListener('change', onChange);
   body.addEventListener('click', function (e) {
     var d = e.target.closest('[data-gsdel]');
     if (d) { if (GM.s.games.spin.slices.length <= 2) { toast('The wheel needs at least 2 slices'); return; } GM.s.games.spin.slices.splice(+d.getAttribute('data-gsdel'), 1); $('#gmslices').innerHTML = gmSlices(); mark(); return; }
     if (e.target.id === 'gsadd') { GM.s.games.spin.slices.push({ label: 'Try again', coins: 0, coupon: 0, weight: 10 }); $('#gmslices').innerHTML = gmSlices(); mark(); return; }
+    var pre = e.target.closest('[data-gpre]');
+    if (pre) {
+      var kp = pre.getAttribute('data-gpre').split('.'), vals = GM.f.presets[kp[0]][kp[1]];
+      Object.keys(vals).forEach(function (x) { GM.s.games[kp[0]][x] = vals[x]; var inp = $('[data-gm="games.' + kp[0] + '.' + x + '"]'); if (inp) inp.value = vals[x]; });
+      gmLevelRefresh(kp[0]); mark(); toast(GM_LEVEL[kp[1]] + ' set for ' + GM.f.meta[kp[0]].name + ' — tap Save');
+      return;
+    }
     var qk = e.target.closest('[data-qk]'); if (qk) { GM.qkind = qk.getAttribute('data-qk'); gmLoadQuestions(); }
   });
   $('#gmsave').onclick = function () {

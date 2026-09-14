@@ -84,6 +84,18 @@ Module._load = (function (orig) { return function (req) { if (req === './db') re
   v = games.validateSettings({ games: { spin: { slices: [{ label: 'x', coins: 5, weight: 0 }, { label: 'y', coins: 1, weight: 0 }] } } });
   ok('wheel needs a slice with a chance', !v.ok && v.errors.some((e) => /chance above 0/.test(e)));
 
+  // ---- difficulty levels + sounds switch ----
+  const allLevelsValid = Object.keys(games.PRESETS).every((g) => games.LEVELS.every((lv) => {
+    const s = games.defaults(); Object.assign(s.games[g], games.PRESETS[g][lv]); const r = games.validateSettings(s);
+    if (!r.ok) console.log('   level', g, lv, r.errors); return r.ok;
+  }));
+  ok('every difficulty level (easy / normal / hard / pro) passes validation', allLevelsValid);
+  const dflt = games.defaults();
+  ok('defaults = Normal level for every game; sounds on', Object.keys(games.PRESETS).every((g) => games.levelOf(g, dflt.games[g]) === 'normal') && dflt.soundsEnabled === true);
+  const hardCricket = Object.assign({}, dflt.games.cricket, games.PRESETS.cricket.hard);
+  ok('level detection: hard, and custom after one change', games.levelOf('cricket', hardCricket) === 'hard' && games.levelOf('cricket', Object.assign({}, hardCricket, { windowSix: 11 })) === 'custom');
+  ok('Hard cricket really is harder than Easy (faster, smaller six window, bigger target)', games.PRESETS.cricket.hard.speedMax > games.PRESETS.cricket.easy.speedMax && games.PRESETS.cricket.hard.windowSix < games.PRESETS.cricket.easy.windowSix && games.PRESETS.cricket.hard.targetMin > games.PRESETS.cricket.easy.targetMax);
+
   // ---- pure rules ----
   const cc = games.defaults().games.cricket;
   ok('cricket timing: perfect = 6, edge = 1, early = dot, late / no tap = out',
@@ -120,6 +132,12 @@ Module._load = (function (orig) { return function (req) { if (req === './db') re
   const pagePos = new Function(grab('posAt') + '; return posAt;')();
   const slowBall = { speed: 1000, slowAt: 400, slowFactor: 0.5 };
   ok('slower ball: page position ↔ server travel time agree', Math.abs(pagePos(slowBall, games.ballTimeMs(slowBall, 850)) - 850) < 0.5);
+
+  ok('page sounds: Web Audio only (no sound files), mute button, admin switch respected',
+    /var SND = \(function \(\)/.test(html) && /AudioContext/.test(html) && !/\.(mp3|wav|ogg)\b/i.test(html) && /id="sndBtn"/.test(html) && /soundsEnabled === false/.test(html) && /ff_games_sound/.test(html));
+  ok('page sounds: crowd in cricket / yorker / penalty; six, four, out, wicket, goal, kick, whistle; win music on results',
+    (html.match(/SND\.crowdStart\(/g) || []).length === 3 && ["'six'", "'four'", "'out'", "'wicket'", "'goal'", "'kick'", "'whistle'", "'bigwin'", "'win'", "'pop'", "'right'", "'wrong'"].every((x) => html.includes(x)) && /SND\.crowdStop\(\); if \(S\.current && S\.current\.stop\)/.test(html));
+  ok('page shows the difficulty level on the start screen', /g\.level \? '<span class="lvl">'/.test(html));
 
   // ---- plays ----
   await save(() => {});
@@ -226,6 +244,13 @@ Module._load = (function (orig) { return function (req) { if (req === './db') re
   const gmSrc = (panel.match(/function gmChance\([\s\S]*?\n\}/) || [''])[0];
   const gmChance = new Function(gmSrc + '; return gmChance;')();
   ok('panel wheel chance % = server odds', gmChance([{ weight: 1 }, { weight: 3 }], 1) === 75);
+  const lvSrc = (panel.match(/function gmLevelOf\([\s\S]*?\n\}/) || [''])[0];
+  const GMx = { f: { presets: games.PRESETS, levels: games.LEVELS }, s: games.defaults() };
+  const gmLevelOf = new Function('GM', lvSrc + '; return gmLevelOf;')(GMx);
+  GMx.s.games.penalty = Object.assign(GMx.s.games.penalty, games.PRESETS.penalty.pro);
+  ok('panel ⚡ Difficulty buttons + level detection = server', /data-gpre="/.test(panel) && gmLevelOf('penalty') === 'pro' && gmLevelOf('cricket') === 'normal' && a.body === a.body);
+  a = await get('/admin/api/games/settings');
+  ok('admin settings send the difficulty levels + sound switch', a.body.fields.presets.cricket.pro.windowSix === 7 && a.body.fields.levels.length === 4 && a.body.fields.global.some((f) => f.k === 'soundsEnabled'));
   if (server.closeAllConnections) server.closeAllConnections();
   await new Promise((res) => server.close(res));
 
