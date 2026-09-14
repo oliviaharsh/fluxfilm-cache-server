@@ -1505,6 +1505,7 @@ function loadProfit() {
     PF.data = r; renderProfit();
   });
 }
+function pfDays(d) { return d.range.days != null ? d.range.days : Math.round(d.range.months * 30.4375); }
 function renderProfit() {
   var d = PF.data, t = d.totals;
   var tone = function (n) { return n > 0 ? 'color:var(--ok)' : n < 0 ? 'color:var(--bad)' : ''; };
@@ -1513,10 +1514,10 @@ function renderProfit() {
     '<div class="kpi"><div class="ic">🧾</div><div><div class="n">' + money(t.cost) + '</div><div class="l">Account costs' + (t.accountsWithoutCost ? ' · <b style="color:#b45309">' + t.accountsWithoutCost + ' accounts have no cost yet</b>' : '') + '</div></div></div>' +
     '<div class="kpi"><div class="ic">📈</div><div><div class="n" style="' + tone(t.profit) + '">' + money(t.profit) + '</div><div class="l">Profit' + (t.margin != null ? ' · ' + t.margin + '% margin' : '') + '</div></div></div>' +
     '<div class="kpi"><div class="ic">🔁</div><div><div class="n">' + (t.orders ? Math.round((t.renewals / t.orders) * 100) : 0) + '%</div><div class="l">of orders were renewals</div></div></div></div>' +
-    '<div class="muted" style="font-size:.75rem;margin:-6px 0 12px">' + esc(d.range.label) + ': ' + prettyDate(d.range.from) + ' – ' + prettyDate(d.range.to) + ' (costs counted for ' + Math.round(d.range.months * 10) / 10 + ' month' + (d.range.months >= 1.05 || d.range.months < 0.95 ? 's' : '') + ')</div>';
+    '<div class="muted" style="font-size:.75rem;margin:-6px 0 12px">' + esc(d.range.label) + ': ' + prettyDate(d.range.from) + ' – ' + prettyDate(d.range.to) + ' · account costs are counted only for these ' + pfDays(d) + ' days (monthly cost ÷ 30.4 × ' + pfDays(d) + ')</div>';
   h += '<div class="g2"><div class="card"><h3>By service</h3><div class="list">' + d.services.map(function (x) {
     return '<div class="li"><span style="font-size:1.1rem">' + svcIcon(x.family) + '</span><div class="grow"><b>' + esc(x.services.join(' / ') || x.family) + '</b><div class="muted" style="font-size:.72rem">' + x.orders + ' orders · ' + x.renewals + ' renewals · ' + x.accounts + ' accounts' + (x.accountsWithoutCost ? ' · <span style="color:#b45309">' + x.accountsWithoutCost + ' without cost</span>' : '') + '</div></div>' +
-      '<div style="text-align:right;font-size:.8rem"><div>' + money(x.revenue) + ' <span class="muted">− ' + money(x.cost) + '</span></div><b style="' + tone(x.profit) + '">' + money(x.profit) + '</b></div></div>';
+      '<div style="text-align:right;font-size:.8rem"><div>' + money(x.revenue) + ' <span class="muted">− cost ' + money(x.cost) + '</span></div><b style="' + tone(x.profit) + '">profit ' + money(x.profit) + '</b></div></div>';
   }).join('') + (d.noAccount.orders ? '<div class="li"><span>📭</span><div class="grow"><b>No account</b><div class="muted" style="font-size:.72rem">' + d.noAccount.orders + ' orders on manual plans or not delivered</div></div><b>' + money(d.noAccount.revenue) + '</b></div>' : '') + '</div></div>' +
     '<div class="card"><h3>Revenue, last 6 months</h3><div class="chart" style="height:230px"><canvas id="pfchart"></canvas></div></div></div>';
   var accs = d.accounts.filter(function (a) { return PF.filter === 'all' || (PF.filter === 'nocost' ? a.isActive && a.monthlyCost == null : PF.filter === 'loss' ? a.profit < 0 : a.isActive); });
@@ -1525,7 +1526,7 @@ function renderProfit() {
       return '<div class="li"><span style="font-size:1.05rem">' + svcIcon(a.service) + '</span><div class="grow" style="min-width:180px"><b style="font-family:Consolas,monospace">' + esc(a.accountId) + '</b> <span class="muted">· ' + esc(a.service) + '</span>' + (a.isActive ? '' : ' <span class="pill p-grey">inactive</span>') +
         '<div class="muted" style="font-size:.72rem">' + a.activeCustomers + ' active customers · ' + a.orders + ' orders ' + money(a.revenue) + '</div></div>' +
         '<div class="row" style="gap:4px;flex-wrap:nowrap"><span class="muted" style="font-size:.72rem">₹/month</span><input class="inp" data-cost="' + esc(a.service) + '|' + esc(a.accountId) + '" value="' + (a.monthlyCost == null ? '' : a.monthlyCost) + '" placeholder="cost" inputmode="decimal" style="width:84px;padding:5px 8px;font-size:.82rem"/></div>' +
-        '<div style="text-align:right;min-width:90px;font-size:.8rem"><div class="muted">− ' + money(a.cost) + '</div><b style="' + tone(a.profit) + '">' + money(a.profit) + '</b></div></div>';
+        '<div style="text-align:right;min-width:120px;font-size:.8rem"><div class="muted" title="Monthly cost × ' + pfDays(d) + ' days of this period">cost ' + pfDays(d) + 'd: − ' + money(a.cost) + '</div><b style="' + tone(a.profit) + '">profit ' + money(a.profit) + '</b></div></div>';
     }).join('') : '<p class="muted">No accounts for this filter.</p>') + '</div>';
   $('#pfbody').innerHTML = h;
   $('#pfacf').onclick = function (e) { var b = e.target.closest('[data-af]'); if (!b) return; PF.filter = b.getAttribute('data-af'); renderProfit(); };
