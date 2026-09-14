@@ -4,13 +4,18 @@
  *                          false -> the caller opens WhatsApp as before (index.html ffOpenHelp_).
  * Everything Olivia says and every button comes from the server (/api oliviaChat). This file only draws it.
  * A login card is kept in memory only - never saved in sessionStorage.
+ *
+ * Looks and feels like a WhatsApp chat: beige wallpaper, green outgoing bubbles with ticks, white incoming bubbles,
+ * times, "typing..." dots before every reply (at least half a second), a soft pop when sending and a ting when
+ * Olivia answers. Sounds follow the shop's own Sounds switch (Account -> Sounds, localStorage ff_sound).
  */
 (function () {
   'use strict';
   if (window.ffOlivia) return;
   var API = '/api';
   var WA = 'https://wa.me/message/UWTAS2ZMVF4QJ1';
-  var st = { phone: '', enabled: false, checkedFor: '', wa: WA, convId: '', lang: '', messages: [], busy: false, pollTimer: null, open: false };
+  var MIN_TYPING_MS = 500;
+  var st = { phone: '', enabled: false, checkedFor: '', wa: WA, convId: '', lang: '', messages: [], busy: false, typing: false, pollTimer: null, open: false };
 
   function phoneNow() {
     try {
@@ -53,6 +58,40 @@
     }).catch(function () { st.checkedFor = ''; });
   }
 
+  // -- sounds (WhatsApp-like: pop on send, ting on reply) --
+  var actx = null;
+  function soundOn() {
+    try { if (window.ffSoundPrefs && window.ffSoundPrefs.get) return !!window.ffSoundPrefs.get('sound'); } catch (e) {}
+    try { return localStorage.getItem('ff_sound') !== '0'; } catch (e) { return true; }
+  }
+  function audioCtx() {
+    if (actx) return actx;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    try { actx = new AC(); } catch (e) { actx = null; }
+    return actx;
+  }
+  function blip(t, freq, dur, vol, to) {
+    var o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(freq, t);
+    if (to) o.frequency.exponentialRampToValueAtTime(to, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + dur + 0.03);
+  }
+  var SOUNDS = {
+    send: function (t) { blip(t, 520, 0.09, 0.12, 900); },
+    receive: function (t) { blip(t, 880, 0.12, 0.14); blip(t + 0.09, 1320, 0.16, 0.11); },
+  };
+  function sound(name) {
+    try {
+      if (!soundOn() || document.hidden || !SOUNDS[name] || !audioCtx()) return;
+      var go = function () { SOUNDS[name](actx.currentTime + 0.01); };
+      if (actx.state !== 'running' && actx.resume) actx.resume().then(go, function () {}); else go();
+    } catch (e) {}
+  }
+
   // -- styles --
   var css = '' +
     '.ffo-bg{position:fixed;inset:0;z-index:90;background:rgba(15,23,42,.35);display:flex;align-items:flex-end;justify-content:center;font-family:"Plus Jakarta Sans",system-ui,sans-serif}' +
@@ -60,34 +99,52 @@
     '.ffo-sheet h3{margin:0 0 4px;font-size:18px;font-weight:900;color:#0f172a}.ffo-sheet p{margin:0 0 14px;color:#475569;font-size:14px;font-weight:600}' +
     '.ffo-opt{display:flex;gap:12px;align-items:center;width:100%;border:1.5px solid #e2e8f0;background:#fff;border-radius:16px;padding:14px;margin-bottom:10px;text-align:left;font:inherit;cursor:pointer;min-height:64px}' +
     '.ffo-opt b{display:block;font-size:16px;color:#0f172a}.ffo-opt span{display:block;font-size:13px;color:#64748b;font-weight:600}.ffo-opt i{font-style:normal;font-size:30px}' +
-    '.ffo-opt.ai{border-color:#34d399;background:#ecfdf5}' +
-    '.ffo-panel{position:fixed;inset:0;z-index:91;background:#f5f7fb;display:flex;flex-direction:column;font-family:"Plus Jakarta Sans",system-ui,sans-serif}' +
-    '@media(min-width:700px){.ffo-panel{inset:auto 20px 20px auto;width:400px;height:min(680px,calc(100dvh - 40px));border-radius:22px;box-shadow:0 20px 60px rgba(15,23,42,.3);overflow:hidden}}' +
-    '.ffo-top{display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;background:#04140e;color:#fff}' +
-    '.ffo-top .av{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#34d399,#059669);display:grid;place-items:center;font-size:22px;flex:none}' +
-    '.ffo-top b{display:block;font-size:16px}.ffo-top small{display:block;font-size:12px;color:#a7f3d0;font-weight:600}' +
-    '.ffo-x{margin-left:auto;border:0;background:rgba(255,255,255,.12);color:#fff;width:40px;height:40px;border-radius:50%;font-size:22px;cursor:pointer}' +
-    '.ffo-list{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:8px}' +
-    '.ffo-m{max-width:86%;padding:10px 13px;border-radius:18px;font-size:15.5px;line-height:1.45;white-space:pre-wrap;word-wrap:break-word;font-weight:500}' +
-    '.ffo-m.o{background:#fff;color:#0f172a;border-bottom-left-radius:6px;box-shadow:0 1px 2px rgba(15,23,42,.08)}' +
-    '.ffo-m.c{align-self:flex-end;background:#16a34a;color:#fff;border-bottom-right-radius:6px}' +
-    '.ffo-btns{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 4px}' +
-    '.ffo-b{border:1.5px solid #16a34a;background:#fff;color:#15803d;border-radius:999px;padding:10px 14px;font:inherit;font-size:14.5px;font-weight:800;cursor:pointer;min-height:44px;text-align:left}' +
-    '.ffo-b:disabled{opacity:.45}' +
-    '.ffo-card{background:#fff;border-radius:18px;padding:14px;box-shadow:0 1px 2px rgba(15,23,42,.08);max-width:92%}' +
-    '.ffo-card img{display:block;width:220px;max-width:100%;height:auto;margin:6px auto;border-radius:12px;border:1px solid #e2e8f0}' +
-    '.ffo-amt{text-align:center;font-size:26px;font-weight:900;color:#0f172a}' +
-    '.ffo-upi{display:block;text-align:center;margin-top:8px;background:#16a34a;color:#fff;border-radius:14px;padding:12px;font-weight:800;text-decoration:none}' +
-    '.ffo-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #f1f5f9;font-size:14.5px}' +
-    '.ffo-row span{color:#64748b;font-weight:700;flex:none}.ffo-row code{font-family:ui-monospace,monospace;font-weight:800;color:#0f172a;word-break:break-all;text-align:right}' +
-    '.ffo-copy{border:0;background:#ecfdf5;color:#15803d;border-radius:10px;padding:6px 10px;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer;flex:none}' +
-    '.ffo-foot{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid #e2e8f0}' +
-    '.ffo-in{flex:1;min-width:0;border:1.5px solid #cbd5e1;border-radius:999px;padding:12px 16px;font:inherit;font-size:16px}' +
-    '.ffo-send{border:0;background:#16a34a;color:#fff;border-radius:50%;width:48px;height:48px;font-size:20px;cursor:pointer;flex:none}' +
-    '.ffo-typing{align-self:flex-start;color:#64748b;font-size:13px;font-weight:700;padding:4px 8px}' +
+    '.ffo-opt.ai{border-color:#25d366;background:#f0fdf4}' +
+    // WhatsApp-style chat
+    '.ffo-panel{position:fixed;inset:0;z-index:91;display:flex;flex-direction:column;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Plus Jakarta Sans",sans-serif;background-color:#efeae2;' +
+      'background-image:radial-gradient(rgba(0,0,0,.035) 1.2px,transparent 1.3px),radial-gradient(rgba(0,0,0,.025) 1px,transparent 1.1px);background-size:22px 22px,34px 34px;background-position:0 0,11px 17px}' +
+    '@media(min-width:700px){.ffo-panel{inset:auto 20px 20px auto;width:400px;height:min(700px,calc(100dvh - 40px));border-radius:18px;box-shadow:0 20px 60px rgba(15,23,42,.3);overflow:hidden}}' +
+    '.ffo-top{display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 10px 8px;background:#008069;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.15)}' +
+    '.ffo-top .av{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#dcf8c6,#25d366);display:grid;place-items:center;font-size:23px;flex:none;overflow:hidden}' +
+    '.ffo-top .av img{width:100%;height:100%;object-fit:cover;display:block}' +
+    '.ffo-top b{display:block;font-size:17px;font-weight:600}.ffo-top small{display:block;font-size:12.5px;color:#d9fdd3;font-weight:500;min-height:16px}' +
+    '.ffo-x{margin-left:auto;border:0;background:rgba(255,255,255,.14);color:#fff;width:40px;height:40px;border-radius:50%;font-size:24px;line-height:1;cursor:pointer}' +
+    '.ffo-list{flex:1;overflow-y:auto;padding:10px 12px 14px;display:flex;flex-direction:column;gap:3px}' +
+    '.ffo-day{align-self:center;background:#fff;color:#54656f;font-size:12px;font-weight:600;border-radius:8px;padding:5px 12px;margin:4px 0 8px;box-shadow:0 1px .5px rgba(11,20,26,.13);text-transform:uppercase}' +
+    '.ffo-m{position:relative;max-width:84%;padding:6px 9px 18px;border-radius:8px;font-size:15.5px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word;color:#111b21;box-shadow:0 1px .5px rgba(11,20,26,.13);margin-top:6px;min-width:84px}' +
+    '.ffo-m.o{align-self:flex-start;background:#fff;border-top-left-radius:0}' +
+    '.ffo-m.o::before{content:"";position:absolute;top:0;left:-8px;border-top:8px solid #fff;border-left:8px solid transparent}' +
+    '.ffo-m.c{align-self:flex-end;background:#d9fdd3;border-top-right-radius:0}' +
+    '.ffo-m.c::before{content:"";position:absolute;top:0;right:-8px;border-top:8px solid #d9fdd3;border-right:8px solid transparent}' +
+    '.ffo-m.cont{margin-top:1px;border-radius:8px}.ffo-m.cont::before{display:none}' +
+    '.ffo-meta{position:absolute;right:8px;bottom:3px;font-size:11px;color:#667781;white-space:nowrap;display:flex;gap:3px;align-items:center}' +
+    '.ffo-tick{font-size:13px;letter-spacing:-4px;color:#8696a0;padding-right:4px}.ffo-tick.read{color:#53bdeb}' +
+    '.ffo-typing{align-self:flex-start;position:relative;background:#fff;border-radius:8px;border-top-left-radius:0;padding:12px 14px;margin-top:6px;box-shadow:0 1px .5px rgba(11,20,26,.13);display:flex;gap:4px}' +
+    '.ffo-typing::before{content:"";position:absolute;top:0;left:-8px;border-top:8px solid #fff;border-left:8px solid transparent}' +
+    '.ffo-typing i{width:7px;height:7px;border-radius:50%;background:#8696a0;display:block;animation:ffoDot 1.2s infinite ease-in-out}' +
+    '.ffo-typing i:nth-child(2){animation-delay:.15s}.ffo-typing i:nth-child(3){animation-delay:.3s}' +
+    '@keyframes ffoDot{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-4px);opacity:1}}' +
+    '@keyframes ffoIn{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}' +
+    '.ffo-new{animation:ffoIn .18s ease-out both}' +
+    '@media (prefers-reduced-motion: reduce){.ffo-typing i,.ffo-new{animation:none}}' +
+    // WhatsApp Business style reply buttons: white boxes under the message
+    '.ffo-btns{align-self:flex-start;display:flex;flex-direction:column;gap:3px;margin:3px 0 4px;width:84%;max-width:320px}' +
+    '.ffo-b{border:0;background:#fff;color:#008069;border-radius:8px;padding:11px 12px;font:inherit;font-size:15px;font-weight:600;cursor:pointer;min-height:44px;text-align:center;box-shadow:0 1px .5px rgba(11,20,26,.13)}' +
+    '.ffo-b:active{background:#f0f2f5}.ffo-b:disabled{opacity:.5}' +
+    '.ffo-card{align-self:flex-start;position:relative;background:#fff;border-radius:8px;padding:10px 12px;box-shadow:0 1px .5px rgba(11,20,26,.13);max-width:84%;margin-top:3px}' +
+    '.ffo-card img{display:block;width:220px;max-width:100%;height:auto;margin:6px auto;border-radius:6px;border:1px solid #e9edef}' +
+    '.ffo-amt{text-align:center;font-size:26px;font-weight:800;color:#111b21}' +
+    '.ffo-upi{display:block;text-align:center;margin-top:8px;background:#00a884;color:#fff;border-radius:20px;padding:11px;font-weight:700;text-decoration:none}' +
+    '.ffo-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #f0f2f5;font-size:14.5px}' +
+    '.ffo-row span{color:#667781;font-weight:600;flex:none}.ffo-row code{font-family:ui-monospace,monospace;font-weight:700;color:#111b21;word-break:break-all;text-align:right}' +
+    '.ffo-copy{border:0;background:#e7fce3;color:#008069;border-radius:10px;padding:6px 10px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;flex:none}' +
+    '.ffo-foot{display:flex;gap:6px;align-items:center;padding:6px 8px calc(8px + env(safe-area-inset-bottom));background:transparent}' +
+    '.ffo-in{flex:1;min-width:0;border:0;border-radius:24px;padding:13px 16px;font:inherit;font-size:16px;background:#fff;color:#111b21;box-shadow:0 1px .5px rgba(11,20,26,.13);outline:none}' +
+    '.ffo-send{border:0;background:#00a884;color:#fff;border-radius:50%;width:48px;height:48px;cursor:pointer;flex:none;display:grid;place-items:center;box-shadow:0 1px 2px rgba(11,20,26,.2)}' +
+    '.ffo-send svg{width:22px;height:22px;margin-left:3px}' +
+    '.ffo-note{font-size:12.5px;color:#92400e;background:#fffbeb;border-radius:8px;padding:8px 10px;margin-top:8px;font-weight:600}' +
     // The panel is display:flex, which would beat the [hidden] attribute: without this the close button did nothing.
-    '.ffo-panel[hidden],.ffo-bg[hidden]{display:none!important}' +
-    '.ffo-note{font-size:12.5px;color:#92400e;background:#fffbeb;border-radius:10px;padding:8px 10px;margin-top:8px;font-weight:600}';
+    '.ffo-panel[hidden],.ffo-bg[hidden]{display:none!important}';
   function injectCss() {
     if (document.getElementById('ffo-css')) return;
     var el = document.createElement('style'); el.id = 'ffo-css'; el.textContent = css; document.head.appendChild(el);
@@ -98,12 +155,18 @@
     if (!url) url = st.wa;
     try { var w = window.open(url, '_blank'); if (w) w.opener = null; else location.href = url; } catch (e) { location.href = url; }
   }
-
   function openUrl(url) {
     // Only WhatsApp group / chat links come from the server (olivia.js checks them too).
     if (!/^https:\/\/(chat\.whatsapp\.com|wa\.me|api\.whatsapp\.com)\//i.test(String(url))) return;
     try { var w = window.open(url, '_blank'); if (w) w.opener = null; else location.href = url; } catch (e) { location.href = url; }
   }
+  function avatarEl() { return h('div', 'av', '\uD83E\uDD16'); }
+  function timeText(at) {
+    var d = new Date(at || Date.now());
+    var hh = d.getHours(), mm = d.getMinutes();
+    return ((hh % 12) || 12) + ':' + (mm < 10 ? '0' : '') + mm + ' ' + (hh < 12 ? 'am' : 'pm');
+  }
+
   // -- "How can we help?" chooser --
   function chooser() {
     injectCss();
@@ -129,20 +192,22 @@
   function openChat() {
     injectCss();
     st.phone = phoneNow(); load();
-    if (ui) { ui.panel.hidden = false; st.open = true; return; }
+    audioCtx(); // opened by a tap: the browser now allows the reply sounds
+    if (ui) { ui.panel.hidden = false; st.open = true; render(); return; }
     var panel = h('div', 'ffo-panel'); panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Chat with Olivia');
-    var top = h('div', 'ffo-top'); top.appendChild(h('div', 'av', '\uD83E\uDD16'));
-    var t = h('div'); t.appendChild(h('b', null, 'Olivia')); t.appendChild(h('small', null, 'FluxFilm AI assistant')); top.appendChild(t);
+    var top = h('div', 'ffo-top'); top.appendChild(avatarEl());
+    var t = h('div'); t.appendChild(h('b', null, 'Olivia')); var sub = h('small', null, 'online'); t.appendChild(sub); top.appendChild(t);
     var x = h('button', 'ffo-x', '\u00D7'); x.setAttribute('aria-label', 'Close chat'); x.onclick = closeChat; top.appendChild(x);
     var list = h('div', 'ffo-list'); list.setAttribute('aria-live', 'polite');
     var foot = h('form', 'ffo-foot');
-    var input = h('input', 'ffo-in'); input.placeholder = 'Type a message\u2026'; input.setAttribute('aria-label', 'Message'); input.autocomplete = 'off';
-    var send = h('button', 'ffo-send', '\u27A4'); send.type = 'submit'; send.setAttribute('aria-label', 'Send');
+    var input = h('input', 'ffo-in'); input.placeholder = 'Message'; input.setAttribute('aria-label', 'Message'); input.autocomplete = 'off';
+    var send = h('button', 'ffo-send'); send.type = 'submit'; send.setAttribute('aria-label', 'Send');
+    send.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M1.9 21.1 23 12 1.9 2.9 1.9 10l15 2-15 2z"/></svg>';
     foot.appendChild(input); foot.appendChild(send);
     foot.onsubmit = function (e) { e.preventDefault(); var v = input.value.trim(); if (!v || st.busy) return; input.value = ''; talk({ text: v }, v); };
     panel.appendChild(top); panel.appendChild(list); panel.appendChild(foot);
     document.body.appendChild(panel);
-    ui = { panel: panel, list: list, input: input };
+    ui = { panel: panel, list: list, input: input, sub: sub };
     st.open = true;
     render();
     if (!st.convId || !st.messages.length) talk({ choice: 'start', lang: st.lang }, null);
@@ -181,15 +246,26 @@
     }
     return c;
   }
+  function bubble(m, prev) {
+    var mine = m.role === 'customer';
+    var cont = prev && prev.role === m.role;
+    var b = h('div', 'ffo-m ' + (mine ? 'c' : 'o') + (cont ? ' cont' : '') + (m.fresh ? ' ffo-new' : ''), m.text);
+    var meta = h('span', 'ffo-meta', timeText(m.at));
+    if (mine) meta.appendChild(h('span', 'ffo-tick' + (m.read ? ' read' : ''), m.read ? '\u2713\u2713' : '\u2713'));
+    b.appendChild(meta);
+    return b;
+  }
   function render() {
     if (!ui) return;
     var list = ui.list; list.innerHTML = '';
+    list.appendChild(h('div', 'ffo-day', 'Today'));
     st.messages.forEach(function (m, i) {
-      if (m.role === 'customer') { list.appendChild(h('div', 'ffo-m c', m.text)); return; }
-      list.appendChild(h('div', 'ffo-m o', m.text));
+      list.appendChild(bubble(m, st.messages[i - 1]));
+      m.fresh = false;
+      if (m.role === 'customer') return;
       if (m.card) list.appendChild(drawCard(m.card));
       var isLast = i === st.messages.length - 1;
-      if (m.buttons && m.buttons.length && isLast) {
+      if (m.buttons && m.buttons.length && isLast && !st.typing) {
         var wrap = h('div', 'ffo-btns');
         m.buttons.forEach(function (b) {
           var el = h('button', 'ffo-b', b.label); el.type = 'button'; el.disabled = st.busy;
@@ -204,10 +280,11 @@
         list.appendChild(wrap);
       }
     });
+    if (st.typing) { var ty = h('div', 'ffo-typing'); ty.setAttribute('aria-label', 'Olivia is typing'); ty.appendChild(h('i')); ty.appendChild(h('i')); ty.appendChild(h('i')); list.appendChild(ty); }
+    if (ui.sub) ui.sub.textContent = st.typing ? 'typing\u2026' : 'online';
     var lastO = st.messages.filter(function (m) { return m.role === 'olivia'; }).pop();
-    ui.input.placeholder = lastO && lastO.input === 'email' ? 'Type the email here\u2026' : lastO && lastO.input === 'name' ? 'Type the name in your UPI app\u2026' : 'Type a message\u2026';
+    ui.input.placeholder = lastO && lastO.input === 'email' ? 'Type the email here\u2026' : lastO && lastO.input === 'name' ? 'Type the name in your UPI app\u2026' : lastO && lastO.input === 'coupon' ? 'Type the coupon code\u2026' : 'Message';
     ui.input.type = lastO && lastO.input === 'email' ? 'email' : 'text';
-    if (st.busy) list.appendChild(h('div', 'ffo-typing', 'Olivia is typing\u2026'));
     list.scrollTop = list.scrollHeight;
   }
   function schedulePoll(sec) {
@@ -215,28 +292,58 @@
     st.pollAfter = sec;
     st.pollTimer = setTimeout(function () { if (!st.busy) talk({ choice: 'poll' }, null, true); else schedulePoll(sec); }, Math.max(3, sec) * 1000);
   }
+  var wait = function (ms) { return new Promise(function (res) { setTimeout(res, ms); }); };
+  /** Shows Olivia's replies one by one, each after "typing..." dots (at least half a second, a little longer for long messages). */
+  function reveal(list, startedAt) {
+    var chain = Promise.resolve();
+    list.forEach(function (m, i) {
+      chain = chain.then(function () {
+        st.typing = true; render();
+        var need = Math.min(1400, Math.max(MIN_TYPING_MS, 250 + String(m.text || '').length * 6));
+        var spent = i === 0 ? Date.now() - startedAt : 0; // the first reply already waited for the server
+        return wait(Math.max(0, need - spent));
+      }).then(function () {
+        st.typing = false;
+        m.at = Date.now(); m.fresh = true;
+        st.messages.push(m);
+        sound('receive');
+        if (m.card && m.card.type === 'access' && window.ffSound) window.ffSound('delivered');
+        if (/^COUPON_APPLIED/.test(m.intent || '') && window.ffSound) window.ffSound('coupon');
+        render();
+      });
+    });
+    return chain;
+  }
   function talk(input, echo, silent) {
     st.phone = phoneNow();
-    if (!st.phone) { st.messages.push({ role: 'olivia', text: 'Please log in first to chat with Olivia.', buttons: [] }); render(); return; }
-    if (echo) st.messages.push({ role: 'customer', text: echo });
-    if (!silent) { st.busy = true; render(); }
+    if (!st.phone) { st.messages.push({ role: 'olivia', text: 'Please log in first to chat with Olivia.', buttons: [], at: Date.now() }); render(); return; }
+    var mine = null;
+    if (echo) { mine = { role: 'customer', text: echo, at: Date.now(), fresh: true }; st.messages.push(mine); sound('send'); }
+    var startedAt = Date.now();
+    if (!silent) { st.busy = true; st.typing = true; render(); }
     var body = Object.assign({ conversationId: st.convId, installedApp: installed() }, input);
     call('oliviaChat', [st.phone, body]).then(function (r) {
-      st.busy = false;
+      if (mine) mine.read = true;
       if (!r || !r.ok) {
-        if (!silent) st.messages.push({ role: 'olivia', text: (r && r.message) || 'Sorry, Olivia is not available right now.', buttons: [{ id: 'whatsapp', label: '\uD83D\uDCAC WhatsApp our team', link: 'whatsapp' }] });
+        st.busy = false; st.typing = false;
+        if (!silent) st.messages.push({ role: 'olivia', text: (r && r.message) || 'Sorry, Olivia is not available right now.', buttons: [{ id: 'whatsapp', label: '\uD83D\uDCAC WhatsApp our team', link: 'whatsapp' }], at: Date.now() });
         if (r && r.whatsappLink) st.wa = r.whatsappLink;
-      } else {
-        st.convId = r.conversationId; if (r.lang) st.lang = r.lang;
-        (r.messages || []).forEach(function (m) { st.messages.push(m); if (m.card && m.card.type === 'access' && window.ffSound) window.ffSound('delivered'); });
-        st.pollAfter = 0; clearTimeout(st.pollTimer);
-        if (r.poll && r.poll.afterSec) schedulePoll(r.poll.afterSec);
+        save(); render();
+        return;
       }
-      save(); render();
+      st.convId = r.conversationId; if (r.lang) st.lang = r.lang;
+      st.pollAfter = 0; clearTimeout(st.pollTimer);
+      var incoming = r.messages || [];
+      if (silent && incoming.length) st.busy = true;
+      return reveal(incoming, silent ? Date.now() : startedAt).then(function () {
+        st.busy = false; st.typing = false;
+        if (r.poll && r.poll.afterSec) schedulePoll(r.poll.afterSec);
+        save(); render();
+      });
     }).catch(function () {
-      st.busy = false;
+      st.busy = false; st.typing = false;
       if (silent) { schedulePoll(15); return; }
-      st.messages.push({ role: 'olivia', text: 'Network problem. Please check your internet and try again.', buttons: [] });
+      st.messages.push({ role: 'olivia', text: 'Network problem. Please check your internet and try again.', buttons: [], at: Date.now() });
       render();
     });
   }
