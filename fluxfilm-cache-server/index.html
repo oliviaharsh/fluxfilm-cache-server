@@ -44,13 +44,7 @@ html, body { background: #f5f7fb; }
 .page-inner { padding: 0 16px; margin: 0 auto; width: 100%; }
 .ff-w-wide { max-width: 1120px; }
 .ff-w-flow { max-width: 620px; }
-.ff-has-bnav { padding-bottom: calc(72px + env(safe-area-inset-bottom) + 88px); padding-bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 88px + var(--ff-bnav-extra, 0px)); }
-/* +88 px and a real spacer after the content: Android Chrome on some phones (owner's OnePlus Nord 5, also incognito,
-   2026-09-15) still hid Logout and the referral stats under the bottom menu with only +24 px. */
-.ff-has-bnav::after { content: ""; display: block; height: calc(env(safe-area-inset-bottom) + 24px); }
-/* Installed app on newer Android draws behind the system bars, so the page's end sits ~60 px lower than the
-   visible screen and the last button hid under the menu (owner report 2026-09-15: Account → Logout). Extra room there. */
-@media (display-mode: standalone) { .ff-has-bnav { padding-bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 96px + var(--ff-bnav-extra, 0px)); } }
+.ff-has-bnav { padding-bottom: calc(72px + env(safe-area-inset-bottom)); padding-bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 24px); }
 .ff-topbar { position: sticky; top: 0; z-index: 20; padding-top: env(safe-area-inset-top); background: rgba(255,255,255,.92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid rgba(15,23,42,.08); }
 .ff-topbar-in { max-width: 1120px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
 .ff-desk-nav { display: none; }
@@ -539,28 +533,6 @@ window.ffInstall = { evt: null, installed: false };
 window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); window.ffInstall.evt = e; window.dispatchEvent(new Event('ff-install-ready')); });
 window.addEventListener('appinstalled', function () { window.ffInstall.installed = true; window.ffInstall.evt = null; window.dispatchEvent(new Event('ff-install-done')); });
 if ('serviceWorker' in navigator) window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
-</script>
-<script>
-// Layout check for phones: open the shop with ?layout=1 (remembered for this visit) to show a small box with the screen
-// numbers the bottom-menu self-heal uses. Screenshot it for support. Nothing is sent anywhere.
-(function () {
-  var on = false;
-  try { if (/[?&]layout=1\b/.test(location.search)) sessionStorage.setItem('ff_layout_debug', '1'); on = sessionStorage.getItem('ff_layout_debug') === '1'; } catch (e) {}
-  if (!on) return;
-  var box = null;
-  window.ffLayoutDebug = function (m) {
-    if (!box) { box = document.createElement('div'); box.setAttribute('style', 'position:fixed;left:8px;top:calc(env(safe-area-inset-top) + 76px);z-index:9999;background:rgba(15,23,42,.88);color:#fff;font:11px/1.35 monospace;padding:6px 8px;border-radius:8px;pointer-events:none;white-space:pre'); document.body.appendChild(box); }
-    var probe = document.createElement('div'); probe.setAttribute('style', 'position:fixed;bottom:0;height:env(safe-area-inset-bottom);width:1px;visibility:hidden'); document.body.appendChild(probe);
-    var inset = Math.round(probe.getBoundingClientRect().height); probe.remove();
-    var standalone = false; try { standalone = window.matchMedia('(display-mode: standalone)').matches; } catch (e) {}
-    var zoom = ''; try { zoom = getComputedStyle(document.documentElement).zoom; } catch (e) {}
-    box.textContent = 'v ' + (window.FF_VERSION || '?') + ' · app ' + standalone + ' · dpr ' + window.devicePixelRatio + ' · zoom ' + zoom +
-      '\ninnerH ' + m.innerH + ' · clientH ' + m.clientH + ' · vvH ' + m.vvH + ' · vvScale ' + m.vvScale + ' · screenH ' + m.screenH +
-      '\ndocH ' + m.docH + ' · scrollY ' + m.scrollY + ' · atEnd ' + m.atEnd +
-      '\nnavTop ' + m.navTop + ' · lastBottom ' + m.lastBottom + ' · padB ' + m.padB +
-      '\nextra ' + m.extra + ' · inset ' + inset;
-  };
-})();
 </script>
 <script>
 // Sounds + light vibration (Web Audio, no files, no requests). ffSound('delivered' | 'paid' | 'coupon' | 'coins' | 'copy' | 'error' | 'tap').
@@ -1542,9 +1514,46 @@ function RefBanner({
   }, "×"));
 }
 // ✍️ Share texts — every message a customer sends from the app is written here, so the wording is easy to change.
-// The link always goes LAST: WhatsApp builds its preview card from the link at the end of the message.
-// The share sheet (navigator.share) gets the text WITHOUT the link: Android and iOS add the url after the text themselves.
+// WhatsApp layout: *bold*, _italic_, one idea per line, a blank line between sections.
+// The link always goes on its own LAST line: WhatsApp builds its preview card from it.
+// The share sheet (navigator.share) gets the text WITHOUT the link (it ends with "👉"): Android and iOS add the url themselves.
 const shareText_ = {
+  // Loaded catalog + stock, set by App: { plans: boot.plans, levels: stockLevels | null while loading }.
+  data: {
+    plans: [],
+    levels: null
+  },
+  // One emoji + short name per service, in the order they are listed (popular first). Unknown services get 🎬.
+  SERVICES: [{
+    re: /netflix/i,
+    name: 'Netflix',
+    emoji: '🔴'
+  }, {
+    re: /prime/i,
+    name: 'Prime Video',
+    emoji: '📦'
+  }, {
+    re: /hotstar/i,
+    name: 'JioHotstar',
+    emoji: '⭐'
+  }, {
+    re: /crunchyroll/i,
+    name: 'Crunchyroll',
+    emoji: '🎌'
+  }, {
+    re: /sony/i,
+    name: 'SonyLIV',
+    emoji: '🔵'
+  }, {
+    re: /zee/i,
+    name: 'Zee5',
+    emoji: '🟣'
+  }, {
+    re: /youtube/i,
+    name: 'YouTube Premium',
+    emoji: '▶️'
+  }],
+  PERKS: '⚡ Instant login  •  💳 Pay by UPI  •  ✅ Trusted',
   clean(v) {
     return String(v == null ? '' : v).replace(/[*_~`]/g, '').replace(/\s+/g, ' ').trim();
   },
@@ -1552,35 +1561,110 @@ const shareText_ = {
     const v = Math.round(Number(n) || 0);
     return v > 0 ? '₹' + v.toLocaleString('en-IN') : '';
   },
-  // 🍿 What's new post. info = feedServiceInfo_(post.service, plans) → { service, price } (cheapest plan) or null.
-  post(p, info, now) {
-    const title = shareText_.clean(p && p.title) || 'Something new';
-    const service = shareText_.clean(info && info.service || p && p.service);
-    const price = shareText_.rupees(info && info.price);
-    const deal = service + (price ? ' from ' + price : ' at low prices') + ', instant login ✅';
-    const t = /^\d{4}-\d{2}-\d{2}$/.test(p && p.releaseDate || '') ? Date.parse(p.releaseDate + 'T00:00:00+05:30') : 0;
-    let text;
-    if (!service || p && p.type === 'announcement') text = `📣 *${title}* — fresh from FluxFilm 🍿`;else if (t > (now || Date.now())) text = `🍿 *${title}* is coming to ${service} on ${new Date(t).toLocaleDateString('en-IN', {
+  // Short text on one line: cut at a word, "…" when cut.
+  trim(v, max) {
+    const t = shareText_.clean(v);
+    if (t.length <= max) return t;
+    const cut = t.slice(0, max);
+    return cut.slice(0, cut.lastIndexOf(' ') > max * 0.6 ? cut.lastIndexOf(' ') : max).replace(/[\s,;:.!?-]+$/, '') + '…';
+  },
+  // First name only, letters only (never a phone number, email or markup) — same rule as share.js link previews.
+  firstName(v) {
+    const w = String(v == null ? '' : v).trim().split(/\s+/)[0] || '';
+    if (/[^\p{L}\p{M}.'’-]/u.test(w)) return '';
+    const letters = w.replace(/[^\p{L}\p{M}]/gu, '');
+    return letters.length >= 2 && letters.length <= 20 ? letters.charAt(0).toUpperCase() + letters.slice(1).toLowerCase() : '';
+  },
+  svc(name) {
+    const n = shareText_.clean(name);
+    return shareText_.SERVICES.find(x => x.re.test(n)) || null;
+  },
+  // Services with a plan in stock → [{ name, emoji, price }] (cheapest in-stock plan; "Netflix" wins over "Netflix (Group Offer)").
+  // null = no catalog loaded (callers fall back to plain words). No stock data yet = treated as in stock.
+  offers(catalog) {
+    const plans = catalog && Array.isArray(catalog.plans) ? catalog.plans : [];
+    if (!plans.length) return null;
+    const levels = catalog.levels || {};
+    const fams = new Map();
+    for (const p of plans) {
+      const service = shareText_.clean(p && p.service);
+      const price = Math.round(Number(p && p.price) || 0);
+      if (!service || price <= 0) continue;
+      const lv = levels[p.service + '|||' + p.plan];
+      if (lv && String(lv.stockLevel).toUpperCase() === 'OUT') continue;
+      const s = shareText_.svc(service);
+      const key = s ? s.name : service.toLowerCase();
+      const cur = fams.get(key);
+      const better = !cur || service.length < cur.service.length || service === cur.service && price < cur.price;
+      if (better) fams.set(key, {
+        name: s ? s.name : service,
+        emoji: s ? s.emoji : '🎬',
+        service,
+        price,
+        rank: s ? shareText_.SERVICES.indexOf(s) : 99
+      });
+    }
+    return [...fams.values()].sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
+  },
+  offerFor(service, catalog) {
+    const list = shareText_.offers(catalog) || [];
+    const s = shareText_.svc(service);
+    const n = shareText_.clean(service).toLowerCase();
+    return list.find(o => s ? o.name === s.name : o.service.toLowerCase() === n || o.service.toLowerCase().startsWith(n)) || null;
+  },
+  date(t, year) {
+    return new Date(t).toLocaleDateString('en-IN', Object.assign({
       day: 'numeric',
       month: 'short',
       timeZone: 'Asia/Kolkata'
-    })}! Get ready with FluxFilm — ${deal}`;else text = `🍿 *${title}* is streaming on ${service}! Watch it with FluxFilm — ${deal}`;
+    }, year ? {
+      year: 'numeric'
+    } : {}));
+  },
+  // Lines → one message: no empty sections, at most one blank line in a row, no blank line at the ends.
+  join(lines) {
+    return lines.filter(l => l != null && l !== false).join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
+  },
+  // 🍿 What's new post. info = feedServiceInfo_(post.service, plans) (fallback price); catalog = shareText_.data.
+  post(p, info, now, catalog) {
+    p = p || {};
+    const title = shareText_.trim(p.title, 80) || 'Something new';
+    const service = shareText_.clean(p.service || info && info.service);
+    const s = shareText_.svc(service);
+    const offer = service ? shareText_.offerFor(service, catalog) : null;
+    const price = shareText_.rupees(offer ? offer.price : shareText_.offers(catalog) ? 0 : info && info.price);
+    const t = /^\d{4}-\d{2}-\d{2}$/.test(p.releaseDate || '') ? Date.parse(p.releaseDate + 'T00:00:00+05:30') : 0;
+    const soon = t > (now || Date.now());
+    const kind = {
+      movie: '🎬 Movie',
+      series: '📺 Series'
+    }[p.type] || '';
+    const genres = (Array.isArray(p.genres) ? p.genres : []).map(shareText_.clean).filter(Boolean).slice(0, 3).join(', ');
+    const caption = shareText_.trim(String(p.caption || '').split(/\n/)[0], 80);
+    const quote = caption ? `_"${caption}"_` : '';
+    const news = !service || p.type === 'announcement';
+    const text = news ? shareText_.join([`📣 *${title}*`, '', quote, '', '✨ Streaming plans for less on *FluxFilm*', '⚡ Instant login  •  💳 UPI', '👉']) : shareText_.join([`🍿 *${title}*`, [soon ? `🗓️ Coming *${shareText_.date(t)}* on *${service}*` : `${s ? s.emoji : '🎬'} Now streaming on *${service}*`, kind, !soon && t ? '🗓️ ' + shareText_.date(t, true) : ''].filter(Boolean).join('  •  '), genres ? '🎭 ' + genres : null, '', quote, '', price ? `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${service} from *${price}*` : `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${service} at low prices`, '⚡ Instant login  •  💳 UPI', '👉']);
     return {
-      title: service ? `${title} — on ${service}` : title,
-      text: text + ' 👉'
+      title: news ? title : `${title} — on ${service}`,
+      text
     };
   },
-  // 🎁 Refer & earn, "Share on WhatsApp". info = getReferralInfo result (code, link, friendDiscount).
-  referral(info) {
-    const off = shareText_.rupees(info && info.friendDiscount);
-    const code = shareText_.clean(info && info.code);
-    return '🎁 Hey! I get my Netflix, Prime Video & JioHotstar from FluxFilm — cheap, instant and legit. ' + (off ? `Use my link and get *${off} OFF* your first plan` : 'Try it with my invite link') + (code ? ` (code ${code})` : '') + ' 👉 ' + (info && info.link || '');
+  // 🎁 Refer & earn, "Share on WhatsApp". info = getReferralInfo result (code, link, friendDiscount) + name (first name shown).
+  referral(info, catalog) {
+    info = info || {};
+    const off = shareText_.rupees(info.friendDiscount);
+    const code = shareText_.clean(info.code);
+    const name = shareText_.firstName(info.name);
+    const offers = shareText_.offers(catalog);
+    const lines = offers ? offers.slice(0, 4).map(o => `${o.emoji} *${o.name}* from ${shareText_.rupees(o.price)}`) : ['🍿 *Netflix*, *Prime Video*, *JioHotstar* & more at low prices'];
+    return shareText_.join(['🎬 *FluxFilm* — streaming for less', '', off ? name ? `🎁 *${name}* invited you — get *${off} OFF* your first plan!` : `🎁 Get *${off} OFF* your first plan with my invite!` : name ? `🎁 *${name}* invited you to FluxFilm!` : '🎁 Join me on FluxFilm with my invite!', '', ...lines, '', shareText_.PERKS, code ? `🔑 My code: *${code}*` : null, info.link ? '👉 ' + info.link : null]);
   },
   // 🎁 Refer & earn, "Copy link": short, code kept for typing in by hand.
   referralShort(info) {
-    const off = shareText_.rupees(info && info.friendDiscount);
-    const code = shareText_.clean(info && info.code);
-    return (off ? `🎁 ${off} OFF your first FluxFilm plan` : '🎁 Join me on FluxFilm') + (code ? ` — code ${code}` : '') + ' 👉 ' + (info && info.link || '');
+    info = info || {};
+    const off = shareText_.rupees(info.friendDiscount);
+    const code = shareText_.clean(info.code);
+    return shareText_.join([off ? `🎁 *${off} OFF* your first *FluxFilm* plan` : '🎁 Join me on *FluxFilm*', code ? `🔑 Code: *${code}*` : null, info.link ? '👉 ' + info.link : null]);
   }
 };
 function copyText_(text, done) {
@@ -1603,7 +1687,8 @@ function copyText_(text, done) {
   }
 }
 function ReferralPanel({
-  phone
+  phone,
+  name
 }) {
   const [info, setInfo] = useState(null);
   const [copied, setCopied] = useState('');
@@ -1641,7 +1726,9 @@ function ReferralPanel({
     setCopied(what);
     setTimeout(() => setCopied(c => c === what ? '' : c), 1600);
   });
-  const shareText = shareText_.referral(info);
+  const shareText = shareText_.referral(Object.assign({}, info, {
+    name
+  }), shareText_.data);
   const R = info.rules || {};
   const range = R.firstMax > 0 ? `${R.firstMin}–${R.firstMax}` : `${R.firstMin}+`;
   const STATUS = {
@@ -1937,57 +2024,10 @@ function BottomNav({
     try { ro = new ResizeObserver(update); ro.observe(el); } catch (e) {}
     window.addEventListener('resize', update);
     window.addEventListener('orientationchange', update);
-    // Self-heal (owner's OnePlus Nord 5, installed app + Chrome, 2026-09-15: Logout, referral stats and "Change profile
-    // picture" still ended under this bar even with extra CSS room). When the page is scrolled to its end, measure the last
-    // content against the top of this bar / the visible screen and add exactly the missing room (--ff-bnav-extra).
-    let extra = 0;
-    const heal = () => {
-      const page = document.querySelector('.ff-has-bnav');
-      if (!page) return;
-      const doc = document.scrollingElement || root;
-      const vv = window.visualViewport;
-      const visH = vv ? Math.min(window.innerHeight, vv.height + vv.offsetTop) : window.innerHeight;
-      // "At the very end" uses the LAYOUT height: on edge-to-edge Android the visible height (visualViewport) can be smaller,
-      // so checking with it never saw the end and the heal never ran (still cut on the owner's Nord 5 after PR #68).
-      const layoutH = Math.max(window.innerHeight, doc.clientHeight || 0);
-      const atEnd = doc.scrollTop + layoutH >= doc.scrollHeight - 4;
-      // Last real content = the lowest in-flow child (pop-ups, update bar and other fixed layers are ignored).
-      let last = null; let lastBottom = -Infinity;
-      for (const c of page.children) {
-        const pos = getComputedStyle(c).position;
-        if (pos === 'fixed' || pos === 'absolute' || pos === 'sticky') continue;
-        const r = c.getBoundingClientRect();
-        if (r.height > 0 && r.bottom > lastBottom) { last = c; lastBottom = r.bottom; }
-      }
-      const navTop = el.getBoundingClientRect().top;
-      // ?layout=1 box: shown on every scroll (not only at the end) so a phone screenshot always has the numbers.
-      if (window.ffLayoutDebug) window.ffLayoutDebug({ visH, innerH: window.innerHeight, clientH: doc.clientHeight, vvH: vv ? Math.round(vv.height) : null, vvScale: vv ? vv.scale : null, docH: doc.scrollHeight, scrollY: Math.round(doc.scrollTop), atEnd, navTop: Math.round(navTop), lastBottom: Math.round(lastBottom), padB: getComputedStyle(page).paddingBottom, screenH: window.screen && window.screen.height, extra });
-      if (!atEnd || !last) return;
-      const limit = Math.min(navTop, visH);
-      const missing = Math.ceil(lastBottom - limit + 20);
-      if (missing > 0 && extra < 480) {
-        extra = Math.min(480, extra + missing);
-        root.style.setProperty('--ff-bnav-extra', extra + 'px');
-      }
-    };
-    let healT = 0;
-    const onScroll = () => { clearTimeout(healT); healT = setTimeout(heal, 120); };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('touchend', onScroll, { passive: true });
-    if (window.visualViewport) window.visualViewport.addEventListener('resize', onScroll);
-    // Also when a screen opens or its content changes (a short page may never fire a scroll event).
-    let ro2 = null;
-    try { ro2 = new ResizeObserver(onScroll); ro2.observe(document.body); } catch (e) {}
-    onScroll();
     return () => {
       if (ro) ro.disconnect();
-      if (ro2) ro2.disconnect();
-      window.removeEventListener('touchend', onScroll);
-      clearTimeout(healT);
       window.removeEventListener('resize', update);
       window.removeEventListener('orientationchange', update);
-      window.removeEventListener('scroll', onScroll);
-      if (window.visualViewport) window.visualViewport.removeEventListener('resize', onScroll);
       root.style.removeProperty('--ff-bnav-h');
     };
   }, []);
@@ -8497,7 +8537,8 @@ function AccountScreen({
   }), section === 'wallet' && React.createElement(WalletPanel, {
     phone: phone
   }), section === 'referral' && React.createElement(ReferralPanel, {
-    phone: phone
+    phone: phone,
+    name: name
   }), !section && React.createElement("div", {
     style: {
       marginTop: 18
@@ -10191,7 +10232,7 @@ function feedThumb_(url) {
 }
 function feedShare_(p, info, done) {
   const url = window.location.origin + '/?post=' + encodeURIComponent(p.id);
-  const msg = shareText_.post(p, info);
+  const msg = shareText_.post(p, info, 0, shareText_.data);
   feedEvent_(p.id, 'share');
   if (navigator.share) {
     navigator.share({
@@ -11709,6 +11750,13 @@ function App() {
   });
   const [stockLevels, setStockLevels] = useState({});
   const [stockLoading, setStockLoading] = useState(true);
+  // Share messages list real prices: hand them the loaded catalog + stock (read when a customer taps Share).
+  useEffect(() => {
+    shareText_.data = {
+      plans: boot && boot.plans || [],
+      levels: stockLoading ? null : stockLevels
+    };
+  }, [boot, stockLevels, stockLoading]);
   function setLoading(msg, sub) {
     setLoadingMsg(msg || null);
     setLoadingSub(sub || null);

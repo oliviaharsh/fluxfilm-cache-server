@@ -63,20 +63,59 @@ const titleOf = (html) => decode((html.match(/<title>([^<]*)<\/title>/) || [])[1
   const a = store.indexOf('const shareText_ = {'); const b = store.indexOf('function copyText_(');
   let T = null;
   try { T = new Function(store.slice(a, b) + '; return shareText_;')(); } catch (e) { console.log('   ', e.message); }
-  ok('shareText_ is one block right before copyText_', T && a > 0 && b > a && b - a < 5000);
+  ok('shareText_ is one block right before copyText_', T && a > 0 && b > a && b - a < 12000);
   const now = Date.parse('2026-09-15T10:00:00+05:30');
-  let m = T.post({ title: 'The *Runner*', type: 'series', service: 'Prime Video', releaseDate: '2026-09-01' }, { service: 'Prime Video', price: 39 }, now);
-  ok('post: bold title, service, cheapest price, instant login, ends with 👉 and NO link (share sheet adds the url)', m.text === '🍿 *The Runner* is streaming on Prime Video! Watch it with FluxFilm — Prime Video from ₹39, instant login ✅ 👉' && m.title === 'The Runner — on Prime Video' && !/https?:/.test(m.text), m);
-  m = T.post({ title: 'Big Film', type: 'movie', service: 'Netflix', releaseDate: '2026-09-25' }, null, now);
-  ok('post: future release says "coming to … on <date>"; no catalog price → "at low prices"', /^🍿 \*Big Film\* is coming to Netflix on 25 Sept?\.?! Get ready with FluxFilm — Netflix at low prices, instant login ✅ 👉$/.test(m.text), m.text);
-  m = T.post({ title: 'Diwali offers', type: 'announcement', service: '' }, null, now);
-  ok('post: announcement / no service', m.text === '📣 *Diwali offers* — fresh from FluxFilm 🍿 👉' && m.title === 'Diwali offers', m);
-  const info = { code: 'FFABC234', link: 'https://shop.fluxfilm.in/?ref=FFABC234', friendDiscount: 20 };
-  const long = T.referral(info);
-  ok('referral: warm text, real friend discount, code visible, link LAST', long === '🎁 Hey! I get my Netflix, Prime Video & JioHotstar from FluxFilm — cheap, instant and legit. Use my link and get *₹20 OFF* your first plan (code FFABC234) 👉 https://shop.fluxfilm.in/?ref=FFABC234', long);
+  const lastLine = (t) => t.split('\n').pop();
+  // Fake catalog (like boot.plans + getStockLevels): JioHotstar's cheapest plan and all of SonyLiv are out of stock.
+  const C = (service, plan, price) => ({ service, plan, price });
+  const catalog = {
+    plans: [C('Netflix', 'Sharing 1M', 139), C('Netflix', 'Private 1M', 169), C('Netflix (Group Offer)', 'Sharing 1M', 99), C('Prime Video', '1 Month', 39), C('Prime Video + Shopping', '1 Month', 69),
+      C('JioHotstar', '1 Month', 29), C('JioHotstar', '3 Months', 49), C('Crunchyroll', 'Private 1M', 49), C('SonyLiv Premium', '1 Month', 19), C('Zee5 Premium', '1 Month', 89), C('YouTube Premium', '1 Month', 99)],
+    levels: { 'JioHotstar|||1 Month': { stockLevel: 'OUT' }, 'JioHotstar|||3 Months': { stockLevel: 'LOW' }, 'SonyLiv Premium|||1 Month': { stockLevel: 'OUT' } },
+  };
+  const info = { code: 'FFK7M2QX', link: 'https://shop.fluxfilm.in/?ref=FFK7M2QX', friendDiscount: 20 };
+
+  const offers = T.offers(catalog);
+  ok('offers: one line per service, cheapest IN-STOCK plan, main service wins over "Group Offer"/"+ Shopping", popular order', JSON.stringify(offers.map((o) => [o.emoji, o.name, o.price])) === JSON.stringify([['🔴', 'Netflix', 139], ['📦', 'Prime Video', 39], ['⭐', 'JioHotstar', 49], ['🎌', 'Crunchyroll', 49], ['🟣', 'Zee5', 89], ['▶️', 'YouTube Premium', 99]]), offers);
+  ok('offers: no catalog → null (plain fallback); stock not loaded yet → treated as in stock', T.offers(null) === null && T.offers({ plans: [] }) === null && T.offers({ plans: catalog.plans, levels: null }).find((o) => o.name === 'SonyLIV').price === 19);
+
+  const long = T.referral(info, catalog);
+  ok('referral: exact WhatsApp layout (bold, blank lines, dynamic prices, max 4 services, code, link last)', long === [
+    '🎬 *FluxFilm* — streaming for less', '',
+    '🎁 Get *₹20 OFF* your first plan with my invite!', '',
+    '🔴 *Netflix* from ₹139', '📦 *Prime Video* from ₹39', '⭐ *JioHotstar* from ₹49', '🎌 *Crunchyroll* from ₹49', '',
+    '⚡ Instant login  •  💳 Pay by UPI  •  ✅ Trusted',
+    '🔑 My code: *FFK7M2QX*',
+    '👉 https://shop.fluxfilm.in/?ref=FFK7M2QX',
+  ].join('\n'), long);
+  ok('referral: out-of-stock service/plan never listed', !/SonyLIV|₹19|₹29/.test(long) && (long.match(/ from ₹/g) || []).length === 4);
+  const named = T.referral(Object.assign({}, info, { name: 'harsh walia', phone: '9876543210' }), catalog);
+  ok('referral: sender first name in bold, never a phone number', named.split('\n')[2] === '🎁 *Harsh* invited you — get *₹20 OFF* your first plan!' && !/\d{10}|walia/i.test(named), named);
+  ok('referral: a "name" that is a phone number / has markup is dropped', T.referral(Object.assign({}, info, { name: '9876543210' }), catalog) === long && T.firstName('<b>x</b>') === '' && T.firstName('a@b.com') === '');
+  const plain = T.referral(info);
+  ok('referral without catalog: plain services line, same sections, link last', plain.split('\n')[4] === '🍿 *Netflix*, *Prime Video*, *JioHotstar* & more at low prices' && lastLine(plain) === '👉 https://shop.fluxfilm.in/?ref=FFK7M2QX' && !/\n\n\n/.test(plain), plain);
+  const zero = T.referral(Object.assign({}, info, { friendDiscount: 0 }), catalog);
+  ok('referral with ₹0 friend discount never says "₹0 OFF"', !/₹0/.test(zero) && zero.split('\n')[2] === '🎁 Join me on FluxFilm with my invite!' && T.referralShort(Object.assign({}, info, { friendDiscount: 0 })) === '🎁 Join me on *FluxFilm*\n🔑 Code: *FFK7M2QX*\n👉 https://shop.fluxfilm.in/?ref=FFK7M2QX');
   const short = T.referralShort(info);
-  ok('referral short (Copy link): shorter, code + link last', short === '🎁 ₹20 OFF your first FluxFilm plan — code FFABC234 👉 https://shop.fluxfilm.in/?ref=FFABC234' && short.length < long.length / 2, short);
-  ok('referral with ₹0 friend discount never says "₹0 OFF"', !/₹0/.test(T.referral(Object.assign({}, info, { friendDiscount: 0 }))) && T.referralShort(Object.assign({}, info, { friendDiscount: 0 })) === '🎁 Join me on FluxFilm — code FFABC234 👉 https://shop.fluxfilm.in/?ref=FFABC234');
+  ok('referral short (Copy link): 3 lines, bold discount + code, link last', short === '🎁 *₹20 OFF* your first *FluxFilm* plan\n🔑 Code: *FFK7M2QX*\n👉 https://shop.fluxfilm.in/?ref=FFK7M2QX' && short.length < long.length / 2, short);
+  ok('referral: no empty lines when code/link missing', T.referralShort({ friendDiscount: 20 }) === '🎁 *₹20 OFF* your first *FluxFilm* plan' && !/\n$/.test(T.referral({ friendDiscount: 20 }, catalog)));
+
+  let m = T.post({ title: 'The *Runner*', type: 'movie', service: 'Prime Video', releaseDate: '2026-09-03', genres: ['Thriller', 'Action', 'Crime', 'Drama'], caption: 'Maia Marten, a brilliant London lawyer, has her life shattered when her son vanishes.\nSecond paragraph.' }, { service: 'Prime Video', price: 59 }, now, catalog);
+  const lines = m.text.split('\n');
+  ok('post: title bold, service line with emoji/type/date, genres (max 3), blank lines between sections', lines[0] === '🍿 *The Runner*' && /^📦 Now streaming on \*Prime Video\*  •  🎬 Movie  •  🗓️ 3 Sept?\.? 2026$/.test(lines[1]) && lines[2] === '🎭 Thriller, Action, Crime' && lines[3] === '' && lines[5] === '', lines);
+  ok('post: caption = 1 short italic line, trimmed at a word with …', /^_"Maia Marten, a brilliant London lawyer, has her life shattered when her son…"_$/.test(lines[4]) && lines[4].length < 90 && !/Second/.test(m.text), lines[4]);
+  ok('post: dynamic in-stock price from the catalog (not the stale info price), perks, 👉 last and NO link (share sheet adds the url)', lines[6] === '✨ Watch it with *FluxFilm* — Prime Video from *₹39*' && lines[7] === '⚡ Instant login  •  💳 UPI' && lastLine(m.text) === '👉' && !/https?:/.test(m.text) && m.title === 'The Runner — on Prime Video', m);
+  m = T.post({ title: 'Big Film', type: 'series', service: 'Netflix', releaseDate: '2026-09-25' }, null, now, catalog);
+  ok('post: coming soon → "🗓️ Coming *25 Sept* on *Netflix*", "Get ready", no empty caption section', /^🍿 \*Big Film\*\n🗓️ Coming \*25 Sept?\.?\* on \*Netflix\*  •  📺 Series\n\n✨ Get ready with \*FluxFilm\* — Netflix from \*₹139\*\n⚡ Instant login  •  💳 UPI\n👉$/.test(m.text), m.text);
+  m = T.post({ title: 'Old Show', type: 'series', service: 'SonyLiv Premium' }, { service: 'SonyLiv Premium', price: 19 }, now, catalog);
+  ok('post: service out of stock → no price ("at low prices")', /— SonyLiv Premium at low prices$/m.test(m.text) && !/₹/.test(m.text), m.text);
+  m = T.post({ title: 'Old Show', type: 'series', service: 'SonyLiv Premium' }, { service: 'SonyLiv Premium', price: 69 }, now);
+  ok('post: no catalog loaded → falls back to the feed info price', /— SonyLiv Premium from \*₹69\*$/m.test(m.text), m.text);
+  m = T.post({ title: 'Diwali offers', type: 'announcement', service: '', caption: 'Flat deals all week.' }, null, now, catalog);
+  ok('post: announcement layout', m.text === '📣 *Diwali offers*\n\n_"Flat deals all week."_\n\n✨ Streaming plans for less on *FluxFilm*\n⚡ Instant login  •  💳 UPI\n👉' && m.title === 'Diwali offers', m);
+  m = T.post(null, null, now);
+  ok('post: missing data → plain fallback, never throws', /^📣 \*Something new\*/.test(m.text) && lastLine(m.text) === '👉');
+  ok('SERVICES emoji map is one constant (one emoji per service)', Array.isArray(T.SERVICES) && new Set(T.SERVICES.map((x) => x.emoji)).size === T.SERVICES.length && T.SERVICES.length >= 7);
   ok('₹ uses Indian grouping', T.rupees(1299) === '₹1,299' && T.rupees(0) === '' && T.rupees('x') === '');
 
   section('share buttons use the texts');
@@ -86,13 +125,13 @@ const titleOf = (html) => decode((html.match(/<title>([^<]*)<\/title>/) || [])[1
   let shared = null;
   const p1 = { id: 'fpa3a00152db', title: 'The Runner', type: 'series', service: 'Prime Video', releaseDate: '2026-09-01' };
   await new Promise((r) => mk({ share: (d) => { shared = d; return Promise.resolve(); } })(p1, { service: 'Prime Video', price: 39 }, r));
-  ok('feed share sheet: title + text without link + url /?post=<id>', shared && shared.url === 'https://shop.fluxfilm.in/?post=fpa3a00152db' && /^🍿 \*The Runner\* is streaming on Prime Video!.*₹39/.test(shared.text) && !shared.text.includes('http') && shared.title === 'The Runner — on Prime Video' && calls.some((c) => c[0] === 'share'), shared);
+  ok('feed share sheet: title + text without link + url /?post=<id>', shared && shared.url === 'https://shop.fluxfilm.in/?post=fpa3a00152db' && /^🍿 \*The Runner\*\n📦 Now streaming on \*Prime Video\*  •  📺 Series/.test(shared.text) && /from \*₹39\*/.test(shared.text) && /\n👉$/.test(shared.text) && !shared.text.includes('http') && shared.title === 'The Runner — on Prime Video' && calls.some((c) => c[0] === 'share'), shared);
   let how = '';
   await new Promise((r) => mk({})(p1, null, (h) => { how = h; r(); }));
   const copied = calls.filter((c) => c[0] === 'copy').pop();
   ok('no share sheet: copies the whole message with the link at the end', how === 'copied' && copied && /👉 https:\/\/shop\.fluxfilm\.in\/\?post=fpa3a00152db$/.test(copied[1]), copied);
   ok('feed post passes the catalog info (cheapest plan) even when the post has no buy button', /shareInfo: info \|\| feedServiceInfo_\(p\.service, plans\)/.test(store) && /onClick: \(\) => feedShare_\(p, shareInfo, how => \{/.test(store));
-  ok('Refer & earn: WhatsApp uses shareText_.referral, Copy link uses shareText_.referralShort', /const shareText = shareText_\.referral\(info\);/.test(store) && /copy\('link', shareText_\.referralShort\(info\)\)/.test(store) && /'https:\/\/wa\.me\/\?text=' \+ encodeURIComponent\(shareText\)/.test(store));
+  ok('Refer & earn: WhatsApp uses shareText_.referral, Copy link uses shareText_.referralShort', /const shareText = shareText_\.referral\(Object\.assign\(\{\}, info, \{\s*name\s*\}\), shareText_\.data\);/.test(store) && /React\.createElement\(ReferralPanel, \{\s*phone: phone,\s*name: name\s*\}\)/.test(store) && /const msg = shareText_\.post\(p, info, 0, shareText_\.data\);/.test(store) && /shareText_\.data = \{\s*plans: boot && boot\.plans \|\| \[\],\s*levels: stockLoading \? null : stockLevels\s*\};/.test(store) && /copy\('link', shareText_\.referralShort\(info\)\)/.test(store) && /'https:\/\/wa\.me\/\?text=' \+ encodeURIComponent\(shareText\)/.test(store));
   const scripts = [...store.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((x) => x[1]);
   let parsed = true; for (const sc of scripts) { try { new Function(sc); } catch (e) { parsed = false; console.log('   parse error:', e.message); } }
   ok('storefront script parses', parsed);
