@@ -214,6 +214,29 @@ if (feedMod) {
   LIMITS.feedEvent = security.rateLimiter(300, TEN_MIN);
 }
 
+// 🎮 Games (/games page, admin → 🎮 Games). a = [phone, deviceToken, ...]. The server decides and scores every game.
+let gamesMod = null; try { gamesMod = require('./games'); } catch (e) { console.log('[games] not loaded:', e.message); }
+if (gamesMod) {
+  Object.assign(DB_STOREFRONT, {
+    getGamesStatus: () => gamesMod.getStatus(),
+    getGamesHome: (a) => gamesMod.getHome(a[0], a[1]),
+    // a[3] = { paid: true } only after the customer confirmed "play again for N coins".
+    gameStart: (a, req) => gamesMod.start(a[0], a[1], a[2], { paid: !!(a[3] && a[3].paid === true) }, { ip: security.clientIp(req) }),
+    gameStep: (a) => gamesMod.step(a[0], a[1], a[2], a[3]),
+    gameFinish: (a) => gamesMod.finish(a[0], a[1], a[2], a[3]),
+    gamesSendCode: (a) => gamesMod.sendCode(a[0]),
+  });
+  ['getGamesStatus', 'getGamesHome', 'gameStart', 'gameStep', 'gameFinish', 'gamesSendCode'].forEach((x) => DB_STOREFRONT_ACTIONS.add(x));
+  Object.assign(LIMITS, {
+    getGamesStatus: security.rateLimiter(200, TEN_MIN), getGamesHome: security.rateLimiter(150, TEN_MIN),
+    gameStart: security.rateLimiter(120, TEN_MIN), gameStep: security.rateLimiter(400, TEN_MIN), gameFinish: security.rateLimiter(120, TEN_MIN),
+    gamesSendCode: security.rateLimiter(10, 60 * 60e3),
+  });
+  Object.assign(PHONE_LIMITS, {
+    gameStart: security.rateLimiter(60, TEN_MIN), gameStep: security.rateLimiter(250, TEN_MIN), gameFinish: security.rateLimiter(60, TEN_MIN),
+    gamesSendCode: security.rateLimiter(4, 60 * 60e3),
+  });
+}
 // 🤖 Olivia, the AI store manager (olivia.js): Help → "Chat with Olivia". Off until admin → 🤖 Olivia switches it on.
 // a = [phone] / [phone, { conversationId, choice, text, lang, installedApp }].
 if (oliviaMod) {
@@ -414,6 +437,15 @@ app.get('/profile-photo/:id', async (req, res) => {
     res.set('X-Content-Type-Options', 'nosniff');
     res.type(img.type).send(img.buf);
   } catch (e) { res.status(500).type('text/plain').send('error'); }
+});
+
+// 🎮 Games page: its own small file (the shop page stays as light as before). Same site = same saved login.
+const GAMES_HTML = path.join(__dirname, 'games.html');
+app.get(['/games', '/games/'], (_req, res) => {
+  if (!fs.existsSync(GAMES_HTML)) return res.status(404).type('text/plain').send('games.html not found');
+  res.set('Cache-Control', 'public, max-age=0');
+  res.set('X-Robots-Tag', 'noindex, follow');
+  res.sendFile(GAMES_HTML);
 });
 
 // -- Admin panel (read-only) --

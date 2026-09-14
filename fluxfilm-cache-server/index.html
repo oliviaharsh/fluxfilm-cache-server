@@ -2503,6 +2503,28 @@ function ToolsGrid({
   style
 }) {
   const [sheet, setSheet] = useState('');
+  // 🎮 Games (/games, its own page): the chip shows only while admin → 🎮 Games is ON (checked once per visit).
+  const [gamesOn, setGamesOn] = useState(() => {
+    try {
+      return sessionStorage.getItem('ff_games_on') === '1';
+    } catch (e) {
+      return false;
+    }
+  });
+  useEffect(() => {
+    let cached = null;
+    try {
+      cached = sessionStorage.getItem('ff_games_on');
+    } catch (e) {}
+    if (cached != null || typeof apiCall_ !== 'function') return;
+    apiCall_('getGamesStatus', [], r => {
+      const on = !!(r && r.ok && r.enabled);
+      setGamesOn(on);
+      try {
+        sessionStorage.setItem('ff_games_on', on ? '1' : '0');
+      } catch (e) {}
+    }, () => {});
+  }, []);
   const close = () => setSheet('');
   const tiles = [{
     id: 'otp',
@@ -2552,7 +2574,17 @@ function ToolsGrid({
     onClick: onFeed
   }, "🍿 Latest Movies & Series", React.createElement("b", {
     className: "ff-new"
-  }, "New ›"))), Object.keys(TOOLS_SOON_).length > 0 && React.createElement("div", {
+  }, "New ›"))), gamesOn && React.createElement("div", {
+    className: "ff-tools-soon ff-tools-live"
+  }, React.createElement("button", {
+    type: "button",
+    "data-tool": "games",
+    onClick: () => {
+      window.location.href = '/games';
+    }
+  }, "🎮 Play games & win coins", React.createElement("b", {
+    className: "ff-new"
+  }, "Play ›"))), Object.keys(TOOLS_SOON_).length > 0 && React.createElement("div", {
     className: "ff-tools-soon"
   }, Object.keys(TOOLS_SOON_).map(k => React.createElement("button", {
     key: k,

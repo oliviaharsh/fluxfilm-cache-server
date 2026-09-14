@@ -236,6 +236,19 @@ table.sheet{border-collapse:separate;border-spacing:0;table-layout:fixed;font-si
 .rf-f .inp{padding:8px 10px;font-size:.9rem;font-weight:600;color:var(--ink);width:100%}
 .rf-tog{display:flex;align-items:center;gap:10px;font-size:.84rem;font-weight:600;cursor:pointer;margin-bottom:10px}
 .rf-tog input{width:20px;height:20px;accent-color:#16a34a}
+.gm-game{border:1px solid var(--line);border-radius:14px;background:#fff;margin-bottom:10px}
+.gm-game>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:12px 14px;font-weight:700}
+.gm-game>summary::-webkit-details-marker{display:none}
+.gm-game>summary .muted{font-weight:500;font-size:.76rem;margin-left:auto;text-align:right}
+.gm-game[open]>summary{border-bottom:1px solid var(--line)}
+.gm-in{padding:12px 14px}
+.gm-help{font-size:.68rem;font-weight:500;color:var(--mut);line-height:1.35}
+.gm-warn{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:12px;padding:10px 12px;font-size:.78rem;margin:4px 0 10px}
+.gm-slices{width:100%;border-collapse:collapse;font-size:.8rem}.gm-slices th{text-align:left;color:var(--mut);font-weight:600;padding:4px}.gm-slices td{padding:4px}
+.gm-slices .inp{width:100%;min-width:56px;padding:7px 8px}
+.gm-q{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.gm-q .grow{min-width:0}.gm-q .ok{color:#15803d;font-weight:700}
+.gm-emoji{font-size:1.5rem;line-height:1.2}
 .rf-ex{width:100%;border-collapse:collapse;font-size:.8rem}.rf-ex th,.rf-ex td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right}.rf-ex th:first-child,.rf-ex td:first-child{text-align:left}.rf-ex th{color:var(--mut);font-weight:600;font-size:.72rem}
 .rf-save{position:sticky;bottom:0;background:linear-gradient(rgba(243,245,249,0),var(--bg) 35%);padding:14px 0 8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;z-index:31}
 .pausebar{display:block;width:100%;border:0;text-align:left;cursor:pointer;background:#fef2f2;color:#991b1b;padding:10px 18px;font:inherit;font-size:.85rem;border-bottom:1px solid #fecaca}
@@ -540,7 +553,7 @@ function logout() { post('/admin/api/logout', {}).then(function () { loginView('
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
   ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
-  ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'],
+  ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
   ['DATA'], ['golive', '🚚', 'Go-live import'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
 function shell() {
@@ -584,7 +597,7 @@ function nav(v) {
   route();
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, payments: paymentsView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -3419,6 +3432,157 @@ function renderReferrals(st, ov) {
   body.addEventListener('input', onChange); body.addEventListener('change', onChange);
   $('#rfsave').onclick = function () {
     saveSettingsBtn($('#rfsave'), '/admin/api/referrals/settings', RF.s, rfState, function (r) { RF.s = r.settings; RF.dirty = false; $('#rfex').innerHTML = rfExamples(); });
+  };
+}
+
+/* ================= 🎮 games (admingames.js) ================= */
+var GM = { s: null, f: null, qkind: 'QUIZ', qs: [], editing: null };
+var GM_KIND = { FREE: ['Free', 'p-ok'], PAID: ['Coins', 'p-warn'], PRACTICE: ['Practice', 'p-grey'], BONUS: ['Streak', 'p-blue'] };
+function gamesView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🎮 Games</h1><p>Free daily games on <b>shop.fluxfilm.in/games</b>. Everything is controlled here: free plays, coin prices, prizes, difficulty and limits. Changes are live straight away.</p></div>' +
+    '<a class="btn ghost sm" href="/games" target="_blank" rel="noopener">Open Games ↗</a></div><div id="gmbody"><p class="muted">Loading…</p></div>';
+  gmLoad();
+}
+function gmLoad() {
+  Promise.all([api('/admin/api/games/settings'), api('/admin/api/games/overview')]).then(function (res) {
+    if (!$('#gmbody')) return;
+    var st = res[0], ov = res[1];
+    if (!st.ok) { $('#gmbody').innerHTML = '<div class="card muted">' + esc(st.message || 'error') + '</div>'; return; }
+    GM.s = st.settings; GM.f = st.fields;
+    gmRender(st, ov && ov.ok ? ov : null);
+    gmLoadQuestions();
+  });
+}
+// Chance of each wheel slice in % (same maths as games.js pickSlice).
+function gmChance(slices, i) { var t = 0; slices.forEach(function (x) { t += Math.max(0, Number(x.weight) || 0); }); return t ? Math.round(Math.max(0, Number(slices[i].weight) || 0) / t * 1000) / 10 : 0; }
+function gmField(f, obj, path) {
+  var v = obj[f.k];
+  if (f.step === 'bool') return '<label class="rf-tog" style="grid-column:1/-1"><input type="checkbox" data-gm="' + path + '"' + (v ? ' checked' : '') + '/> ' + esc(f.label) + (f.help ? ' <span class="gm-help">' + esc(f.help) + '</span>' : '') + '</label>';
+  return '<label>' + esc(f.label) + '<input class="inp" type="number" inputmode="decimal" min="' + f.min + '" max="' + f.max + '" step="' + f.step + '" data-gm="' + path + '" value="' + esc(v) + '"/>' + (f.help ? '<span class="gm-help">' + esc(f.help) + '</span>' : '') + '</label>';
+}
+function gmSlices() {
+  var sl = GM.s.games.spin.slices;
+  return '<table class="gm-slices"><tr><th>Slice text</th><th>Coins</th><th>Coupon ₹</th><th>Chance weight</th><th>= chance</th><th></th></tr>' + sl.map(function (x, i) {
+    return '<tr><td><input class="inp" maxlength="14" data-gs="' + i + '.label" value="' + esc(x.label) + '"/></td><td><input class="inp" type="number" min="0" max="1000" data-gs="' + i + '.coins" value="' + esc(x.coins) + '"/></td>' +
+      '<td><input class="inp" type="number" min="0" max="500" data-gs="' + i + '.coupon" value="' + esc(x.coupon) + '"/></td><td><input class="inp" type="number" min="0" max="1000" data-gs="' + i + '.weight" value="' + esc(x.weight) + '"/></td>' +
+      '<td><b data-gchance="' + i + '">' + gmChance(sl, i) + '%</b></td><td><button class="btn ghost sm" data-gsdel="' + i + '" title="Remove slice">✕</button></td></tr>';
+  }).join('') + '</table><button class="btn ghost sm" id="gsadd" style="margin-top:8px"' + (sl.length >= 12 ? ' disabled' : '') + '>➕ Add slice</button>' +
+    '<p class="gm-help" style="margin-top:6px">Average prize per spin: <b id="gsavg">' + gmSpinAvg() + '</b>. A slice with coins 0 and coupon 0 = "Try again".</p>';
+}
+function gmSpinAvg() { var sl = GM.s.games.spin.slices, c = 0, cp = 0; sl.forEach(function (x, i) { var p = gmChance(sl, i) / 100; c += p * (Number(x.coins) || 0); if (Number(x.coupon) > 0) cp += p; }); return (Math.round(c * 10) / 10) + ' coins · coupon ' + (Math.round(cp * 1000) / 10) + '% of spins'; }
+function gmRender(st, ov) {
+  var s = GM.s, F = GM.f, h = '';
+  if (st.needsSchema) h += '<div class="qnote warn" style="margin:0 0 14px">Run <b>db/schema-v22.sql</b> in phpMyAdmin to switch Games on. Until then /games says "coming soon" and the shop shows no Games tile.</div>';
+  if (ov && !ov.needsSchema) {
+    var t = ov.today || {}, m = ov.month || {};
+    h += '<div class="kpis"><div class="kpi"><div class="ic">🕹️</div><div><div class="n">' + (t.players || 0) + '</div><div class="l">Players today · ' + (t.plays || 0) + ' plays</div></div></div>' +
+      '<div class="kpi"><div class="ic">🪙</div><div><div class="n">' + (m.coins || 0) + '</div><div class="l">Coins won this month · ' + (t.coins || 0) + ' today</div></div></div>' +
+      '<div class="kpi"><div class="ic">🔥</div><div><div class="n">' + (m.spentLedger || 0) + '</div><div class="l">Coins spent on extra plays (month)</div></div></div>' +
+      '<div class="kpi"><div class="ic">🎟️</div><div><div class="n">' + (m.coupons || 0) + '</div><div class="l">Coupons won (month) · ' + money(m.couponRupees) + ' off in total</div></div></div></div>';
+  }
+  h += '<div class="card" style="margin-bottom:16px"><h3>⚙️ Main switches &amp; limits</h3>' +
+    (s.paidPlaysEnabled ? '<div class="gm-warn">⚖️ <b>Extra plays for coins are ON.</b> Customers can spend coins to play again' + (s.prizesOnPaidPlays ? ' and win prizes' : '') + '. Keep this only if your lawyer / CA has approved it.</div>' : '') +
+    '<div class="rf-f">' + F.global.map(function (f) { return gmField(f, s, f.k); }).join('') + '</div></div>';
+  h += '<h3 style="margin:0 0 8px">🕹️ Games</h3>';
+  Object.keys(F.meta).forEach(function (k) {
+    var g = s.games[k], meta = F.meta[k];
+    h += '<details class="gm-game" id="gm-' + k + '"><summary><span style="font-size:1.3rem">' + meta.icon + '</span>' + esc(meta.name) + ' ' + (g.enabled ? '<span class="pill p-ok">ON</span>' : '<span class="pill p-grey">OFF</span>') +
+      '<span class="muted">' + g.freePerDay + ' free / day · extra ' + g.extraCost + ' coins</span></summary><div class="gm-in">' +
+      '<div class="rf-f">' + F.common.map(function (f) { return gmField(f, g, 'games.' + k + '.' + f.k); }).join('') + '</div>' +
+      (k === 'spin' ? '<h4 style="margin:14px 0 6px">🎡 Wheel slices</h4><div id="gmslices" style="overflow-x:auto">' + gmSlices() + '</div>' :
+        '<h4 style="margin:14px 0 6px">🏆 Prizes &amp; difficulty</h4><div class="rf-f">' + F.games[k].map(function (f) { return gmField(f, g, 'games.' + k + '.' + f.k); }).join('') + '</div>') +
+      '</div></details>';
+  });
+  h += '<div class="rf-save"><button class="btn green" id="gmsave">💾 Save games settings</button><span class="rf-state" id="rfstate"></span></div>';
+  h += '<div class="card" style="margin:16px 0"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h3 style="margin:0">❓ Questions</h3><div class="row" style="gap:6px">' +
+    '<button class="chip" data-qk="QUIZ">🎬 Movie Quiz</button><button class="chip" data-qk="EMOJI">🎭 Emoji Guess</button></div></div><div id="gmq"><p class="muted">Loading…</p></div></div>';
+  if (ov && !ov.needsSchema) {
+    h += '<div class="card" style="margin-bottom:16px"><h3>📊 This month by game</h3><div style="overflow-x:auto"><table class="rf-ex"><tr><th>Game</th><th>Plays</th><th>Free</th><th>Extra</th><th>Practice</th><th>Coins won</th><th>Coins spent</th><th>Coupons</th></tr>' +
+      (ov.perGame.length ? ov.perGame.map(function (r) { var mt = F.meta[r.game] || { icon: '🔥', name: r.game === 'streak' ? 'Streak bonus' : r.game }; return '<tr><td>' + mt.icon + ' ' + esc(mt.name) + '</td><td>' + r.plays + '</td><td>' + (r.free || 0) + '</td><td>' + (r.paid || 0) + '</td><td>' + (r.practice || 0) + '</td><td>' + r.coins + '</td><td>' + r.spent + '</td><td>' + r.coupons + '</td></tr>'; }).join('') : '<tr><td colspan="8" class="muted">No plays yet this month.</td></tr>') + '</table></div></div>';
+    if (ov.flagged.length) h += '<div class="card" style="margin-bottom:16px;border-color:#fecaca"><h3>🚩 Games that looked like cheating (no prize given)</h3><div class="list">' + ov.flagged.map(function (p) { return '<div class="li"><div class="grow"><b>' + esc(p.phone) + '</b> · ' + esc((F.meta[p.game] || {}).name || p.game) + ' · score ' + p.score + '<div class="muted" style="font-size:.72rem">' + esc(p.flagged) + ' · ' + prettyDate(p.started_at, true) + '</div></div></div>'; }).join('') + '</div></div>';
+    h += '<div class="g2"><div class="card"><h3>🕘 Recent plays</h3><div class="list">' + (ov.recent.length ? ov.recent.map(function (p) {
+      var kd = GM_KIND[p.kind] || [p.kind, 'p-grey'], mt = F.meta[p.game] || { icon: '🔥', name: 'Streak bonus' };
+      return '<div class="li"><span>' + mt.icon + '</span><div class="grow" style="min-width:0"><b>' + esc(p.phone) + '</b> <span class="pill ' + kd[1] + '">' + kd[0] + '</span><div class="muted" style="font-size:.72rem">' + esc(mt.name) + ' · score ' + p.score + ' · ' + esc(p.status) + ' · ' + prettyDate(p.started_at, true) + (p.flagged ? ' · 🚩' : '') + '</div></div>' +
+        '<div style="text-align:right"><b>' + (p.coins ? '+' + p.coins : '0') + '</b> <span class="muted" style="font-size:.72rem">coins</span>' + (p.cost ? '<div class="muted" style="font-size:.72rem">paid ' + p.cost + '</div>' : '') + (p.coupon_code ? '<div><span class="pill p-warn">₹' + p.coupon_value + ' ' + esc(p.coupon_code) + '</span></div>' : '') + '</div></div>';
+    }).join('') : '<p class="muted">No plays yet.</p>') + '</div></div>' +
+      '<div class="card"><h3>🏆 Top players (month)</h3><div class="list">' + (ov.top.length ? ov.top.map(function (x, i) {
+        return '<div class="li"><span>' + (['🥇', '🥈', '🥉'][i] || (i + 1) + '.') + '</span><div class="grow"><b>' + esc(x.name || x.phone) + '</b><div class="muted" style="font-size:.72rem">' + esc(x.phone) + ' · ' + x.plays + ' plays · spent ' + x.spent + '</div></div><b>+' + x.coins + '</b></div>';
+      }).join('') : '<p class="muted">Nobody yet.</p>') + '</div></div></div>';
+  }
+  $('#gmbody').innerHTML = h;
+  var body = $('#gmbody');
+  var mark = function () { rfState('dirty', '● Not saved yet'); };
+  var onChange = function (e) {
+    var el = e.target.closest('[data-gm],[data-gs]'); if (!el) return;
+    if (el.hasAttribute('data-gs')) {
+      var p = el.getAttribute('data-gs').split('.'), sl = GM.s.games.spin.slices[+p[0]];
+      sl[p[1]] = p[1] === 'label' ? el.value : (el.value === '' ? '' : Number(el.value));
+      GM.s.games.spin.slices.forEach(function (x, i) { var c = $('[data-gchance="' + i + '"]'); if (c) c.textContent = gmChance(GM.s.games.spin.slices, i) + '%'; });
+      var av = $('#gsavg'); if (av) av.textContent = gmSpinAvg();
+    } else {
+      var path = el.getAttribute('data-gm').split('.'), o = GM.s;
+      for (var i = 0; i < path.length - 1; i++) o = o[path[i]];
+      o[path[path.length - 1]] = el.type === 'checkbox' ? el.checked : (el.value === '' ? '' : Number(el.value));
+    }
+    mark();
+  };
+  body.addEventListener('input', onChange); body.addEventListener('change', onChange);
+  body.addEventListener('click', function (e) {
+    var d = e.target.closest('[data-gsdel]');
+    if (d) { if (GM.s.games.spin.slices.length <= 2) { toast('The wheel needs at least 2 slices'); return; } GM.s.games.spin.slices.splice(+d.getAttribute('data-gsdel'), 1); $('#gmslices').innerHTML = gmSlices(); mark(); return; }
+    if (e.target.id === 'gsadd') { GM.s.games.spin.slices.push({ label: 'Try again', coins: 0, coupon: 0, weight: 10 }); $('#gmslices').innerHTML = gmSlices(); mark(); return; }
+    var qk = e.target.closest('[data-qk]'); if (qk) { GM.qkind = qk.getAttribute('data-qk'); gmLoadQuestions(); }
+  });
+  $('#gmsave').onclick = function () {
+    saveSettingsBtn($('#gmsave'), '/admin/api/games/settings', GM.s, rfState, function (r) { GM.s = r.settings; });
+  };
+}
+function gmLoadQuestions() {
+  $$('[data-qk]').forEach(function (b) { b.className = 'chip' + (b.getAttribute('data-qk') === GM.qkind ? ' on' : ''); });
+  api('/admin/api/games/questions', { kind: GM.qkind }).then(function (r) {
+    var el = $('#gmq'); if (!el) return;
+    if (!r.ok) { el.innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
+    GM.qs = r.questions;
+    var emoji = GM.qkind === 'EMOJI', active = r.questions.filter(function (q) { return q.active; }).length;
+    var h = r.needsSchema ? '<p class="muted">Run db/schema-v22.sql first. Until then games use the built-in starter pack (' + r.starterCount + ' ' + (emoji ? 'emoji clues' : 'questions') + ').</p>' :
+      '<p class="muted" style="font-size:.8rem;margin:8px 0">' + active + ' switched on · ' + r.questions.length + ' in total. ' + (r.questions.length < 15 ? 'While there are too few, the game uses the built-in starter pack. ' : '') + 'Starter pack drafted by Claude from public facts — please check them.</p>' +
+      '<div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:6px"><button class="btn sm" id="gqadd">➕ Add ' + (emoji ? 'emoji clue' : 'question') + '</button><button class="btn ghost sm" id="gqstarter">📦 Load starter pack (' + r.starterCount + ')</button></div>';
+    h += r.questions.map(function (q) {
+      return '<div class="gm-q"><div class="grow"><div class="' + (emoji ? 'gm-emoji' : '') + '" style="' + (emoji ? '' : 'font-weight:600') + '">' + esc(q.question) + '</div><div class="muted" style="font-size:.76rem">' +
+        q.options.map(function (o, i) { return i === q.answer ? '<span class="ok">✓ ' + esc(o) + '</span>' : esc(o); }).join(' · ') + (q.category ? ' · <i>' + esc(q.category) + '</i>' : '') + '</div></div>' +
+        (q.active ? '<span class="pill p-ok">ON</span>' : '<span class="pill p-grey">OFF</span>') + '<button class="btn ghost sm" data-gqe="' + q.id + '">Edit</button></div>';
+    }).join('');
+    el.innerHTML = h;
+    var add = $('#gqadd'); if (add) add.onclick = function () { gmQuestionForm(null); };
+    var st = $('#gqstarter'); if (st) st.onclick = function () {
+      st.disabled = true; st.textContent = 'Adding…';
+      post('/admin/api/games/questions/starter', { kind: GM.qkind }).then(function (x) { toast(x.ok ? '✅ Added ' + x.added + ' (already there were skipped)' : '⚠️ ' + (x.message || 'failed')); gmLoadQuestions(); });
+    };
+    el.onclick = function (e) { var b = e.target.closest('[data-gqe]'); if (!b) return; var id = +b.getAttribute('data-gqe'); gmQuestionForm(GM.qs.find(function (q) { return q.id === id; })); };
+  });
+}
+function gmQuestionForm(q) {
+  var emoji = GM.qkind === 'EMOJI';
+  q = q || { id: 0, question: '', options: ['', '', '', ''], answer: 0, category: '', active: true };
+  modal((q.id ? 'Edit ' : 'Add ') + (emoji ? 'emoji clue' : 'question'),
+    '<div class="fld"><label>' + (emoji ? 'Emoji clue (e.g. 🦁👑)' : 'Question') + '</label><input class="inp" id="gqq" maxlength="255" value="' + esc(q.question) + '"/></div>' +
+    [0, 1, 2, 3].map(function (i) { return '<div class="fld"><label><input type="radio" name="gqa" value="' + i + '"' + (q.answer === i ? ' checked' : '') + '/> Answer ' + (i + 1) + (i === q.answer ? ' (right)' : '') + '</label><input class="inp" id="gqo' + i + '" maxlength="120" value="' + esc(q.options[i] || '') + '"/></div>'; }).join('') +
+    '<p class="muted" style="font-size:.76rem;margin:0 0 8px">Tick the circle next to the RIGHT answer. The order is shuffled for players.</p>' +
+    '<div class="fld"><label>Category (optional)</label><input class="inp" id="gqc" maxlength="40" value="' + esc(q.category) + '" placeholder="bollywood, series, anime, sports…"/></div>' +
+    '<label class="rf-tog"><input type="checkbox" id="gqon"' + (q.active ? ' checked' : '') + '/> Use this ' + (emoji ? 'clue' : 'question') + ' in the game</label>',
+    (q.id ? '<button class="btn ghost" id="gqdel" style="margin-right:auto;color:var(--bad)">🗑 Delete</button>' : '') + '<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn green" id="gqsave">💾 Save</button>');
+  $('#gqsave').onclick = function () {
+    var b = $('#gqsave'); b.disabled = true;
+    var ans = $$('input[name="gqa"]').filter(function (x) { return x.checked; })[0];
+    post('/admin/api/games/question', { id: q.id, kind: GM.qkind, question: $('#gqq').value, options: [0, 1, 2, 3].map(function (i) { return $('#gqo' + i).value; }), answer: ans ? +ans.value : -1, category: $('#gqc').value, active: $('#gqon').checked }).then(function (r) {
+      b.disabled = false;
+      if (!r.ok) { toast('⚠️ ' + (r.message || 'Not saved')); return; }
+      closeModal(); toast('✅ Saved'); gmLoadQuestions();
+    });
+  };
+  var del = $('#gqdel'); if (del) del.onclick = function () {
+    if (!confirm('Delete this ' + (emoji ? 'clue' : 'question') + '? (Tip: untick "Use this" to just switch it off.)')) return;
+    post('/admin/api/games/question/delete', { id: q.id }).then(function (r) { if (!r.ok) { toast('⚠️ ' + (r.message || 'failed')); return; } closeModal(); toast('🗑 Deleted'); gmLoadQuestions(); });
   };
 }
 
