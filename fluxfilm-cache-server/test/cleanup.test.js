@@ -39,16 +39,22 @@ function freshDb() {
     app_settings: {}, sync_log: [{ note: 'go-live import {"added":13}' }],
   };
 }
+const SYNC_LOG_COLS = ['id', 'direction', 'table_name', 'rows_count', 'note', 'ran_at']; // db/schema.sql (sync_log) — there is no 'ts'
 let DB = freshDb(); let failAt = null; let txLog = [];
 const jsonSet = (raw, pairs) => { const o = raw ? JSON.parse(raw) : {}; for (let i = 0; i < pairs.length; i += 2) o[pairs[i]] = pairs[i + 1]; return JSON.stringify(o); };
 function run(sql, p) {
   sql = sql.replace(/\s+/g, ' ').trim();
   if (failAt && failAt.test(sql)) throw new Error('boom');
   if (/^SELECT sub_id, order_id, phone, phone_norm, email, service, plan/.test(sql)) return DB.subscriptions.map((x) => Object.assign({}, x));
-  if (/^SELECT order_id, phone, phone_norm, name, status, created_at_sheet FROM orders/.test(sql)) return DB.orders.map((x) => Object.assign({}, x));
+  if (/^SELECT order_id, phone, phone_norm, name, status, service, created_at_sheet FROM orders/.test(sql)) return DB.orders.map((x) => { const o = {}; for (const c of ['order_id', 'phone', 'phone_norm', 'name', 'status', 'service', 'created_at_sheet']) o[c] = x[c]; return o; }); // only the selected columns, like MySQL
   if (/^SELECT phone_norm FROM customers/.test(sql)) return DB.customers.map((x) => Object.assign({}, x));
   if (/^SELECT value FROM app_settings WHERE setting_key = \?/.test(sql)) return DB.app_settings[p[0]] ? [{ value: DB.app_settings[p[0]] }] : [];
-  if (/^SELECT ts FROM sync_log WHERE note LIKE 'go-live import%'/.test(sql)) return DB.sync_log.filter((x) => /^go-live import/.test(x.note)).map(() => ({ ts: '2026-09-14' }));
+  if (/FROM sync_log/.test(sql)) {
+    // Only real sync_log columns (db/schema.sql) — a wrong column name failed on live.
+    const cols = (sql.match(/^SELECT (.*?) FROM sync_log/) || [])[1].split(',').map((c) => c.trim());
+    const bad = cols.filter((c) => !SYNC_LOG_COLS.includes(c)); if (bad.length) throw new Error("Unknown column '" + bad[0] + "' in 'field list'");
+    return DB.sync_log.filter((x) => /^go-live import/.test(x.note)).map((x, i) => ({ id: i + 1, ran_at: '2026-09-14' }));
+  }
   if (/^INSERT INTO orders/.test(sql)) { if (DB.orders.some((o) => o.order_id === p[0])) throw new Error('Duplicate entry'); DB.orders.push({ order_id: p[0], created_at_sheet: p[1], service: p[2], plan: p[3], name: p[5], email: p[6], phone: p[7], phone_norm: p[8], notes: p[9], raw_json: p[10], status: 'PAID', source: 'migrated', final_amount: 0 }); return { affectedRows: 1 }; }
   if (/^UPDATE subscriptions SET order_id = \?/.test(sql)) { const r = DB.subscriptions.filter((x) => x.sub_id === p[3]); r.forEach((x) => { x.order_id = p[0]; x.raw_json = jsonSet(x.raw_json, ['OrderID', p[1], 'LegacyOrderID', p[2]]); }); return { affectedRows: r.length }; }
   if (/^UPDATE subscriptions SET sub_id = \?/.test(sql)) { const r = DB.subscriptions.filter((x) => x.sub_id === p[5]); if (DB.subscriptions.some((x) => x.sub_id === p[0])) throw new Error('Duplicate entry'); r.forEach((x) => { x.sub_id = p[0]; x.raw_json = jsonSet(x.raw_json, ['SubID', p[3], 'LegacySubID', p[4]]); }); return { affectedRows: r.length }; }
@@ -86,6 +92,7 @@ cleanup._internal.deps.now = () => new Date('2026-09-14T19:00:00+05:30');
   ok('missing customers: Satish (name from his order, email from plan) + MIG customer; no phone → skipped', pv.customers.count === 2 && pv.customers.list.some((c) => c.phone === '7899861348' && c.name === 'Satish' && c.email === 'satish@example.com'), pv.customers);
   ok('clutter: FF0215802 (5 ended plans) only', pv.clutter.length === 1 && pv.clutter[0].orderId === 'FF0215802' && pv.clutter[0].subs === 5, pv.clutter);
   ok('report: phone typo, failed paid order, stale ACTIVE — not changed', pv.report.phoneMismatch.some((m) => m.orderId === 'FF1000009') && pv.report.paidNoPlan.includes('FF4642239') && pv.report.staleActive >= 1);
+    ok('report counts renewals as having a plan (order service is selected)', !pv.report.paidNoPlan.includes('FF1000001') && pv.report.paidNoPlanCount === 1, pv.report);
   ok('preview knows the import ran and cleanup is not done', pv.importDone === true && !pv.done);
 
   // Refuses before the import.

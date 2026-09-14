@@ -32,13 +32,13 @@ async function isDone() {
   catch (e) { return null; }
 }
 async function importDone() {
-  try { const r = await db.query("SELECT ts FROM sync_log WHERE note LIKE 'go-live import%' ORDER BY id DESC LIMIT 1", []); return r.length > 0; }
+  try { const r = await db.query("SELECT id, ran_at FROM sync_log WHERE note LIKE 'go-live import%' ORDER BY id DESC LIMIT 1", []); return r.length > 0; }
   catch (e) { return false; }
 }
 
 async function buildPlan() {
   const subs = await db.query('SELECT sub_id, order_id, phone, phone_norm, email, service, plan, duration_days, start_date, expiry_date, release_eligible_at, status FROM subscriptions', []);
-  const orders = await db.query('SELECT order_id, phone, phone_norm, name, status, created_at_sheet FROM orders', []);
+  const orders = await db.query('SELECT order_id, phone, phone_norm, name, status, service, created_at_sheet FROM orders', []);
   const customers = await db.query('SELECT phone_norm FROM customers', []);
   const orderIds = new Set(orders.map((o) => s(o.order_id)));
   const custPhones = new Set(customers.map((c) => norm(c.phone_norm)));
