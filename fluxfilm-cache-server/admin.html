@@ -539,7 +539,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'],
   ['DATA'], ['golive', '🚚', 'Go-live import'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
@@ -584,7 +584,7 @@ function nav(v) {
   route();
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, payments: paymentsView, maintenance: maintenanceView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, payments: paymentsView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -3061,6 +3061,75 @@ function renderMaintenance() {
       toast(pausing ? '🚧 New orders paused — live now' : '▶️ Orders resumed — live now');
     });
   };
+}
+
+/* ================= 🤖 Olivia: AI store manager on/off, test phones, voice, recent chats ================= */
+var OL = { s: null };
+function oliviaView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🤖 Olivia AI</h1><p>Olivia chats with customers on the website (Help → Chat with Olivia): she helps them pick a plan, sends the payment QR, checks the payment and gives the login. Prices, stock, payments and logins always come from the shop itself — the AI only writes the words.</p></div></div><div id="olwarn"></div><div id="olbody"><p class="muted">Loading…</p></div><div class="card" style="margin-top:16px"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 style="margin:0">💬 Recent chats</h3><button class="btn ghost sm" onclick="olChats()">🔁 Refresh</button></div><div id="olchats" style="margin-top:10px"><p class="muted">Loading…</p></div></div>';
+  api('/admin/api/olivia').then(function (r) {
+    if (!$('#olbody')) return;
+    if (!r.ok) { $('#olbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
+    var w = '';
+    if (!r.schemaReady) w += '<div class="qnote warn" style="margin:0 0 14px">Run <b>db/schema-v21.sql</b> in phpMyAdmin first. Until then Olivia stays off and Help opens WhatsApp.</div>';
+    if (!r.aiKeySet) w += '<div class="qnote warn" style="margin:0 0 14px">No <b>DEEPSEEK_API_KEY</b> in Hostinger → Environment variables. Olivia still works, with fixed replies instead of AI-written ones.</div>';
+    $('#olwarn').innerHTML = w;
+    OL.s = r.settings; renderOlivia();
+  });
+  olChats();
+}
+function renderOlivia() {
+  var s = OL.s, on = !!s.enabled;
+  var who = !on ? 'Help opens WhatsApp, as before.' : s.testOnly ? 'Only these test phones see "Chat with Olivia": ' + esc(s.testPhones || '—') : 'All logged-in customers see "Chat with Olivia" when they tap Help.';
+  $('#olbody').innerHTML =
+    '<div class="card mt-status ' + (on ? '' : 'paused') + '"><div class="mt-big">' + (on ? '🟢' : '⚪') + '</div><div class="grow"><h3 style="margin:0">' + (on ? 'Olivia is ON' + (s.testOnly ? ' — test mode' : '') : 'Olivia is OFF') + '</h3><p class="muted" style="margin:4px 0 0">' + who + '</p></div>' +
+    '<button class="btn ' + (on ? 'red' : 'green') + ' mt-toggle" id="oltog">' + (on ? '⏹ Switch off' : '▶️ Switch on') + '</button></div>' +
+    '<div class="card"><h3>⚙️ Settings</h3><div class="mt-f">' +
+    '<label style="display:flex;align-items:center;gap:10px;font-weight:600"><input type="checkbox" style="width:22px;height:22px;flex:none" id="oltest"' + (s.testOnly ? ' checked' : '') + '/> <span><b>Test mode</b> — only the phones below can chat</span></label>' +
+    '<label>Test phone numbers <span class="muted">(10 digits, comma separated)</span><input class="inp" id="olphones" value="' + esc(s.testPhones) + '" placeholder="98xxxxxxxx, 99xxxxxxxx"/></label>' +
+    '<label style="display:flex;align-items:center;gap:10px;font-weight:600"><input type="checkbox" style="width:22px;height:22px;flex:none" id="olai"' + (s.aiWords ? ' checked' : '') + '/> <span><b>AI-written replies</b> (DeepSeek). Off = fixed replies only.</span></label>' +
+    '<label>WhatsApp link for "WhatsApp our team"<input class="inp" id="olwa" value="' + esc(s.whatsappLink) + '"/></label>' +
+    '<label>Voice guide <span class="muted">(how Olivia should sound — from the tone training; max 2000 characters)</span><textarea class="inp" id="olvoice" rows="5" maxlength="2000" placeholder="Warm, respectful, short sentences. Use ji. Never pushy.">' + esc(s.voice) + '</textarea></label>' +
+    '</div><div class="rf-save"><button class="btn green" id="olsave">💾 Save settings</button><span class="rf-state" id="olstate"></span></div></div>';
+  var stt = function (k, x) { var el = $('#olstate'); if (el) { el.className = 'rf-state ' + k; el.textContent = x; } };
+  var body = function (extra) { return Object.assign({ testOnly: $('#oltest').checked, testPhones: $('#olphones').value, aiWords: $('#olai').checked, whatsappLink: $('#olwa').value, voice: $('#olvoice').value }, extra || {}); };
+  $('#olsave').onclick = function () { saveSettingsBtn(this, '/admin/api/olivia', body(), stt, function (r) { OL.s = r.settings; renderOlivia(); }); };
+  $('#oltog').onclick = function () {
+    var turningOn = !OL.s.enabled;
+    var b0 = body({ enabled: turningOn });
+    if (turningOn && !confirm(b0.testOnly ? 'Switch Olivia on for the test phones only?' : 'Switch Olivia on for ALL logged-in customers?')) return;
+    var b = this; b.disabled = true;
+    post('/admin/api/olivia', b0).then(function (r) {
+      b.disabled = false;
+      if (!r.ok) { toast('⚠️ Not changed: ' + (r.message || 'error')); return; }
+      OL.s = r.settings; renderOlivia(); toast(turningOn ? '🤖 Olivia is on' : '⏹ Olivia is off');
+    });
+  };
+}
+function olChats() {
+  api('/admin/api/olivia/chats', { limit: 30 }).then(function (r) {
+    var el = $('#olchats'); if (!el) return;
+    if (!r.ok) { el.innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
+    if (!r.conversations.length) { el.innerHTML = '<p class="muted">' + (r.schemaMissing ? 'Run db/schema-v21.sql first.' : 'No chats yet.') + '</p>'; return; }
+    el.innerHTML = r.conversations.map(function (c) {
+      return '<div class="card" style="margin:0 0 8px;padding:10px 12px"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap;cursor:pointer" data-olc="' + esc(c.id) + '">' +
+        '<div><b>' + esc(c.phone_norm) + '</b> <span class="muted">· ' + esc(c.lang || '—') + ' · ' + esc(c.step || '') + (c.order_id ? ' · ' + esc(c.order_id) : '') + '</span></div>' +
+        '<div class="muted">' + esc(c.status) + ' · ' + esc(c.turns) + ' msgs · AI ' + esc(c.ai_calls) + ' · ' + esc(String(c.updated_at || '').slice(0, 16).replace('T', ' ')) + '</div></div><div id="olm-' + esc(c.id) + '"></div></div>';
+    }).join('');
+    $$('#olchats [data-olc]').forEach(function (row) { row.onclick = function () { olOpen(row.getAttribute('data-olc')); }; });
+  });
+}
+function olOpen(id) {
+  var box = $('#olm-' + id); if (!box) return;
+  if (box.innerHTML) { box.innerHTML = ''; return; }
+  box.innerHTML = '<p class="muted">Loading…</p>';
+  api('/admin/api/olivia/chats/' + encodeURIComponent(id)).then(function (r) {
+    if (!r.ok) { box.innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
+    box.innerHTML = '<div style="margin-top:8px;display:grid;gap:6px">' + r.messages.map(function (m) {
+      var mine = m.role === 'customer';
+      return '<div style="justify-self:' + (mine ? 'end' : 'start') + ';max-width:88%;background:' + (mine ? '#dcfce7' : '#f1f5f9') + ';border-radius:12px;padding:7px 10px;white-space:pre-wrap;font-size:.85rem">' + esc(m.body) + '<div class="muted" style="font-size:.7rem;margin-top:2px">' + esc(mine ? 'customer' : 'Olivia · ' + m.intent + (m.ai ? ' · AI' : '')) + '</div></div>';
+    }).join('') + '</div>';
+  });
 }
 
 /* ================= payments: "I've paid" review queue + backup UPI settings ================= */
