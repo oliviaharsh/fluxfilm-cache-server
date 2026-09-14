@@ -551,7 +551,12 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
     var probe = document.createElement('div'); probe.setAttribute('style', 'position:fixed;bottom:0;height:env(safe-area-inset-bottom);width:1px;visibility:hidden'); document.body.appendChild(probe);
     var inset = Math.round(probe.getBoundingClientRect().height); probe.remove();
     var standalone = false; try { standalone = window.matchMedia('(display-mode: standalone)').matches; } catch (e) {}
-    box.textContent = 'innerH ' + m.innerH + ' · vvH ' + m.vvH + ' · visH ' + Math.round(m.visH) + '\ndocH ' + m.docH + ' · scrollY ' + m.scrollY + '\nnavTop ' + m.navTop + ' · lastBottom ' + m.lastBottom + '\nextra ' + m.extra + ' · inset ' + inset + ' · app ' + standalone + ' · dpr ' + window.devicePixelRatio;
+    var zoom = ''; try { zoom = getComputedStyle(document.documentElement).zoom; } catch (e) {}
+    box.textContent = 'v ' + (window.FF_VERSION || '?') + ' · app ' + standalone + ' · dpr ' + window.devicePixelRatio + ' · zoom ' + zoom +
+      '\ninnerH ' + m.innerH + ' · clientH ' + m.clientH + ' · vvH ' + m.vvH + ' · vvScale ' + m.vvScale + ' · screenH ' + m.screenH +
+      '\ndocH ' + m.docH + ' · scrollY ' + m.scrollY + ' · atEnd ' + m.atEnd +
+      '\nnavTop ' + m.navTop + ' · lastBottom ' + m.lastBottom + ' · padB ' + m.padB +
+      '\nextra ' + m.extra + ' · inset ' + inset;
   };
 })();
 </script>
@@ -1899,7 +1904,7 @@ function BottomNav({
       // "At the very end" uses the LAYOUT height: on edge-to-edge Android the visible height (visualViewport) can be smaller,
       // so checking with it never saw the end and the heal never ran (still cut on the owner's Nord 5 after PR #68).
       const layoutH = Math.max(window.innerHeight, doc.clientHeight || 0);
-      if (doc.scrollTop + layoutH < doc.scrollHeight - 4) return;
+      const atEnd = doc.scrollTop + layoutH >= doc.scrollHeight - 4;
       // Last real content = the lowest in-flow child (pop-ups, update bar and other fixed layers are ignored).
       let last = null; let lastBottom = -Infinity;
       for (const c of page.children) {
@@ -1908,14 +1913,16 @@ function BottomNav({
         const r = c.getBoundingClientRect();
         if (r.height > 0 && r.bottom > lastBottom) { last = c; lastBottom = r.bottom; }
       }
-      if (!last) return;
-      const limit = Math.min(el.getBoundingClientRect().top, visH);
-      const missing = Math.ceil(last.getBoundingClientRect().bottom - limit + 20);
+      const navTop = el.getBoundingClientRect().top;
+      // ?layout=1 box: shown on every scroll (not only at the end) so a phone screenshot always has the numbers.
+      if (window.ffLayoutDebug) window.ffLayoutDebug({ visH, innerH: window.innerHeight, clientH: doc.clientHeight, vvH: vv ? Math.round(vv.height) : null, vvScale: vv ? vv.scale : null, docH: doc.scrollHeight, scrollY: Math.round(doc.scrollTop), atEnd, navTop: Math.round(navTop), lastBottom: Math.round(lastBottom), padB: getComputedStyle(page).paddingBottom, screenH: window.screen && window.screen.height, extra });
+      if (!atEnd || !last) return;
+      const limit = Math.min(navTop, visH);
+      const missing = Math.ceil(lastBottom - limit + 20);
       if (missing > 0 && extra < 480) {
         extra = Math.min(480, extra + missing);
         root.style.setProperty('--ff-bnav-extra', extra + 'px');
       }
-      if (window.ffLayoutDebug) window.ffLayoutDebug({ visH, innerH: window.innerHeight, vvH: vv ? Math.round(vv.height) : null, docH: doc.scrollHeight, scrollY: Math.round(doc.scrollTop), navTop: Math.round(el.getBoundingClientRect().top), lastBottom: Math.round(last.getBoundingClientRect().bottom), extra });
     };
     let healT = 0;
     const onScroll = () => { clearTimeout(healT); healT = setTimeout(heal, 120); };
