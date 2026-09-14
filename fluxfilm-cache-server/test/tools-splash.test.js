@@ -98,9 +98,10 @@ const css = (html.match(/<style>([\s\S]*?)<\/style>/) || ['', ''])[1];
 ok('splash markup is hidden by default and sits at the top of <body>', /<body>\n<div id="ff-splash" hidden aria-hidden="true">/.test(html) && html.indexOf('id="ff-splash"') < html.indexOf('<div id="root">'));
 ok('reduced motion hides it in CSS too', /@media \(prefers-reduced-motion: reduce\) \{ #ff-splash \{ display: none !important; \} \}/.test(css));
 const kf = [...css.matchAll(/@keyframes (ffSp\w+|ffSplashOut) \{([\s\S]*?)\} \}/g)];
-ok('splash keyframes only animate transform / opacity / visibility (GPU friendly)', kf.length === 5 && kf.every((m) => (m[2].match(/([a-z-]+)\s*:/g) || []).every((p) => /^(transform|opacity|visibility)\s*:$/.test(p))), kf.map((m) => m[1]));
-const outM = css.match(/#ff-splash \{[^}]*animation: ffSplashOut \.(\d+)s ease-in \.(\d+)s forwards;/);
-ok('whole intro is about 1.2 s', outM && (Number('0.' + outM[1]) + Number('0.' + outM[2])) <= 1.2, outM && outM.slice(1));
+ok('splash keyframes only animate transform / opacity / visibility (GPU friendly)', kf.length === 6 && kf.every((m) => (m[2].match(/([a-z-]+)\s*:/g) || []).every((p) => /^(transform|opacity|visibility)\s*:$/.test(p))), kf.map((m) => m[1]));
+const outM = css.match(/#ff-splash \{[^}]*animation: ffSplashOut ([\d.]+)s ease-in ([\d.]+)s forwards;/);
+ok('whole intro stays under 1.6 s (ribbon reveal, owner 2026-09-15)', outM && Number(outM[1]) + Number(outM[2]) <= 1.6, outM && outM.slice(1));
+ok('ribbon reveal: 7 ribbons, inline logo, 18 light streaks', (html.match(/<div class="ff-sp-rib">((?:<span><\/span>)+)<\/div>/) || ['', ''])[1].length === 7 * 13 && /<div class="ff-sp-logo"><svg[^>]*>[\s\S]*?ffsp-bg/.test(html) && (html.match(/<div class="ff-sp-streaks">(.*?)<\/div><div class="ff-sp-stage">/) || ['', ''])[1].split('<i ').length - 1 === 18);
 ok('React app still renders underneath (root after splash, no delay)', /<\/script>\n<div id="root"><\/div>/.test(html));
 const spScript = (html.match(/<body>\n<div id="ff-splash"[^\n]*\n<script>([\s\S]*?)<\/script>/) || ['', ''])[1];
 function runSplash({ reduce, seen, storageThrows }) {
@@ -112,7 +113,7 @@ function runSplash({ reduce, seen, storageThrows }) {
   return S;
 }
 let S = runSplash({});
-ok('page load: shown and auto-removed by 1.4 s', !S.hidden && !S.removed && S.timers.length === 1 && S.timers[0][1] <= 1400);
+ok('first open: shown, remembered for the session, auto-removed by 1.8 s', !S.hidden && !S.removed && S.store.ff_splash === '1' && S.timers.length === 1 && S.timers[0][1] <= 1800);
 S.timers[0][0]();
 ok('timer removes it', S.removed);
 S = runSplash({}); S.listeners.click();
@@ -120,7 +121,7 @@ ok('tap skips it', S.removed);
 S = runSplash({}); S.listeners.animationend({ target: {} });
 ok('a child animation ending does not remove it early', !S.removed);
 S = runSplash({ seen: true });
-ok('reload in the same tab shows the 3D logo again (owner 2026-09-14)', !S.hidden && !S.removed && !/sessionStorage/.test(spScript));
+ok('reload / page change in the same session: not shown again (owner 2026-09-15, replaces 09-14 every-load)', S.hidden && S.removed && S.timers.length === 0);
 S = runSplash({ reduce: true });
 ok('reduced motion: removed at once, never shown', S.removed && S.hidden && !S.store.ff_splash);
 S = runSplash({ storageThrows: true });
