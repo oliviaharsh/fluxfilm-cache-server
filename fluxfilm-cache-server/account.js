@@ -115,6 +115,10 @@ async function updateCustomerProfilePic(phone, profilePicUrl) {
     'UPDATE customers SET profile_pic_url = ?, updated_at = NOW(), raw_json = ? WHERE phone_norm = ? LIMIT 1',
     [url, JSON.stringify(raw), ph]);
 
+  // Picked an avatar instead of their own photo: delete the uploaded photo (photos.js; no-op before schema-v20).
+  try { const photos = require('./photos'); if (!photos.isPhotoUrl(url)) await photos.forget(ph); }
+  catch (e) { console.log('[photos] could not delete old photo:', e.message); }
+
   return { ok: true, profilePicUrl: url, profile: await _profile(ph) };
 }
 
