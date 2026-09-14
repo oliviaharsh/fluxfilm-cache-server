@@ -33,7 +33,7 @@ ok('coupons shown as cards with plain words (no raw ANY / NEW / RENEW)', /functi
 ok('screen slide-in leaves no transform behind (pop-ups were trapped under header/menu)', /\.ff-slide \{ animation: ffSlideIn \.22s ease backwards; \}/.test(html) && !/el\.style\.transform = .translateX\(0\)./.test(html));
 
 // Numbered checkout: buy = Plan, Details, Review, Pay, Access; renew = Plan, Pay, Access.
-ok('checkout steps: buy = Plan, Details (incl. review), Pay, Access; renew = Plan, Pay, Access', /buy: \[\['Plan', \['buy2', 'groupJoin'\]\], \['Details', \['details', 'review'\]\], \['Pay', \['pay'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html) && /renew: \[\['Plan', \['renewStart'\]\], \['Pay', \['pay'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html));
+ok('checkout steps: buy = Plan, Details (incl. review), Pay (incl. payment help), Access; renew = Plan, Pay, Access', /buy: \[\['Plan', \['buy2', 'groupJoin'\]\], \['Details', \['details', 'review'\]\], \['Pay', \['pay', 'payhelp'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html) && /renew: \[\['Plan', \['renewStart'\]\], \['Pay', \['pay', 'payhelp'\]\], \['Access', \['verify', 'done'\]\]\]/.test(html));
 ok('details goes straight to pay; failed order goes back to the filled-in details', /nav\('pay', \{\s*service,\s*planObj,\s*form,\s*couponState,\s*creating: true/.test(html) && !/nav\('review', \{\}\)/.test(html) && (html.match(/goBack \? goBack\(\) : nav\('home', \{\}\)/g) || []).length === 2);
 ok('steps shown above every screen; flow tracked on nav + navReset', /React.createElement\(CheckoutSteps, \{\s*flow: flow,\s*screen: screen\s*\}\)/.test(html) && (html.match(/    trackFlow\(s\);/g) || []).length === 2);
 

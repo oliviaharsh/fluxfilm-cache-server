@@ -168,6 +168,16 @@ table.sheet{border-collapse:separate;border-spacing:0;table-layout:fixed;font-si
 .rf-banner{margin:0 0 14px;padding:11px 14px;border-radius:12px;font-size:.85rem;font-weight:600}.rf-banner.ok{background:#dcfce7;color:#166534}.rf-banner.bad{background:#fee2e2;color:#991b1b}
 @media(max-width:900px){.rf-save{bottom:calc(58px + env(safe-area-inset-bottom))}.toast{bottom:calc(84px + env(safe-area-inset-bottom))}}
 @media(max-width:600px){.rf-f{grid-template-columns:repeat(3,minmax(0,1fr))}.rf-f.two{grid-template-columns:repeat(2,minmax(0,1fr))}#rfbody .kpis,#cnbody .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}#rfbody .kpi,#cnbody .kpi{padding:12px;gap:10px;align-items:flex-start}#rfbody .kpi .ic,#cnbody .kpi .ic{width:34px;height:34px;font-size:1rem}#rfbody .kpi .n,#cnbody .kpi .n{font-size:1.15rem}}
+.pmc{border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;background:#fff}
+.pmname{font-size:1.05rem;font-weight:800;letter-spacing:.02em;word-break:break-word}.pmamt{font-size:1.2rem;font-weight:800;margin-bottom:4px}
+.pmsub{font-size:.76rem;font-weight:700;color:var(--mut);margin:12px 0 6px}
+#pmseg button{flex:1 1 auto;padding:10px 8px;white-space:nowrap}
+.pmopts{display:flex;flex-direction:column;gap:6px}
+.pmopt{display:flex;gap:10px;align-items:center;width:100%;border:2px solid var(--line);background:#fafafa;border-radius:12px;padding:10px 12px;cursor:pointer;font-size:.86rem;color:var(--ink)}
+.pmopt small{display:block;color:var(--mut);font-size:.72rem;margin-top:2px}.pmopt.on{border-color:#16a34a;background:#f0fdf4}.pmradio{font-size:1.1rem;color:#16a34a}
+.pmbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.pmbtns .btn{flex:1 1 200px;justify-content:center;padding:12px}.pmbtns .btn:disabled{opacity:.5;cursor:not-allowed}.pmrej{color:#b91c1c}
+.pmres{margin-top:6px;display:block}
+.pmqr{border:1px dashed var(--line);border-radius:12px;text-align:center;background:#fafafa}.pmqr img{max-width:220px;width:100%;display:block;margin:8px auto;border-radius:10px}
 .qnote{margin-top:10px;padding:9px 12px;border-radius:10px;background:#f1f5f9;font-size:.8rem;color:var(--ink2)}
 .qnote.warn{background:#fef3c7;color:#92400e}.qnote.bad{background:#fee2e2;color:#991b1b}
 .qsubs{display:flex;flex-direction:column;gap:8px}
@@ -265,7 +275,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'],
   ['DATA'], ['data', '📋', 'Sheets'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
@@ -285,7 +295,7 @@ function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
   $$('.bnav a').forEach(function (a) { a.className = a.id === 'bnav-' + S.view ? 'on' : ''; });
   window.scrollTo(0, 0);
-  ({ today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
+  ({ today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, payments: paymentsView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView }[S.view] || todayView)();
 }
 
 /* ================= dashboard ================= */
@@ -1587,6 +1597,123 @@ function saveSettingsBtn(btn, path, body, stateFn, onOk) {
     setTimeout(function () { if (btn.isConnected) { btn.textContent = label; btn.classList.remove('dark'); } }, 2500);
   });
 }
+
+/* ================= payments: "I've paid" review queue + backup UPI settings ================= */
+var PM = { s: null, filter: 'OPEN', pick: {}, qr: '' };
+var PM_STATUS = { WAITING: ['🔎 Looking for payment', 'p-blue'], REVIEW: ['🧑‍💼 Needs you', 'p-warn'], MATCHED: ['✅ Matched automatically', 'p-ok'], APPROVED: ['✅ Approved', 'p-ok'], REJECTED: ['❌ Rejected', 'p-bad'] };
+var PM_SCORE = { EXACT: ['name same', 'p-ok'], STRONG: ['name fits', 'p-ok'], WEAK: ['name partly', 'p-warn'], NONE: ['other name', 'p-grey'], UTR: ['UTR', 'p-ok'] };
+function pmState(kind, text) { var el = $('#pmstate'); if (!el) return; el.className = 'rf-state ' + kind; el.textContent = text; }
+function paymentsView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>💸 Payments</h1><p>Customers who paid to the backup UPI ID ("limit reached") and told us "I\'ve paid". Clear matches are approved automatically; the rest wait here for you.</p></div></div>' +
+    '<div id="pmwarn"></div><div class="card" style="margin-bottom:16px"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px"><h3 style="margin:0">🧾 "I\'ve paid" claims</h3><div class="row" style="gap:6px"><button class="btn ghost sm" id="pmsweep">🔁 Re-check now</button></div></div>' +
+    '<div class="seg" id="pmseg" style="margin-bottom:12px">' + [['OPEN', 'Open'], ['MATCHED', 'Auto'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['ALL', 'All']].map(function (f) { return '<button data-f="' + f[0] + '"' + (PM.filter === f[0] ? ' class="on"' : '') + '>' + f[1] + '</button>'; }).join('') + '</div>' +
+    '<div id="pmlist"><p class="muted">Loading…</p></div></div><div id="pmset"><div class="card muted">Loading settings…</div></div>';
+  $('#pmseg').onclick = function (e) { var b = e.target.closest('[data-f]'); if (!b) return; PM.filter = b.getAttribute('data-f'); $$('#pmseg button').forEach(function (x) { x.className = x === b ? 'on' : ''; }); loadClaims(); };
+  $('#pmsweep').onclick = function () { var b = $('#pmsweep'); b.disabled = true; post('/admin/api/payments/sweep', {}).then(function (r) { b.disabled = false; toast(r.ok ? '🔁 Checked ' + (r.checked || 0) + ' · matched ' + ((r.matched || 0) + (r.learned || 0)) : '⚠️ ' + (r.message || 'failed')); loadClaims(); }); };
+  loadClaims();
+  api('/admin/api/payments/settings').then(function (st) {
+    if (!$('#pmset')) return;
+    if (!st.ok) { $('#pmset').innerHTML = '<div class="card muted">' + esc(st.message || 'error') + '</div>'; return; }
+    if (st.needsSchema) $('#pmwarn').innerHTML = '<div class="qnote warn" style="margin:0 0 14px">Run <b>db/schema-v17.sql</b> in phpMyAdmin to switch on the "I\'ve paid" form and this queue. Until then customers are told to WhatsApp you.</div>';
+    PM.s = st.settings; PM.qr = st.qrImage || ''; renderPaySettings();
+  });
+}
+function loadClaims() {
+  api('/admin/api/payments/claims', { status: PM.filter }).then(function (r) {
+    if (!$('#pmlist')) return;
+    if (!r.ok) { $('#pmlist').innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
+    var c = r.counts || {};
+    var segOpen = $('#pmseg [data-f="OPEN"]'); if (segOpen) segOpen.textContent = 'Open' + ((c.REVIEW || 0) + (c.WAITING || 0) ? ' (' + ((c.REVIEW || 0) + (c.WAITING || 0)) + ')' : '');
+    $('#pmlist').innerHTML = r.claims.length ? r.claims.map(claimCard).join('') : '<p class="muted" style="margin:6px 0">' + (PM.filter === 'OPEN' ? '🎉 Nothing waiting for you.' : 'No claims here.') + '</p>';
+  });
+}
+function claimCard(c) {
+  var st = PM_STATUS[c.status] || [c.status, 'p-grey'], open = c.status === 'REVIEW' || c.status === 'WAITING';
+  var h = '<div class="pmc" data-claim="' + c.id + '"><div class="row" style="justify-content:space-between;gap:8px;align-items:flex-start">' +
+    '<div style="min-width:0"><div class="pmname">' + esc(c.payer_name || '—') + '</div><div class="muted" style="font-size:.76rem;margin-top:2px">' + esc(c.customer_name || '') + ' · ' + esc(c.phone_norm) + ' · <b>' + esc(c.order_id) + '</b>' + (c.service ? ' · ' + esc(c.service) + ' ' + esc(c.plan || '') : '') + '</div></div>' +
+    '<div style="text-align:right;flex-shrink:0"><div class="pmamt">' + money(c.amount) + '</div><span class="pill ' + st[1] + '">' + st[0] + '</span></div></div>' +
+    '<div class="muted" style="font-size:.76rem;margin-top:6px">Sent ' + prettyDate(c.created_at, true) + (c.utr ? ' · UTR <b>' + esc(c.utr) + '</b>' : ' · no UTR') + (c.source === 'LEARNED' ? ' · matched by a name they used before' : '') + '</div>' +
+    (c.reason ? '<div class="qnote' + (c.status === 'REVIEW' ? ' warn' : '') + '" style="margin-top:8px">' + esc(c.reason) + '</div>' : '') + (c.admin_note ? '<div class="muted" style="font-size:.76rem;margin-top:6px">Note: ' + esc(c.admin_note) + '</div>' : '');
+  if (open) {
+    var opts = c.options || [];
+    h += '<div class="pmsub">Bank payments of ' + money(c.amount) + ' not used yet (pick the right one):</div>' + (opts.length ? '<div class="pmopts">' + opts.map(function (o) {
+      var sc = PM_SCORE[o.score] || PM_SCORE.NONE, on = PM.pick[c.id] === o.id;
+      return '<button class="pmopt' + (on ? ' on' : '') + '" data-pick="' + o.id + '"><span class="pmradio">' + (on ? '●' : '○') + '</span><span style="flex:1;min-width:0;text-align:left"><b>' + esc(o.payerName || '(no name)') + '</b> <span class="pill ' + sc[1] + '">' + sc[0] + '</span><small>ref ' + esc(o.upiRef) + ' · ' + prettyDate(o.receivedAt, true) + (o.note && o.note !== 'UPI' ? ' · note ' + esc(o.note) : '') + '</small></span></button>';
+    }).join('') + '</div>' : '<p class="muted" style="font-size:.8rem;margin:4px 0">None in the bank inbox yet (from 1 h before to 24 h after the claim). Check your bank app if needed.</p>') +
+      '<input class="inp pmnote" placeholder="Note (optional)" style="width:100%;margin-top:8px"/>' +
+      '<div class="pmbtns"><button class="btn green" data-act="approve"' + (PM.pick[c.id] ? '' : ' disabled') + '>✅ Approve with picked payment</button>' +
+      '<button class="btn ghost" data-act="manual">✅ Approve — I checked my bank app</button><button class="btn ghost pmrej" data-act="reject">❌ Reject</button></div><div class="rf-state pmres"></div>';
+  }
+  return h + '</div>';
+}
+function renderPaySettings() {
+  var s = PM.s;
+  var num = function (key, label, suffix) { return '<label>' + label + '<input class="inp" type="number" inputmode="numeric" min="1" data-pm="' + key + '" value="' + esc(s[key]) + '"/>' + (suffix ? '<span style="font-weight:500">' + suffix + '</span>' : '') + '</label>'; };
+  $('#pmset').innerHTML = '<div class="card" style="margin-bottom:16px"><h3>⚙️ Backup UPI settings</h3><div class="rf-grid">' +
+    '<div class="rf-sec"><h4>🏦 Backup UPI ID</h4><p>Shown when a customer taps "Payment not going through / limit reached?".</p><label class="rf-tog"><input type="checkbox" data-pm="enabled"' + (s.enabled ? ' checked' : '') + '/> Backup payment ON</label>' +
+      '<div class="rf-f two"><label>UPI ID<input class="inp" data-pm="backupVpa" value="' + esc(s.backupVpa) + '" autocapitalize="off" autocomplete="off" placeholder="name@bank"/></label><label>Name shown<input class="inp" data-pm="backupPayee" value="' + esc(s.backupPayee) + '"/></label></div></div>' +
+    '<div class="rf-sec"><h4>🖼️ Backup QR image</h4><p>Upload the QR picture for the backup UPI ID. Without one, the website draws a QR from the UPI ID.</p><div class="pmqr" id="pmqr">' + qrPreview() + '</div>' +
+      '<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap"><label class="btn dark sm" style="cursor:pointer">📤 Upload QR<input type="file" id="pmfile" accept="image/png,image/jpeg,image/webp" hidden/></label><button class="btn ghost sm" id="pmqrdel"' + (PM.qr ? '' : ' hidden') + '>🗑️ Remove</button><span class="rf-state" id="pmqrst"></span></div></div>' +
+    '<div class="rf-sec"><h4>🤖 Automatic matching</h4><p>A payment is approved automatically only when the UTR matches, or exactly one payment of that amount fits the name in the time window. Everything else comes to you.</p>' +
+      '<label class="rf-tog"><input type="checkbox" data-pm="autoAccept"' + (s.autoAccept ? ' checked' : '') + '/> Approve clear matches automatically</label><label class="rf-tog"><input type="checkbox" data-pm="useLearnedNames"' + (s.useLearnedNames ? ' checked' : '') + '/> Remember payer names (auto-match next time)</label>' +
+      '<div class="rf-f">' + num('windowMin', 'Time window', 'min') + num('reviewAfterMin', 'Send to you after', 'min') + num('maxClaimsPerOrder', 'Tries per order', '') + '</div></div>' +
+    '</div><div class="rf-save"><button class="btn green" id="pmsave">💾 Save settings</button><span class="rf-state" id="pmstate"></span></div></div>';
+  var box = $('#pmset');
+  var onChange = function (e) {
+    var el = e.target.closest('[data-pm]'); if (!el) return;
+    PM.s[el.getAttribute('data-pm')] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? (el.value === '' ? '' : Number(el.value)) : el.value;
+    pmState('dirty', '● Not saved yet');
+  };
+  box.addEventListener('input', onChange); box.addEventListener('change', onChange);
+  $('#pmsave').onclick = function () { saveSettingsBtn($('#pmsave'), '/admin/api/payments/settings', PM.s, pmState, function (r) { PM.s = r.settings; }); };
+  $('#pmfile').onchange = function (e) { var f = e.target.files && e.target.files[0]; if (f) uploadQr(f); e.target.value = ''; };
+  $('#pmqrdel').onclick = function () { if (!confirm('Remove the backup QR image?')) return; sendQr(''); };
+}
+function qrPreview() { return PM.qr ? '<img src="' + esc(PM.qr) + '" alt="Backup QR"/>' : '<div class="muted" style="font-size:.8rem;padding:24px 10px">No QR uploaded yet</div>'; }
+// Phones take big photos: shrink to ≤ 720 px before sending (keeps the QR sharp, the upload small).
+function uploadQr(file) {
+  var st = $('#pmqrst'); st.className = 'rf-state'; st.textContent = '⏳ Preparing…';
+  var rd = new FileReader();
+  rd.onload = function () {
+    var src = String(rd.result || '');
+    if (file.size <= 300000) return sendQr(src);
+    var img = new Image();
+    img.onload = function () {
+      var k = Math.min(1, 720 / Math.max(img.width, img.height)), cv = document.createElement('canvas');
+      cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+      var cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(img, 0, 0, cv.width, cv.height);
+      sendQr(cv.toDataURL('image/jpeg', 0.9));
+    };
+    img.onerror = function () { st.className = 'rf-state bad'; st.textContent = '⚠️ Could not read that picture'; };
+    img.src = src;
+  };
+  rd.readAsDataURL(file);
+}
+function sendQr(dataUrl) {
+  var st = $('#pmqrst'); st.className = 'rf-state'; st.textContent = '⏳ Uploading…';
+  post('/admin/api/payments/qr', { dataUrl: dataUrl }).then(function (r) {
+    if (!r.ok) { st.className = 'rf-state bad'; st.textContent = '⚠️ ' + (r.message || 'failed'); return; }
+    PM.qr = dataUrl; $('#pmqr').innerHTML = qrPreview(); $('#pmqrdel').hidden = !dataUrl;
+    st.className = 'rf-state ok'; st.textContent = dataUrl ? '✅ QR saved — live now' : '✅ QR removed'; toast(dataUrl ? '✅ Backup QR saved' : 'QR removed');
+  });
+}
+document.addEventListener('click', function (e) {
+  var card = e.target.closest && e.target.closest('.pmc'); if (!card) return;
+  var id = Number(card.getAttribute('data-claim'));
+  var pick = e.target.closest('[data-pick]');
+  if (pick) { var v = Number(pick.getAttribute('data-pick')); PM.pick[id] = PM.pick[id] === v ? null : v; $$('.pmopt', card).forEach(function (b) { var on = Number(b.getAttribute('data-pick')) === PM.pick[id]; b.classList.toggle('on', on); b.querySelector('.pmradio').textContent = on ? '●' : '○'; }); card.querySelector('[data-act="approve"]').disabled = !PM.pick[id]; return; }
+  var act = e.target.closest('[data-act]'); if (!act) return;
+  var kind = act.getAttribute('data-act'), note = (card.querySelector('.pmnote') || {}).value || '', res = card.querySelector('.pmres');
+  if (kind === 'manual' && !confirm('Approve without a bank payment row? Only do this if you can see the money in your bank app.')) return;
+  if (kind === 'reject' && !confirm('Reject this claim? The customer will be told to send a screenshot on WhatsApp.')) return;
+  $$('[data-act]', card).forEach(function (b) { b.disabled = true; }); res.className = 'rf-state pmres'; res.textContent = '⏳';
+  var body = kind === 'reject' ? { id: id, note: note } : { id: id, creditId: kind === 'approve' ? PM.pick[id] : null, note: note };
+  post('/admin/api/payments/' + (kind === 'reject' ? 'reject' : 'approve'), body).then(function (r) {
+    if (!r.ok) { $$('[data-act]', card).forEach(function (b) { b.disabled = false; }); if (!PM.pick[id]) card.querySelector('[data-act="approve"]').disabled = true; res.className = 'rf-state pmres bad'; res.textContent = '⚠️ ' + (r.message || 'failed'); return; }
+    toast(kind === 'reject' ? '❌ Rejected' : '✅ Approved — ' + r.orderId + ' is paid, the plan is being set up');
+    delete PM.pick[id]; loadClaims();
+  });
+});
 
 /* ================= coins ================= */
 var CN = { s: null };

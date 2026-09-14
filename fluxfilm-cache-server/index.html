@@ -910,8 +910,8 @@ function Topbar({
   }, "WhatsApp support"))));
 }
 const CHECKOUT_STEPS = {
-  buy: [['Plan', ['buy2', 'groupJoin']], ['Details', ['details', 'review']], ['Pay', ['pay']], ['Access', ['verify', 'done']]],
-  renew: [['Plan', ['renewStart']], ['Pay', ['pay']], ['Access', ['verify', 'done']]]
+  buy: [['Plan', ['buy2', 'groupJoin']], ['Details', ['details', 'review']], ['Pay', ['pay', 'payhelp']], ['Access', ['verify', 'done']]],
+  renew: [['Plan', ['renewStart']], ['Pay', ['pay', 'payhelp']], ['Access', ['verify', 'done']]]
 };
 function CheckoutSteps({
   flow,
@@ -4791,7 +4791,541 @@ function PayScreen({
       accessToken,
       phone: form?.phone || ''
     })
-  }, "✅ I've Paid → Verify")))));
+  }, "✅ I've Paid → Verify")), React.createElement("button", {
+    "data-ff": "pay-help",
+    onClick: () => nav('payhelp', {
+      orderId,
+      service,
+      accessToken,
+      phone: form?.phone || getFFSession().phone || localStorage.getItem('ff_phone') || ''
+    }),
+    style: {
+      width: '100%',
+      marginTop: 12,
+      padding: '14px 16px',
+      borderRadius: 16,
+      border: '2px dashed #fdba74',
+      background: '#fff7ed',
+      color: '#9a3412',
+      fontFamily: PJS,
+      fontSize: 15,
+      fontWeight: 800,
+      cursor: 'pointer',
+      lineHeight: 1.35
+    }
+  }, "😟 Payment not going through / limit reached?", React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      fontWeight: 600,
+      marginTop: 2,
+      color: '#b45309'
+    }
+  }, "Tap here to pay to our backup UPI ID")))));
+}
+// "Payment not going through / limit reached?" → backup UPI ID + QR → "I've paid" (payer name, optional UTR)
+// → waiting / found / FluxFilm will check. Matching happens on the server (paymatch.js).
+function spacedName_(v) {
+  return String(v || '').toUpperCase().replace(/[^A-Z]+/g, ' ').trim();
+}
+function PayHelpScreen({
+  nav,
+  goBack,
+  orderId,
+  service,
+  accessToken,
+  phone
+}) {
+  const h = React.createElement;
+  const proof = {
+    token: accessToken || '',
+    phone: phone || getFFSession().phone || localStorage.getItem('ff_phone') || ''
+  };
+  const [info, setInfo] = useState(null);
+  const [phase, setPhase] = useState('loading'); // loading · pay · form · confirm · status · error
+  const [name, setName] = useState('');
+  const [utr, setUtr] = useState('');
+  const [formMsg, setFormMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [claim, setClaim] = useState(null);
+  const [copied, setCopied] = useState('');
+  const timer = useRef(null);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    API.getBackupPayment(orderId, proof, r => {
+      if (!alive.current) return;
+      if (!r || !r.ok) {
+        setInfo(r || null);
+        setPhase('error');
+        return;
+      }
+      setInfo(r);
+      if (r.paid) {
+        goVerify();
+        return;
+      }
+      if (r.lastClaim && r.lastClaim.status && r.lastClaim.status !== 'REJECTED') {
+        setClaim(r.lastClaim);
+        setName(r.lastClaim.payerName || '');
+        setPhase('status');
+      } else setPhase('pay');
+    }, () => {
+      if (alive.current) setPhase('error');
+    });
+    return () => {
+      alive.current = false;
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [orderId]);
+  function goVerify() {
+    nav('verify', {
+      orderId,
+      service,
+      accessToken,
+      phone: proof.phone
+    });
+  }
+  useEffect(() => {
+    if (phase !== 'status' || !claim) return;
+    if (claim.status === 'MATCHED' || claim.paid) {
+      timer.current = setTimeout(goVerify, 1600);
+      return;
+    }
+    if (claim.status === 'REJECTED') return;
+    // WAITING: check every 4 s; REVIEW: every 20 s (the owner may approve while they wait).
+    timer.current = setTimeout(() => {
+      API.getClaimStatus(orderId, proof, r => {
+        if (!alive.current) return;
+        if (r && r.ok && r.status && r.status !== 'NONE') setClaim(r);else setClaim(Object.assign({}, claim));
+      }, () => {
+        if (alive.current) setClaim(Object.assign({}, claim));
+      });
+    }, claim.status === 'REVIEW' ? 20000 : 4000);
+    return () => clearTimeout(timer.current);
+  }, [phase, claim]);
+  function copy(text, key) {
+    const done = () => {
+      setCopied(key);
+      setTimeout(() => setCopied(''), 2000);
+    };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(String(text)).then(done).catch(fb);else fb();
+    function fb() {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = String(text);
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        done();
+      } catch (e) {}
+    }
+  }
+  function toConfirm() {
+    const n = spacedName_(name);
+    if (n.replace(/ /g, '').length < 2) {
+      setFormMsg('Please type your name exactly as it shows in your UPI app.');
+      return;
+    }
+    const u = String(utr || '').replace(/\D/g, '');
+    if (u && (u.length < 10 || u.length > 16)) {
+      setFormMsg('The UPI reference / UTR is usually 12 digits. Please check it, or leave it empty.');
+      return;
+    }
+    setFormMsg('');
+    setPhase('confirm');
+  }
+  function submit() {
+    setBusy(true);
+    API.claimManualPayment(orderId, proof, name, String(utr || '').replace(/\D/g, ''), r => {
+      setBusy(false);
+      if (!alive.current) return;
+      if (r && (r.ok || r.tooMany) && r.status) {
+        setClaim(r);
+        setPhase('status');
+        return;
+      }
+      setFormMsg(r?.message || 'Could not send. Please try again.');
+      setPhase(r?.field ? 'form' : 'confirm');
+    }, () => {
+      setBusy(false);
+      setFormMsg('Network issue — please try again.');
+    });
+  }
+  const T = (size, weight, color, extra) => ({
+    fontFamily: PJS,
+    fontSize: size,
+    fontWeight: weight,
+    color: color || C.text,
+    lineHeight: 1.45,
+    ...(extra || {})
+  });
+  const bigInput = {
+    width: '100%',
+    padding: '15px 16px',
+    borderRadius: 16,
+    border: '2px solid #cbd5e1',
+    fontFamily: PJS,
+    fontSize: 17,
+    fontWeight: 700,
+    boxSizing: 'border-box',
+    background: '#fff',
+    color: C.text
+  };
+  const copyBtn = (text, key, label) => h("button", {
+    onClick: () => copy(text, key),
+    style: {
+      minWidth: 92,
+      padding: '12px 14px',
+      borderRadius: 14,
+      border: `1px solid ${C.borderMd}`,
+      background: copied === key ? C.green : '#fff',
+      color: copied === key ? '#fff' : C.text,
+      fontFamily: PJS,
+      fontWeight: 800,
+      fontSize: 14,
+      cursor: 'pointer',
+      flexShrink: 0
+    }
+  }, copied === key ? '✅ Copied' : label || '📋 Copy');
+  const row = (label, value, big, copyText, key) => h("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+      padding: '13px 14px',
+      borderRadius: 16,
+      border: `1px solid ${C.border}`,
+      background: '#fff',
+      marginTop: 10
+    }
+  }, h("div", {
+    style: {
+      minWidth: 0
+    }
+  }, h("div", {
+    style: T(11, 800, C.muted, {
+      textTransform: 'uppercase',
+      letterSpacing: '.06em'
+    })
+  }, label), h("div", {
+    style: T(big ? 26 : 18, 900, C.text, {
+      marginTop: 2,
+      wordBreak: 'break-all'
+    })
+  }, value)), copyBtn(copyText, key));
+  const whatsapp = label => h(Btn, {
+    variant: "ghost",
+    full: true,
+    onClick: () => window.open(WA_SUPPORT_LINK, '_blank')
+  }, label || '💬 WhatsApp support');
+  let body;
+  if (phase === 'loading') {
+    body = h("div", {
+      style: {
+        textAlign: 'center',
+        paddingTop: 60
+      }
+    }, h("div", {
+      style: {
+        width: 40,
+        height: 40,
+        borderRadius: '50%',
+        border: '3.5px solid rgba(22,163,74,.3)',
+        borderTopColor: '#16a34a',
+        animation: 'spin .8s linear infinite',
+        margin: '0 auto 16px'
+      }
+    }), h("div", {
+      style: T(15, 700, C.muted)
+    }, "Loading backup payment details…"));
+  } else if (phase === 'error') {
+    body = h(Card, {
+      style: {
+        marginTop: 16
+      }
+    }, h("div", {
+      style: T(18, 900)
+    }, "😟 Sorry, this isn't working right now"), h("div", {
+      style: T(14, 600, C.muted, {
+        marginTop: 8,
+        marginBottom: 14
+      })
+    }, info?.message || 'Please check your internet and try again. If you already paid, send the payment screenshot on WhatsApp.'), whatsapp('💬 Send screenshot on WhatsApp'));
+  } else if (phase === 'pay') {
+    const qrSrc = info.qrImage || `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=8&data=${encodeURIComponent(info.upiLink || '')}`;
+    body = h(React.Fragment, null, h(Card, {
+      style: {
+        marginTop: 16
+      }
+    }, h("div", {
+      style: T(20, 900)
+    }, "😟 Payment not going through?"), h("div", {
+      style: T(14.5, 600, '#334155', {
+        marginTop: 8
+      })
+    }, "Sometimes a UPI app says ", h("b", null, "“limit reached”"), " or the payment fails. This comes from your bank or UPI app (for example a daily limit, a new-payee limit or a safety check). Your money is safe."), h("div", {
+      style: T(14.5, 700, '#15803d', {
+        marginTop: 8
+      })
+    }, "👉 Simply pay to our backup UPI ID below instead. No need to pay twice.")), h(Card, {
+      style: {
+        marginTop: 14
+      }
+    }, h("div", {
+      style: T(16, 900)
+    }, "1️⃣ Pay exactly this amount"), row('Amount', '₹' + info.amount, true, String(info.amount), 'amt'), row('Backup UPI ID', info.vpa, false, info.vpa, 'vpa'), h("div", {
+      style: T(12.5, 600, C.muted, {
+        marginTop: 6
+      })
+    }, "Name shown: ", h("b", null, info.payee)), h("div", {
+      style: {
+        marginTop: 14,
+        textAlign: 'center'
+      }
+    }, h("img", {
+      src: qrSrc,
+      alt: "Backup UPI QR code",
+      style: {
+        width: 230,
+        maxWidth: '100%',
+        height: 'auto',
+        borderRadius: 16,
+        border: `1px solid ${C.border}`,
+        background: '#fff'
+      }
+    }), h("div", {
+      style: T(12.5, 700, C.muted, {
+        marginTop: 6
+      })
+    }, "Scan this QR from another phone, or copy the UPI ID into your UPI app")), h("div", {
+      style: {
+        marginTop: 12
+      }
+    }, h(Btn, {
+      variant: "blue",
+      full: true,
+      onClick: () => {
+        window.location.href = info.upiLink;
+      }
+    }, "📲 Open UPI app")), h(Hint, {
+      tone: "blue"
+    }, "In the UPI app type the amount ", h("b", null, "₹", info.amount), " yourself. If it asks for a note you can write ", h("b", null, orderId), " (optional).")), h(Card, {
+      style: {
+        marginTop: 14
+      }
+    }, h("div", {
+      style: T(16, 900)
+    }, "2️⃣ After paying"), h("div", {
+      style: T(13.5, 600, C.muted, {
+        marginTop: 4,
+        marginBottom: 12
+      })
+    }, "Tell us you paid so we can find your payment."), h(Btn, {
+      variant: "primary",
+      full: true,
+      onClick: () => setPhase('form')
+    }, "✅ I've paid"), h("div", {
+      style: {
+        marginTop: 10
+      }
+    }, h(Btn, {
+      variant: "ghost",
+      full: true,
+      onClick: () => goBack ? goBack() : goVerify()
+    }, "⬅️ Back to the normal payment"))));
+  } else if (phase === 'form') {
+    body = h(Card, {
+      style: {
+        marginTop: 16
+      }
+    }, h("div", {
+      style: T(20, 900)
+    }, "✅ Tell us about your payment"), h("div", {
+      style: T(13.5, 600, C.muted, {
+        marginTop: 4
+      })
+    }, "Order ", orderId, " · ₹", info?.amount), h("label", {
+      style: T(15, 800, C.text, {
+        display: 'block',
+        marginTop: 16,
+        marginBottom: 6
+      })
+    }, "Your name as shown in your UPI app / bank *"), h("input", {
+      value: name,
+      onChange: e => setName(e.target.value),
+      placeholder: "e.g. Rahul Kumar Sharma",
+      autoComplete: "name",
+      "data-ff": "payer-name",
+      style: bigInput
+    }), h("div", {
+      style: T(12.5, 600, C.muted, {
+        marginTop: 6
+      })
+    }, "Open your UPI app → the payment → look for “From” / “Paid by”."), h("label", {
+      style: T(15, 800, C.text, {
+        display: 'block',
+        marginTop: 16,
+        marginBottom: 6
+      })
+    }, "UPI reference / UTR number ", h("span", {
+      style: T(13, 600, C.muted)
+    }, "(optional, helps a lot)")), h("input", {
+      value: utr,
+      onChange: e => setUtr(e.target.value),
+      placeholder: "12 digits, e.g. 425812345678",
+      inputMode: "numeric",
+      "data-ff": "payer-utr",
+      style: bigInput
+    }), h("div", {
+      style: T(12.5, 600, C.muted, {
+        marginTop: 6
+      })
+    }, "Also called “UPI Ref No”, “UTR” or “Transaction ID” in the payment details."), formMsg && h("div", {
+      style: T(13.5, 700, '#b45309', {
+        marginTop: 12
+      })
+    }, "⚠️ ", formMsg), h("div", {
+      style: {
+        marginTop: 16
+      }
+    }, h(Btn, {
+      variant: "primary",
+      full: true,
+      onClick: toConfirm
+    }, "Continue ➡️")), h("div", {
+      style: {
+        marginTop: 10
+      }
+    }, h(Btn, {
+      variant: "ghost",
+      full: true,
+      onClick: () => setPhase('pay')
+    }, "⬅️ Back")));
+  } else if (phase === 'confirm') {
+    const u = String(utr || '').replace(/\D/g, '');
+    body = h(Card, {
+      style: {
+        marginTop: 16,
+        textAlign: 'center'
+      }
+    }, h("div", {
+      style: T(18, 900)
+    }, "Is this exactly your name in your UPI app?"), h("div", {
+      "data-ff": "name-confirm",
+      style: T(24, 900, '#1e3a8a', {
+        margin: '16px 0 6px',
+        padding: '16px 12px',
+        borderRadius: 16,
+        background: '#eff6ff',
+        border: '2px solid #bfdbfe',
+        letterSpacing: '.12em',
+        wordBreak: 'break-word'
+      })
+    }, spacedName_(name)), u ? h("div", {
+      style: T(14, 700, C.muted)
+    }, "UTR: ", u) : null, h("div", {
+      style: T(13, 600, C.muted, {
+        marginTop: 8
+      })
+    }, "We match it with the name the bank sends us, so small spelling differences can slow things down."), formMsg && h("div", {
+      style: T(13.5, 700, '#b45309', {
+        marginTop: 10
+      })
+    }, "⚠️ ", formMsg), h("div", {
+      style: {
+        marginTop: 16
+      }
+    }, h(Btn, {
+      variant: "primary",
+      full: true,
+      disabled: busy,
+      onClick: submit
+    }, busy ? '⏳ Sending…' : "👍 Yes, that's right")), h("div", {
+      style: {
+        marginTop: 10
+      }
+    }, h(Btn, {
+      variant: "ghost",
+      full: true,
+      onClick: () => setPhase('form')
+    }, "✏️ No, change it")));
+  } else {
+    const st = claim?.paid ? 'MATCHED' : claim?.status;
+    const look = {
+      WAITING: ['🔎', 'Looking for your payment…', '#1e40af', '#eff6ff', '#bfdbfe'],
+      REVIEW: ['🧑‍💼', 'FluxFilm will check your payment', '#92400e', '#fffbeb', '#fde68a'],
+      MATCHED: ['✅', 'Payment found!', '#15803d', '#f0fdf4', '#86efac'],
+      REJECTED: ['😟', "We couldn't find this payment", '#991b1b', '#fef2f2', '#fecaca']
+    }[st] || ['🔎', 'Looking for your payment…', '#1e40af', '#eff6ff', '#bfdbfe'];
+    body = h(Card, {
+      style: {
+        marginTop: 16,
+        textAlign: 'center',
+        background: look[3],
+        border: `1px solid ${look[4]}`
+      }
+    }, h("div", {
+      "data-ff": "claim-status",
+      "data-status": st,
+      style: {
+        fontSize: 60,
+        animation: st === 'WAITING' ? 'softPulse 1.6s ease-in-out infinite' : 'popIn .35s ease both',
+        width: 96,
+        height: 96,
+        borderRadius: 30,
+        display: 'grid',
+        placeItems: 'center',
+        margin: '4px auto 10px',
+        background: '#fff'
+      }
+    }, look[0]), h("div", {
+      style: T(22, 900, look[2])
+    }, look[1]), h("div", {
+      style: T(14.5, 600, '#334155', {
+        marginTop: 8
+      })
+    }, claim?.message || ''), claim?.payerName ? h("div", {
+      style: T(13, 700, C.muted, {
+        marginTop: 10
+      })
+    }, "Name: ", spacedName_(claim.payerName), " · ₹", info?.amount, " · ", orderId) : null, st === 'WAITING' ? h("div", {
+      style: T(12.5, 600, C.muted, {
+        marginTop: 10
+      })
+    }, "You can keep this page open. We check again every few seconds.") : null, st === 'MATCHED' ? h("div", {
+      style: T(13.5, 700, '#15803d', {
+        marginTop: 10
+      })
+    }, "Setting up your plan…") : null, st === 'REVIEW' ? h("div", {
+      style: T(13, 600, C.muted, {
+        marginTop: 10
+      })
+    }, "This page updates by itself when it's approved. You can also close it — your plan details will come by email and in “My account”.") : null, st !== 'MATCHED' ? h("div", {
+      style: {
+        marginTop: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10
+      }
+    }, st === 'REJECTED' ? h(Btn, {
+      variant: "primary",
+      full: true,
+      onClick: () => setPhase('form')
+    }, "✏️ Send different details") : null, whatsapp(st === 'REVIEW' ? '💬 Need it faster? WhatsApp us' : '💬 WhatsApp support'), st === 'WAITING' ? h(Btn, {
+      variant: "ghost",
+      full: true,
+      onClick: () => setPhase('form')
+    }, "✏️ Fix my name / UTR") : null) : null);
+  }
+  return h(Slide, null, h("div", {
+    style: {
+      paddingBottom: 90
+    }
+  }, body));
 }
 function VerifyScreen({
   nav,
@@ -5272,7 +5806,16 @@ function VerifyScreen({
     style: { width: '100%', marginTop: 9, padding: 12, borderRadius: 12, border: 0, background: '#16a34a', color: '#fff', fontFamily: PJS, fontSize: 14, fontWeight: 900, cursor: 'pointer', opacity: refBusy ? .6 : 1 }
   }, refBusy ? 'Checking…' : 'Verify with Reference No.'), refMsg && React.createElement("div", {
     style: { marginTop: 8, fontFamily: PJS, fontSize: 12, fontWeight: 700, color: '#b45309', textAlign: 'center' }
-  }, refMsg)), timedOut && React.createElement(React.Fragment, null, React.createElement("div", {
+  }, refMsg)), (showRef || timedOut) && React.createElement("button", {
+    "data-ff": "verify-pay-help",
+    onClick: () => nav('payhelp', {
+      orderId,
+      service,
+      accessToken,
+      phone
+    }),
+    style: { width: '100%', marginTop: 12, padding: '13px 14px', borderRadius: 14, border: '2px dashed #fdba74', background: '#fff7ed', color: '#9a3412', fontFamily: PJS, fontSize: 14, fontWeight: 800, cursor: 'pointer' }
+  }, "😟 Payment failed / limit reached, or paid to the backup UPI ID?"), timedOut && React.createElement(React.Fragment, null, React.createElement("div", {
     style: {
       marginTop: 10,
       padding: '12px 13px',
@@ -7856,8 +8399,12 @@ function OtpScreen({
     style: {
       position: 'fixed',
       top: 72,
-      left: '50%',
-      transform: 'translateX(-50%)',
+      // Centred with auto margins, not left 50% + a transform: the fadeSlide keyframes set transform and
+      // would override it, pushing the toast off the right edge on phones.
+      left: 0,
+      right: 0,
+      margin: '0 auto',
+      width: 'fit-content',
       zIndex: 99,
       padding: '10px 20px',
       borderRadius: 14,
@@ -7867,7 +8414,6 @@ function OtpScreen({
       fontSize: 13.5,
       fontWeight: 800,
       boxShadow: '0 4px 20px rgba(22,163,74,.35)',
-      whiteSpace: 'nowrap',
       animation: 'fadeSlide .2s ease both',
       maxWidth: 'calc(100vw - 32px)',
       textAlign: 'center'
@@ -8219,6 +8765,7 @@ const TOPBAR_META = {
   details: ['Confirm Order', 'Check details & pay', null],
   review: ['Review Order', 'Confirm before payment', null],
   pay: ['Payment', 'UPI · Instant verification', null],
+  payhelp: ['Backup Payment', 'Pay to our backup UPI ID', null],
   verify: ['Verifying Payment', 'Secure payment check', null],
   done: ['Access Granted 🎉', 'Enjoy your subscription', null],
   recover: ['Recover Access', 'OTP secured · Fast 🔒', null],
@@ -8356,7 +8903,7 @@ function App() {
     };
   }
   function trackFlow(s) {
-    if (s === 'buy1' || s === 'buy2') setFlow('buy');else if (s === 'renewStart') setFlow('renew');else if (s === 'verify' && screen !== 'pay') setFlow('');else if (['home', 'dashboard', 'account', 'recover', 'otpScreen'].includes(s)) setFlow('');
+    if (s === 'buy1' || s === 'buy2') setFlow('buy');else if (s === 'renewStart') setFlow('renew');else if (s === 'verify' && screen !== 'pay' && screen !== 'payhelp') setFlow('');else if (['home', 'dashboard', 'account', 'recover', 'otpScreen'].includes(s)) setFlow('');
   }
   function nav(s, data) {
     trackFlow(s);
@@ -8861,6 +9408,13 @@ function App() {
     orderData: orderData || d.orderData,
     setOrderData: setOrderData,
     setLoading: setLoading
+  }), screen === 'payhelp' && React.createElement(PayHelpScreen, {
+    nav: nav,
+    goBack: goBack,
+    orderId: d.orderId,
+    service: d.service,
+    accessToken: d.accessToken,
+    phone: d.phone
   }), screen === 'verify' && React.createElement(VerifyScreen, {
     nav: nav,
     orderId: d.orderId,
@@ -8995,6 +9549,16 @@ const API = {
   },
   verifyPaymentByRef(orderId, ref, onSuccess, onFailure) {
     apiCall_('verifyPaymentByRef', [orderId, ref], onSuccess, onFailure);
+  },
+  // Payment fallback (backup UPI ID). proof = { token, phone } for the order.
+  getBackupPayment(orderId, proof, onSuccess, onFailure) {
+    apiCall_('getBackupPayment', [orderId, proof || {}], onSuccess, onFailure);
+  },
+  claimManualPayment(orderId, proof, payerName, utr, onSuccess, onFailure) {
+    apiCall_('claimManualPayment', [orderId, proof || {}, payerName, utr || ''], onSuccess, onFailure);
+  },
+  getClaimStatus(orderId, proof, onSuccess, onFailure) {
+    apiCall_('getClaimStatus', [orderId, proof || {}], onSuccess, onFailure);
   },
   fulfillAndGetAccess(orderId, proof, onSuccess, onFailure) {
     if (typeof proof === 'function') {
