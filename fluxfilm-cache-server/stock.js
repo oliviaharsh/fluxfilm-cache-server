@@ -18,6 +18,7 @@
  */
 const db = require('./db');
 const { buildLoginGroups } = require('./logins');
+const deviceLogins = require('./devicelogins');
 
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 function rawOf(v) { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (_) { return {}; } }
@@ -43,7 +44,7 @@ async function loadSnapshot() {
     db.query('SELECT service, account_id, max_total, max_tv, is_active FROM inventory_capacity', []),
     db.query('SELECT service, account_id, profile_number, raw_json FROM inventory_profiles', []),
     db.query(
-      'SELECT LOWER(service) svc, inventory_ref, SUM(COALESCE(device_count,1)) total, ' +
+      'SELECT LOWER(service) svc, inventory_ref, SUM(COALESCE(device_count,1)) total, SUM(GREATEST(COALESCE(device_count,1)-1,0)) extra, ' +
       "SUM(CASE WHEN tv_count IS NOT NULL THEN tv_count WHEN UPPER(device_type)='TV' THEN COALESCE(device_count,1) ELSE 0 END) tv " +
       'FROM subscriptions WHERE ' + OCC_ACTIVE + ' GROUP BY LOWER(service), inventory_ref', []),
     // Every row (active or not) with a hashed login, to group rows that share one login.
@@ -60,8 +61,8 @@ function occupancy(snap, needle) {
   for (const o of snap.occ) {
     if (!String(o.svc || '').includes(needle)) continue;
     const ref = String(o.inventory_ref);
-    const cur = m.get(ref) || { total: 0, tv: 0 };
-    cur.total += asNum(o.total); cur.tv += asNum(o.tv);
+    const cur = m.get(ref) || { total: 0, tv: 0, extra: 0 };
+    cur.total += asNum(o.total); cur.tv += asNum(o.tv); cur.extra += asNum(o.extra);
     m.set(ref, cur);
   }
   return m;
@@ -94,7 +95,7 @@ function devicesForPlan(plan) {
  * How many more purchases of this plan can be fulfilled right now, or null when
  * the plan is not inventory-backed (manual services).
  */
-function unitsForPlan(snap, p) {
+function unitsForPlan(snap, p, loginMode) {
   const c = cfg();
   const raw = rawOf(p.raw_json);
   const policy = up(raw.AllocationPolicy);
@@ -104,6 +105,9 @@ function unitsForPlan(snap, p) {
   const service = s(p.service || raw.Service);
   const plan = s(p.plan || raw.Plan);
   const need = devicesForPlan(plan);
+  // F1 "separate logins": sets of `need` devices on `need` DIFFERENT accounts, 1 device each
+  // (mirrors fulfill.js allocatePrimeSeparate / allocateProfileSeparate, TV count 0).
+  const separate = loginMode === 'separate';
 
   if (policy === 'CAPACITY') {
     const accs = snap.accounts.filter((a) => likeSvc(a.service, 'prime') && Number(a.has_creds));
@@ -113,7 +117,7 @@ function unitsForPlan(snap, p) {
       capMap.set(String(x.account_id), { maxTotal: asNum(x.max_total) || c.primeMaxTotal, maxTV: asNum(x.max_tv) || c.primeMaxTv, isActive: up(x.is_active) === 'TRUE' });
     }
     const occ = occupancy(snap, 'prime');
-    let units = 0;
+    let units = 0; const room = [];
     for (const a of accs) {
       const id = String(a.account_id); if (!id) continue;
       const cap = capMap.get(id) || { maxTotal: c.primeMaxTotal, maxTV: c.primeMaxTv, isActive: true };
@@ -121,9 +125,10 @@ function unitsForPlan(snap, p) {
       const o = occ.get(id) || { total: 0, tv: 0 };
       if (o.tv > cap.maxTV) continue; // allocator rejects even a non-TV order here
       const free = cap.maxTotal - o.total;
+      room.push(free);
       if (free >= need) units += Math.floor(free / need);
     }
-    return units;
+    return separate ? deviceLogins.maxSets(room, need) : units;
   }
 
   if (policy === 'PROFILE') {
@@ -150,24 +155,40 @@ function unitsForPlan(snap, p) {
       byAcc.get(acc).push(entry);
     }
     const sharing = /sharing|group/i.test(plan);
-    let units = 0;
+    let units = 0; const room = [];
     for (const acct of accs) {
       const acc = String(acct.account_id); if (!acc) continue;
       const list = byAcc.get(acc) || [];
+      // F1 counting rule (same as fulfill.js profileAccountLoad): sharing seats + extra devices of
+      // multi-device private profiles count against max_total. 0 extras for 1-device subscriptions.
+      const prof = (reservedNo != null && list.find((x) => x.pno === reservedNo)) || list.find((x) => x.type.indexOf('SHARING') === 0 || x.reserved);
+      let extras = 0;
+      for (const x of list) {
+        if (!x.pno || x.pno === reservedNo || x.type !== 'PRIVATE_ROTATING') continue;
+        extras += (occ.get(acc + '#P' + x.pno) || {}).extra || 0;
+      }
+      const load = (prof && prof.pno ? ((occ.get(acc + '#P' + prof.pno) || {}).total || 0) : 0) + extras;
       if (sharing) {
         const cap = capMap.get(acc) || { maxTotal: c.sharingMax, isActive: true }; if (!cap.isActive) continue;
-        const prof = (reservedNo != null && list.find((x) => x.pno === reservedNo)) || list.find((x) => x.type.indexOf('SHARING') === 0 || x.reserved);
         if (!prof || !prof.pno) continue;
-        const free = cap.maxTotal - ((occ.get(acc + '#P' + prof.pno) || {}).total || 0);
+        const free = cap.maxTotal - load;
+        room.push(free);
         if (free >= need) units += Math.floor(free / need);
       } else {
+        let freeProfiles = 0;
         for (const x of list) {
           if (!x.pno || x.pno === reservedNo || x.type !== 'PRIVATE_ROTATING') continue;
-          if (!((occ.get(acc + '#P' + x.pno) || {}).total > 0)) units += 1;
+          if (!((occ.get(acc + '#P' + x.pno) || {}).total > 0)) freeProfiles += 1;
         }
+        room.push(freeProfiles);
+        if (need <= 1 || separate) { units += freeProfiles; continue; }
+        // One private profile on `need` devices: its need − 1 extra devices must fit in max_total.
+        const cap = capMap.get(acc) || { maxTotal: c.sharingMax, isActive: true };
+        const spare = cap.maxTotal - load;
+        if (freeProfiles > 0 && spare >= need - 1) units += Math.min(freeProfiles, Math.floor(spare / (need - 1)));
       }
     }
-    return units;
+    return separate ? deviceLogins.maxSets(room, need) : units;
   }
 
   // ACCOUNT and OTP_ACCOUNT: whole accounts matched by the plan's own service name.
@@ -201,17 +222,23 @@ function levelFor(units, low) {
 }
 
 /** { "Service|||Plan": { stock, stockLevel, source } } for every active plan. */
-async function computeStockLevels(planRows) {
+async function computeStockLevels(planRows, opts) {
   const snap = await loadSnapshot();
   const { low } = cfg();
   const levels = {};
+  const groups = !!(opts && opts.deviceLogins); // schema-v19 ready: 2+ device Netflix / Prime plans can use separate logins
   for (const p of planRows) {
     const raw = rawOf(p.raw_json);
     const service = s(p.service || raw.Service);
     const plan = s(p.plan || raw.Plan);
     if (!service || !plan) continue;
-    const units = unitsForPlan(snap, p);
-    if (units != null) {
+    let units = unitsForPlan(snap, p);
+    if (units != null && groups && deviceLogins.isEligible({ service, plan, policy: raw.AllocationPolicy, fulfillmentMode: raw.FulfillmentMode })) {
+      // Either choice falls back to the other, so the plan can be sold while EITHER mode has room.
+      const same = units; const separate = unitsForPlan(snap, p, 'separate');
+      units = Math.max(same, separate);
+      levels[service + '|||' + plan] = { stock: units, stockLevel: levelFor(units, low), source: 'inventory', stockSame: same, stockSeparate: separate };
+    } else if (units != null) {
       levels[service + '|||' + plan] = { stock: units, stockLevel: levelFor(units, low), source: 'inventory' };
     } else {
       // Manual service: the PLANS `Stock` column is the only signal (blank = unlimited).

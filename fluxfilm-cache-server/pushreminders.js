@@ -143,9 +143,11 @@ async function run(now) {
     const from = addDaysYmd(today, -1) + ' 00:00:00';
     const to = addDaysYmd(today, maxBefore + 1) + ' 00:00:00';
     let rows;
+    // F1: a purchase with separate logins has one row per login — remind once, through its first row.
+    const groupsOn = await require('./devicelogins').groupsReady(db.query);
     try {
       rows = await db.query(
-        'SELECT s.sub_id, s.phone_norm, s.service, s.plan, s.expiry_date, s.status, ' +
+        'SELECT s.sub_id, s.phone_norm, s.service, s.plan, s.expiry_date, s.status, ' + (groupsOn ? 's.group_index, ' : '') +
         "EXISTS (SELECT 1 FROM subscriptions n WHERE n.phone_norm = s.phone_norm AND n.service = s.service AND n.sub_id <> s.sub_id AND n.expiry_date > s.expiry_date AND UPPER(n.status) = 'ACTIVE') AS has_newer " +
         "FROM subscriptions s WHERE s.expiry_date >= ? AND s.expiry_date < ? AND UPPER(COALESCE(s.status, '')) IN ('ACTIVE', 'EXPIRED') " +
         "AND s.phone_norm IN (SELECT p.phone_norm FROM push_subscriptions p WHERE p.disabled = 0 AND p.phone_norm <> '') ORDER BY s.expiry_date LIMIT 2000",
@@ -156,6 +158,7 @@ async function run(now) {
     }
     const out = { ok: true, checked: rows.length, sent: 0, alreadySent: 0, renewed: 0, noDevice: 0, failed: 0 };
     for (const sub of rows) {
+      if (groupsOn && Number(sub.group_index) > 1) continue; // same purchase as its Device 1 row
       const kind = kindFor(daysLeft(sub.expiry_date, at), settings);
       if (!kind) continue;
       // Reminders before / on the day are for plans still running; "ended yesterday" also for ones already marked EXPIRED.

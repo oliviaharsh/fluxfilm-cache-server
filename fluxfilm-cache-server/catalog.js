@@ -14,6 +14,7 @@
  */
 const db = require('./db');
 const stock = require('./stock');
+const deviceLogins = require('./devicelogins');
 
 function s(v) { return String(v == null ? '' : v).trim(); }
 function up(v) { return s(v).toUpperCase(); }
@@ -32,6 +33,8 @@ async function getBootstrap() {
     'SELECT service, plan, duration_days, price, early_renew_discount, logo_url, is_active, raw_json FROM plans', []);
 
   const plans = [];
+  // F1: schema-v19 ready → 2+ device Netflix / Prime plans ask "same login or separate logins?".
+  const loginChoiceReady = await deviceLogins.groupsReady(db.query);
   for (const r of rows) {
     const raw = rawOf(r.raw_json);
     // is_active may live in either place depending on how the row was created
@@ -63,6 +66,9 @@ async function getBootstrap() {
       // price extra devices without a round-trip.
       extraDevicePrice: asNum(raw.ExtraDevicePrice),
     });
+    if (loginChoiceReady && deviceLogins.isEligible({ service: s(r.service || raw.Service), plan: s(r.plan || raw.Plan), policy: raw.AllocationPolicy, fulfillmentMode: raw.FulfillmentMode })) {
+      plans[plans.length - 1].loginChoice = true;
+    }
   }
 
   if (!plans.length) return { ok: false, plans: [], message: 'No active plans are configured in the FluxFilm database.' };
@@ -82,7 +88,7 @@ async function getStockLevels() {
     const raw = rawOf(r.raw_json);
     return isTrue((r.is_active != null && r.is_active !== '') ? r.is_active : raw.IsActive);
   });
-  const value = { ok: true, levels: await stock.computeStockLevels(active) };
+  const value = { ok: true, levels: await stock.computeStockLevels(active, { deviceLogins: await deviceLogins.groupsReady(db.query) }) };
   _stockCache = { at: Date.now(), value };
   return value;
 }
