@@ -10123,8 +10123,7 @@ function feedLoad_(cb, force) {
     }
     const data = good ? r : feedStore_.data || {
       ok: false,
-      posts: [],
-      tmdb: false
+      posts: []
     };
     const w = feedStore_.wait;
     feedStore_.wait = [];
@@ -10263,7 +10262,7 @@ function feedRelease_(ymd, type, now) {
   return t > (now || Date.now()) ? '📅 Streaming from ' + nice : (type === 'series' ? '📺 Out since ' : '🎬 Released ') + nice;
 }
 function feedThumb_(url) {
-  return /^(https:\/\/image\.tmdb\.org|\/tmdb-img)\/t\/p\/w780\//.test(url || '') ? url.replace('/w780/', '/w342/') : url || '';
+  return /^(https:\/\/image\.tmdb\.org\/t\/p|\/tmdb-img\/t\/p|\/poster)\/w780\//.test(url || '') ? url.replace('/w780/', '/w342/') : url || '';
 }
 function feedShare_(p, info, done) {
   const url = window.location.origin + '/?post=' + encodeURIComponent(p.id);
@@ -10609,9 +10608,8 @@ function FeedScreen({
   }, React.createElement(Btn, {
     variant: "ghost",
     onClick: () => setShown(n => n + 6)
-  }, "Show more")), data && data.tmdb && React.createElement("p", {
-    className: "ff-feed-attr"
-  }, "Movie & show details and posters from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.")));
+  }, "Show more"))));
+  // Data-source credit moved off the feed to the /about page's Credits (owner 2026-09-15; TMDB terms allow an About/Credits page).
 }
 function RestoringScreen({
   trending,
