@@ -359,4 +359,4 @@ async function getWalletByPhone(phone) {
 function clearPlansCache() { _plans = null; _plansAt = 0; }
 
 module.exports = { clearPlansCache, getMySubscriptions, getCustomerOrders, getCustomerProfile, getActiveCouponsForCustomer, getWalletByPhone,
-  _internal: { normPhone, calcEarlyDiscount, renewEligibility, expiryMood, stoppedRow, maskEmailFirst4, parseDbDate } };
+  _internal: { normPhone, calcEarlyDiscount, renewEligibility, expiryMood, stoppedRow, renewableRow, maskEmailFirst4, parseDbDate } };

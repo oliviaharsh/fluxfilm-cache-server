@@ -622,6 +622,10 @@ app.get(['/games', '/games/'], (_req, res) => {
 // -- Admin panel (read-only) --
 if (admin) admin.mountAdmin(app, { db, ADMIN_KEY, sync });
 
+// 🔗 n8n (n8n.js): /n8n/api/* with its own X-N8N-Key (not a storefront /api action, not the admin key) + the customer
+// /unsubscribe page. Before the storefront catch-all.
+try { const n8nMod = require('./n8n'); n8nMod.setIndexPath(INDEX); n8nMod.mount(app, { audit: require('./audit').makeAudit(db) }); } catch (e) { console.log('[n8n] not mounted:', e.message); }
+
 // -- Serve the storefront --
 // The page carries window.FF_VERSION (appversion.js) so an installed app left open can spot a new version.
 // res.send keeps the ETag / 304 behaviour sendFile had; max-age=0 = always revalidated.
@@ -688,3 +692,6 @@ try { if (feedMod && db.ENABLED) feedMod.startTimer({ audit: require('./audit').
 try { if (db.ENABLED) require('./subexpiry').startTimer(); } catch (e) { console.log('[subexpiry] not started:', e.message); }
 // Push renewal reminders (3 / 1 days before, expiry day, day after; 09:00-21:00 IST): every hour + 60 s after start.
 try { if (pushMod && db.ENABLED) require('./pushreminders').startTimer(); } catch (e) { console.log('[push] reminders not started:', e.message); }
+// 📡 n8n webhooks (n8nhooks.js): order.paid / order.delivered / subscription.expired (00:05 IST) / post.published, every 60 s.
+// Sends nothing until a webhook URL is saved in admin → 🔗 Integrations; never touches the order flow.
+try { if (db.ENABLED) require('./n8nhooks').startTimer(); } catch (e) { console.log('[n8n hooks] not started:', e.message); }

@@ -607,7 +607,7 @@ var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
   ['TOOLS'], ['quick', '⚡', 'Quick order'], ['receivables', '💳', 'Receivables'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
-  ['DATA'], ['golive', '🚚', 'Go-live import'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
+  ['DATA'], ['golive', '🚚', 'Go-live import'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'], ['integrations', '🔗', 'Integrations'],
 ];
 function shell() {
   $('#app').innerHTML = '<aside class="side" id="side"><div class="brand"><div class="logo"><img src="/icons/admin-logo.svg" alt="" width="42" height="42"/></div><div><b>FluxFilm</b><small>ADMIN PANEL</small></div></div><nav class="menu">' +
@@ -650,7 +650,7 @@ function nav(v) {
   route();
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -5223,6 +5223,114 @@ function crLoadOrder(id) {
     var m = $('#odc_mail'); if (m) m.onclick = function () { crRemindDialog(c.subId); };
     var x = $('#odc_cancel'); if (x) x.onclick = function () { crCancel(c); };
   });
+}
+
+/* ================= 🔗 Integrations → n8n (adminn8n.js) ================= */
+var NX = { d: null };
+function integrationsView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🔗 Integrations</h1><p>Connect your own <b>n8n</b>: expiry reminders, win-back emails, daily encrypted backups to Google Drive, uptime + deploy watch and social posts. Nothing is sent to customers until you import and switch on a workflow in n8n. Setup guide: <b>docs/n8n/README.md</b>.</p></div><div class="row"><button class="btn ghost" onclick="nxLoad()">⟳ Refresh</button></div></div><div id="nxbody"><p class="muted">Loading…</p></div>';
+  nxLoad();
+}
+function nxLoad() {
+  api('/admin/api/n8n').then(function (r) {
+    if (!$('#nxbody')) return;
+    if (!r.ok) { $('#nxbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
+    NX.d = r; nxRender();
+  });
+}
+function nxWhen(v) { if (!v) return '—'; var d = new Date(v); return isNaN(d) ? esc(v) : d.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+function nxOnce(title, value, note) {
+  modal(title, '<p class="muted" style="margin-top:0">' + note + '</p><div class="row" style="gap:8px;flex-wrap:wrap"><input class="inp" readonly value="' + esc(value) + '" style="flex:1;min-width:220px;font-family:monospace;font-size:.85rem" onclick="this.select()"/><button class="btn sm" data-copy="' + esc(value) + '">📋 Copy</button></div>' +
+    '<p style="color:#b45309;font-size:.82rem;margin-bottom:0">⚠️ It is shown only this once. Paste it into n8n now. If you lose it, make a new one here.</p>', '<button class="btn" onclick="closeModal()">Done</button>');
+}
+function nxRender() {
+  var d = NX.d, k = d.key || {}, b = d.backup || {};
+  var pill = function (on, yes, no) { return '<span class="pill ' + (on ? 'p-ok' : 'p-bad') + '">' + (on ? yes : no) + '</span>'; };
+  var evLabels = { 'order.paid': '💰 order.paid — an order was paid', 'order.delivered': '🎬 order.delivered — login details were delivered', 'subscription.expired': '⌛ subscription.expired — plans that ended yesterday (00:05)', 'post.published': "🍿 post.published — a What's new post went live" };
+  var events = (d.eventList || []).map(function (ev) { return '<label class="rf-tog" style="display:block;margin:4px 0"><input type="checkbox" data-nxev="' + esc(ev) + '"' + (d.events && d.events[ev] !== false ? ' checked' : '') + '/> ' + esc(evLabels[ev] || ev) + '</label>'; }).join('');
+  var wb = d.winback || {};
+  var wbRows = Object.keys(wb).map(function (c) {
+    var x = wb[c];
+    return '<div class="mt-f" style="margin:6px 0"><label><b>' + esc(c) + '</b> <span class="muted">(' + esc(c.slice(2)) + ' days after the last plan ended)</span><select class="inp" data-wb="' + esc(c) + '" data-f="type"><option value="PERCENT"' + (x.type === 'PERCENT' ? ' selected' : '') + '>% off</option><option value="FLAT"' + (x.type === 'FLAT' ? ' selected' : '') + '>₹ off</option></select></label>' +
+      '<label>Value<input class="inp" type="number" min="1" data-wb="' + esc(c) + '" data-f="value" value="' + esc(x.value) + '"/></label><label>Max ₹ (for %)<input class="inp" type="number" min="0" data-wb="' + esc(c) + '" data-f="maxDiscount" value="' + esc(x.maxDiscount) + '"/></label><label>Valid days<input class="inp" type="number" min="1" max="60" data-wb="' + esc(c) + '" data-f="validDays" value="' + esc(x.validDays) + '"/></label></div>';
+  }).join('');
+  var logRows = (d.deliveries || []).map(function (x) {
+    return '<tr><td>' + nxWhen(x.at) + '</td><td>' + esc(x.event) + '</td><td>' + (x.ok ? '<span class="pill p-ok">' + esc(x.status) + '</span>' : '<span class="pill p-bad">' + esc(x.status || 'failed') + '</span>') + '</td><td>' + esc(x.attempts) + '</td><td class="muted" style="font-size:.78rem">' + esc(x.error || '') + '</td></tr>';
+  }).join('');
+  $('#nxbody').innerHTML =
+    '<div class="card"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 style="margin:0">🔑 n8n API key</h3>' + pill(k.set, 'SET', 'NOT SET') + '</div>' +
+    '<p class="muted" style="font-size:.84rem">n8n sends it in the <b>X-N8N-Key</b> header (n8n credential “Header Auth”). It is separate from the admin key, stored only as a hash, and a key in a URL is refused.</p>' +
+    (k.set ? '<p style="font-size:.86rem;margin:6px 0">Key <code>' + esc(k.prefix) + '…</code> · made ' + nxWhen(k.createdAt) + ' · <b>last used ' + nxWhen(k.lastUsedAt) + '</b></p>' : '') +
+    '<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn green" id="nxkeygen">' + (k.set ? '🔄 Rotate key' : '✨ Create key') + '</button>' + (k.set ? '<button class="btn ghost" id="nxkeyrev">🚫 Revoke</button>' : '') + '</div></div>' +
+
+    '<div class="card"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 style="margin:0">📡 Webhooks to n8n</h3>' + pill(d.webhookUrl && d.secretSet, 'READY', 'NOT READY') + '</div>' +
+    '<p class="muted" style="font-size:.84rem">Your n8n Webhook address without the event name, e.g. <code>https://you.app.n8n.cloud/webhook/fluxfilm</code>. Each event goes to <code>…/order-paid</code>, <code>…/order-delivered</code>, <code>…/subscription-expired</code>, <code>…/post-published</code>, signed with <b>X-FF-Signature</b>.</p>' +
+    '<label style="display:block">Webhook base URL<input class="inp" id="nxurl" type="url" maxlength="300" placeholder="https://you.app.n8n.cloud/webhook/fluxfilm" value="' + esc(d.webhookUrl) + '" style="width:100%"/></label>' +
+    '<div style="margin:8px 0">' + events + '</div>' +
+    '<div class="rf-save"><button class="btn green" id="nxsave">💾 Save webhooks</button><span class="rf-state" id="nxstate"></span></div>' +
+    '<p style="font-size:.86rem;margin:12px 0 6px">Signing secret: ' + pill(d.secretSet, 'SET', 'NOT SET') + (d.secretCreatedAt ? ' <span class="muted">made ' + nxWhen(d.secretCreatedAt) + '</span>' : '') + '</p>' +
+    '<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn ghost" id="nxsecret">' + (d.secretSet ? '🔄 New signing secret' : '✨ Create signing secret') + '</button><button class="btn" id="nxtest">📡 Send test webhook</button></div>' +
+    '<h4 style="margin:14px 0 6px">Last 20 deliveries</h4>' + (logRows ? '<div style="overflow-x:auto"><table class="rf-ex" style="width:100%"><thead><tr><th>When</th><th>Event</th><th>Status</th><th>Tries</th><th>Error</th></tr></thead><tbody>' + logRows + '</tbody></table></div>' : '<p class="muted">None yet.</p>') + '</div>' +
+
+    '<div class="card"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 style="margin:0">🔐 Backup passphrase</h3>' + pill(b.set, 'SET', 'NOT SET') + '</div>' +
+    '<p class="muted" style="font-size:.84rem">Daily backups are encrypted with this (AES-256-GCM). The passphrase itself is not stored and is never shown again. <b>Write it down somewhere safe</b> — without it a backup cannot be opened. Changing it only affects new backups (old files still need the old passphrase).</p>' +
+    (b.set ? '<p style="font-size:.86rem">Set ' + nxWhen(b.setAt) + ' · check code <code>' + esc(b.check) + '</code></p>' : '') +
+    '<div class="row" style="gap:8px;flex-wrap:wrap"><input class="inp" id="nxpass" type="password" autocomplete="new-password" minlength="12" placeholder="At least 12 characters" style="flex:1;min-width:200px"/><button class="btn green" id="nxpasssave">💾 ' + (b.set ? 'Change' : 'Set') + ' passphrase</button>' + (b.set ? '<button class="btn ghost" id="nxpassclear">Remove</button>' : '') + '</div></div>' +
+
+    '<div class="card"><h3 style="margin-top:0">🎁 Win-back coupons</h3><p class="muted" style="font-size:.84rem">A personal, one-use coupon (only that customer’s phone, new or renew) is made when n8n asks for win-back customers. Customers who unsubscribed from offers are never included, and nobody gets the same campaign twice in 60 days.</p>' + wbRows +
+    '<div class="rf-save"><button class="btn green" id="nxwbsave">💾 Save coupons</button><span class="rf-state" id="nxwbstate"></span></div></div>' +
+
+    '<div class="card"><h3 style="margin-top:0">📚 For n8n</h3><p class="muted" style="font-size:.84rem">Base: <code>' + esc(d.site) + '</code> · header <code>X-N8N-Key</code></p><ul style="margin:0;padding-left:18px;font-size:.84rem">' + (d.endpoints || []).map(function (e) { return '<li><code>' + esc(e) + '</code></li>'; }).join('') + '</ul>' +
+    '<p class="muted" style="font-size:.8rem;margin-bottom:0">Webhook check: last run ' + nxWhen(d.hooks && d.hooks.lastSweepAt) + (d.hooks && d.hooks.lastSweepError ? ' · ⚠️ ' + esc(d.hooks.lastSweepError) : '') + '</p></div>';
+
+  $('#nxkeygen').onclick = function () {
+    if (k.set && !confirm('Make a new key? The old key stops working at once — update the n8n credential right after.')) return;
+    post('/admin/api/n8n/key', { action: 'generate' }).then(function (r) {
+      if (!r.ok) return toast('⚠️ ' + (r.message || 'failed'));
+      nxOnce('🔑 Your n8n API key', r.key, 'In n8n: Credentials → New → <b>Header Auth</b> → Name <code>X-N8N-Key</code>, Value = this key. Name the credential <b>FluxFilm n8n key</b>.');
+      nxLoad();
+    });
+  };
+  var rev = $('#nxkeyrev'); if (rev) rev.onclick = function () { if (!confirm('Revoke the n8n key? Every n8n workflow calling the shop stops until you make a new key.')) return; post('/admin/api/n8n/key', { action: 'revoke' }).then(function (r) { toast(r.ok ? 'Key revoked' : '⚠️ ' + (r.message || 'failed')); nxLoad(); }); };
+  $('#nxsave').onclick = function () {
+    var ev = {}; $('[data-nxev]').forEach(function (c) { ev[c.getAttribute('data-nxev')] = c.checked; });
+    $('#nxstate').textContent = 'Saving…';
+    post('/admin/api/n8n/settings', { webhookUrl: $('#nxurl').value.trim(), events: ev }).then(function (r) {
+      if (!r.ok) { $('#nxstate').textContent = '⚠️ ' + (r.message || 'failed'); return; }
+      NX.d = r; nxRender(); toast(r.changed && r.changed.length ? '✅ Saved' : 'No changes');
+    });
+  };
+  $('#nxsecret').onclick = function () {
+    if (d.secretSet && !confirm('Make a new signing secret? n8n must be updated or it will reject the webhooks.')) return;
+    post('/admin/api/n8n/secret', {}).then(function (r) {
+      if (!r.ok) return toast('⚠️ ' + (r.message || 'failed'));
+      nxOnce('🔏 Webhook signing secret', r.secret, 'In n8n, paste it into the <b>Crypto</b> node “Secret” of the social post workflow (or a variable) so n8n can check the <b>X-FF-Signature</b> header.');
+      nxLoad();
+    });
+  };
+  $('#nxtest').onclick = function () {
+    var btn = this; btn.disabled = true;
+    post('/admin/api/n8n/test-webhook', {}).then(function (r) {
+      btn.disabled = false;
+      toast(r.ok ? '✅ n8n answered HTTP ' + r.status : '⚠️ ' + (r.message || r.error || ('HTTP ' + r.status)));
+      nxLoad();
+    });
+  };
+  $('#nxpasssave').onclick = function () {
+    var v = $('#nxpass').value;
+    if (v.length < 12) return toast('Use at least 12 characters');
+    if (b.set && !confirm('Change the backup passphrase? New backups use the new one; old backup files still need the old one.')) return;
+    post('/admin/api/n8n/passphrase', { passphrase: v }).then(function (r) { $('#nxpass').value = ''; toast(r.ok ? '✅ Passphrase saved — write it down' : '⚠️ ' + (r.message || 'failed')); nxLoad(); });
+  };
+  var pc = $('#nxpassclear'); if (pc) pc.onclick = function () { if (!confirm('Remove the backup passphrase? Backups are refused until you set a new one.')) return; post('/admin/api/n8n/passphrase', { clear: true }).then(function (r) { toast(r.ok ? 'Removed' : '⚠️ ' + (r.message || 'failed')); nxLoad(); }); };
+  $('#nxwbsave').onclick = function () {
+    var w = {}; $('[data-wb]').forEach(function (el) { var c = el.getAttribute('data-wb'); w[c] = w[c] || {}; w[c][el.getAttribute('data-f')] = el.value; });
+    $('#nxwbstate').textContent = 'Saving…';
+    post('/admin/api/n8n/settings', { winback: w }).then(function (r) {
+      if (!r.ok) { $('#nxwbstate').textContent = '⚠️ ' + (r.message || 'failed'); return; }
+      NX.d = r; nxRender(); toast('✅ Saved');
+    });
+  };
 }
 
 /* ================= boot ================= */
