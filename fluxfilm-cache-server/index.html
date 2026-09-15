@@ -11776,6 +11776,30 @@ function getPromoCoupon_() {
     return '';
   }
 }
+// 🎁 Coupon links from emails (/?coupon=CODE, e.g. the n8n win-back email): remember the code for 7 days, so checkout
+// and renew fill it in (the server still checks it: phone, expiry, one use). The code is removed from the address bar.
+function couponLinkFromUrl_(search) {
+  try {
+    const v = String(new URLSearchParams(search || '').get('coupon') || '').trim().toUpperCase();
+    return /^[A-Z0-9]{4,20}$/.test(v) ? v : '';
+  } catch (e) {
+    return '';
+  }
+}
+(function couponLinkInit_() {
+  try {
+    const code = couponLinkFromUrl_(window.location.search);
+    if (!code) return;
+    savePromoCoupon_({
+      couponCode: code,
+      endAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+      title: ''
+    });
+    const u = new URL(window.location.href);
+    u.searchParams.delete('coupon');
+    window.history.replaceState(null, '', u.pathname + u.search + u.hash);
+  } catch (e) {}
+})();
 const promoViewed_ = {};
 function promoEvent_(id, kind) {
   if (kind === 'view') {

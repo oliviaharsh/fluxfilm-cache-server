@@ -416,6 +416,9 @@ async function _markPaid(orderId, txnRef) {
 }
 function notifyOwnerPaid(orderId) {
   try { require('./ownernotify').orderPaidLater(orderId); } catch (e) { console.log('[owner-alert] not loaded:', e.message); }
+  // 📡 n8n order.paid webhook (n8nhooks.js): only asks for a sweep in ~3 s (a timer, no await, never throws). The sweep's
+  // once-per-order guard sends it; the 60-second sweep also catches any PAID path that does not pass through here.
+  try { require('./n8nhooks').kick(); } catch (_) { /* webhooks are optional */ }
 }
 
 // Refunded by the owner: the checkout page stops waiting and says so (no bank credit is taken for it).

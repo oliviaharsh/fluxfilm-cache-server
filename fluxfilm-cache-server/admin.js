@@ -185,6 +185,8 @@ function mountAdmin(app, deps) {
   require('./adminreports').mount(app, Object.assign({ db, auth, audit }, deps.reports || {}));
   // Email sender check + test email (adminmail.js).
   require('./adminmail').mount(app, Object.assign({ auth, audit }, deps.mail || {}));
+  // 🔗 Integrations → n8n: API key, webhook URL + signing secret, backup passphrase, win-back coupons (adminn8n.js).
+  require('./adminn8n').mount(app, Object.assign({ db, auth, audit }, deps.n8n || {}));
   // Plans editor: builder, copy, on/off, safe delete (adminplans.js).
   require('./adminplans').mount(app, Object.assign({ db, auth, audit }, deps.plans || {}));
   // Go-live: safe one-time import of go's customers / orders / subscriptions (admincutover.js).

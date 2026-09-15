@@ -127,6 +127,10 @@ function logSkipped(parsed) {
   return true;
 }
 
+// 🔗 n8n deep health (GET /n8n/api/health): when the watcher last connected, scanned and saved a bank credit. Memory only.
+const _imap = { connected: false, lastConnectAt: null, lastScanAt: null, lastIngestAt: null, lastError: '' };
+function status() { return Object.assign({ configured: !!(process.env.IMAP_USER && process.env.IMAP_PASS), watching: _watching }, _imap); }
+
 async function scanInbox(client, hours) {
   const { simpleParser } = require('mailparser');
   const lock = await client.getMailboxLock(FOLDER());
@@ -148,6 +152,8 @@ async function scanInbox(client, hours) {
       }
     }
   } finally { lock.release(); }
+  _imap.lastScanAt = new Date().toISOString();
+  if (ingested) _imap.lastIngestAt = _imap.lastScanAt;
   return { found, ingested };
 }
 
@@ -179,6 +185,7 @@ async function startWatcher() {
         client = new ImapFlow({ host: HOST(), port: 993, secure: true, auth: { user, pass }, logger: false });
         await client.connect();
         console.log('[imap] connected, watching', FOLDER(), 'for', SENDER());
+        Object.assign(_imap, { connected: true, lastConnectAt: new Date().toISOString(), lastError: '' });
         const r0 = await scanInbox(client, 6);
         console.log('[imap] initial scan:', JSON.stringify(r0));
 
@@ -212,7 +219,7 @@ async function startWatcher() {
 
         try {
           await new Promise((resolve, reject) => {
-            client.once('close', resolve);
+            client.once('close', () => { _imap.connected = false; resolve(); });
             client.once('error', reject);
           });
         } finally {
@@ -221,6 +228,7 @@ async function startWatcher() {
         }
       } catch (e) {
         console.log('[imap] error, reconnecting in 15s:', e.message);
+        Object.assign(_imap, { connected: false, lastError: String(e && e.message || e).slice(0, 160) });
         try { if (client) await client.logout(); } catch (_) {}
         await new Promise((r) => setTimeout(r, 15000));
       }
@@ -228,4 +236,4 @@ async function startWatcher() {
   })();
 }
 
-module.exports = { parseEquitasCredit, ingestCredit, findByOrder, findByRef, startWatcher, manualScan, _internal: { fromBank, searchFrom, searchQuery, scanInbox, logSkipped, BANK_DOMAIN, REF_WINDOW_MIN } };
+module.exports = { parseEquitasCredit, ingestCredit, findByOrder, findByRef, startWatcher, manualScan, status, _internal: { fromBank, searchFrom, searchQuery, scanInbox, logSkipped, BANK_DOMAIN, REF_WINDOW_MIN } };

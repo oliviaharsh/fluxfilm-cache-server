@@ -622,6 +622,10 @@ app.get(['/games', '/games/'], (_req, res) => {
 // -- Admin panel (read-only) --
 if (admin) admin.mountAdmin(app, { db, ADMIN_KEY, sync });
 
+// 🔗 n8n (n8n.js): /n8n/api/* with its own X-N8N-Key (not a storefront /api action, not the admin key) + the customer
+// /unsubscribe page. Before the storefront catch-all.
+try { const n8nMod = require('./n8n'); n8nMod.setIndexPath(INDEX); n8nMod.mount(app, { audit: require('./audit').makeAudit(db) }); } catch (e) { console.log('[n8n] not mounted:', e.message); }
+
 // -- Serve the storefront --
 // The page carries window.FF_VERSION (appversion.js) so an installed app left open can spot a new version.
 // res.send keeps the ETag / 304 behaviour sendFile had; max-age=0 = always revalidated.
@@ -691,3 +695,6 @@ try { if (pushMod && db.ENABLED) require('./pushreminders').startTimer(); } catc
 // 📊 Owner business summaries: daily 23:30 / weekly Sunday 23:45 / monthly last day 23:50 IST (times in admin), checked
 // every minute; a DB guard row per period stops double sends; missed by a restart → sent within 6 h, else skipped.
 try { if (db.ENABLED) require('./reports').startTimer(); } catch (e) { console.log('[reports] scheduler not started:', e.message); }
+// 📡 n8n webhooks (n8nhooks.js): order.paid / order.delivered / subscription.expired (00:05 IST) / post.published, every 60 s.
+// Sends nothing until a webhook URL is saved in admin → 🔗 Integrations; never touches the order flow.
+try { if (db.ENABLED) require('./n8nhooks').startTimer(); } catch (e) { console.log('[n8n hooks] not started:', e.message); }

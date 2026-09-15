@@ -1,0 +1,620 @@
+{
+  "name": "FluxFilm · 05 Social auto-post from What's new",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 📣 FluxFilm social auto-post — SETUP\nWhen a **What's new** post goes live, the shop calls this workflow (`post.published`). n8n checks the **signature**, then posts the picture + caption + link to your **Telegram channel**. Instagram and Facebook nodes are included but **disabled**.\n\n1. Open **Webhook: post.published** → copy the *Production URL*. In admin → 🔗 Integrations paste it WITHOUT the last part `/post-published` (e.g. `https://you.app.n8n.cloud/webhook/fluxfilm`) → Save, then **Create signing secret** and copy it.\n2. Paste the secret into **Expected signature** → Secret (replace `PASTE_WEBHOOK_SIGNING_SECRET`).\n3. Credentials: `Telegram FluxFilm bot` (make the bot an admin of your channel). In **Telegram channel post** set Chat ID to `@yourchannel`.\n4. **Active** on, then publish a post in admin (or press 📡 Send test webhook — the test goes to `/test-ping`, not here).\n\n**Instagram** (disabled): needs an Instagram Business/Creator account linked to a Facebook Page and a long-lived token — steps in docs/n8n/README.md. Only JPEG pictures work.\n**WhatsApp Channels have no API** — post there by hand.\nNo webhooks? Disable the webhook path and enable **Every hour (disabled)** → it polls GET /n8n/api/posts/new.",
+        "height": 540,
+        "width": 580,
+        "color": 4
+      },
+      "id": "a22e497e-6fbe-40cf-a6b8-d0793dcd5bda",
+      "name": "Setup: social auto-post",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -520,
+        -360
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "fluxfilm/post-published",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "f738969f-56a5-407a-a1a0-7cae6d470982",
+      "name": "Webhook: post.published",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "48a0f6fc-6aec-4348-a2c8-cb5b85d2242f"
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "value": "={{ JSON.stringify($json.body) }}",
+        "dataPropertyName": "expectedSignature",
+        "secret": "PASTE_WEBHOOK_SIGNING_SECRET",
+        "encoding": "hex"
+      },
+      "id": "a1632713-f0a0-47c2-a837-fdf8e15161c9",
+      "name": "Expected signature",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "8bf2fc73-4878-438a-a6bc-9273f9b5020c",
+              "leftValue": "={{ $json.headers['x-ff-signature'] }}",
+              "rightValue": "={{ 'sha256=' + $json.expectedSignature }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "f466b8aa-13fa-4cc4-a42c-4f32df355b8e",
+              "leftValue": "={{ $json.body.event }}",
+              "rightValue": "post.published",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "7dd63b51-be3c-4191-a9c3-ccb5cdc3b997",
+              "leftValue": "={{ Math.abs(Date.now() / 1000 - Number($json.headers['x-ff-timestamp'] || 0)) }}",
+              "rightValue": 600,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "71947ae7-c9f7-4b16-acee-992fc6907d3c",
+      "name": "Signature OK and fresh?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((i) => ({ json: i.json.body.data }));"
+      },
+      "id": "84dec5c5-a18d-406c-a93b-f88c319ac860",
+      "name": "Post data (webhook)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        -60
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "5427e936-5187-4fe5-ac39-dd22641991b6",
+      "name": "Rejected (bad signature)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        660,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "5 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "3ddb7176-0763-4b3b-a5bd-1cb99b2434a8",
+      "name": "Every hour (disabled)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        360
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const mem = $getWorkflowStaticData('global');\nconst since = mem.since || new Date(Date.now() - 3600e3).toISOString();\nmem.since = new Date().toISOString();\nreturn [{ json: { since } }];"
+      },
+      "id": "a04278a5-2f8a-4051-aaf1-1fd80871082e",
+      "name": "Since last run (disabled)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        360
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "url": "https://shop.fluxfilm.in/n8n/api/posts/new",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "since",
+              "value": "={{ $json.since }}"
+            }
+          ]
+        }
+      },
+      "id": "56741237-f13b-4da1-a1ba-4b413adf6d25",
+      "name": "New posts (disabled)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        360
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "FluxFilm n8n key"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "items",
+        "options": {}
+      },
+      "id": "f4d2fb19-9e87-4416-af8b-673e50cc36bf",
+      "name": "One item per post (disabled)",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        660,
+        360
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const p = $json;\nconst tags = (p.genres || []).slice(0, 3).map((g) => '#' + String(g).replace(/[^A-Za-z0-9]/g, '')).filter((t) => t.length > 1);\nconst lines = [\n  '🍿 ' + p.title + (p.seasonLabel ? ' · ' + p.seasonLabel : ''),\n  p.brand ? 'Now on ' + p.brand : '',\n  '',\n  String(p.caption || '').slice(0, 600),\n  '',\n  p.ctaService && p.fromPriceText ? '🎟️ Get ' + p.ctaService + ' ' + p.fromPriceText + ' on FluxFilm' : '🎟️ Watch it with FluxFilm',\n  '👉 ' + p.shareUrl,\n  p.trailerUrl ? '▶️ Trailer: ' + p.trailerUrl : '',\n  '',\n  tags.concat(['#FluxFilm', '#NewOnOTT']).join(' '),\n].filter((l, i, a) => !(l === '' && a[i - 1] === ''));\nconst caption = lines.join('\\n').trim();\nreturn { json: Object.assign({}, p, { caption, telegramCaption: caption.slice(0, 1000), hasImage: !!p.imageUrl }) };"
+      },
+      "id": "ff1b71f3-433a-4d3e-ac0e-987e31ff5028",
+      "name": "Caption",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "985c174c-bea4-4d3c-a22d-198bf341af82",
+              "leftValue": "={{ $json.imageUrl }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "65a3c23e-9250-4bb2-aa45-4d2afaefc7ae",
+      "name": "Has picture?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendPhoto",
+        "chatId": "@REPLACE_WITH_YOUR_CHANNEL",
+        "file": "={{ $json.imageUrl }}",
+        "additionalFields": {
+          "caption": "={{ $json.telegramCaption }}"
+        }
+      },
+      "id": "d8479cc6-4086-4970-a6f2-2ae3a039e31c",
+      "name": "Telegram channel post",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1320,
+        -100
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Telegram FluxFilm bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "@REPLACE_WITH_YOUR_CHANNEL",
+        "text": "={{ $json.caption }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "31b5aac4-bfa6-4117-a347-3c0be69dcb33",
+      "name": "Telegram channel text (no picture)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1320,
+        100
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Telegram FluxFilm bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v21.0/REPLACE_WITH_IG_USER_ID/media",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "image_url",
+              "value": "={{ $json.imageUrl }}"
+            },
+            {
+              "name": "caption",
+              "value": "={{ $json.caption.slice(0, 2100) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f1239d1f-3346-46e4-a293-c47faa1ef6a6",
+      "name": "Instagram: create media (disabled)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        300
+      ],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "REPLACE_ME",
+          "name": "Meta Graph token (access_token)"
+        }
+      },
+      "disabled": true,
+      "notes": "Needs IG Business account id + long-lived token (credential Query Auth: name access_token). JPEG only.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "amount": 20,
+        "unit": "seconds"
+      },
+      "id": "b1f38449-b3e0-4c03-a661-fb76f0ec9fc2",
+      "name": "Wait 20 s (disabled)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        300
+      ],
+      "disabled": true,
+      "webhookId": "63c97402-9cb0-49a2-a4d6-efce00a8fef2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v21.0/REPLACE_WITH_IG_USER_ID/media_publish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "creation_id",
+              "value": "={{ $('Instagram: create media (disabled)').item.json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2f3dc004-6091-44b6-a6cc-aff99dede5ac",
+      "name": "Instagram: publish (disabled)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        300
+      ],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "REPLACE_ME",
+          "name": "Meta Graph token (access_token)"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v21.0/REPLACE_WITH_PAGE_ID/photos",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $json.imageUrl }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $json.caption }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "59b2bf92-01cd-4e51-adfa-bce8d6fa2f95",
+      "name": "Facebook Page: photo post (disabled)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        480
+      ],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "REPLACE_ME",
+          "name": "Meta Graph token (access_token)"
+        }
+      },
+      "disabled": true,
+      "notes": "Needs a Page access token with pages_manage_posts (Query Auth credential, name access_token).",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "content": "### 📵 WhatsApp Channels\nWhatsApp Channels have **no public API**, so n8n cannot post there. Copy the Telegram post and share it in your channel by hand.",
+        "height": 160,
+        "width": 360,
+        "color": 3
+      },
+      "id": "bcdeea12-08b9-486c-af91-08bdee6b3593",
+      "name": "Note: WhatsApp Channels",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        -320
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: post.published": {
+      "main": [
+        [
+          {
+            "node": "Expected signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expected signature": {
+      "main": [
+        [
+          {
+            "node": "Signature OK and fresh?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature OK and fresh?": {
+      "main": [
+        [
+          {
+            "node": "Post data (webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rejected (bad signature)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post data (webhook)": {
+      "main": [
+        [
+          {
+            "node": "Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every hour (disabled)": {
+      "main": [
+        [
+          {
+            "node": "Since last run (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Since last run (disabled)": {
+      "main": [
+        [
+          {
+            "node": "New posts (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New posts (disabled)": {
+      "main": [
+        [
+          {
+            "node": "One item per post (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per post (disabled)": {
+      "main": [
+        [
+          {
+            "node": "Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Caption": {
+      "main": [
+        [
+          {
+            "node": "Has picture?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has picture?": {
+      "main": [
+        [
+          {
+            "node": "Telegram channel post",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Instagram: create media (disabled)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Facebook Page: photo post (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram channel text (no picture)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram: create media (disabled)": {
+      "main": [
+        [
+          {
+            "node": "Wait 20 s (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 20 s (disabled)": {
+      "main": [
+        [
+          {
+            "node": "Instagram: publish (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "77fc052c-4172-4e2c-a0ef-106223e98271",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
