@@ -60,7 +60,7 @@ function run(sql, p) {
   if (/^SELECT sub_id, phone_norm, status, raw_json FROM subscriptions WHERE sub_id = \? LIMIT 1 FOR UPDATE$/.test(sql)) return S.subs.filter((x) => x.sub_id === p[0]).map(clone);
   if (/^UPDATE subscriptions SET status = 'REFUNDED', fulfillment_status = 'REFUNDED'(, raw_json = \?)? WHERE sub_id = \? LIMIT 1$/.test(sql)) { const x = sub(p[p.length - 1]); Object.assign(x, { status: 'REFUNDED', fulfillment_status: 'REFUNDED' }); if (p.length > 1) x.raw_json = p[0]; return { affectedRows: 1 }; }
   if (/^SELECT email, status, fulfillment_status, COALESCE\(removed, 0\) AS removed FROM subscriptions WHERE phone_norm = \?/.test(sql)) return S.subs.filter((x) => x.phone_norm === p[0]).map(clone);
-  if (/^SELECT sub_id, service, plan, phone, email, expiry_date, source, status FROM subscriptions WHERE sub_id = \? LIMIT 1$/.test(sql)) return S.subs.filter((x) => x.sub_id === p[0]).map(clone);
+  if (/^SELECT sub_id, service, plan, phone, email, expiry_date, source, status(, fulfillment_status)? FROM subscriptions WHERE sub_id = \? LIMIT 1$/.test(sql)) return S.subs.filter((x) => x.sub_id === p[0]).map(clone);
   // refund_offers
   if (/^SELECT \* FROM refund_offers WHERE phone_norm = \? AND status = 'OFFERED' ORDER BY created_at DESC LIMIT 10$/.test(sql)) return S.offers.filter((r) => r.phone_norm === p[0] && r.status === 'OFFERED').map(clone);
   if (/^SELECT \* FROM refund_offers WHERE offer_id = \? LIMIT 1 FOR UPDATE$/.test(sql)) return S.offers.filter((r) => r.offer_id === p[0]).map(clone);
@@ -261,11 +261,8 @@ async function makeOffer(body) {
 
   section('Recover / Get OTP / Games / renew / Remove users for the refunded plan');
   const recover = require('../recover');
-  recover._internal.tokenStore.set('tokR', { ph: PH, em: 'buyer@x.com', exp: Date.now() + 60e3 });
-  const _r0 = run;
-  run = function (sql, p) { const q2 = sql.replace(/\s+/g, ' ').trim(); if (/information_schema/.test(q2)) return [{ n: 0 }]; if (/^SELECT order_id, sub_id, service, plan, login_id, password, profile_name, profile_pin, profile_number, expiry_date, status FROM subscriptions WHERE \(order_id = \? OR sub_id = \?\) AND phone_norm = \? LIMIT 1$/.test(q2)) return S.subs.filter((x) => (x.order_id === p[0] || x.sub_id === p[1]) && x.phone_norm === p[2]).map(clone); return _r0(sql, p); }; // eslint-disable-line no-func-assign
-  const acc = await recover.getAccess('SUB-900', PH, 'buyer@x.com', 'tokR');
-  ok('Recover: refunded plan → no login shown', acc.ok === false && acc.refunded === true && !acc.access, acc);
+  // Recover (PR 108) treats a REFUNDED row as inactive, so it never unlocks and gets the generic "no active plan" answer.
+  ok('Recover: refunded plan → inactive (no login shown)', recover._internal.rowInactive(sub('SUB-900')) === true && recover._internal.rowInactive(Object.assign(clone(sub('SUB-900')), { status: 'ACTIVE', fulfillment_status: 'FULFILLED' })) === false, sub('SUB-900'));
   const access = require('../otpaccess');
   ok('Get OTP: the refunded device row blocks the purchase', access._internal.rowBlocked(sub('SUB-900'), NOW.getTime()) === true);
   ok('Games prize check: email of the refunded plan / refunded order no longer proves a paid customer', (await access.paidCustomerEmailOk(PH, (em) => em === 'buyer@x.com')) === false);
@@ -287,7 +284,6 @@ async function makeOffer(body) {
   ok('Remove users load(): refund-ended subscriptions are fetched and counted', loaded.main.pending === 1 && loaded.main.groups[0].people.some((x) => x.subId === 'SUB-900'), loaded.main);
   const removedAfter = ex.compute({ subs: live.concat([Object.assign(clone(sub('SUB-900')), { refund_ended: true, removed: 1 })]), accounts: [], now: NOW });
   ok('…and ticked removed → not counted', removedAfter.main.pending === 0);
-  run = _r0; // eslint-disable-line no-func-assign
 
   section('mid-period offer: charge, never negative, tampered amounts refused, coupon choice');
   fresh(); mails.length = 0;
