@@ -257,14 +257,21 @@ function fakeRes() {
   const cm = require('../feedcomments');
   const sa = cm.safeAvatar;
   ok('avatar formats: own photo, creator avatar, dicebear preset (http upgraded), empty / junk → ""', sa('/profile-photo/8e1620423c7ff1210ed4e967?v=mu1oveut') === '/profile-photo/8e1620423c7ff1210ed4e967?v=mu1oveut' && sa('/avatar/1abcdefghij12345.svg') === '/avatar/1abcdefghij12345.svg' && sa('https://api.dicebear.com/9.x/bottts/svg?seed=robot1') === 'https://api.dicebear.com/9.x/bottts/svg?seed=robot1' && sa('http://api.dicebear.com/9.x/thumbs/svg?seed=popcorn') === 'https://api.dicebear.com/9.x/thumbs/svg?seed=popcorn' && sa('') === '' && sa('javascript:alert(1)') === '' && sa('/profile-photo/../x') === '' && sa('https://x.com/a"onerror=') === '');
-  const cmDb = { rows: [{ id: 7, pic: '/profile-photo/0123456789abcdef01234567?v=k2' }, { id: 8, pic: '' }], calls: [] };
+  const cmDb = { rows: [{ id: 7, phone: '9000000007', pic: '/profile-photo/0123456789abcdef01234567?v=k2' }, { id: 8, phone: '9000000008', pic: '' }], calls: [] };
   const oldQuery = mockDb.query;
-  mockDb.query = async (sql, p) => { const q = sql.replace(/\s+/g, ' ').trim(); if (/^SELECT c\.id AS id, cu\.profile_pic_url AS pic FROM feed_comments c JOIN customers cu ON cu\.phone_norm = c\.phone_norm WHERE c\.id IN \(\?(, \?)*\)$/.test(q)) { cmDb.calls.push(p); return cmDb.rows.filter((r) => p.includes(r.id)); } return oldQuery(sql, p); };
+  // No JOIN (live MariaDB: feed_comments and customers have different collations) — comments, then customers.
+  mockDb.query = async (sql, p) => {
+    const q = sql.replace(/\s+/g, ' ').trim();
+    if (/JOIN customers/.test(q)) throw new Error("Illegal mix of collations (utf8mb4_unicode_ci,IMPLICIT) and (utf8mb4_general_ci,IMPLICIT) for operation '='");
+    if (/^SELECT id, phone_norm FROM feed_comments WHERE id IN \(\?(, \?)*\)$/.test(q)) { cmDb.calls.push(p); return cmDb.rows.filter((r) => p.includes(r.id)).map((r) => ({ id: r.id, phone_norm: r.phone })); }
+    if (/^SELECT phone_norm, profile_pic_url FROM customers WHERE phone_norm IN \(\?(, \?)*\)$/.test(q)) return cmDb.rows.filter((r) => p.includes(r.phone)).map((r) => ({ phone_norm: r.phone, profile_pic_url: r.pic }));
+    return oldQuery(sql, p);
+  };
   const cur = await cm._internal.currentAvatars([7, 8, 9, 7]);
   ok('current picture looked up at read time by comment id (no phone in the answer): new photo shown, removed photo → "" (letter), unknown → left as saved', cur[7] === '/profile-photo/0123456789abcdef01234567?v=k2' && cur[8] === '' && !(9 in cur) && JSON.stringify(cmDb.calls[0]) === '[7,8,9]' && !JSON.stringify(cur).includes('phone'), cur);
   await cm._internal.currentAvatars([7, 8]);
   ok('picture lookup cached (no second query within a minute)', cmDb.calls.length === 1);
-  mockDb.query = async (sql, p) => { if (/JOIN customers/.test(sql)) throw new Error('db down'); return oldQuery(sql, p); };
+  mockDb.query = async (sql, p) => { if (/FROM feed_comments WHERE id IN|FROM customers WHERE phone_norm IN/.test(sql)) throw new Error('db down'); return oldQuery(sql, p); };
   cm._internal.avatarCache.clear();
   ok('lookup failure → keeps the saved pictures (never breaks comments)', JSON.stringify(await cm._internal.currentAvatars([7])) === '{}');
   mockDb.query = oldQuery;
