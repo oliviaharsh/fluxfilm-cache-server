@@ -262,6 +262,10 @@ const POLICY = {
   getGamesHome: SOFT(0), // logged out = the games page for visitors ("Log in to play")
   gameStart: S(0), gameStep: S(0), gameFinish: S(0), gamesSendCode: S(0),
   getPendingRefunds: S(0), convertRefundToCredit: S(0), refundSendCode: S(0), requestUpiRefund: S(0),
+  // Refunds v3 (PR 118): choose coins / coupon / UPI, "sent" pop-up seen, Account → Request refund
+  chooseRefund: S(0), refundSentSeen: S(0), getRefundRequestItems: S(0), createRefundRequest: S(0),
+  // What's new (PR 113): ❤️ likes / 🔖 saves follow the account
+  setFeedMark: S(0), getFeedMarks: S(0), importFeedMarks: S(0),
   oliviaStatus: SOFT(0), oliviaChat: S(0), oliviaHistory: S(0), oliviaTranscript: S(0),
 };
 
