@@ -168,7 +168,7 @@ async function run(now) {
       try { dup = await alreadySent(sub.sub_id, kind, sub.expiry_date); }
       catch (e) { if (missingTable(e)) return Object.assign(out, { skipped: 'schema-v14 not run (reminder_log)' }); throw e; }
       if (dup) { out.alreadySent++; continue; }
-      const r = await push.sendToPhone(sub.phone_norm, messageFor(kind, sub, settings), { ttl: 12 * 3600 });
+      const r = await push.sendToPhone(sub.phone_norm, messageFor(kind, sub, settings), { kind: 'reminder' }); // high urgency, 24 h (push.js KINDS)
       if (!r.devices) { out.noDevice++; continue; }
       await logSend(sub.sub_id, kind, sub.expiry_date, r.sent > 0, r.sent + '/' + r.devices + ' devices' + (r.removed ? ', ' + r.removed + ' removed' : ''));
       if (r.sent > 0) out.sent++; else out.failed++;
@@ -186,7 +186,7 @@ function notifyDelivered(p) {
     const settings = await getSettings();
     if (!settings.delivered) return { ok: true, skipped: 'off' };
     const vars = { service: x.service, plan: x.plan, date: x.expiry };
-    const r = await push.sendToPhone(x.phone, { title: render(settings.templates.deliveredTitle, vars), body: render(settings.templates.deliveredBody, vars), url: '/?source=push', tag: 'delivered-' + s(x.orderId).replace(/[^\w-]/g, '') }, { urgency: 'high' });
+    const r = await push.sendToPhone(x.phone, { title: render(settings.templates.deliveredTitle, vars), body: render(settings.templates.deliveredBody, vars), url: '/?source=push', tag: 'delivered-' + s(x.orderId).replace(/[^\w-]/g, '') }, { kind: 'delivered' });
     return r;
   })().catch((e) => { console.log('[push] delivered notification failed:', e.message); return { ok: false }; });
 }
