@@ -1,14 +1,22 @@
 /**
  * FluxFilm - Recover access on MySQL (fully self-contained; no Apps Script).
- * Flow: sendOtp (email a code) -> verifyOtp (issue token) -> listSubscriptions ->
- * getAccess. The OTP email is sent through smtp.js (support@ mailbox, else the IMAP Gmail).
+ * Flow: sendOtp (email a code) -> verifyOtp (issue token) -> listSubscriptions -> getAccess.
+ * The OTP email is sent through smtp.js (support@ mailbox, else the IMAP Gmail).
  *
- * Which email may receive the code: any email saved for that phone on its subscriptions, orders
- * or customer profile (trimmed, any case). Go-era imports often have the email on only one of them.
+ * WHO MAY RECOVER (owner, 15 Sep 2026: "recover should only work if subs is active"):
+ *   A subscription (or a multi-device group) is unlocked only when ALL of these hold:
+ *   - it is active: expiry is still in the future (India time) on every device row, and no row is
+ *     refunded, cancelled, removed or marked EXPIRED;
+ *   - the typed email belongs to THAT subscription: the email saved on its row, or the email of the order
+ *     that was really PAID and FULFILLED for it (linked by the row's order_id; a renewal moves order_id).
+ *   Customer-profile emails and CREATED / PENDING orders never count: anyone can write those without a login.
+ *   Every "no" (no plan, wrong email, expired, refunded, removed) gets the same NO_ACTIVE message, and
+ *   the step is re-checked when the list is loaded and when the login is shown.
  *
- * OTPs + tokens live in memory AND (hashed, short TTL) in app_settings ('rcv_o_…' / 'rcv_t_…'), so a
- * Hostinger restart / redeploy in the middle of a recovery does not throw the customer out.
- * If app_settings is missing or the DB write fails, memory alone is used (as before).
+ * Codes + session tokens are kept hashed (HMAC with a server secret) in app_settings ('rcv_o_…' / 'rcv_t_…')
+ * so a Hostinger restart / redeploy mid-recovery does not throw the customer out. Each guess is claimed with
+ * a compare-and-swap UPDATE, so parallel guesses can never go past MAX_ATTEMPTS. If app_settings is missing
+ * or the DB write fails, memory alone is used (single Node process).
  *
  * Reassign (swap a dead profile for a fresh one) is intentionally NOT here yet.
  */
@@ -22,22 +30,39 @@ const RESEND_AFTER_MS = 30 * 1000;
 const MAX_ATTEMPTS = 5;
 const OTP_SERVICES = ['jiohotstar', 'hotstar', 'zee5', 'sonyliv'];
 
-const otpStore = new Map();   // "phone|email" -> { h (hash of the code), exp, attempts, sentAt }
+const NO_ACTIVE = 'No active plan found for this number and email. If your plan ended, renew it from My plans. Need help? Tap Help.';
+const EXPIRED_MSG = 'For your safety this page timed out. Please send a new code.';
+
+const otpStore = new Map();   // "phone|email" -> { h (HMAC of the code), exp, attempts, sentAt }  (fallback only)
 const tokenStore = new Map(); // token -> { ph, em, exp }
 
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 const normEmail = (v) => String(v == null ? '' : v).replace(/\s+/g, '').toLowerCase();
 const key = (ph, em) => ph + '|' + em;
-const sha = (v) => crypto.createHash('sha256').update(String(v)).digest('hex');
-const otpHash = (k, otp) => sha('otp|' + k + '|' + otp);
+const up = (v) => String(v == null ? '' : v).trim().toUpperCase();
+
+// Server secret for code hashes: derived from server-only env (no new env var needed).
+let _secret = null;
+function secret() {
+  if (_secret) return _secret;
+  const e = process.env;
+  const base = [e.DB_PASS, e.CACHE_CLEAR_KEY, e.IMAP_PASS].map((x) => String(x == null ? '' : x)).join('|');
+  _secret = crypto.createHmac('sha256', 'ff-recover-v2').update(base).digest();
+  return _secret;
+}
+const mac = (v) => crypto.createHmac('sha256', secret()).update(String(v)).digest('hex');
+const otpHash = (k, otp) => mac('otp|' + k + '|' + otp);
+const sameHex = (a, b) => {
+  const x = Buffer.from(String(a || ''), 'utf8'); const y = Buffer.from(String(b || ''), 'utf8');
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+};
 const genOtp = () => String(crypto.randomInt(100000, 1000000));
 function maskEmail(e) {
   const [u, d] = String(e || '').split('@');
-  if (!d) return e;
+  if (!d) return '';
   const show = u.length >= 6 ? 2 : 1;
   return u.slice(0, show) + '*'.repeat(Math.max(2, u.length - show)) + '@' + d;
 }
-const maskPhone = (ph) => (ph.length === 10 ? ph.slice(0, 2) + '******' + ph.slice(-2) : ph);
 function purge() {
   const now = Date.now();
   for (const [k, v] of otpStore) if (now > v.exp) otpStore.delete(k);
@@ -45,19 +70,23 @@ function purge() {
 }
 
 // ---- Short-lived copies in app_settings (fail soft) ----
-const otpKey = (k) => 'rcv_o_' + sha(k).slice(0, 40);
-const tokKey = (t) => 'rcv_t_' + sha(t).slice(0, 40);
+const otpKey = (k) => 'rcv_o_' + mac('k|' + k).slice(0, 40);
+const tokKey = (t) => 'rcv_t_' + mac('t|' + t).slice(0, 40);
 const persist = {
+  async getRaw(k) {
+    const r = await db.query('SELECT value FROM app_settings WHERE setting_key = ? LIMIT 1', [k]);
+    return r && r[0] ? String(r[0].value) : null;
+  },
   async get(k) {
     try {
-      const r = await db.query('SELECT value FROM app_settings WHERE setting_key = ? LIMIT 1', [k]);
-      if (!r || !r[0]) return null;
-      const v = JSON.parse(r[0].value);
+      const raw = await persist.getRaw(k);
+      if (!raw) return null;
+      const v = JSON.parse(raw);
       return v && Date.now() <= Number(v.exp) ? v : null;
     } catch (_) { return null; }
   },
   async set(k, v) {
-    try { await db.query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [k, JSON.stringify(v)]); } catch (_) { /* memory only */ }
+    try { await db.query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [k, JSON.stringify(v)]); return true; } catch (_) { return false; }
   },
   async del(k) {
     try { await db.query('DELETE FROM app_settings WHERE setting_key = ?', [k]); } catch (_) { /* memory only */ }
@@ -84,20 +113,76 @@ async function sendOtpEmail(to, otp) {
   if (!r.ok) throw new Error('Email is not set up on the server.');
 }
 
-// Every email saved for this phone (subscriptions, orders, customer profile). A missing table only drops that source.
-async function emailsForPhone(ph) {
-  const sources = [
-    'SELECT DISTINCT email FROM subscriptions WHERE phone_norm = ?',
-    'SELECT DISTINCT email FROM orders WHERE phone_norm = ?',
-    'SELECT DISTINCT email FROM customers WHERE phone_norm = ?',
-  ];
-  const out = new Set();
-  for (const sql of sources) {
-    let rows = [];
-    try { rows = await db.query(sql, [ph]); } catch (_) { rows = []; }
-    for (const r of rows || []) { const e = normEmail(r.email); if (e && e.indexOf('@') > 0) out.add(e); }
+// ---- Dates: every stored date is India time ----
+const dayMs = 24 * 3600e3;
+function expiryMs(expiry) {
+  if (expiry instanceof Date) return expiry.getTime();
+  const x = String(expiry == null ? '' : expiry).trim();
+  let m = x.match(/^(\d{4}-\d{2}-\d{2})$/);
+  if (m) return Date.parse(m[1] + 'T23:59:59+05:30');
+  m = x.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)/);
+  if (m) return Date.parse(m[1] + 'T' + (m[2].length === 5 ? m[2] + ':00' : m[2]) + '+05:30');
+  return NaN;
+}
+function daysLeftOf(expiry) {
+  const t = expiryMs(expiry);
+  return Number.isFinite(t) ? Math.ceil((t - Date.now()) / dayMs) : null;
+}
+function prettyDate(expiry) {
+  const t = expiryMs(expiry);
+  if (!Number.isFinite(t)) return '';
+  return new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+}
+
+// ---- Which subscriptions this phone + email may open ----
+function rowInactive(r) {
+  if (Number(r.removed) === 1) return true;
+  if (up(r.fulfillment_status) === 'REFUNDED') return true;
+  const st = up(r.status);
+  if (st === 'REFUNDED' || st === 'REMOVED' || st === 'EXPIRED' || /^CANCEL/.test(st)) return true;
+  const t = expiryMs(r.expiry_date);
+  return !(Number.isFinite(t) && t > Date.now());
+}
+
+async function subRowsFor(ph, groupsOn) {
+  const base = 'sub_id, order_id, email, service, plan, login_id, password, profile_name, profile_pin, profile_number, expiry_date, status, fulfillment_status' +
+    (groupsOn ? ', device_type, device_count, tv_count, group_id, group_index' : '');
+  try {
+    return await db.query('SELECT ' + base + ', COALESCE(removed, 0) AS removed FROM subscriptions WHERE phone_norm = ?', [ph]);
+  } catch (e) {
+    if (!/removed/i.test(String(e && e.message))) throw e;
+    return db.query('SELECT ' + base + ' FROM subscriptions WHERE phone_norm = ?', [ph]); // before schema-v13
   }
-  return [...out];
+}
+
+/** Active purchases this email may open, newest expiry first. Each item: { rows (Device 1 first), lead }. */
+async function unlockedGroups(ph, em) {
+  if (!ph || !em) return [];
+  const groupsOn = await deviceLogins.groupsReady(db.query);
+  const all = (await subRowsFor(ph, groupsOn)) || [];
+  const byKey = new Map();
+  for (const r of all) {
+    const k = groupsOn && r.group_id ? 'g:' + r.group_id : 's:' + r.sub_id;
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(r);
+  }
+  const active = [];
+  for (const rows of byKey.values()) {
+    rows.sort((a, b) => Number(a.group_index || 0) - Number(b.group_index || 0));
+    if (rows.some(rowInactive)) continue;
+    active.push({ rows, lead: rows[0], bySub: rows.some((r) => normEmail(r.email) === em) });
+  }
+  const needOrders = [...new Set(active.filter((g) => !g.bySub).flatMap((g) => g.rows.map((r) => String(r.order_id || '').trim())).filter(Boolean))];
+  const paidEmail = new Map();
+  if (needOrders.length) {
+    const rows = await db.query(
+      "SELECT order_id, email FROM orders WHERE order_id IN (" + needOrders.map(() => '?').join(', ') + ") AND UPPER(status) = 'PAID' AND UPPER(fulfillment_status) = 'FULFILLED'",
+      needOrders);
+    for (const o of rows || []) paidEmail.set(String(o.order_id), normEmail(o.email));
+  }
+  const out = active.filter((g) => g.bySub || g.rows.some((r) => paidEmail.get(String(r.order_id || '').trim()) === em));
+  out.sort((a, b) => (expiryMs(b.lead.expiry_date) || 0) - (expiryMs(a.lead.expiry_date) || 0));
+  return out;
 }
 
 // ---- Steps ----
@@ -106,21 +191,8 @@ async function sendOtp(phone, email) {
   const ph = norm(phone); const em = normEmail(email);
   if (!ph || ph.length < 10) return { ok: false, message: 'Enter your 10-digit phone number (the one you bought with).' };
   if (!em || !/^[^@]+@[^@]+\.[^@]+$/.test(em)) return { ok: false, message: 'Enter a valid email address, like name@gmail.com.' };
-  const subs = await db.query('SELECT COUNT(*) n FROM subscriptions WHERE phone_norm = ?', [ph]);
-  if (!(+(subs[0] || {}).n > 0)) {
-    return { ok: false, noPlan: true, message: "We couldn't find any plan on " + maskPhone(ph) + '. Did you buy with a different phone number?' };
-  }
-  const known = await emailsForPhone(ph);
-  if (!known.length) {
-    return { ok: false, noEmail: true, message: "We don't have an email saved for this number, so we can't send a code. Tap Help and our team will get your login back." };
-  }
-  if (known.indexOf(em) < 0) {
-    const hints = known.slice(0, 2).map(maskEmail);
-    return {
-      ok: false, wrongEmail: true, hints,
-      message: 'This number has a plan, but not with this email. Use the email you bought with' + (hints.length === 1 ? ' — it looks like ' + hints[0] + '.' : ' — one of: ' + hints.join(', ') + '.'),
-    };
-  }
+  const groups = await unlockedGroups(ph, em);
+  if (!groups.length) return { ok: false, noActive: true, message: NO_ACTIVE };
   const k = key(ph, em);
   const prev = otpStore.get(k) || await persist.get(otpKey(k));
   if (prev && prev.sentAt && Date.now() - prev.sentAt < RESEND_AFTER_MS) {
@@ -131,8 +203,9 @@ async function sendOtp(phone, email) {
   const rec = { h: otpHash(k, otp), exp: Date.now() + OTP_TTL_MS, attempts: 0, sentAt: Date.now() };
   try { await sendOtpEmail(em, otp); }
   catch (e) { console.log('[recover] email failed:', e.message); return { ok: false, message: 'We could not send the email right now. Please try again in a minute, or tap Help.' }; }
-  otpStore.set(k, rec);
-  await persist.set(otpKey(k), rec);
+  // Memory copy: for the 30 s resend wait, and the ONLY copy (memOnly) when app_settings can't be written.
+  const saved = await persist.set(otpKey(k), rec);
+  otpStore.set(k, Object.assign({}, rec, { memOnly: !saved }));
   const mins = Math.round(OTP_TTL_MS / 60000);
   return {
     ok: true, email: maskEmail(em), expiresInMin: mins, resendInSec: RESEND_AFTER_MS / 1000,
@@ -140,21 +213,50 @@ async function sendOtp(phone, email) {
   };
 }
 
+/**
+ * Count one guess atomically. Returns { rec } (attempt counted, rec.attempts already includes it),
+ * { expired } (no live code) or { locked } (MAX_ATTEMPTS already used).
+ * DB path: compare-and-swap on the exact stored text, so two parallel guesses can't both use the last try.
+ */
+async function claimAttempt(k) {
+  const dk = otpKey(k);
+  for (let i = 0; i < 6; i++) {
+    let raw;
+    try { raw = await persist.getRaw(dk); } catch (_) { return claimInMemory(k); }
+    if (raw == null) return claimInMemory(k);
+    let rec = null; try { rec = JSON.parse(raw); } catch (_) { rec = null; }
+    if (!rec || !(Date.now() <= Number(rec.exp))) { otpStore.delete(k); await persist.del(dk); return { expired: true }; }
+    if (Number(rec.attempts || 0) >= MAX_ATTEMPTS) { otpStore.delete(k); await persist.del(dk); return { locked: true }; }
+    const next = Object.assign({}, rec, { attempts: Number(rec.attempts || 0) + 1 });
+    let res;
+    try { res = await db.query('UPDATE app_settings SET value = ? WHERE setting_key = ? AND value = ?', [JSON.stringify(next), dk, raw]); }
+    catch (_) { return claimInMemory(k); }
+    if (res && Number(res.affectedRows) === 1) return { rec: next };
+    // someone else changed it first: read again
+  }
+  return { locked: true };
+}
+// Only for a code that was never saved to app_settings (memOnly); a DB copy is never shadowed by memory.
+function claimInMemory(k) {
+  const rec = otpStore.get(k);
+  if (!rec || !rec.memOnly || Date.now() > rec.exp) { otpStore.delete(k); return { expired: true }; }
+  if (rec.attempts >= MAX_ATTEMPTS) { otpStore.delete(k); return { locked: true }; }
+  rec.attempts += 1; // synchronous: atomic inside this one Node process
+  return { rec };
+}
+
 async function verifyOtp(phone, email, otp) {
   purge();
   const ph = norm(phone); const em = normEmail(email); const k = key(ph, em);
-  let rec = otpStore.get(k);
-  if (!rec) { rec = await persist.get(otpKey(k)); if (rec) otpStore.set(k, rec); }
-  if (!rec) return { ok: false, expired: true, message: 'This code has expired or was replaced. Tap "Send a new code".' };
-  if (Date.now() > rec.exp) { otpStore.delete(k); await persist.del(otpKey(k)); return { ok: false, expired: true, message: 'This code has expired. Tap "Send a new code".' }; }
   const code = String(otp || '').replace(/\D/g, '');
   if (code.length !== 6) return { ok: false, message: 'Enter the 6-digit code from the email.' };
-  rec.attempts += 1;
-  if (rec.attempts > MAX_ATTEMPTS) { otpStore.delete(k); await persist.del(otpKey(k)); return { ok: false, expired: true, message: 'Too many wrong tries. Tap "Send a new code".' }; }
-  if (otpHash(k, code) !== rec.h) {
-    await persist.set(otpKey(k), rec);
-    const left = MAX_ATTEMPTS - rec.attempts;
-    return { ok: false, message: 'That code is not right. ' + (left > 0 ? left + (left === 1 ? ' try' : ' tries') + ' left.' : 'Tap "Send a new code".') + ' Use the newest email if you asked more than once.' };
+  const c = await claimAttempt(k);
+  if (c.expired) return { ok: false, expired: true, message: 'This code has expired or was replaced. Tap "Send a new code".' };
+  if (c.locked) return { ok: false, expired: true, message: 'Too many wrong tries. Tap "Send a new code".' };
+  if (!sameHex(otpHash(k, code), c.rec.h)) {
+    const left = MAX_ATTEMPTS - c.rec.attempts;
+    if (left <= 0) { otpStore.delete(k); await persist.del(otpKey(k)); }
+    return { ok: false, expired: left <= 0, message: 'That code is not right. ' + (left > 0 ? left + (left === 1 ? ' try' : ' tries') + ' left.' : 'Tap "Send a new code".') + ' Use the newest email if you asked more than once.' };
   }
   otpStore.delete(k); await persist.del(otpKey(k));
   const token = crypto.randomBytes(24).toString('hex');
@@ -174,41 +276,17 @@ async function checkToken(token, ph, em) {
   return t.ph === ph && t.em === em;
 }
 
-const EXPIRED_MSG = 'For your safety this page timed out. Please send a new code.';
-const dayMs = 24 * 3600e3;
-function daysLeftOf(expiry) {
-  const t = Date.parse(String(expiry || '').replace(' ', 'T'));
-  return Number.isFinite(t) ? Math.ceil((t - Date.now()) / dayMs) : null;
-}
-function prettyDate(expiry) {
-  const t = Date.parse(String(expiry || '').replace(' ', 'T'));
-  if (!Number.isFinite(t)) return '';
-  return new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
-}
-const up = (v) => String(v == null ? '' : v).trim().toUpperCase();
-const isRefunded = (r) => up(r.fulfillment_status) === 'REFUNDED' || /^CANCEL/.test(up(r.status));
-
 async function listSubscriptions(phone, email, token) {
   const ph = norm(phone); const em = normEmail(email);
   if (!(await checkToken(token, ph, em))) return { ok: false, sessionExpired: true, message: EXPIRED_MSG };
-  const groupsOn = await deviceLogins.groupsReady(db.query);
-  const all = await db.query(
-    'SELECT order_id, sub_id, service, plan, status, fulfillment_status, expiry_date' + (groupsOn ? ', group_id, group_index' : '') + ' FROM subscriptions WHERE phone_norm = ? ORDER BY expiry_date DESC', [ph]);
-  // F1: a purchase with separate logins is listed once (its first device); getAccess shows every device.
-  const seen = new Set();
-  const rows = all.filter((r) => {
-    if (!groupsOn || !r.group_id) return true;
-    if (seen.has(r.group_id)) return false;
-    seen.add(r.group_id); return true;
-  }).map((r) => (groupsOn && r.group_id ? Object.assign({}, all.filter((x) => x.group_id === r.group_id).sort((a, b) => Number(a.group_index) - Number(b.group_index))[0]) : r));
-  const subscriptions = rows.map((r) => ({
+  const groups = await unlockedGroups(ph, em);
+  if (!groups.length) return { ok: false, noActive: true, message: NO_ACTIVE };
+  // A purchase with separate logins is listed once (Device 1); getAccess shows every device.
+  const subscriptions = groups.map(({ lead: r }) => ({
     orderId: r.order_id, subId: r.sub_id, service: r.service, plan: r.plan,
     status: r.status, fulfillmentStatus: r.fulfillment_status, expiry: r.expiry_date, expiryDate: r.expiry_date,
-    daysLeft: daysLeftOf(r.expiry_date), expiryText: prettyDate(r.expiry_date), refunded: isRefunded(r),
+    daysLeft: daysLeftOf(r.expiry_date), expiryText: prettyDate(r.expiry_date), refunded: false,
   }));
-  // Plans still running first (latest expiry first), then ended ones; refunded last.
-  const rank = (x) => (x.refunded ? 2 : x.daysLeft != null && x.daysLeft > 0 ? 0 : 1);
-  subscriptions.sort((a, b) => rank(a) - rank(b));
   return { ok: true, subscriptions };
 }
 
@@ -216,28 +294,13 @@ async function getAccess(orderId, phone, email, token) {
   const ph = norm(phone); const em = normEmail(email);
   if (!(await checkToken(token, ph, em))) return { ok: false, sessionExpired: true, message: EXPIRED_MSG };
   const oid = String(orderId || '').trim();
+  if (!oid) return { ok: false, noActive: true, message: NO_ACTIVE };
+  const groups = await unlockedGroups(ph, em);
+  const g = groups.find((x) => x.rows.some((r) => String(r.sub_id) === oid)) ||
+    groups.find((x) => x.rows.some((r) => String(r.order_id || '').trim() === oid));
+  if (!g) return { ok: false, noActive: true, message: NO_ACTIVE };
   const groupsOn = await deviceLogins.groupsReady(db.query);
-  const cols = 'order_id, sub_id, service, plan, login_id, password, profile_name, profile_pin, profile_number, expiry_date, status' + (groupsOn ? ', device_type, device_count, tv_count, group_id, group_index' : '');
-  const rows = await db.query(
-    'SELECT ' + cols + ' FROM subscriptions WHERE (order_id = ? OR sub_id = ?) AND phone_norm = ? LIMIT 1',
-    [oid, oid, ph]);
-  let s = rows[0];
-  if (!s) return { ok: false, message: 'Subscription not found for this account.' };
-  // Refund / login switched off: read separately so an older database (no removed column) still works.
-  let extra = {};
-  try { extra = (await db.query('SELECT fulfillment_status, COALESCE(removed, 0) AS removed FROM subscriptions WHERE sub_id = ? LIMIT 1', [s.sub_id]))[0] || {}; } catch (_) { extra = {}; }
-  const row = Object.assign({}, s, extra);
-  if (isRefunded(row)) return { ok: false, refunded: true, message: 'This plan was refunded, so there is no login to show. Need help? Tap Help.' };
-  const daysLeft = daysLeftOf(s.expiry_date);
-  if (Number(row.removed) === 1 && daysLeft != null && daysLeft <= 0) {
-    return { ok: false, expired: true, message: 'This plan ended on ' + prettyDate(s.expiry_date) + ' and its old login no longer works. Renew it from My plans to get a working login.' };
-  }
-  // F1: every login of the purchase (same phone only), Device 1 first.
-  let group = [s];
-  if (groupsOn && s.group_id) {
-    const g = await db.query('SELECT ' + cols + ' FROM subscriptions WHERE group_id = ? AND phone_norm = ? ORDER BY group_index', [s.group_id, ph]);
-    if (g.length) { group = g; s = g[0]; }
-  }
+  const group = g.rows; const s = g.lead;
   const svc = String(s.service || '').toLowerCase();
   const isOtp = OTP_SERVICES.some((k) => svc.includes(k));
   const access = {
@@ -257,8 +320,7 @@ async function getAccess(orderId, phone, email, token) {
       ? 'YouTube Premium works on your own Google account — no login or password needed. Open the family invite we sent to your email (check Spam too). Not found? Tap Help.'
       : 'Your login is not saved here yet. Tap Help and our team will send it to you.';
   }
-  if (daysLeft != null && daysLeft <= 0) postPaymentMessage = ('This plan ended on ' + prettyDate(s.expiry_date) + '. Renew it from My plans to keep watching. ' + postPaymentMessage).trim();
   return { ok: true, access, postPaymentMessage };
 }
 
-module.exports = { sendOtp, verifyOtp, listSubscriptions, getAccess, _internal: { checkToken, otpStore, tokenStore, maskEmail, emailsForPhone, otpKey, tokKey, otpHash, key } };
+module.exports = { sendOtp, verifyOtp, listSubscriptions, getAccess, NO_ACTIVE, _internal: { checkToken, otpStore, tokenStore, maskEmail, unlockedGroups, otpKey, tokKey, otpHash, key, claimAttempt, expiryMs } };

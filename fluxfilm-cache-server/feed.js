@@ -416,6 +416,8 @@ async function getSettings() {
     tmdbKey: s(x.tmdbKey),
     // Optional Meta app token ("appid|secret" or a long-lived token) for Instagram's official oEmbed thumbnails.
     metaToken: s(x.metaToken),
+    // ✨ Optional Google AI Studio key: AI fill uses Gemini (with Google Search for very new titles) when set, else DeepSeek.
+    geminiKey: s(x.geminiKey),
     // ON by default once a key is saved; only an explicit false turns it off.
     autoPublish: x.autoPublish !== false,
     platforms: Array.isArray(x.platforms) ? x.platforms.map((p) => clean(p, 60)).filter(Boolean) : [],
@@ -438,7 +440,8 @@ async function getSettings() {
 function publicSettings(st) {
   return {
     hasKey: !!st.tmdbKey, keyType: st.tmdbKey ? (isV4(st.tmdbKey) ? 'read access token' : 'API key') : '',
-    hasMetaToken: !!st.metaToken, aiKeySet: !!process.env.DEEPSEEK_API_KEY,
+    hasMetaToken: !!st.metaToken, aiKeySet: !!process.env.DEEPSEEK_API_KEY, hasGeminiKey: !!st.geminiKey,
+    aiProvider: st.geminiKey ? 'Gemini' : process.env.DEEPSEEK_API_KEY ? 'DeepSeek' : '',
     autoPublish: st.autoPublish, platforms: st.platforms, languages: st.languages, minPopularity: st.minPopularity, minVotes: st.minVotes,
     maxPerDay: st.maxPerDay, autoHideDays: st.autoHideDays, releasedDays: st.releasedDays, upcomingDays: st.upcomingDays, seriesNewOnly: st.seriesNewOnly, skipWeeklyShows: st.skipWeeklyShows, runEveryHours: RUN_EVERY_MS / 3600e3, providerMap: Object.assign({}, DEFAULT_PROVIDERS, st.providerMap),
     defaultProviders: DEFAULT_PROVIDERS, languageNames: LANGS, defaultLanguages: DEFAULT_LANGS,
@@ -462,6 +465,12 @@ async function saveSettings(input) {
     const k = s(i.metaToken);
     if (!/^[A-Za-z0-9|_.-]{20,600}$/.test(k)) return { ok: false, message: 'That does not look like a Meta app token (app id|app secret, or an access token).' };
     if (k !== cur.metaToken) { changed.push('Meta token saved'); next.metaToken = k; }
+  }
+  if (i.clearGeminiKey === true) { if (cur.geminiKey) changed.push('Gemini key removed'); next.geminiKey = ''; }
+  else if (s(i.geminiKey)) {
+    const k = s(i.geminiKey);
+    if (!/^[A-Za-z0-9_-]{30,120}$/.test(k)) return { ok: false, message: 'That does not look like a Google AI Studio (Gemini) API key — it usually starts with "AIza".' };
+    if (k !== cur.geminiKey) { changed.push('Gemini key saved'); next.geminiKey = k; }
   }
   if (i.autoPublish != null) set('autoPublish', i.autoPublish === true || i.autoPublish === 'true', 'auto-publish ' + ((i.autoPublish === true || i.autoPublish === 'true') ? 'on' : 'off'));
   if (Array.isArray(i.platforms)) set('platforms', i.platforms.map((p) => clean(p, 60)).filter(Boolean).slice(0, 30), 'platforms');
@@ -682,10 +691,29 @@ async function tmdbSearch(query) {
 async function tmdbDetails(key, tmdbKey, service) {
   const m = s(tmdbKey).match(/^(movie|tv):(\d{1,9})$/);
   if (!m) return null;
-  const row = await tmdbGet(key, '/' + m[1] + '/' + m[2], { language: 'en-US', append_to_response: m[1] === 'movie' ? 'videos,release_dates' : 'videos' });
+  const row = await tmdbGet(key, '/' + m[1] + '/' + m[2], { language: 'en-US', append_to_response: m[1] === 'movie' ? 'videos,release_dates,credits' : 'videos,credits' });
   const d = draftFrom(row, m[1], service, null);
   Object.defineProperty(d, 'raw', { value: row, enumerable: false }); // tv: seasons / next episode for seriesNews()
   return d;
+}
+/**
+ * ✨ Story facts for the AI caption writer (server-side only, never saved or sent to the storefront):
+ * overview, tagline, top cast (+ character), director / creator, genres, release / season info, language, runtime / seasons.
+ */
+function storyFrom(raw, d) {
+  const r = raw || {}; const x = d || {};
+  const cast = ((r.credits && r.credits.cast) || []).slice(0, 4)
+    .map((c) => { const n = clean(c && c.name, 40); const ch = clean(s(c && c.character).split('/')[0], 40); return n ? n + (ch ? ' (as ' + ch + ')' : '') : ''; }).filter(Boolean);
+  const creators = (r.created_by || []).map((c) => clean(c && c.name, 40)).filter(Boolean).slice(0, 2);
+  const director = (((r.credits && r.credits.crew) || []).find((c) => c && c.job === 'Director') || {}).name;
+  return {
+    title: clean(x.title, 100), type: x.type === 'series' ? 'series' : 'movie',
+    overview: s(r.overview || x.caption).slice(0, 700), tagline: clean(r.tagline, 160),
+    cast, director: clean(director || creators.join(', '), 80),
+    genres: (x.genres || []).slice(0, 4), releaseDate: s(x.releaseDate), seasonLabel: s(x.seasonLabel),
+    language: LANGS[r.original_language] || LANGS[x.originalLanguage] || s(r.original_language), country: [].concat(r.origin_country || [], (r.production_countries || []).map((c) => c && c.iso_3166_1)).filter(Boolean).slice(0, 2).join(', '),
+    runtime: Number(r.runtime) || 0, seasons: Number(r.number_of_seasons) || 0,
+  };
 }
 /**
  * 🔎 Best TMDB match for a free-text title ("🎥Front of the class (2008)"): movies / series only, same year and kind
@@ -746,15 +774,19 @@ async function tmdbMatch(title, opts) {
   const d = draftFrom(best, best.media_type, o.service || '', g);
   d.sure = sure;
   if (d.type === 'series') Object.assign(d, { seasonLabel: '' });
+  let raw = best;
   try {
     const det = await tmdbDetails(st.tmdbKey, d.tmdbKey, o.service || '');
     if (det && det.title) {
+      if (det.raw) raw = det.raw;
       Object.assign(d, { genres: det.genres.length ? det.genres : d.genres, trailerUrl: det.trailerUrl || '' });
       // Movies: India's release date when TMDB has one. Series: the new season's premiere + "Season N" when there is one.
       if (d.type === 'movie' && det.releaseRegion === 'IN') Object.assign(d, { releaseDate: det.releaseDate, releaseRegion: 'IN' });
       if (d.type === 'series' && det.raw) { const sd = showDates(det.raw, o.now); if (sd.releaseDate) Object.assign(d, sd); }
     }
   } catch (_) {}
+  // Not enumerable: ✨ AI fill reads it; it never ends up in a saved post or any JSON answer.
+  Object.defineProperty(d, 'story', { value: storyFrom(raw, d), enumerable: false });
   return d;
 }
 /**
@@ -1184,6 +1216,6 @@ module.exports = {
   discover, runImport, jobStatus, startTimer, toIso,
   newWindow, seriesNews, movieNews, indiaReleaseDate, notNewCandidates, hideNotNew,
   weeklyShow, continuousShow, showDates, refreshDates, autoDate, NO_DATE,
-  BRANDS, brandOf, mainServiceFor, migrate, searchTitle, tmdbMatch, refreshThumb, pictureOf, LANGS,
+  BRANDS, brandOf, mainServiceFor, migrate, searchTitle, tmdbMatch, storyFrom, refreshThumb, pictureOf, LANGS,
   _internal: { pending, liked, genreCache, setFetch: (f) => { fetchImpl = f; }, reset: () => { cache = null; pending.clear(); liked.clear(); genreCache.at = 0; running = false; tvCache.clear(); } },
 };
