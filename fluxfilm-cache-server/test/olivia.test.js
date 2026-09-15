@@ -54,7 +54,7 @@ const PLANS = [
 ];
 const STOCK = { 'JioHotstar|||1 Month': { stockLevel: 'OUT' } };
 const calls = [];
-const shop = { subs: [], renewMode: 'SAME', paid: false, paused: false, fulfillment: 'FULFILLED', profile: { ok: true, name: 'Ramesh Kumar', email: 'ramesh@example.com' }, claim: 'WAITING', backupOk: true };
+const shop = { subs: [], renewMode: 'SAME', paid: false, paused: false, fulfillment: 'FULFILLED', profile: { ok: true, name: 'Ramesh Kumar', email: 'ramesh@example.com' }, claim: 'WAITING', backupOk: true, nflxAccounts: [], hhCode: '' };
 const tools = {
   catalogFor: async () => ({ plans: PLANS, stock: STOCK }),
   profile: async (ph) => (ph === '9876543210' || ph === '9000000001' ? shop.profile : { ok: false }),
@@ -99,6 +99,9 @@ const tools = {
   backupPayment: async (id, phone) => { calls.push(['backupPayment', id, phone]); return shop.backupOk ? { ok: true, amount: 139, vpa: 'backup@upi', payee: 'FluxFilm', qrImage: 'data:image/png;base64,AAA', upiLink: 'upi://pay?pa=backup@upi', knownName: '' } : { ok: false }; },
   claimBackup: async (id, phone, name) => { calls.push(['claimBackup', id, phone, name]); return { ok: true, status: 'WAITING' }; },
   claimStatus: async (id, phone) => { calls.push(['claimStatus', id, phone]); return shop.claim === 'MATCHED' ? { ok: true, status: 'MATCHED', paid: true } : { ok: true, status: shop.claim }; },
+  // Netflix household auto-fix (oliviahousehold.js): the customer's own active Netflix accounts, and the travel code.
+  netflixAccounts: async (phone) => { calls.push(['netflixAccounts', phone]); return { ok: true, accounts: (shop.nflxAccounts || []) }; },
+  householdCode: async (acc) => { calls.push(['householdCode', acc && acc.subId, acc && acc.kind]); return shop.hhCode ? { ok: true, code: shop.hhCode } : { ok: false, manual: true }; },
 };
 olivia._internal.setDeps({ tools });
 
@@ -730,6 +733,28 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('Hindi household → Hindi steps', r.lang === 'hi' && last(r).intent === 'HOUSEHOLD_HELPER' && /इसी क्रम में कीजिए/.test(last(r).text), last(r));
   r = await say({ text: 'account band ho gaya' });
   ok('Hindi chat, "account band ho gaya" (one Netflix plan) → Recover + Household Helper', last(r).intent === 'STOPPED_WORKING' && ids(last(r)).join() === 'myplans,recover,helper2,whatsapp,menu', last(r));
+  // ── household auto-fix: fetch the Netflix "Watch temporarily" travel code and show it in chat (Harsh, 15 Sep 2026) ──
+  await say({ choice: 'lang:hinglish' });
+  shop.nflxAccounts = [{ subId: 'S1', service: 'Netflix', ref: 'NFLX-D11', email: 'jess@example.com', kind: 'D' }];
+  shop.hhCode = '4162';
+  r = await say({ text: 'tv par household code maang raha hai' });
+  ok('household + one active Netflix account → offers "Get my code now" (auto-fix) beside the Helper', last(r).intent === 'HH_OFFER_CODE' && ids(last(r))[0] === 'hhcode' && ids(last(r)).includes('helper2') && ids(last(r)).includes('whatsapp'), last(r));
+  r = await say({ choice: 'hhcode' });
+  ok('tap Get my code → the code comes back in a card only (never in the words), with a "15 minutes" note', last(r).intent === 'HH_CODE_READY' && last(r).card && last(r).card.type === 'code' && last(r).card.code === '4162' && !/4162/.test(last(r).text) && /15 min/i.test(last(r).text) && calls.some((c) => c[0] === 'householdCode' && c[1] === 'S1' && c[2] === 'D'), last(r));
+  ok('the code card is logged only as a marker, never the digits', !msgs.some((m) => /4162/.test(m.body)) && msgs.some((m) => /\[code card\]/.test(m.body)));
+  shop.hhCode = ''; // the fetch could not get a fresh code this time
+  await say({ choice: 'menu' });
+  r = await say({ text: 'household error phir aa gaya' });
+  r = await say({ choice: 'hhcode' });
+  ok('when the code cannot be fetched → falls back to the manual Household Helper steps, no code card, nothing invented', last(r).intent === 'HOUSEHOLD_HELPER' && !r.messages.some((m) => m.card) && ids(last(r)).includes('helper2'), r.messages);
+  shop.nflxAccounts = []; shop.hhCode = '';
+  await say({ choice: 'menu' });
+  r = await say({ text: 'netflix household problem' });
+  ok('household with NO resolvable Netflix account → the manual Helper only, no auto-fix button', last(r).intent === 'HOUSEHOLD_HELPER' && !ids(last(r)).includes('hhcode'), last(r));
+  // oliviahousehold: kind, the travel-code parser (spaced digits), and a blocked sign-in / reCAPTCHA page
+  const hhmod = require('../oliviahousehold.js')._internal;
+  ok('household module: NFLX-H = ours, NFLX-D = darkflix, other = unknown', hhmod.kindOfRef('NFLX-H01#2') === 'H' && hhmod.kindOfRef('nflx-d11') === 'D' && hhmod.kindOfRef('PRIME-1') === '');
+  ok('travel-code parser reads spaced digits, and refuses a sign-in / reCAPTCHA / expired page', hhmod.readTravelPage('<h1>Enter this code on the requesting device for temporary access</h1><b>4 1 6 2</b><p>expires after 15 minutes</p>').code === '4162' && hhmod.readTravelPage('<form><input type="password" id="id_password"></form>recaptcha').blocked === true && !hhmod.readTravelPage('<p>hello</p>').code);
   await say({ choice: 'lang:hinglish' });
   // Paid but no login (payment-without-order-id.md): never "payment verified" from a chat.
   const subCalls = calls.filter((c) => c[0] === 'mySubscriptions').length;

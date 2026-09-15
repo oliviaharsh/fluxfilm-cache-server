@@ -155,6 +155,16 @@ const T = {
   },
   // Training run 3 (brain/procedures/netflix-household.md): the steps have an ORDER. The code only exists after the TV / phone asks
   // Netflix for it, so the device step is said first ("pehle website pe jaoge toh code nahi milega").
+  HH_OFFER_CODE: {
+    en: (f) => 'No problem 🙏 Netflix wants a code for this TV.\nI can get it for you right now: just tap "Get my code now".\nOr do it yourself: on the TV tap "Watch temporarily", then open the Household Helper for the code.' + (f.bothHelpers ? '\n(2 Helper links: each says which Netflix email it is for.)' : ''),
+    hinglish: (f) => 'Koi baat nahi ji 🙏 Netflix is TV ke liye code maang raha hai.\nMain abhi aapke liye code la deti hoon: bas "Abhi code lo" dabaiye.\nYa khud kijiye: TV par "Watch temporarily" dabaiye, phir Household Helper se code lijiye.' + (f.bothHelpers ? '\n(Helper ke 2 link hain: har link par likha hai kaunse Netflix email ke liye.)' : ''),
+    hi: (f) => 'कोई बात नहीं जी 🙏 Netflix इस TV के लिए कोड माँग रहा है।\nमैं अभी आपके लिए कोड ला देती हूँ: बस "अभी कोड लो" दबाइए।\nया खुद कीजिए: TV पर "Watch temporarily" दबाइए, फिर Household Helper से कोड लीजिए।' + (f.bothHelpers ? '\n(Helper के 2 लिंक हैं: हर लिंक पर लिखा है किस Netflix ईमेल के लिए।)' : ''),
+  },
+  HH_CODE_READY: {
+    en: () => 'Here is your code 🔑\nEnter it on your TV to keep watching.\nIt works for about 15 minutes. Please do not share it with anyone.',
+    hinglish: () => 'Yeh raha aapka code 🔑\nApne TV par yeh daaliye aur dekhna shuru kijiye.\nYeh lagbhag 15 minute chalta hai. Kisi ko share mat kijiye.',
+    hi: () => 'यह रहा आपका कोड 🔑\nअपने TV पर यह डालिए और देखना शुरू कीजिए।\nयह लगभग 15 मिनट चलता है। किसी को शेयर मत कीजिए।',
+  },
   HOUSEHOLD_HELPER: {
     en: (f) => 'No problem 🙏 This is Netflix\'s household check. Please do it in this order:\n1. On the TV or phone, first tap "Update household" (or "I\'m travelling / Watch temporarily"), then "Send email".\n2. Then open the Household Helper, get the code and type it on the TV or phone.\nIf you open the Helper first, it will not find the code.' + (f.bothHelpers ? '\n(There are 2 Helper links: each one says which Netflix email it is for.)' : '') + '\nNetflix asks for this at random. Your account is fine, and I can help you every time it happens 😊',
     hinglish: (f) => 'Koi baat nahi ji 🙏 Yeh Netflix ka household check hai, is order mein kijiye:\n1. TV ya phone par pehle "Update household" (ya "I\'m travelling / Watch temporarily") dabaiye, phir "Send email".\n2. Uske baad Household Helper kholiye, code lijiye aur TV ya phone par daal dijiye.\nPehle Helper kholenge to code nahi milega.' + (f.bothHelpers ? '\n(Helper ke 2 link hain: har link par likha hai kaunse Netflix email ke liye hai.)' : '') + '\nNetflix yeh kabhi bhi random maang leta hai. Aapke account mein koi problem nahi, jab bhi aaye main help kar dungi 😊',
@@ -556,6 +566,7 @@ const B = {
   'lmode:separate': { en: '👥 Separate login for each', hinglish: '👥 Har device ka alag login', hi: '👥 हर डिवाइस का अलग लॉगिन' },
   helper1: { en: '🏠 Household Helper (Link 1)', hinglish: '🏠 Household Helper (Link 1)', hi: '🏠 Household Helper (Link 1)' },
   helper2: { en: '🏠 Household Helper (Link 2)', hinglish: '🏠 Household Helper (Link 2)', hi: '🏠 Household Helper (Link 2)' },
+  hhcode: { en: '🔑 Get my code now', hinglish: '🔑 Abhi code lo', hi: '🔑 अभी कोड लो' },
   helper: { en: '🏠 Open Household Helper', hinglish: '🏠 Household Helper kholo', hi: '🏠 Household Helper खोलो' },
   support: { en: '🔐 Login / account problem', hinglish: '🔐 Login / account problem', hi: '🔐 लॉगिन / अकाउंट समस्या' },
   recover: { en: '🔐 Open Recover', hinglish: '🔐 Recover kholo', hi: '🔐 Recover खोलो' },
@@ -620,7 +631,7 @@ const LEAD_EMOJI = {
   CONFIRM_PLAN: '🧾', CONFIRM_PLAN_COUPON: '🧾', SEND_PAYMENT: '💳', PAYMENT_REMINDER: '💳', PAYMENT_NOT_YET: '⏳', BACKUP_UNDER_REVIEW: '⏳',
   RENEW_PICK: '🔁', RENEW_DURATION: '🔁', RENEW_CONFIRM: '🔁', RENEW_CONFIRM_COUPON: '🔁', RENEW_NOTHING: '🔁',
   PRICE_HELP: '💰', PRICE_HELP_PLAN: '💰', PRICE_MATCH: '💰', PRICE_FROM: '💰', PAYMENT_METHOD: '💳', WHEN_LOGIN: '🔐', WHEN_LOGIN_MANUAL: '🔐', VALIDITY: '📅', DEVICES_ANSWER: '📱', QUALITY_UNSURE: '💬',
-  ASK_DEVICES_SHARING_OR_PRIVATE: '📱', MULTI_DEVICE_PLANS: '📱', ASK_SAME_TIME: '📺', ASK_LOGIN_MODE: '🔑', EARLY_RENEW_DISCOUNT: '🎁', MULTI_DEVICE_NONE: '📱', SWITCH_CONFIRM: '🔄', QUESTION_TO_TEAM: '💬', ASK_COUPON: '🎟️', COUPON_INVALID: '🎟️',
+  ASK_DEVICES_SHARING_OR_PRIVATE: '📱', MULTI_DEVICE_PLANS: '📱', ASK_SAME_TIME: '📺', ASK_LOGIN_MODE: '🔑', EARLY_RENEW_DISCOUNT: '🎁', HH_OFFER_CODE: '🏠', HH_CODE_READY: '🔑', MULTI_DEVICE_NONE: '📱', SWITCH_CONFIRM: '🔄', QUESTION_TO_TEAM: '💬', ASK_COUPON: '🎟️', COUPON_INVALID: '🎟️',
 };
 const escRe = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function format(text, facts, intent, opts) {

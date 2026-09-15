@@ -558,7 +558,7 @@ const famKey = (service) => familyOf(service).replace(/[^a-z0-9]/g, '');
 /** A service whose login is FluxFilm's phone number + OTP (its plan's own device rule says so, e.g. JioHotstar). */
 const isOtpService = (plans, service) => !!service && (plans || []).some((p) => p && famKey(p.service) === famKey(service) && /\botp\b/i.test(s(p.deviceRuleText)));
 const hasDays = (x) => x && x.daysLeft !== null && x.daysLeft !== undefined && x.daysLeft !== '' && Number.isFinite(Number(x.daysLeft));
-async function supportReplies(c, ctx, kind, service) {
+async function supportReplies(c, ctx, kind, service, opts) {
   const st = c.state; const lang = c.lang; const plans = ctx.cat.plans || [];
   if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true;
   if (!st.paused) st.step = 'info';
@@ -609,7 +609,17 @@ async function supportReplies(c, ctx, kind, service) {
   const bothHelpers = !(h1 !== h2);
   const otpSvc = isOtpService(plans, svc);
   if (kind === 'paidnotgot') return reply({ intent: 'PAID_NOT_RECEIVED', buttons: [btn('myplans', lang), btn('recover', lang), wa] });
-  if (kind === 'household') return reply({ intent: 'HOUSEHOLD_HELPER', facts: { bothHelpers }, buttons: helperBtns().concat([wa]) });
+  if (kind === 'household') {
+    let acc = null;
+    // opts.noAuto: the auto-fetch was already tried this turn and could not get a code — show the manual steps, don't re-offer.
+    if (!(opts && opts.noAuto)) {
+      try { const na = await tools().netflixAccounts(c.phone); if (na && na.ok) { const usable = (na.accounts || []).filter((x) => x.email && x.kind); if (usable.length === 1) acc = usable[0]; } } catch (_) { acc = null; }
+      ctx.meta.push({ tool: 'netflixAccounts', canCode: !!acc });
+    }
+    if (acc) { st.hhSub = acc.subId; return reply({ intent: 'HH_OFFER_CODE', facts: { bothHelpers }, buttons: [btn('hhcode', lang)].concat(helperBtns(), [wa]) }); }
+    delete st.hhSub;
+    return reply({ intent: 'HOUSEHOLD_HELPER', facts: { bothHelpers }, buttons: helperBtns().concat([wa]) });
+  }
   if ((kind === 'otp' && (!svc || otpSvc)) || (kind === 'login' && otpSvc)) return reply({ intent: 'OTP_HELP', facts: { service: otpSvc ? name : '' }, buttons: [btn('getotp', lang), btn('myplans', lang), wa] });
   if (kind === 'stopped') {
     const hh = !svc || netflix;
@@ -1077,6 +1087,19 @@ async function turn(c, input, ctx) {
     return [{ intent: 'HANDOFF_TO_HUMAN', buttons: withBackToPay(st, lang, [btn('whatsapp', lang), btn('menu', lang)]) }];
   }
   // After-sale help: login / password, household / TV code, "band ho gaya", OTP, paid but no login (menu: "Login / account problem").
+  if (action === 'hhcode') {
+    // Netflix household auto-fix: fetch the "Watch temporarily" travel code for the customer's own active Netflix account.
+    const na = await tools().netflixAccounts(c.phone).catch(() => null);
+    const acc = na && na.ok ? (na.accounts || []).find((x) => x.subId === st.hhSub && x.email && x.kind) : null;
+    if (!acc) return supportReplies(c, ctx, 'household', '');
+    const res = await tools().householdCode(acc).catch(() => ({ ok: false, manual: true }));
+    ctx.meta.push({ tool: 'householdCode', ok: !!(res && res.ok) });
+    if (res && res.ok && /^\d{4}$/.test(String(res.code))) {
+      if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
+      return [{ intent: 'HH_CODE_READY', card: { type: 'code', code: String(res.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }];
+    }
+    return supportReplies(c, ctx, 'household', '', { noAuto: true }); // could not fetch it: the manual Helper steps + link
+  }
   if (SUPPORT_KINDS.has(action) || action === 'support') return supportReplies(c, ctx, action === 'support' ? 'login' : action, ents.service || '');
   if (action.startsWith('help:')) {
     const name = (st.helpServices || [])[Number(action.slice(5))];
