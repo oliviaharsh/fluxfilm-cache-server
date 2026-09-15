@@ -312,24 +312,41 @@ if (oliviaMod) {
   LIMITS.oliviaChat = security.rateLimiter(400, TEN_MIN); // the payment screen polls every 6-8 s
   PHONE_LIMITS.oliviaChat = security.rateLimiter(300, TEN_MIN);
 }
-// 💸 Refunds (refunds.js): the home-screen choice for a cash refund (refund credit +10%, or a UPI ID → admin Today
-// to-do). a = [phone] / [phone, orderId] / [phone, orderId, upiId, deviceToken]. The UPI ID needs the email code.
+// 💸 Refunds v3 (refunds.js): the customer chooses how to get a refund — coins or a coupon (+bonus%, instant) or the
+// exact amount to a UPI ID (email code → admin 💸 Refunds to send). Works for not-delivered refunds (id FF…) and refund
+// offers on delivered plans (id RO…). Amounts always come from the server.
+// a = [phone] / [phone, id] / [phone, id, method COINS|COUPON] / [phone, id, upiId, deviceToken] / [phone, orderId].
 let refundsMod = null; try { refundsMod = require('./refunds'); } catch (e) { console.log('[refunds] not loaded:', e.message); }
 if (refundsMod) {
   Object.assign(DB_STOREFRONT, {
     getPendingRefunds: (a) => refundsMod.getPendingRefunds(a[0]),
     convertRefundToCredit: (a) => refundsMod.convertToCredit(a[0], a[1]),
+    chooseRefund: (a) => refundsMod.chooseRefund(a[0], a[1], typeof a[2] === 'string' ? a[2] : ''),
     refundSendCode: (a) => refundsMod.sendCode(String(a[0] || ''), String(a[1] || '')), // [phone, email]
     requestUpiRefund: (a) => refundsMod.requestUpi(a[0], a[1], a[2], a[3]),
+    refundSentSeen: (a) => refundsMod.markSentSeen(a[0], a[1]),
   });
-  ['getPendingRefunds', 'convertRefundToCredit', 'refundSendCode', 'requestUpiRefund'].forEach((x) => DB_STOREFRONT_ACTIONS.add(x));
+  ['getPendingRefunds', 'convertRefundToCredit', 'chooseRefund', 'refundSendCode', 'requestUpiRefund', 'refundSentSeen'].forEach((x) => DB_STOREFRONT_ACTIONS.add(x));
   Object.assign(LIMITS, {
-    getPendingRefunds: security.rateLimiter(120, TEN_MIN), convertRefundToCredit: security.rateLimiter(20, TEN_MIN),
-    refundSendCode: security.rateLimiter(10, 60 * 60e3), requestUpiRefund: security.rateLimiter(20, TEN_MIN),
+    getPendingRefunds: security.rateLimiter(120, TEN_MIN), convertRefundToCredit: security.rateLimiter(20, TEN_MIN), chooseRefund: security.rateLimiter(20, TEN_MIN),
+    refundSendCode: security.rateLimiter(10, 60 * 60e3), requestUpiRefund: security.rateLimiter(20, TEN_MIN), refundSentSeen: security.rateLimiter(60, TEN_MIN),
   });
   Object.assign(PHONE_LIMITS, {
-    convertRefundToCredit: security.rateLimiter(10, TEN_MIN), refundSendCode: security.rateLimiter(4, 60 * 60e3), requestUpiRefund: security.rateLimiter(10, TEN_MIN),
+    convertRefundToCredit: security.rateLimiter(10, TEN_MIN), chooseRefund: security.rateLimiter(10, TEN_MIN), refundSendCode: security.rateLimiter(4, 60 * 60e3), requestUpiRefund: security.rateLimiter(10, TEN_MIN),
   });
+}
+// 💸 Request refund (refundrequests.js): Account → Request refund. a = [phone] / [phone, { orderId | subId, reason, text }].
+// The server decides what can be requested (48 h from payment for undelivered orders, India time); max 5 a day per phone.
+let refundRequestsMod = null; try { refundRequestsMod = require('./refundrequests'); } catch (e) { console.log('[refund requests] not loaded:', e.message); }
+if (refundRequestsMod) {
+  Object.assign(DB_STOREFRONT, {
+    getRefundRequestItems: (a) => refundRequestsMod.listItems(a[0]),
+    createRefundRequest: (a) => refundRequestsMod.createRequest(a[0], a[1] && typeof a[1] === 'object' ? { orderId: a[1].orderId, subId: a[1].subId, reason: a[1].reason, text: a[1].text } : {}),
+  });
+  ['getRefundRequestItems', 'createRefundRequest'].forEach((x) => DB_STOREFRONT_ACTIONS.add(x));
+  Object.assign(LIMITS, { getRefundRequestItems: security.rateLimiter(60, TEN_MIN), createRefundRequest: security.rateLimiter(20, TEN_MIN) });
+  // Tries per phone (memory); refundrequests.js also allows at most 5 saved requests a day per phone (database).
+  Object.assign(PHONE_LIMITS, { createRefundRequest: security.rateLimiter(10, 24 * 60 * 60e3) });
 }
 // ₹0 checkout (order.js confirmFreeOrder): a = [orderId, { token, phone }]. The server re-checks the total and the holds.
 if (order) {

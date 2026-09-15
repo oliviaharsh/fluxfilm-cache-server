@@ -2,7 +2,10 @@
  * FluxFilm - admin "🚪 Expired customers still on accounts" + one-tap cleanup (admin-only, mounted by admin.js).
  *
  *   GET  /admin/api/remove-users                  the Sheet rule per account login (expiredusers.js) + counts
- *                                                 (customers, accounts, safeAccounts, safeUsers, other). Alias: /expired-users
+ *                                                 (customers, accounts, safeAccounts, safeUsers, other,
+ *                                                 changeNow / wait / later + advice per login). Alias: /expired-users
+ *   GET  /admin/api/remove-users/settings         { rules: { minInactive, minDays } }  when to change the password
+ *   POST /admin/api/remove-users/settings         { minInactive, minDays }  (app_settings, change log)
  *   POST /admin/api/remove-users/removed          { subIds, label }  "Remove all on this account" (ended rows only)
  *   GET  /admin/api/order/subs-removed?id=FF…     how many of this order's subscriptions can be ticked removed
  *   POST /admin/api/order/subs-removed            { orderId, includeActive }  tick them all removed (removed_at = now)
@@ -34,6 +37,23 @@ function mount(app, deps) {
   };
   app.get('/admin/api/remove-users', removeUsers);
   app.get('/admin/api/expired-users', removeUsers); // older name, same answer
+
+  // ⚙️ When to change the password: min inactive users + min days until the next active expiry (app_settings).
+  app.get('/admin/api/remove-users/settings', async (req, res) => {
+    if (!auth(req, res)) return;
+    try { const E = expired(); res.json({ ok: true, rules: await E.loadRules((sql, p) => db.query(sql, p)), defaults: E.DEFAULT_RULES }); } catch (e) { fail(res, e); }
+  });
+  app.post('/admin/api/remove-users/settings', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      const b = req.body || {};
+      const r = await expired().saveRules((sql, p) => db.query(sql, p), { minInactive: b.minInactive, minDays: b.minDays });
+      if (!r.ok) return res.status(400).json(r);
+      const label = { minInactive: 'min inactive users', minDays: 'min days until next expiry' };
+      audit.record(req, { action: 'removeusers.settings', entity: 'settings', id: 'remove_users_rules', summary: r.changed.length ? '🚪 Password-change timing: ' + r.changed.map((k) => label[k] + ' ' + r.before[k] + ' → ' + r.rules[k]).join(', ') : '🚪 Password-change timing saved (no changes)', details: { before: r.before, after: r.rules } });
+      res.json({ ok: true, rules: r.rules, changed: r.changed });
+    } catch (e) { fail(res, e); }
+  });
 
   // "Remove all on this account": tick several ended subscriptions removed at once (removed_at = now).
   // Same write as POST /admin/api/sub-removed; running subscriptions and already-removed rows are never touched.

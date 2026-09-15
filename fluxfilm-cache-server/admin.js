@@ -142,6 +142,8 @@ function mountAdmin(app, deps) {
   require('./adminlookup').mount(app, Object.assign({ db, auth, audit }, deps.lookup || {}));
   // Stuck orders: fulfil / re-fulfil, deliver manually, refund, erase (adminorderactions.js).
   require('./adminorderactions').mount(app, Object.assign({ db, auth, audit }, deps.orderActions || {}));
+  // 💸 Refunds v3: UPI refunds to send, refund offers on delivered plans, bonus % / offer days settings (adminrefunds.js).
+  require('./adminrefunds').mount(app, Object.assign({ db, auth, audit }, deps.refundsAdmin || {}));
   // Today screen, to-dos, global search, change log viewer (adminhome.js).
   require('./adminhome').mount(app, Object.assign({ db, auth, audit }, deps.home || {}));
   // Password change (F5) + renewal reminders (accounttools.js).
