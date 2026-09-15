@@ -253,8 +253,10 @@ if (gamesMod) {
 // 🤖 Olivia, the AI store manager (olivia.js): Help → "Chat with Olivia". Off until admin → 🤖 Olivia switches it on.
 // a = [phone] / [phone, { conversationId, choice, text, lang, installedApp }].
 if (oliviaMod) {
-  Object.assign(DB_STOREFRONT, { oliviaStatus: (a) => oliviaMod.status(a[0]), oliviaChat: (a) => oliviaMod.handle(a[0], a[1]) });
-  DB_STOREFRONT_ACTIONS.add('oliviaStatus'); DB_STOREFRONT_ACTIONS.add('oliviaChat');
+  Object.assign(DB_STOREFRONT, { oliviaStatus: (a) => oliviaMod.status(a[0]), oliviaChat: (a) => oliviaMod.handle(a[0], a[1]), oliviaHistory: (a) => oliviaMod.history(a[0]), oliviaTranscript: (a) => oliviaMod.transcript(a[0], a[1]) });
+  DB_STOREFRONT_ACTIONS.add('oliviaStatus'); DB_STOREFRONT_ACTIONS.add('oliviaChat'); DB_STOREFRONT_ACTIONS.add('oliviaHistory'); DB_STOREFRONT_ACTIONS.add('oliviaTranscript');
+  LIMITS.oliviaHistory = security.rateLimiter(60, TEN_MIN);
+  LIMITS.oliviaTranscript = security.rateLimiter(120, TEN_MIN);
   LIMITS.oliviaStatus = security.rateLimiter(120, TEN_MIN);
   LIMITS.oliviaChat = security.rateLimiter(400, TEN_MIN); // the payment screen polls every 6-8 s
   PHONE_LIMITS.oliviaChat = security.rateLimiter(300, TEN_MIN);

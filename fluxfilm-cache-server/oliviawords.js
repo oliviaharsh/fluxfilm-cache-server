@@ -157,9 +157,9 @@ const T = {
     hi: () => 'Netflix "not part of your household" बोल रहा है या TV कोड माँग रहा है? Household Helper खोलिए और स्टेप्स फॉलो कीजिए। चैट से अपने आप ठीक करना जल्दी आएगा।',
   },
   GROUP_JOIN: {
-    en: (f) => f.service + ' is our cheaper Group Offer 👥 To buy it, please join the FluxFilm WhatsApp group first, then tap "I have joined".',
-    hinglish: (f) => f.service + ' hamara saste wala Group Offer hai 👥 Iske liye pehle FluxFilm WhatsApp group join kijiye, phir "I have joined" dabaiye.',
-    hi: (f) => f.service + ' हमारा सस्ता Group Offer है 👥 इसके लिए पहले FluxFilm WhatsApp ग्रुप जॉइन कीजिए, फिर "I have joined" दबाइए।',
+    en: (f) => (f.title ? 'Oh, the ' + rupees(f.price) + ' plan is our Group Offer: ' + f.title + ' 👥' : f.service + ' is our cheaper Group Offer 👥') + ' It is a special price only for members of the FluxFilm WhatsApp group. For this plan, please join the group first (button below), then come back and tap "I have joined" and you can buy it.' + (f.normalPrice ? ' If you do not want to join, the normal plan is ' + rupees(f.normalPrice) + '.' : ''),
+    hinglish: (f) => (f.title ? 'Achha, ' + rupees(f.price) + ' wala plan hamara Group Offer hai: ' + f.title + ' 👥' : f.service + ' hamara saste wala Group Offer hai 👥') + ' Yeh special price sirf FluxFilm WhatsApp group ke members ke liye hai. Is plan ke liye pehle group join kijiye (neeche button), phir wapas aakar "I have joined" dabaiye, aur aap ise le sakte hain.' + (f.normalPrice ? ' Group join nahi karna ho to normal plan ' + rupees(f.normalPrice) + ' ka hai.' : ''),
+    hi: (f) => (f.title ? 'अच्छा, ' + rupees(f.price) + ' वाला प्लान हमारा Group Offer है: ' + f.title + ' 👥' : f.service + ' हमारा सस्ता Group Offer है 👥') + ' यह खास कीमत सिर्फ़ FluxFilm WhatsApp ग्रुप के सदस्यों के लिए है। इस प्लान के लिए पहले ग्रुप जॉइन कीजिए (नीचे बटन), फिर वापस आकर "I have joined" दबाइए, और आप इसे ले सकते हैं।' + (f.normalPrice ? ' ग्रुप जॉइन नहीं करना हो तो सामान्य प्लान ' + rupees(f.normalPrice) + ' का है।' : ''),
   },
   CONFIRM_PLAN_COUPON: {
     en: (f) => 'You chose ' + f.title + '. Price ' + rupees(f.price) + ', coupon ' + f.code + ' saves ' + rupees(f.discount) + ', so you pay ' + rupees(f.final) + '. Shall I send the payment QR?',
@@ -340,6 +340,7 @@ const B = {
   keep: { en: '👍 Keep this plan', hinglish: '👍 Yahi plan theek hai', hi: '👍 यही प्लान ठीक है' },
   rchange: { en: '↩️ Change duration', hinglish: '↩️ Time badlo', hi: '↩️ समय बदलो' },
   switch: { en: '🔁 Yes, change plan', hinglish: '🔁 Haan, plan badlo', hi: '🔁 हाँ, प्लान बदलो' },
+  normal: { en: '➡️ Normal plan instead', hinglish: '➡️ Normal plan lo', hi: '➡️ सामान्य प्लान लो' },
   menu: { en: '🏠 Main menu', hinglish: '🏠 Main menu', hi: '🏠 मेन मेन्यू' },
   whatsapp: { en: '💬 WhatsApp our team', hinglish: '💬 WhatsApp par team', hi: '💬 WhatsApp पर टीम' },
   helper: { en: '🏠 Open Household Helper', hinglish: '🏠 Household Helper kholo', hi: '🏠 Household Helper खोलो' },
