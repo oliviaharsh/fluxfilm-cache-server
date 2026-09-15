@@ -33,7 +33,13 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<!-- ⚡ Speed (run 1): React comes from unpkg — open that connection while the page is still downloading. The font CSS
+     no longer blocks the page: it used to hold back every script below until Google answered (the text uses the
+     system font for a moment, then Plus Jakarta Sans, exactly like display=swap already did). -->
+<link rel="preconnect" href="https://unpkg.com" crossorigin />
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+<noscript><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" /></noscript>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; min-height: 100dvh; -webkit-font-smoothing: antialiased; background: #ffffff; }
@@ -52,14 +58,18 @@ html, body { background: #f5f7fb; }
 .ff-help { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; min-width: 44px; margin-left: auto; padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(22,163,74,.28); background: rgba(22,163,74,.08); color: #15803d; font-size: 13px; font-weight: 800; cursor: pointer; white-space: nowrap; }
 .ff-help:hover { background: rgba(22,163,74,.14); }
 .ff-help-long { display: none; }
-.ff-bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 2px; background: rgba(255,255,255,.97); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid rgba(15,23,42,.08); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px rgba(15,23,42,.06); }
+.ff-bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 2px; background: rgba(255,255,255,.97); border-top: 1px solid rgba(15,23,42,.08); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px rgba(15,23,42,.06); }
 .ff-bnav-btn { border: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; white-space: nowrap; font-weight: 700; color: #64748b; padding: 7px 0 6px; border-radius: 14px; cursor: pointer; }
 .ff-bnav-ic { font-size: 20px; line-height: 1; }
 .ff-bnav-btn.on { color: #15803d; background: rgba(22,163,74,.09); }
 @keyframes ffSlideIn { from { transform: perspective(1400px) translate3d(30px,0,-24px) rotateY(-7deg); opacity: 0; } to { transform: perspective(1400px) rotateY(0); opacity: 1; } }
 @keyframes ffSlideBack { from { transform: perspective(1400px) translate3d(-30px,0,-24px) rotateY(7deg); opacity: 0; } to { transform: perspective(1400px) rotateY(0); opacity: 1; } }
-.ff-slide { animation: ffSlideIn .26s cubic-bezier(.2,.8,.3,1) backwards; transform-origin: 50% 30%; }
-html.ff-lite .ff-slide { animation-duration: .2s; }
+.ff-slide { animation: ffSlideIn .2s cubic-bezier(.2,.8,.3,1) backwards; transform-origin: 50% 30%; }
+html.ff-lite .ff-slide { animation-duration: .16s; }
+/* ⚡ Speed: the bottom menu is 97% white, so its blur was invisible but was redrawn on every scroll frame (removed).
+   Low-end phones also skip the header / pop-up blur (a solid colour instead). */
+html.ff-lite .ff-topbar { background: rgba(255,255,255,.98); backdrop-filter: none; -webkit-backdrop-filter: none; }
+html.ff-lite .ff-sheet-bg { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(15,23,42,.58); }
 .ff-slide-back { animation-name: ffSlideBack; }
 @media (prefers-reduced-motion: reduce) { .ff-slide { animation: none; } }
 .ff-refbar { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; padding: 11px 14px; border-radius: 16px; background: linear-gradient(135deg,rgba(236,72,153,.10),rgba(245,158,11,.10)); border: 1px solid rgba(236,72,153,.22); font-size: 13.5px; font-weight: 700; color: #831843; }
@@ -441,7 +451,7 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-feed-chips::-webkit-scrollbar { display: none; }
 .ff-feed-chips button { flex: none; min-height: 38px; padding: 0 14px; border-radius: 999px; border: 1.5px solid rgba(15,23,42,.12); background: #fff; font: inherit; font-size: 13px; font-weight: 700; color: #334155; cursor: pointer; white-space: nowrap; }
 .ff-feed-chips button.on { background: #0f172a; border-color: #0f172a; color: #fff; }
-.ff-feed-post { background: #fff; border: 1px solid rgba(15,23,42,.09); border-radius: 22px; overflow: hidden; margin: 0 0 16px; box-shadow: 0 1px 3px rgba(15,23,42,.05); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+.ff-feed-post { content-visibility: auto; contain-intrinsic-size: auto 760px; background: #fff; border: 1px solid rgba(15,23,42,.09); border-radius: 22px; overflow: hidden; margin: 0 0 16px; box-shadow: 0 1px 3px rgba(15,23,42,.05); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
 .ff-feed-post.hl { box-shadow: 0 0 0 3px rgba(22,163,74,.35), 0 8px 24px rgba(15,23,42,.1); }
 .ff-feed-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
 .ff-feed-av { width: 38px; height: 38px; border-radius: 50%; flex: none; overflow: hidden; padding: 2px; background: linear-gradient(135deg,#f59e0b,#db2777,#7c3aed); }
@@ -464,12 +474,23 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-feed-play-sm { position: absolute; left: 10px; bottom: 10px; min-height: 36px; padding: 0 12px; border: 0; border-radius: 999px; background: rgba(15,23,42,.8); color: #fff; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
 .ff-feed-media.vid { background: #000; }
 .ff-feed-yt { position: absolute; left: 0; top: 50%; width: 100%; aspect-ratio: 16 / 9; transform: translateY(-50%); border: 0; }
-.ff-feed-vclose { position: absolute; top: 8px; right: 8px; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(15,23,42,.75); color: #fff; font-size: 17px; font-weight: 800; cursor: pointer; }
-.ff-feed-media.ig { aspect-ratio: auto; background: #fff; overflow: visible; display: flex; flex-direction: column; }
+.ff-feed-vclose { position: absolute; z-index: 3; top: 8px; right: 8px; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(15,23,42,.75); color: #fff; font-size: 17px; font-weight: 800; cursor: pointer; }
+.ff-feed-media.ig { aspect-ratio: auto; background: #0b0f19; overflow: visible; display: flex; flex-direction: column; }
 .ff-feed-igbox { flex: 1; min-width: 0; }
 .ff-feed-igbox .instagram-media { margin: 0 auto !important; min-width: 0 !important; width: 100% !important; max-width: 100% !important; border: 0 !important; box-shadow: none !important; }
 .ff-feed-igbox iframe { display: block; width: 100% !important; min-width: 0 !important; max-width: 100% !important; border: 0; }
-.ff-feed-vbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid rgba(15,23,42,.08); }
+/* ⚡ Run 1: loading cover over a tapped Reel / trailer (poster + spinner) until the player can be seen. Off-screen feed
+   posts are not drawn until they come near the screen (content-visibility), so scrolling the New tab stays smooth. */
+.ff-feed-vload { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; overflow: hidden; background: #0b0f19; color: #fff; transition: opacity .2s ease, visibility .2s; }
+.ff-feed-media.ig .ff-feed-vload { bottom: auto; min-height: 320px; }
+.ff-feed-media.ig.on { background: #fff; }
+.ff-feed-vload.off { opacity: 0; visibility: hidden; pointer-events: none; }
+.ff-feed-media .ff-feed-vposter { opacity: .45; }
+.ff-feed-vload i { position: relative; width: 44px; height: 44px; border-radius: 50%; border: 3.5px solid rgba(255,255,255,.28); border-top-color: #fff; animation: ffVSpin .8s linear infinite; }
+.ff-feed-vload span { position: relative; padding: 5px 12px; border-radius: 999px; background: rgba(15,23,42,.6); font-size: 13px; font-weight: 800; }
+@keyframes ffVSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ff-feed-vload i { animation-duration: 2.4s; } }
+.ff-feed-vbar { position: relative; z-index: 3; background: #fff; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid rgba(15,23,42,.08); }
 .ff-feed-vbar a, .ff-feed-vbar button { min-height: 36px; display: inline-flex; align-items: center; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 800; color: #475569; cursor: pointer; text-decoration: none; }
 .ff-feed-vbar a { color: #be185d; }
 .ff-feed-acts .ff-feed-trailer.sm { background: none; color: #64748b; font-size: 12.5px; }
@@ -494,6 +515,7 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-feed-cta > span:last-child { font-size: 24px; }
 .ff-feed-cta.renew { background: linear-gradient(135deg,#7c3aed,#a855f7); box-shadow: 0 6px 16px rgba(124,58,237,.25); }
 .ff-feed-note { margin-top: 8px; font-size: 12.5px; font-weight: 700; color: #15803d; }
+.ff-feed-post.ff-feed-skel { content-visibility: visible; }
 .ff-feed-skel .ff-feed-media { animation: ffFeedShimmer 1.2s linear infinite; }
 .ff-feed-skel i { display: block; height: 12px; margin: 10px 14px; border-radius: 6px; background: #eef2f7; }
 @keyframes ffFeedShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
@@ -584,7 +606,8 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 </style>
 <script>
 // Low-end phone (≤2 CPU cores or ≤2 GB RAM): html.ff-lite trims the extra 3D flourishes (stagger, shine, rings).
-try { if ((navigator.hardwareConcurrency || 8) <= 2 || (navigator.deviceMemory || 8) <= 2) document.documentElement.classList.add('ff-lite'); } catch (e) {}
+// Data Saver on also counts (those phones / networks are usually the slow ones).
+try { if ((navigator.hardwareConcurrency || 8) <= 2 || (navigator.deviceMemory || 8) <= 2 || (navigator.connection && navigator.connection.saveData)) document.documentElement.classList.add('ff-lite'); } catch (e) {}
 </script>
 <script>
 // Installable app: keep Chrome's install prompt for our own "Install app" buttons; register the service worker
@@ -11135,22 +11158,57 @@ function feedIgScript_(cb) {
 // Blockquote + embed.js; if the script is blocked, or after 8 s there is no embed with a real height (embed.js sizes it by
 // message; some in-app browsers never deliver it) → Instagram's /embed/ iframe with a fixed height.
 // Without Instagram's own caption (v3): its full caption made the card very long; the post's own caption below has "more".
-function feedIgMount_(el, url, minH) {
+// ⚡ Run 1: onReady() fires once the Reel can really be seen (embed.js iframe has a height, or the /embed/ iframe loaded),
+// so FeedMedia keeps the poster + spinner on top until then (no white "View this post on Instagram" flash). If embed.js
+// made its iframe and it loaded but never got a height, the /embed/ iframe takes over 2 s later (was: only after 8 s).
+function feedIgMount_(el, url, minH, onReady) {
   if (!el || !feedIgUrl_(url)) return () => {};
-  let dead = false;
+  let dead = false,
+    ready = false,
+    tick = 0,
+    seenAt = 0,
+    loadedAt = 0;
+  const shown = () => {
+    if (dead || ready) return;
+    ready = true;
+    clearTimeout(tick);
+    try {
+      onReady && onReady();
+    } catch (e) {}
+  };
   const iframe = () => {
     if (dead) return;
+    clearTimeout(tick);
+    clearTimeout(timer);
     el.textContent = '';
     const f = document.createElement('iframe');
     f.src = feedIgUrl_(url) + 'embed/';
     f.title = 'Instagram video';
-    f.loading = 'lazy';
+    // Not lazy (run 1): it is only made after a tap on a card that is on screen; lazy made some browsers wait.
     f.setAttribute('allow', 'encrypted-media; picture-in-picture');
     f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox');
     f.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
     f.className = 'ff-feed-igframe';
     f.style.height = Math.max(480, Math.round((minH || 0) + 160)) + 'px';
+    f.onload = shown;
     el.appendChild(f);
+    setTimeout(shown, 5000); // never keep the cover on forever
+  };
+  // Every 150 ms: is embed.js's iframe there, with a real height yet?
+  const watch = () => {
+    if (dead || ready) return;
+    const f = el.querySelector('iframe');
+    if (f) {
+      if (f.offsetHeight >= 60) return shown();
+      if (!seenAt) {
+        seenAt = Date.now();
+        if (f.addEventListener) f.addEventListener('load', () => {
+          loadedAt = Date.now();
+        });
+      }
+      if (loadedAt && Date.now() - loadedAt > 2000) return iframe();
+    }
+    tick = setTimeout(watch, 150);
   };
   el.textContent = '';
   const bq = document.createElement('blockquote');
@@ -11177,6 +11235,7 @@ function feedIgMount_(el, url, minH) {
     }
     try {
       window.instgrm.Embeds.process();
+      watch();
     } catch (e) {
       clearTimeout(timer);
       iframe();
@@ -11185,7 +11244,27 @@ function feedIgMount_(el, url, minH) {
   return () => {
     dead = true;
     clearTimeout(timer);
+    clearTimeout(tick);
   };
+}
+// ⚡ Run 1: when the New tab shows posts, open the connections to Instagram / YouTube (only if a post has such a video), so
+// a tap starts the video sooner. A preconnect sends no cookies and loads nothing; the players still load only on a tap.
+const feedWarmed_ = {};
+function feedWarm_(posts) {
+  try {
+    const list = posts || [];
+    const hosts = [];
+    if (list.some(p => feedIgUrl_(p.instagramUrl))) hosts.push('https://www.instagram.com', 'https://static.cdninstagram.com');
+    if (list.some(p => feedYouTubeId_(p.trailerUrl))) hosts.push('https://www.youtube-nocookie.com');
+    hosts.forEach(h => {
+      if (feedWarmed_[h]) return;
+      feedWarmed_[h] = 1;
+      const l = document.createElement('link');
+      l.rel = 'preconnect';
+      l.href = h;
+      document.head.appendChild(l);
+    });
+  } catch (e) {}
 }
 function FeedMedia({
   p,
@@ -11195,15 +11274,23 @@ function FeedMedia({
   const ig = feedIgUrl_(p.instagramUrl);
   const [play, setPlay] = useState('');
   const [minH, setMinH] = useState(0);
+  // ⚡ Run 1: '' until the video can be seen; meanwhile the poster + spinner stay on top (no white / black flash).
+  const [shown, setShown] = useState('');
   const boxRef = useRef(null);
   const igRef = useRef(null);
   const key = 'post-' + p.id;
   useEffect(() => () => feedVideoEnd_(key), []);
   useEffect(() => {
     if (play !== 'ig') return;
-    return feedIgMount_(igRef.current, ig, minH);
+    return feedIgMount_(igRef.current, ig, minH, () => setShown('ig'));
+  }, [play]);
+  useEffect(() => {
+    if (play !== 'yt') return;
+    const t = setTimeout(() => setShown('yt'), 6000); // the player's load event got lost: show it anyway
+    return () => clearTimeout(t);
   }, [play]);
   function start(kind) {
+    setShown('');
     if (boxRef.current) setMinH(boxRef.current.offsetHeight);
     feedVideoStart_(key, () => {
       setPlay('');
@@ -11224,15 +11311,31 @@ function FeedMedia({
     width: 520,
     height: 650
   }) : null;
+  // Loading cover: the same poster (already downloaded), dimmed, with a spinner; fades out once the player is visible.
+  const cover = (kind, label) => React.createElement("div", {
+    className: 'ff-feed-vload' + (shown === kind ? ' off' : ''),
+    style: kind === 'ig' && minH ? {
+      height: minH
+    } : undefined,
+    role: shown === kind ? undefined : 'status',
+    "aria-hidden": shown === kind ? 'true' : undefined
+  }, p.image && React.createElement("img", {
+    className: "ff-feed-vposter",
+    src: p.image,
+    alt: "",
+    decoding: "async"
+  }), React.createElement("i", {
+    "aria-hidden": "true"
+  }), React.createElement("span", null, label));
   if (play === 'ig') return React.createElement("div", {
-    className: "ff-feed-media ig",
+    className: "ff-feed-media ig" + (shown === 'ig' ? ' on' : ''),
     style: {
       minHeight: minH || undefined
     }
   }, React.createElement("div", {
     ref: igRef,
     className: "ff-feed-igbox"
-  }), React.createElement("div", {
+  }), cover('ig', 'Loading Reel…'), React.createElement("div", {
     className: "ff-feed-vbar"
   }, React.createElement("a", {
     href: ig,
@@ -11248,11 +11351,11 @@ function FeedMedia({
     className: "ff-feed-yt",
     src: feedTrailerSrc_(yt),
     title: 'Trailer: ' + p.title,
-    loading: "lazy",
     allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
     allowFullScreen: true,
-    referrerPolicy: "strict-origin-when-cross-origin"
-  }), React.createElement("button", {
+    referrerPolicy: "strict-origin-when-cross-origin",
+    onLoad: () => setShown('yt')
+  }), cover('yt', 'Loading trailer…'), React.createElement("button", {
     type: "button",
     className: "ff-feed-vclose",
     "aria-label": "Close video",
@@ -11713,6 +11816,9 @@ function FeedScreen({
   useEffect(() => {
     load(false);
   }, []);
+  useEffect(() => {
+    if (data && data.posts) feedWarm_(data.posts);
+  }, [data]);
   useEffect(() => {
     if (postId) setPinId(postId);
   }, [postId]);
