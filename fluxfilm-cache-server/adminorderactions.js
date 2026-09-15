@@ -98,7 +98,14 @@ function decide(o, subs) {
   else if (!delivered) offer = no('Not delivered — use 💸 Refund.');
   else offer = { allowed: true };
 
-  return { status: st, fulfillmentStatus: fs, legacy, renew, delivered, manualPending, refunded, failed, fulfil, manual, refund, erase, upiDone, offer };
+  // ⚡ Refund now (adminrefundnow.js): the owner already agreed it with the customer — delivered or not, one step.
+  let refundNow;
+  if (refunded) refundNow = no('Already refunded.');
+  else if (st !== 'PAID') refundNow = no('Only paid orders can be refunded.');
+  else if (!(asNum(o.final_amount) >= 1)) refundNow = no('This order cost ₹0 — use 💸 Refund.');
+  else refundNow = { allowed: true };
+
+  return { status: st, fulfillmentStatus: fs, legacy, renew, delivered, manualPending, refunded, failed, fulfil, manual, refund, erase, upiDone, offer, refundNow };
 }
 
 function mount(app, deps) {
@@ -182,7 +189,7 @@ function mount(app, deps) {
       };
       if (d.refunded) {
         const ri = refundsMod.refundInfo(o);
-        out.refund = { amount: ri.amount, method: ri.method, kind: ri.kind, state: ri.state, reference: ri.reference, note: s(raw.RefundNote), at: ri.at, coins: asNum(raw.RefundCoins), credit: ri.credit, bonus: ri.bonus, coupon: ri.coupon, couponExpiry: ri.couponExpiry, upi: ri.upi, todoId: ri.todoId, upiSentAt: s(raw.RefundUpiSentAt), delivered: ri.delivered, offerId: ri.offerId, charge: ri.charge, paid: ri.paid, reason: s(raw.RefundReason) };
+        out.refund = { amount: ri.amount, method: ri.method, kind: ri.kind, state: ri.state, reference: ri.reference, note: s(raw.RefundNote), at: ri.at, coins: asNum(raw.RefundCoins), credit: ri.credit, bonus: ri.bonus, coupon: ri.coupon, couponExpiry: ri.couponExpiry, upi: ri.upi, todoId: ri.todoId, upiSentAt: s(raw.RefundUpiSentAt), delivered: ri.delivered, offerId: ri.offerId, charge: ri.charge, paid: ri.paid, reason: s(raw.RefundReason), byAdmin: ri.byAdmin };
       }
       if (d.fulfil.allowed || d.failed) out.stock = await stockFor(o.service, o.plan);
       res.json(out);
@@ -397,6 +404,10 @@ function mount(app, deps) {
       res.json({ ok: true, orderId: id, status: 'REFUNDED', amount: done.amount, method: done.methodLabel, refundCredit: done.credit, coinsCredited: done.credit, coupon: done.coupon, holds: h, notes, message: '💸 Refund recorded (₹' + done.amount + ', ' + label + ').' });
     } catch (e) { send(res, e); }
   }
+
+  // ---------------------------------------------------------------- ⚡ Refund now (adminrefundnow.js)
+  // Same allocation lock, holds release and refund helpers as the refund above.
+  require('./adminrefundnow').mount(app, { db, auth, audit, now, coins: M.coins, R, withLockedTx, releaseHolds, decide, rowsOf, send, Refused });
 
   // ---------------------------------------------------------------- the customer's UPI refund was sent
   app.post('/admin/api/order/refund-upi-done', async (req, res) => {
