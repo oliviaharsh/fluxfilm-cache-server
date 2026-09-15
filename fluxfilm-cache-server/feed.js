@@ -50,6 +50,10 @@ const IMG_PREFIX = 'feed_img_';
 const MAX_POSTS = 200;
 const TYPES = ['movie', 'series', 'announcement'];
 const CTAS = ['service', 'none'];
+const FORMATS = ['post', 'reel'];
+const VIDEO_ID = /^fv[0-9a-f]{16}$/;
+let videoRef = null;
+const video = () => videoRef || (videoRef = require('./feedvideo'));
 const KINDS = ['view', 'like', 'unlike', 'click', 'share', 'play'];
 const IMG_MAX = 450000; // ~330 KB picture; the admin page shrinks uploads first
 const THUMB_GOOD = 120 * 1024; // an Instagram thumbnail above this is shrunk by the admin page after saving
@@ -198,6 +202,16 @@ function validate(input, existing) {
   const ig = instagramUrl(i.instagramUrl);
   if (ig === null) errors.push('Instagram link must be a public Reel or post link, like https://www.instagram.com/reel/ABC123xyz/');
   out.instagramUrl = ig || '';
+  // 🎬 Post type: 'post' (the feed) or 'reel' (full-screen in the Reels tab; also in the feed when reelInFeed).
+  // A reel's video = an uploaded MP4 / WebM (videoId, checked in save()) › a YouTube Shorts / trailer link › an Instagram Reel link.
+  out.format = FORMATS.includes(i.format) ? i.format : (existing && existing.format === 'reel' ? 'reel' : 'post');
+  const inFeed = i.reelInFeed !== undefined ? i.reelInFeed : existing ? existing.reelInFeed : true;
+  out.reelInFeed = out.format === 'reel' ? !(inFeed === false || inFeed === 'false' || inFeed === 0) : true;
+  const vid = s(i.videoId !== undefined ? i.videoId : existing && existing.videoId);
+  if (vid && !VIDEO_ID.test(vid)) errors.push('Video is not valid — upload it again.');
+  out.videoId = VIDEO_ID.test(vid) ? vid : '';
+  out.videoType = out.videoId && existing && existing.videoId === out.videoId ? s(existing.videoType) : '';
+  if (out.format === 'reel' && !out.videoId && !youtubeId(out.trailerUrl) && !out.instagramUrl) errors.push('A Reel needs a video: upload one, or paste a YouTube Shorts link or an Instagram Reel link.');
   out.cta = CTAS.includes(i.cta) ? i.cta : (out.service ? 'service' : 'none');
   if (!out.service) out.cta = 'none';
   // 🆕 "Season 3" on a new-season post (set by the import; kept on later saves that do not send it).
@@ -244,10 +258,18 @@ async function save(input) {
   const v = validate(input, idx >= 0 ? items[idx] : null);
   if (!v.ok) return { ok: false, message: v.errors.join(' '), errors: v.errors };
   if (idx < 0 && items.length >= MAX_POSTS) return { ok: false, message: 'Too many posts — delete old ones first (max ' + MAX_POSTS + ').' };
+  // 🎬 A newly linked video must be a finished upload; the video it replaces is deleted after saving.
+  const oldVideo = idx >= 0 ? s(items[idx].videoId) : '';
+  if (v.post.videoId && v.post.videoId !== oldVideo) {
+    let m = null; try { m = await video().info(v.post.videoId); } catch (_) { m = null; }
+    if (!m || m.status !== 'ready') return { ok: false, message: 'The video upload is not finished — upload it again.', errors: ['video'] };
+    v.post.videoType = m.mime;
+  }
   const igChanged = idx >= 0 ? items[idx].instagramUrl !== v.post.instagramUrl : !!v.post.instagramUrl;
   if (idx >= 0 && items[idx].hasThumb && !v.post.hasThumb) { try { await db.query('DELETE FROM app_settings WHERE setting_key = ?', [IMG_PREFIX + v.post.id + 't']); } catch (_) {} }
   if (idx >= 0) items[idx] = v.post; else items.unshift(v.post);
   await saveAll(items);
+  if (oldVideo && oldVideo !== v.post.videoId) { try { await video().remove(oldVideo); } catch (_) {} }
   return { ok: true, post: v.post, created: idx < 0, igChanged };
 }
 async function remove(id) {
@@ -257,6 +279,7 @@ async function remove(id) {
   await saveAll(items.filter((x) => x.id !== id));
   try { await db.query('DELETE FROM app_settings WHERE setting_key = ?', [IMG_PREFIX + id]); } catch (_) {}
   try { await db.query('DELETE FROM app_settings WHERE setting_key = ?', [IMG_PREFIX + id + 't']); } catch (_) {}
+  if (p.videoId) { try { await video().remove(p.videoId); } catch (_) {} }
   return { ok: true, post: p };
 }
 /** kind '' = the owner's uploaded picture (feed_img_<id>), 't' = the Instagram thumbnail (feed_img_<id>t). */
@@ -328,13 +351,17 @@ function pictureOf(p, ig) {
   if (p.hasImage) return '/feed-img/' + p.id + '?v=' + encodeURIComponent(p.updatedAt || '');
   return posterPath(p.imageUrl);
 }
+/** ❤️ Unique account likes per post (feedmarks.js) once schema-v25 exists; null = use the old feed_stats counter. */
+async function accountLikes() {
+  try { return await require('./feedmarks').likeCounts(); } catch (_) { return null; }
+}
 async function commentCounts() {
   try { return await require('./feedcomments').counts(); } catch (_) { return {}; }
 }
 let cache = null; let cacheAt = 0;
 async function publicList(now) {
   if (!now && cache && Date.now() - cacheAt < 30e3) return cache;
-  const [items, st, cc] = await Promise.all([list(), stats().catch(() => ({})), commentCounts()]);
+  const [items, st, cc, al] = await Promise.all([list(), stats().catch(() => ({})), commentCounts(), accountLikes()]);
   const live = sortPosts(items.filter((p) => statusOf(p, now) === 'LIVE')).slice(0, 60);
   const out = {
     ok: true,
@@ -344,7 +371,10 @@ async function publicList(now) {
         id: p.id, type: p.type, title: p.title, brand: p.brand || brandOf(p.service), ctaService: p.ctaService || p.service, service: p.ctaService || p.service,
         caption: p.caption, releaseDate: p.releaseDate, seasonLabel: p.type === 'series' ? (p.seasonLabel || '') : '',
         languages: p.languages || [], genres: p.genres || [], trailerUrl: p.trailerUrl, instagramUrl: ig, cta: p.cta, pinned: !!p.pinned,
-        date: sortDate(p), likes: (st[p.id] || {}).likes || 0, comments: cc[p.id] || 0,
+        date: sortDate(p), likes: al ? Math.max(0, al[p.id] || 0) : (st[p.id] || {}).likes || 0, comments: cc[p.id] || 0,
+        // 🎬 format 'reel' → Reels tab (+ the feed only when inFeed); video = our own uploaded file (feedvideo.js).
+        format: p.format === 'reel' ? 'reel' : 'post', inFeed: p.format !== 'reel' || p.reelInFeed !== false,
+        video: VIDEO_ID.test(s(p.videoId)) ? '/v/' + p.videoId + (p.videoType === 'video/webm' ? '.webm' : '.mp4') : '', videoType: VIDEO_ID.test(s(p.videoId)) ? s(p.videoType) : '',
         image: pictureOf(p, ig),
       };
     }),
@@ -378,6 +408,16 @@ function record(id, kind, device) {
   else if (kind === 'click') cur.clicks++;
   else if (kind === 'play') cur.plays = (cur.plays || 0) + 1;
   else cur.shares++;
+  pending.set(k, cur);
+  return { ok: true };
+}
+/** ❤️ Account likes (feedmarks.js): +1 / -1 only when the customer's feed_likes row really changed (no device id needed). */
+function countLike(id, delta) {
+  const k = safeId(id);
+  const d = Number(delta) > 0 ? 1 : Number(delta) < 0 ? -1 : 0;
+  if (!k || !d) return { ok: false };
+  const cur = pending.get(k) || { views: 0, likes: 0, clicks: 0, shares: 0, plays: 0 };
+  cur.likes += d;
   pending.set(k, cur);
   return { ok: true };
 }
@@ -1211,11 +1251,11 @@ function startTimer(deps) {
 module.exports = {
   posterPath, posterImage,
   TYPES, CTAS, IMG_HOSTS, TRAILER_HOSTS, IG_HOSTS, DEFAULT_PROVIDERS, DEFAULT_LANGS, MAX_POSTS,
-  validate, instagramUrl, youtubeId, list, save, remove, setImage, setThumb, image, statusOf, sortPosts, publicList, trendingLines, record, flushStats, stats,
+  validate, instagramUrl, youtubeId, list, save, remove, setImage, setThumb, image, statusOf, sortPosts, publicList, trendingLines, record, countLike, flushStats, stats,
   getSettings, publicSettings, saveSettings, tmdbSearch, tmdbCreate, tmdbSuggest, tmdbProviders, providersFor, draftFrom, catalogServices, catalogServiceInfo,
   discover, runImport, jobStatus, startTimer, toIso,
   newWindow, seriesNews, movieNews, indiaReleaseDate, notNewCandidates, hideNotNew,
   weeklyShow, continuousShow, showDates, refreshDates, autoDate, NO_DATE,
-  BRANDS, brandOf, mainServiceFor, migrate, searchTitle, tmdbMatch, storyFrom, refreshThumb, pictureOf, LANGS,
+  accountLikes, BRANDS, brandOf, mainServiceFor, migrate, searchTitle, tmdbMatch, storyFrom, refreshThumb, pictureOf, LANGS,
   _internal: { pending, liked, genreCache, setFetch: (f) => { fetchImpl = f; }, reset: () => { cache = null; pending.clear(); liked.clear(); genreCache.at = 0; running = false; tvCache.clear(); } },
 };

@@ -2763,6 +2763,7 @@ function fdLoad(then) {
     if (!r.ok) { $('#fdbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
     FD.list = r.posts || []; FD.services = r.services || []; FD.settings = r.settings || {}; FD.job = r.job || null;
     FD.serviceInfo = r.serviceInfo || []; FD.brands = r.brands || []; FD.commentsReady = !!r.commentsReady; FD.commentCounts = r.commentCounts || {};
+    FD.marksReady = r.marksReady !== false; FD.marksCounts = r.marksCounts || {}; FD.video = r.video || { ready: false };
     var n = $('#fdcmn'); if (n) n.innerHTML = FD.commentCounts.pending ? '<span class="pill p-warn">' + FD.commentCounts.pending + ' to check</span>' : '';
     if (then) then(); else if (!FD.panel) fdRenderList();
   });
@@ -2814,17 +2815,22 @@ function fdCleanup() {
 function fdRenderList() {
   FD.panel = ''; FD.edit = null;
   var h = FD.settings.hasKey ? fdJobCard() : '<div class="qnote" style="margin:0 0 12px">🤖 Add a free TMDB key in ⚙️ Settings and the feed fills itself: new movies &amp; shows on your platforms in India, with poster, story, genres and trailer.</div>';
+  // ❤️ 🔖 Liked / saved posts follow the customer's account only after db/schema-v25.sql (feedmarks.js).
+  h += FD.marksReady ? '<div class="muted" style="font-size:.8rem;margin:0 0 10px">❤️ ' + (FD.marksCounts.likes || 0) + ' account likes · 🔖 ' + (FD.marksCounts.saves || 0) + ' saves (customers see them in What\'s new → ☰ menu)</div>'
+    : '<div class="qnote warn" style="margin:0 0 12px">🔖 Liked &amp; saved posts stay on each customer\'s phone for now. Run <b>db/schema-v25.sql</b> in phpMyAdmin once so they follow the customer\'s account (any phone).</div>';
+  h += fdVideoCard();
   if (!FD.list.length) h += '<div class="card" style="text-align:center;padding:28px"><div style="font-size:2.4rem">🍿</div><h3>No posts yet</h3><p class="muted">➕ New post, or 🔎 Find on TMDB once you have a key.</p></div>';
   else h += '<div class="pr-list">' + FD.list.map(function (p) {
     var st = FD_STATUS[p.status] || [p.status, 'p-grey']; var img = fdImg(p, 'w185');
     return '<div class="card pr-item fd-item">' + (img ? '<img class="fd-thumb" src="' + esc(img) + '" alt="" loading="lazy"/>' : '<div class="fd-thumb">🍿</div>') +
-      '<div class="grow" style="min-width:0"><div class="row" style="gap:6px"><b>' + esc(p.title) + '</b><span class="pill ' + st[1] + '">' + st[0] + '</span>' + (p.seasonLabel ? '<span class="pill p-blue">🆕 ' + esc(p.seasonLabel) + '</span>' : '') + (p.pinned ? '<span class="pill p-warn">📌 Pinned</span>' : '') + '</div>' +
+      '<div class="grow" style="min-width:0"><div class="row" style="gap:6px"><b>' + esc(p.title) + '</b><span class="pill ' + st[1] + '">' + st[0] + '</span>' + (p.format === 'reel' ? '<span class="pill p-blue">🎬 Reel' + (p.videoId ? ' · video' : '') + (p.reelInFeed === false ? ' · Reels only' : '') + '</span>' : '') + (p.seasonLabel ?'<span class="pill p-blue">🆕 ' + esc(p.seasonLabel) + '</span>' : '') + (p.pinned ? '<span class="pill p-warn">📌 Pinned</span>' : '') + '</div>' +
       '<div class="muted" style="font-size:.78rem;margin-top:4px">' + esc(p.brand || p.service || 'No platform') + (p.ctaService && p.ctaService !== p.brand ? ' → sells ' + esc(p.ctaService) : '') + ' · ' + fdType(p.type) + (fdRelease(p) ? ' · ' + fdRelease(p) + (p.dateAuto ? ' (auto)' : '') : '') + (p.publishAt ? ' · from ' + prNice(p.publishAt) : '') + (p.hideAfter ? ' · hides ' + prNice(p.hideAfter) : '') + (p.source === 'tmdb' ? ' · TMDB' : '') + '</div>' +
       '<div class="muted" style="font-size:.78rem;margin-top:2px">👀 ' + p.views + ' views · ❤️ ' + p.likes + ' likes · 👆 ' + p.clicks + ' button taps · 📤 ' + p.shares + ' shares · ▶️ ' + (p.plays || 0) + ' plays' + (p.instagramUrl ? ' · 📸 Reel' + (p.hasThumb ? ' (thumbnail ✓)' : ' (no thumbnail)') : '') + (p.comments && (p.comments.visible || p.comments.pending) ? ' · 💬 ' + p.comments.visible + (p.comments.pending ? ' <b style="color:#b45309">+' + p.comments.pending + ' to check</b>' : '') : '') + '</div></div>' +
       '<div class="pr-actions"><button class="btn sm ' + (p.active ? 'ghost' : 'green') + '" data-tog="' + p.id + '">' + (p.active ? '⏸ Turn off' : '▶️ Turn on') + '</button><button class="btn sm ghost" data-pin="' + p.id + '">' + (p.pinned ? 'Unpin' : '📌 Pin') + '</button><button class="btn sm dark" data-ed="' + p.id + '">✏️ Edit</button><button class="btn sm ghost" data-dup="' + p.id + '">⧉ Copy</button><button class="btn sm ghost" data-cmp="' + p.id + '" aria-label="Comments">💬</button><button class="btn sm ghost" data-del="' + p.id + '" aria-label="Delete">🗑</button></div></div>';
   }).join('') + '</div>';
   var body = $('#fdbody');
   body.innerHTML = h; body.oninput = body.onchange = null;
+  fdWireVideoCard();
   body.onclick = function (e) {
     var b = e.target.closest('button'); if (!b) return;
     var find = function (id) { return FD.list.filter(function (x) { return x.id === id; })[0]; };
@@ -2835,7 +2841,7 @@ function fdRenderList() {
     if (b.id === 'fdrun') { b.disabled = true; b.textContent = '⏳ Importing…'; post('/admin/api/feed/run', {}).then(function (r) { var x = r.result || {}; toast(r.ok ? '🤖 Imported ' + (x.imported || 0) + ' (' + (x.published || 0) + ' published, ' + (x.drafts || 0) + ' drafts)' : '⚠️ ' + (r.message || 'error')); fdLoad(); }); return; }
     if (b.dataset.ed) fdEdit(find(b.dataset.ed));
     if (b.dataset.cmp) fdComments('all', b.dataset.cmp);
-    if (b.dataset.dup) { var c = Object.assign({}, find(b.dataset.dup)); delete c.id; c.title = c.title + ' (copy)'; c.active = false; c.hasImage = false; c.hasThumb = false; c.thumbAt = ''; c.tmdbKey = ''; c.source = 'manual'; fdEdit(c); }
+    if (b.dataset.dup) { var c = Object.assign({}, find(b.dataset.dup)); delete c.id; delete c.videoId; delete c.videoType; c.title = c.title + ' (copy)'; c.active = false; c.hasImage = false; c.hasThumb = false; c.thumbAt = ''; c.tmdbKey = ''; c.source = 'manual'; fdEdit(c); }
     if (b.dataset.tog) quick(find(b.dataset.tog), { active: !find(b.dataset.tog).active }, function (p) { return p.active ? '▶️ Post on — live within 30 seconds' : '⏸ Post off'; });
     if (b.dataset.pin) quick(find(b.dataset.pin), { pinned: !find(b.dataset.pin).pinned }, function (p) { return p.pinned ? '📌 Pinned to the top' : 'Unpinned'; });
     if (b.dataset.del) { var d = find(b.dataset.del); if (confirm('Delete the post "' + d.title + '"? This cannot be undone.')) post('/admin/api/feed/delete', { id: d.id }).then(function (r) { toast(r.ok ? '🗑 Deleted' : '⚠️ ' + (r.message || 'error')); fdLoad(); }); }
@@ -2875,7 +2881,7 @@ function fdEdit(p) {
   if (!e.brand) e.brand = fdBrandOf(e.ctaService || e.service);
   var tags = function (v) { return esc(fdTags(v).join(', ')); };
   $('#fdbody').innerHTML = '<div class="pr-edit"><div class="card"><div class="row" style="justify-content:space-between"><h3 style="margin:0">' + (e.id ? '✏️ Edit post' : '➕ New post') + '</h3><button class="btn ghost sm" id="fdback">← Back</button></div>' +
-    '<div class="pr-f"><label>Kind<div class="pr-types">' + FD_TYPES.map(function (x) { return '<button type="button" class="pr-type' + (e.type === x[0] ? ' on' : '') + '" data-type="' + x[0] + '"><b>' + x[1] + '</b><span>' + x[2] + '</span></button>'; }).join('') + '</div></label>' +
+    '<div class="pr-f">' + fdFormatBox(e) + '<label>Kind<div class="pr-types">' + FD_TYPES.map(function (x) { return '<button type="button" class="pr-type' + (e.type === x[0] ? ' on' : '') + '" data-type="' + x[0] + '"><b>' + x[1] + '</b><span>' + x[2] + '</span></button>'; }).join('') + '</div></label>' +
     '<label>Title<input class="inp" data-k="title" maxlength="100" value="' + esc(e.title || '') + '" placeholder="Name of the movie or show"/></label>' +
     '<div class="fd-ai"><button type="button" class="btn ghost sm" id="fdai">✨ AI fill</button>' + (e.caption && (FD.settings.aiKeySet || FD.settings.hasGeminiKey) ? '<button type="button" class="btn ghost sm" id="fdairw" title="Write the caption again with a different hook">✨ Rewrite</button>' : '') + '<span class="muted" style="font-size:.75rem">' + (e.sourceCaption ? 'Uses the Reel\'s own caption' : 'Uses the title / caption') + ' → title, caption, genres, date, poster. Nothing is saved until you tap 💾 Save.' + (FD.settings.aiKeySet || FD.settings.hasGeminiKey ? '' : ' <b>No AI key yet</b> — only genres / date / poster.') + '</span><div id="fdaimsg"></div></div>' +
     '<div class="pr-two"><label>Platform shown <span class="muted">(header + logo)</span><select class="inp" data-k="brand">' + fdBrandOpts(e.brand) + '</select></label>' +
@@ -2914,11 +2920,15 @@ function fdEdit(p) {
     rfStateSet('dirty', '● Not saved yet'); refresh();
     if (k === 'instagramUrl') fdIgCheck();
   };
-  body.onclick = function (ev) { var tb = ev.target.closest('[data-type]'); if (tb) { FD.edit.type = tb.dataset.type; fdEdit(FD.edit); } };
+  body.onclick = function (ev) {
+    var tb = ev.target.closest('[data-type]'); if (tb) { FD.edit.type = tb.dataset.type; fdEdit(FD.edit); return; }
+    var fb = ev.target.closest('[data-format]'); if (fb) { FD.edit.format = fb.dataset.format; if (FD.edit.reelInFeed == null) FD.edit.reelInFeed = true; fdEdit(FD.edit); rfStateSet('dirty', '● Not saved yet'); }
+  };
+  fdWireVideo();
   $('#fdback').onclick = fdBack;
   $('#fdsave').onclick = function () {
     var body2 = Object.assign({}, FD.edit, { service: FD.edit.ctaService || '', languages: fdTags(FD.edit.languages), genres: fdTags(FD.edit.genres) });
-    delete body2._img; delete body2._dateNote;
+    delete body2._img; delete body2._dateNote; delete body2._videoNew;
     saveSettingsBtn(this, '/admin/api/feed/save', body2, rfStateSet, function (r) {
       r.changed = ['x']; var st = r.status; FD.edit = Object.assign({}, r.post);
       if (r.autoDate && r.autoDate.message) { FD.edit._dateNote = r.autoDate.message; toast(r.autoDate.found ? '📅 Date filled automatically' : '📅 ' + r.autoDate.message); }
@@ -2982,6 +2992,118 @@ function fdEdit(p) {
   };
   var del = $('#fdimgdel'); if (del) del.onclick = function () { post('/admin/api/feed/image', { id: FD.edit.id, dataUrl: '' }).then(function (r) { if (r.ok) { FD.edit.hasImage = false; FD.edit._img = ''; fdEdit(FD.edit); } }); };
   refresh(); fdIgCheck();
+}
+// 🎬 Post type: Post (feed) / Reel (full-screen video in the Reels tab). A Reel's video, best first: uploaded MP4 / WebM
+// (our own player: full screen, autoplay muted, loop) › YouTube Shorts link (Trailer box) › Instagram Reel link.
+var FD_VIDEO_TYPES = ['video/mp4', 'video/webm'];
+function fdMb(b) { var m = (Number(b) || 0) / 1048576; return m >= 1024 ? (Math.round(m / 102.4) / 10) + ' GB' : (m >= 10 ? Math.round(m) : Math.round(m * 10) / 10) + ' MB'; }
+function fdVideoUrl(e) { return '/v/' + e.videoId + (e.videoType === 'video/webm' || e._videoMime === 'video/webm' ? '.webm' : '.mp4'); }
+function fdFormatBox(e) {
+  var reel = e.format === 'reel', v = FD.video || {};
+  var h = '<label>Post type<div class="pr-types">' +
+    '<button type="button" class="pr-type' + (reel ? '' : ' on') + '" data-format="post"><b>🖼️ Post</b><span>Picture + caption in the feed</span></button>' +
+    '<button type="button" class="pr-type' + (reel ? ' on' : '') + '" data-format="reel"><b>🎬 Reel</b><span>Full-screen video in the Reels tab</span></button></div></label>';
+  if (!reel) return h;
+  h += '<div class="card fd-reelbox" style="background:#f8fafc;margin:0">' +
+    '<label class="rf-tog"><input type="checkbox" data-k="reelInFeed"' + (e.reelInFeed !== false ? ' checked' : '') + '/> Also show this Reel in the feed</label>' +
+    '<div class="muted" style="font-size:.8rem;margin:6px 0">Video — best first: <b>① upload a video</b> (plays full screen, starts by itself, loops) · ② YouTube <b>Shorts</b> link in “Trailer” · ③ Instagram Reel link below (Instagram’s own player, needs a tap).</div>';
+  if (!v.ready) h += '<div class="qnote warn" id="fdvidnote">🎬 Uploading videos needs <b>db/schema-v25.sql</b> — run it once in phpMyAdmin. YouTube Shorts / Instagram links work already.</div>';
+  else {
+    h += (e.videoId ? '<div class="fd-thumbrow"><video id="fdvidprev" src="' + esc(fdVideoUrl(e)) + '" muted playsinline loop controls preload="metadata" width="90" height="160" style="border-radius:10px;background:#000;object-fit:cover"></video>' +
+      '<span class="muted">✅ Video ready' + (e._videoNew ? ' — 💾 Save to put it on the post' : '') + '</span>' +
+      (e.id ? '<button type="button" class="btn ghost sm" id="fdvidposter">📸 Use this frame as the picture</button>' : '') + '<button type="button" class="btn ghost sm" id="fdviddel">Remove video</button></div>' : '') +
+      '<label>' + (e.videoId ? 'Replace video' : 'Upload video') + ' <span class="muted">(MP4 or WebM, max ' + fdMb(v.maxBytes || 26214400) + ', ≤ ' + (v.maxSeconds || 90) + ' s)</span><input type="file" id="fdvid" accept="video/mp4,video/webm"/></label>' +
+      '<div class="muted" style="font-size:.78rem">💡 Upload vertical 720p, ~30–60 s — usually 3–8 MB. Videos: ' + fdMb(v.bytes) + ' of ' + fdMb(v.totalBytes) + ' used.</div><div id="fdvidmsg"></div>';
+  }
+  return h + '</div>';
+}
+// Storage card on the post list: "Videos: 312 MB of 2 GB used", each video's size, 🗑️ delete (frees the chunks), limits.
+function fdVideoCard() {
+  var v = FD.video || {};
+  if (!v.ready) return '';
+  var list = v.list || [];
+  return '<details class="card" style="margin:0 0 12px"><summary style="cursor:pointer"><b>🎬 Videos: ' + fdMb(v.bytes) + ' of ' + fdMb(v.totalBytes) + ' used</b> <span class="muted">(' + (v.videos || 0) + ' Reel video' + (v.videos === 1 ? '' : 's') + ')</span></summary>' +
+    '<div class="muted" style="font-size:.78rem;margin:6px 0">Stored in the MySQL database — counts toward the Hostinger disk quota. 💡 Vertical 720p, ~30–60 s is usually 3–8 MB.</div>' +
+    (list.length ? '<div class="pr-list">' + list.map(function (x) {
+      return '<div class="row" style="gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eef2f7"><span style="min-width:64px"><b>' + fdMb(x.size) + '</b></span><span class="grow muted" style="font-size:.8rem;min-width:0">' + (x.post ? '🎬 ' + esc(x.post.title) : x.status === 'ready' ? 'Not on a post' : '⏳ Unfinished upload') + (x.duration ? ' · ' + Math.round(x.duration) + ' s' : '') + ' · ' + esc(prettyDate(x.createdAt)) + '</span>' +
+        (x.post ? '' : '<button type="button" class="btn ghost sm" data-viddel="' + esc(x.id) + '">🗑️ Delete</button>') + '</div>';
+    }).join('') + '</div>' : '<div class="muted" style="font-size:.8rem">No videos uploaded yet.</div>') +
+    '<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap"><label style="font-size:.8rem">Max per video (MB)<input class="inp" type="number" min="1" max="50" id="fdvidmax" value="' + esc((v.limits || {}).videoMaxMb || 25) + '" style="width:90px"/></label>' +
+    '<label style="font-size:.8rem">Total storage (MB)<input class="inp" type="number" min="50" max="20480" id="fdvidtotal" value="' + esc((v.limits || {}).videoTotalMb || 2048) + '" style="width:110px"/></label><button type="button" class="btn sm" id="fdvidlim">Save limits</button></div></details>';
+}
+function fdWireVideoCard() {
+  $$('[data-viddel]').forEach(function (b) {
+    b.onclick = function () {
+      if (!confirm('Delete this video? It is removed from the database for good.')) return;
+      b.disabled = true;
+      post('/admin/api/feed/video/delete', { id: b.getAttribute('data-viddel') }).then(function (r) { toast(r.ok ? '🗑️ Video deleted' : '⚠️ ' + (r.message || 'error')); fdLoad(); });
+    };
+  });
+  var s = $('#fdvidlim'); if (s) s.onclick = function () {
+    post('/admin/api/feed/video/settings', { videoMaxMb: Number($('#fdvidmax').value), videoTotalMb: Number($('#fdvidtotal').value) }).then(function (r) { toast(r.ok ? '✅ Video limits saved' : '⚠️ ' + (r.message || 'error')); if (r.ok) fdLoad(); });
+  };
+}
+function fdWireVideo() {
+  var inp = $('#fdvid'), out = $('#fdvidmsg');
+  if (inp) inp.onchange = function () {
+    var f = inp.files[0], v = FD.video || {}; if (!f) return;
+    if (FD_VIDEO_TYPES.indexOf(f.type) < 0) { out.innerHTML = '<div class="qnote bad">⚠️ Pick an MP4 or WebM video.</div>'; return; }
+    if (f.size > (v.maxBytes || 26214400)) { out.innerHTML = '<div class="qnote bad">⚠️ Too big (' + fdMb(f.size) + '). Max ' + fdMb(v.maxBytes || 26214400) + ' — upload vertical 720p, ~30–60 s (usually 3–8 MB).</div>'; return; }
+    inp.disabled = true;
+    fdUploadVideo(f, v.maxSeconds || 90, function (msg) { out.innerHTML = '<div class="qnote">' + msg + '</div>'; }, function (r) {
+      inp.disabled = false;
+      if (!r.ok) { out.innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'Upload failed') + '</div>'; return; }
+      FD.edit.videoId = r.id; FD.edit._videoMime = r.mime; FD.edit._videoNew = true; fdEdit(FD.edit); rfStateSet('dirty', '● Video uploaded — 💾 Save the post');
+    });
+  };
+  var del = $('#fdviddel'); if (del) del.onclick = function () {
+    var id = FD.edit.videoId, fresh = FD.edit._videoNew; FD.edit.videoId = ''; FD.edit._videoNew = false;
+    if (fresh) post('/admin/api/feed/video/delete', { id: id });
+    fdEdit(FD.edit); rfStateSet('dirty', '● Not saved yet — 💾 Save removes the video');
+  };
+  // Poster = a frame of the video drawn on a canvas, saved like an uploaded picture (small JPEG).
+  var pb = $('#fdvidposter'), vid = $('#fdvidprev'); if (pb && vid) pb.onclick = function () {
+    try {
+      var cv = document.createElement('canvas'), k = Math.min(1, 720 / Math.max(vid.videoWidth || 1, vid.videoHeight || 1));
+      cv.width = Math.round((vid.videoWidth || 540) * k); cv.height = Math.round((vid.videoHeight || 960) * k);
+      cv.getContext('2d').drawImage(vid, 0, 0, cv.width, cv.height);
+      var q = 0.8, url = cv.toDataURL('image/jpeg', q); while (url.length > 300000 && q > 0.45) { q -= 0.1; url = cv.toDataURL('image/jpeg', q); }
+      post('/admin/api/feed/image', { id: FD.edit.id, dataUrl: url }).then(function (r) { if (!r.ok) return toast('⚠️ ' + (r.message || 'error')); toast('🖼️ Frame saved as the picture'); FD.edit.hasImage = true; FD.edit.updatedAt = r.updatedAt; FD.edit._img = url; fdEdit(FD.edit); });
+    } catch (x) { toast('⚠️ Play the video to the frame you want first'); }
+  };
+}
+// Length check (≤ 90 s) + SHA-256 in the browser, then 1 MB raw chunks one after another (2 tries each), then finish.
+function fdVideoLength(file, done) {
+  try {
+    var u = URL.createObjectURL(file), el = document.createElement('video'), t = setTimeout(function () { fin(null); }, 8000);
+    var fin = function (d) { clearTimeout(t); try { URL.revokeObjectURL(u); } catch (x) {} done(d); };
+    el.preload = 'metadata'; el.muted = true;
+    el.onloadedmetadata = function () { fin(isFinite(el.duration) ? el.duration : null); };
+    el.onerror = function () { fin(null); };
+    el.src = u;
+  } catch (x) { done(null); }
+}
+function fdUploadVideo(file, maxSeconds, progress, done) {
+  progress('⏳ Checking the video…');
+  fdVideoLength(file, function (dur) {
+    if (dur && dur > maxSeconds + 0.5) return done({ ok: false, message: 'Reels can be up to ' + maxSeconds + ' seconds — this one is ' + Math.round(dur) + ' s.' });
+    if (!window.crypto || !crypto.subtle) return done({ ok: false, message: 'This browser cannot check the file — use Chrome on https.' });
+    file.arrayBuffer().then(function (buf) { return crypto.subtle.digest('SHA-256', buf); }).then(function (hash) {
+      var sha = Array.prototype.map.call(new Uint8Array(hash), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+      post('/admin/api/feed/video/start', { mime: file.type, size: file.size, sha256: sha, duration: dur }).then(function (r) {
+        if (!r.ok) return done(r);
+        var n = 0, tries = 0;
+        var next = function () {
+          if (n >= r.chunks) { progress('⏳ Checking the upload…'); return post('/admin/api/feed/video/finish', { id: r.id }).then(done); }
+          progress('⏳ Uploading… ' + Math.round(n / r.chunks * 100) + '%');
+          var part = file.slice(n * r.chunkSize, Math.min(file.size, (n + 1) * r.chunkSize));
+          fetch('/admin/api/feed/video/chunk?id=' + encodeURIComponent(r.id) + '&n=' + n, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: part })
+            .then(handle).then(function (x) { if (x && x.ok) { n++; tries = 0; next(); } else if (++tries < 2) next(); else done(x || { ok: false }); }, function (e) { if (++tries < 2) next(); else done({ ok: false, message: e.message }); });
+        };
+        next();
+      });
+    }, function (e) { done({ ok: false, message: 'Could not read the file: ' + e.message }); });
+  });
 }
 // 📸 The server stores Instagram's thumbnail as it comes (up to ~330 KB). Above 120 KB this page shrinks it on a canvas
 // (same way as uploaded pictures) and saves the small copy, so customers download little. r = save / refresh result.
