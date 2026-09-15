@@ -188,7 +188,7 @@ const parse = async (m) => ({ subject: m.subject, text: m.text });
   DB.subs.find((x) => x.sub_id === 'S1').expiry_date = dayPlus(-1) + ' 20:00:00';
   await denyOtp('  ...or expired (yesterday)', 'JioHotstar', tokSub);
   resetData();
-  let res = await otp.getLatestOtp('JioHotstar', P, access.makeToken(P).token, '', { withImap: async () => { throw new Error('no'); }, parse });
+  let res = await otp.getLatestOtp('JioHotstar', P, 'otp1.' + P + '.' + (Date.now() + 86400e3) + '.oldsignature', '', { withImap: async () => { throw new Error('no'); }, parse });
   ok('old otp1 token (made from the profile email) → must verify again', res.needsVerify === true && !('maskedEmail' in res) && !/\*/.test(res.message), res);
 
   section('Codes: hashed, attempts atomic, survive restart');
