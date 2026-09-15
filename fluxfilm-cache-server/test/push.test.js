@@ -299,6 +299,39 @@ const FCM = (n) => 'https://fcm.googleapis.com/fcm/send/device-' + n + '-' + 'x'
   x = await call('POST', '/admin/api/push/subscribe', { subscription: { endpoint: 'https://evil.com/x', keys: rcv.keys } });
   ok('admin subscribe validates the endpoint too', x.code === 400);
 
+  // ---------------- urgency per kind (Android Doze: "normal" waits until the phone wakes) ----------------
+  const D = push.deliveryFor;
+  ok('urgency per kind: reminder / delivered / refund / admin / direct high 24 h; test high 10 min; broadcast normal', D({ kind: 'reminder' }).urgency === 'high' && D({ kind: 'reminder' }).ttl === 86400 && D({ kind: 'delivered' }).urgency === 'high' && D({ kind: 'refund' }).urgency === 'high' && D({ kind: 'admin' }).urgency === 'high' && D({ kind: 'direct' }).urgency === 'high' && D({ kind: 'test' }).urgency === 'high' && D({ kind: 'test' }).ttl === 600 && D({ kind: 'broadcast' }).urgency === 'normal' && D({}).urgency === 'normal');
+  ok('explicit urgency / ttl win; junk urgency ignored', D({ kind: 'broadcast', urgency: 'high' }).urgency === 'high' && D({ kind: 'reminder', urgency: 'bogus' }).urgency === 'high' && D({ kind: 'test', ttl: 30 }).ttl === 30);
+  const urgHdr = async (fn) => { calls.length = 0; await fn(); return calls.map((c) => c.headers); };
+  let urgHs = await urgHdr(() => push.sendToPhone('9876543210', { title: 'x' }, { kind: 'reminder' }));
+  ok('reminder push headers: Urgency high, TTL 24 h', urgHs.length > 0 && urgHs.every((h) => h.Urgency === 'high' && h.TTL === '86400'));
+  urgHs = await urgHdr(() => push.sendToAdmins({ title: 'New order' }));
+  ok('admin alerts (new order / UPI refund) are high by default', urgHs.length === 1 && urgHs[0].Urgency === 'high');
+  urgHs = await urgHdr(() => push.broadcast({ title: 'Sale' }));
+  ok('broadcast is normal by default', urgHs.length > 0 && urgHs.every((h) => h.Urgency === 'normal'));
+  urgHs = await urgHdr(() => call('POST', '/admin/api/push/test', {}));
+  ok('admin test notification: high, TTL 10 min', urgHs.length === 1 && urgHs[0].Urgency === 'high' && urgHs[0].TTL === '600');
+  urgHs = await urgHdr(() => call('POST', '/admin/api/push/send', { phone: '98765 43210', title: 'Your login changed', body: 'hi', url: '/' }));
+  ok('owner → one customer: high', urgHs.length > 0 && urgHs.every((h) => h.Urgency === 'high'));
+  const routes2 = {};
+  require('../adminpush').mount({ get: (p, f) => { routes2['GET ' + p] = f; }, post: (p, f) => { routes2['POST ' + p] = f; } }, { auth: () => true, audit: { record: (q, a) => audits.push(a) }, push, reminders, broadcastGapMs: 0 });
+  const call2 = (p, bodyIn) => new Promise((resolve) => { const res = { code: 200, status(c) { this.code = c; return this; }, json(v2) { resolve({ code: this.code, body: v2 }); } }; routes2['POST ' + p]({ body: bodyIn, headers: {} }, res); });
+  urgHs = await urgHdr(() => call2('/admin/api/push/broadcast', { title: 'Promo', body: 'x', confirm: true }));
+  ok('admin broadcast: normal unless picked', urgHs.length > 0 && urgHs.every((h) => h.Urgency === 'normal'));
+  urgHs = await urgHdr(() => call2('/admin/api/push/broadcast', { title: 'Service down', body: 'x', urgency: 'high', confirm: true }));
+  ok('admin broadcast with urgency high → high + logged', urgHs.length > 0 && urgHs.every((h) => h.Urgency === 'high') && audits.some((a) => a.action === 'push.broadcast' && /high urgency/.test(a.summary)));
+  urgHs = await urgHdr(() => call2('/admin/api/push/broadcast', { title: 'Odd', body: 'x', urgency: 'very-low', confirm: true }));
+  ok('admin broadcast: anything but "high" is normal', urgHs.length > 0 && urgHs.every((h) => h.Urgency === 'normal'));
+  const refundsSrc = fs.readFileSync(path.join(__dirname, '..', 'refunds.js'), 'utf8');
+  const remindSrc = fs.readFileSync(path.join(__dirname, '..', 'pushreminders.js'), 'utf8');
+  ok('callers name their kind: refund notices, UPI-refund admin alert, reminders, delivered', /sendToPhone\(o\.phone_norm, \{ title, body, url: '\/\?source=push', tag \}, \{ kind: 'refund' \}\)/.test(refundsSrc) && /tag: 'upi-refund-' \+ oid \}, \{ kind: 'admin' \}\)/.test(refundsSrc) && /messageFor\(kind, sub, settings\), \{ kind: 'reminder' \}\)/.test(remindSrc) && /\{ kind: 'delivered' \}\)/.test(remindSrc) && !/urgency: 'normal'/.test(refundsSrc));
+  const tsRow = T.pushSubs.find((q) => q.endpoint === calls[0].url);
+  const msgTs = JSON.parse(decrypt(calls[0].body, devices.find((d) => d.keys.p256dh === tsRow.p256dh)).text).ts;
+  ok('payload carries the send time (ts) for the notification timestamp', typeof msgTs === 'number' && Math.abs(msgTs - Date.now()) < 60e3);
+  const adminHtmlPn = fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8');
+  ok('🔔 Notifications page: Android battery note + broadcast urgency picker (default normal)', adminHtmlPn.includes('On Android phones with battery saver (OnePlus/Xiaomi/Realme), set Chrome → Battery → Unrestricted so notifications arrive when the screen is off.') && /id="pnburg"><option value="normal" selected>/.test(adminHtmlPn) && /urgency: \$\('#pnburg'\)\.value === 'high' \? 'high' : 'normal'/.test(adminHtmlPn));
+
   // ---------------- service worker ----------------
   const pwa = require('../pwa');
   const handlers = {}; const shown = []; const opened = []; const navigated = [];
@@ -314,6 +347,14 @@ const FCM = (n) => 'https://fcm.googleapis.com/fcm/send/device-' + n + '-' + 'x'
   ok('service worker shows the notification (title, body, tag, our icon only)', shown[0].t === '⏰ Netflix ends in 3 days' && shown[0].o.body === 'Renew' && shown[0].o.tag === 'renew-D3' && shown[0].o.icon === '/icons/icon-192.png' && shown[0].o.data.url === '/?source=push&renew=D3');
   await wait((ext) => handlers.push(Object.assign(ext, { data: { json: () => { throw new Error('not json'); }, text: () => 'plain text' } })));
   ok('non-JSON push still shows something', shown[1].t === 'FluxFilm' && shown[1].o.body === 'plain text');
+  ok('notification options: requireInteraction false, renotify with tag, timestamp', shown[0].o.requireInteraction === false && shown[0].o.renotify === true && typeof shown[0].o.timestamp === 'number' && shown[0].o.timestamp > 0 && shown[1].o.renotify === undefined);
+  await wait((ext) => handlers.push(Object.assign(ext, { data: { json: () => ({ title: 'Slept', ts: 1757900000000, tag: 'renew-X' }) } })));
+  ok('timestamp = the send time from the payload (not when the sleeping phone woke up)', shown[2].o.timestamp === 1757900000000);
+  // showNotification must be inside event.waitUntil, or Android stops the worker before it shows.
+  let waited = null; const before = shown.length;
+  handlers.push({ waitUntil: (p2) => { waited = p2; }, data: { json: () => ({ title: 'W' }) } });
+  ok('push handler passes the showNotification promise to event.waitUntil', !!waited && typeof waited.then === 'function' && shown.length === before + 1 && /e\.waitUntil\(self\.registration\.showNotification\(/.test(pwa.serviceWorker()));
+  await waited;
   let closed = false;
   await wait((ext) => handlers.notificationclick(Object.assign(ext, { notification: { close: () => { closed = true; }, data: { url: '/?source=push&renew=D3' } } })));
   ok('tap with the app closed opens /?source=push&renew=<sub>', closed && opened[0] === 'https://shop.fluxfilm.in/?source=push&renew=D3');

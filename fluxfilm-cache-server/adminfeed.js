@@ -5,12 +5,14 @@
  *   POST /admin/api/feed/save              { ...post }          create / update (pin, on/off = save)
  *   POST /admin/api/feed/delete            { id }
  *   POST /admin/api/feed/image             { id, dataUrl }      '' removes the picture
- *   POST /admin/api/feed/settings          { tmdbKey?, clearKey?, autoPublish?, platforms?, languages?, minPopularity?, minVotes?, maxPerDay?, autoHideDays?, providerMap? }
+ *   POST /admin/api/feed/settings          { tmdbKey?, clearKey?, autoPublish?, platforms?, languages?, minPopularity?, minVotes?, maxPerDay?, autoHideDays?, releasedDays?, upcomingDays?, seriesNewOnly?, providerMap? }
  *   POST /admin/api/feed/tmdb/search       { q }
  *   POST /admin/api/feed/tmdb/create       { tmdbKey, service, publish }
  *   POST /admin/api/feed/tmdb/suggest      { services[], days }  drafts only
  *   POST /admin/api/feed/tmdb/providers    {}                    TMDB's current India provider ids
  *   POST /admin/api/feed/run               {}                    run the TMDB import now (daily cap still applies)
+ *   GET  /admin/api/feed/cleanup/not-new                         🧹 LIVE imported posts that are not new / have no new season
+ *   POST /admin/api/feed/cleanup/hide      { ids[] }             hide those (hideAfter = now; never deleted; change log)
  *   POST /admin/api/feed/thumb/refresh     { id }                📸 fetch the Instagram thumbnail + Reel caption again (server-side)
  *   POST /admin/api/feed/thumb             { id, dataUrl }       the admin page's shrunk copy of a big thumbnail ('' removes it)
  *   POST /admin/api/feed/ai-fill           { title, caption, sourceCaption, type }   ✨ suggestions only (nothing saved)
@@ -135,6 +137,18 @@ function mount(app, deps) {
     const r = await feed.runImport({ force: true, audit, req });
     if (r.skipped === 'no-key') return res.status(400).json({ ok: false, message: 'Add your TMDB key in Settings first.' });
     res.status(r.ok ? 200 : 400).json(r);
+  });
+
+  // 🧹 Old titles imported by mistake: list (read-only, asks TMDB about seasons) → hide the ticked ones (never delete).
+  app.get('/admin/api/feed/cleanup/not-new', async (req, res) => {
+    if (!auth(req, res)) return;
+    try { res.json(await feed.notNewCandidates()); } catch (e) { fail(res, e); }
+  });
+  route('/admin/api/feed/cleanup/hide', async (req, res, b) => {
+    const r = await feed.hideNotNew(b.ids);
+    if (!r.ok) return res.status(400).json(r);
+    if (r.hidden.length) audit.record(req, { action: 'feed.cleanup.hide', entity: 'feed', id: r.hidden.map((x) => x.id).join(',').slice(0, 190), summary: 'Hid ' + r.hidden.length + ' old imported title(s) (not new / no new season): ' + r.hidden.map((x) => '"' + x.title + '"').join(', ').slice(0, 400), details: { ids: r.hidden.map((x) => x.id) } });
+    res.json(Object.assign(r, { message: r.hidden.length ? '🙈 Hid ' + r.hidden.length + ' post(s)' : 'Nothing to hide (already hidden?)' }));
   });
 
   route('/admin/api/feed/tmdb/providers', async (req, res) => {

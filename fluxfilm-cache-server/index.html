@@ -483,6 +483,7 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-feed-body { padding: 4px 14px 14px; }
 .ff-feed-title { font-size: 16px; font-weight: 900; color: #0f172a; line-height: 1.25; }
 .ff-feed-rel { margin-top: 3px; font-size: 12.5px; font-weight: 700; color: #15803d; }
+.ff-feed-season { flex: none; margin-left: 6px; padding: 3px 9px; border-radius: 999px; background: #ecfdf5; border: 1px solid #a7f3d0; font-size: 11.5px; font-weight: 800; color: #047857; white-space: nowrap; }
 .ff-feed-cap { margin-top: 6px; font-size: 14px; font-weight: 500; color: #334155; line-height: 1.5; white-space: pre-line; }
 .ff-feed-cap.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .ff-feed-more { border: 0; background: none; padding: 2px 0; font: inherit; font-size: 13.5px; font-weight: 800; color: #64748b; cursor: pointer; }
@@ -1717,6 +1718,8 @@ const shareText_ = {
     const price = shareText_.rupees(offer ? offer.price : shareText_.offers(catalog) ? 0 : info && info.price);
     const t = /^\d{4}-\d{2}-\d{2}$/.test(p.releaseDate || '') ? Date.parse(p.releaseDate + 'T00:00:00+05:30') : 0;
     const soon = t > (now || Date.now());
+    // New season of a show: "🆕 Season 3 now streaming on *Netflix*" / "🗓️ Season 3 coming *20 Sept* on *Netflix*".
+    const season = p.type === 'series' && /^Season \d{1,3}$/.test(p.seasonLabel || '') ? p.seasonLabel : '';
     const kind = {
       movie: '🎬 Movie',
       series: '📺 Series'
@@ -1728,7 +1731,7 @@ const shareText_ = {
     // Post with an Instagram Reel: say so right above the link (the link opens the post, where the video plays).
     const video = p.instagramUrl ? '🎬 Watch the video 👇' : null;
     const head = [video, url ? '👉 ' + url : null, url || video ? '' : null];
-    const text = news ? shareText_.join([...head, `📣 *${title}*`, '', quote, '', '✨ Streaming plans for less on *FluxFilm*', '⚡ Instant login  •  💳 UPI']) : shareText_.join([...head, `🍿 *${title}*`, [soon ? `🗓️ Coming *${shareText_.date(t)}* on *${service}*` : `${s ? s.emoji : '🎬'} Now streaming on *${service}*`, kind, !soon && t ? '🗓️ ' + shareText_.date(t, true) : ''].filter(Boolean).join('  •  '), genres ? '🎭 ' + genres : null, '', quote, '', price ? `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${plan || service} from *${price}*` : `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${plan || service} at low prices`, '⚡ Instant login  •  💳 UPI']);
+    const text = news ? shareText_.join([...head, `📣 *${title}*`, '', quote, '', '✨ Streaming plans for less on *FluxFilm*', '⚡ Instant login  •  💳 UPI']) : shareText_.join([...head, `🍿 *${title}*`, [soon ? `🗓️ ${season ? season + ' coming' : 'Coming'} *${shareText_.date(t)}* on *${service}*` : season ? `🆕 ${season} now streaming on *${service}*` : `${s ? s.emoji : '🎬'} Now streaming on *${service}*`, kind, !soon && t ? '🗓️ ' + shareText_.date(t, true) : ''].filter(Boolean).join('  •  '), genres ? '🎭 ' + genres : null, '', quote, '', price ? `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${plan || service} from *${price}*` : `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${plan || service} at low prices`, '⚡ Instant login  •  💳 UPI']);
     return {
       title: news ? title : `${title} — on ${service}`,
       text
@@ -10855,16 +10858,27 @@ function feedWhen_(iso, now) {
     month: 'short'
   });
 }
-function feedRelease_(ymd, type, now) {
+// Release line. Upcoming = "🗓️ Coming soon · 20 Sept" ("🗓️ Season 3 coming 20 Sept"); after the date it flips by
+// itself to "🎬 Released …" / "📺 Out since …" / "🆕 Season 3 streaming since …" (no re-post needed).
+function feedRelease_(ymd, type, now, seasonLabel) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd || '')) return '';
   const t = Date.parse(ymd + 'T00:00:00+05:30');
-  const nice = new Date(t).toLocaleDateString('en-IN', {
+  const fmt = year => new Date(t).toLocaleDateString('en-IN', Object.assign({
     day: 'numeric',
     month: 'short',
-    year: 'numeric',
     timeZone: 'Asia/Kolkata'
-  });
-  return t > (now || Date.now()) ? '📅 Streaming from ' + nice : (type === 'series' ? '📺 Out since ' : '🎬 Released ') + nice;
+  }, year ? {
+    year: 'numeric'
+  } : {}));
+  const season = type === 'series' && /^Season \d{1,3}$/.test(seasonLabel || '') ? seasonLabel : '';
+  if (t > (now || Date.now())) return season ? '🗓️ ' + season + ' coming ' + fmt(false) : '🗓️ Coming soon · ' + fmt(false);
+  return season ? '🆕 ' + season + ' streaming since ' + fmt(true) : (type === 'series' ? '📺 Out since ' : '🎬 Released ') + fmt(true);
+}
+// Small chip next to the platform name on a new-season post: "🆕 Season 3" (or "🗓️ Season 3" before it starts).
+function feedSeasonChip_(p, now) {
+  if (!p || p.type !== 'series' || !/^Season \d{1,3}$/.test(p.seasonLabel || '')) return '';
+  const t = /^\d{4}-\d{2}-\d{2}$/.test(p.releaseDate || '') ? Date.parse(p.releaseDate + 'T00:00:00+05:30') : 0;
+  return (t > (now || Date.now()) ? '🗓️ ' : '🆕 ') + p.seasonLabel;
 }
 function feedThumb_(url) {
   return /^(https:\/\/image\.tmdb\.org\/t\/p|\/tmdb-img\/t\/p|\/poster)\/w780\//.test(url || '') ? url.replace('/w780/', '/w342/') : url || '';
@@ -11374,7 +11388,8 @@ function FeedPost({
   }
   const caption = String(p.caption || '');
   const long = overflow || caption.length > 140 || caption.split('\n').length > 3;
-  const rel = feedRelease_(p.releaseDate, p.type);
+  const rel = feedRelease_(p.releaseDate, p.type, 0, p.seasonLabel);
+  const seasonChip = feedSeasonChip_(p);
   const typeLabel = {
     movie: '🎬 Movie',
     series: '📺 Series',
@@ -11407,7 +11422,9 @@ function FeedPost({
     className: bi.emoji ? 'em' : ''
   }, bi.emoji || String(name).charAt(0).toUpperCase())), React.createElement("div", {
     className: "ff-feed-name"
-  }, React.createElement("b", null, name), React.createElement("span", null, typeLabel, typeLabel && p.date ? ' · ' : '', feedWhen_(p.date))), p.pinned && React.createElement("span", {
+  }, React.createElement("b", null, name), React.createElement("span", null, typeLabel, typeLabel && p.date ? ' · ' : '', feedWhen_(p.date))), seasonChip && React.createElement("span", {
+    className: "ff-feed-season"
+  }, seasonChip), p.pinned && React.createElement("span", {
     className: "ff-feed-pin"
   }, "📌 Pinned")), React.createElement("div", {
     className: "ff-feed-mwrap"

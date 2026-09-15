@@ -83,8 +83,12 @@ self.addEventListener('push', (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data ? e.data.text() : '' }; }
   const icon = d.icon === '/icons/admin-icon-192.png' ? d.icon : '/icons/icon-192.png';
-  const opts = { body: String(d.body || ''), icon, badge: icon, data: { url: String(d.url || '/') } };
+  // requireInteraction false: goes to the tray like a normal message. timestamp = when it was sent (a push that waited
+  // while the phone slept shows the real time). tag + renotify: a newer reminder replaces the old one AND buzzes again.
+  const ts = Number(d.ts);
+  const opts = { body: String(d.body || ''), icon, badge: icon, data: { url: String(d.url || '/') }, requireInteraction: false, timestamp: ts > 0 ? ts : Date.now() };
   if (d.tag) { opts.tag = String(d.tag); opts.renotify = true; }
+  // waitUntil keeps the service worker alive until the notification is on screen (Android stops it otherwise).
   e.waitUntil(self.registration.showNotification(String(d.title || 'FluxFilm'), opts));
 });
 self.addEventListener('notificationclick', (e) => {

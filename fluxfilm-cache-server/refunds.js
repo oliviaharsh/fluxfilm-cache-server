@@ -94,7 +94,7 @@ function create(deps) {
     if (!T) return;
     const [title, body] = T;
     const tag = 'refund-' + s(o.order_id).replace(/[^\w-]/g, '');
-    Promise.resolve().then(() => M.push().sendToPhone(o.phone_norm, { title, body, url: '/?source=push', tag }, { urgency: 'normal' })).catch(() => {});
+    Promise.resolve().then(() => M.push().sendToPhone(o.phone_norm, { title, body, url: '/?source=push', tag }, { kind: 'refund' })).catch(() => {});
     if (!s(o.email).includes('@')) return;
     const extra = kind === 'ASK'
       ? '<p style="color:#475569;font-size:14px">Open <b>FluxFilm</b> and sign in with your phone number — you\'ll see two choices:<br>🪙 <b>' + esc(d.credit) + ' coins of refund credit</b> (that\'s 10% extra, and it can pay the full price of any plan), or<br>🏦 <b>' + esc(amt) + ' back to your UPI ID</b>.</p>'
@@ -225,7 +225,7 @@ function create(deps) {
       });
       if (done.already) return { ok: true, already: true, orderId: oid, upi: maskUpi(done.upi), message: 'We already have your UPI ID — your refund is on its way.' };
       notify(done.o, 'UPI_REQUESTED', { amount: done.amount, upi: done.upi });
-      Promise.resolve().then(() => M.push().sendToAdmins({ title: '💸 UPI refund to send', body: '₹' + done.amount + ' for ' + oid + ' → ' + done.upi, url: '/panel', tag: 'upi-refund-' + oid })).catch(() => {});
+      Promise.resolve().then(() => M.push().sendToAdmins({ title: '💸 UPI refund to send', body: '₹' + done.amount + ' for ' + oid + ' → ' + done.upi, url: '/panel', tag: 'upi-refund-' + oid }, { kind: 'admin' })).catch(() => {});
       return { ok: true, orderId: oid, upi: maskUpi(done.upi), todoId: done.todoId, message: '✅ Thanks! We\'ll send ₹' + done.amount + ' to ' + maskUpi(done.upi) + ' soon.' };
     } catch (e) {
       if (e instanceof Refused) return Object.assign({ ok: false, message: e.message }, e.extra);

@@ -172,8 +172,39 @@ function cleanMessage(m) {
   const x = m || {};
   let url = s(x.url);
   if (!/^\/[^\s<>"]*$/.test(url) && !/^https:\/\/[^\s<>"]+$/i.test(url)) url = '/';
-  const out = { title: s(x.title).slice(0, 80) || 'FluxFilm', body: s(x.body).slice(0, 240), url: url.slice(0, 300), tag: s(x.tag).replace(/[^\w:-]/g, '').slice(0, 60) || undefined, icon: x.icon === 'admin' ? '/icons/admin-icon-192.png' : '/icons/icon-192.png' };
+  const ts = Number(x.ts);
+  const out = { title: s(x.title).slice(0, 80) || 'FluxFilm', body: s(x.body).slice(0, 240), url: url.slice(0, 300), tag: s(x.tag).replace(/[^\w:-]/g, '').slice(0, 60) || undefined, icon: x.icon === 'admin' ? '/icons/admin-icon-192.png' : '/icons/icon-192.png', ts: isFinite(ts) && ts > 0 ? Math.round(ts) : Date.now() };
   return out;
+}
+
+/**
+ * Urgency + TTL per kind of notification. Android puts a phone with the screen off into Doze: "normal" pushes then
+ * wait until the phone wakes, "high" ones are delivered at once. Everything a customer / the owner is waiting for
+ * is high; broadcasts / promos stay normal (unless the owner picks high for one broadcast).
+ *   reminder  renewal reminders       high · 24 h
+ *   delivered "your access is ready"  high · 24 h
+ *   refund    refund / credit notices high · 24 h
+ *   admin     owner alerts (new order, UPI refund to send) high · 24 h
+ *   test      admin test              high · 10 min
+ *   direct    owner → one customer    high · 24 h
+ *   broadcast promos to everyone      normal · 24 h
+ */
+const URGENCIES = ['very-low', 'low', 'normal', 'high'];
+const KINDS = {
+  reminder: { urgency: 'high', ttl: 24 * 3600 },
+  delivered: { urgency: 'high', ttl: 24 * 3600 },
+  refund: { urgency: 'high', ttl: 24 * 3600 },
+  admin: { urgency: 'high', ttl: 24 * 3600 },
+  test: { urgency: 'high', ttl: 10 * 60 },
+  direct: { urgency: 'high', ttl: 24 * 3600 },
+  broadcast: { urgency: 'normal', ttl: 24 * 3600 },
+};
+/** opts { kind, urgency?, ttl? } → { urgency, ttl }. An explicit valid urgency / ttl wins over the kind's default. */
+function deliveryFor(opts) {
+  const o = opts || {};
+  const k = KINDS[o.kind] || { urgency: 'normal', ttl: 24 * 3600 };
+  const ttl = Math.round(Number(o.ttl));
+  return { urgency: URGENCIES.includes(o.urgency) ? o.urgency : k.urgency, ttl: isFinite(ttl) && ttl > 0 ? Math.min(ttl, 28 * 86400) : k.ttl };
 }
 
 async function sendOne(row, message, opts) {
@@ -182,12 +213,13 @@ async function sendOne(row, message, opts) {
   const json = JSON.stringify(cleanMessage(message));
   if (Buffer.byteLength(json) > PAYLOAD_MAX) return { ok: false, status: 0, error: 'message too long' };
   const u = new URL(row.endpoint);
+  const dl = deliveryFor(o);
   const headers = {
     Authorization: 'vapid t=' + vapidJwt(u.origin, vapid) + ', k=' + vapid.publicKey,
     'Content-Encoding': 'aes128gcm',
     'Content-Type': 'application/octet-stream',
-    TTL: String(o.ttl || 24 * 3600),
-    Urgency: o.urgency || 'normal',
+    TTL: String(dl.ttl),
+    Urgency: dl.urgency,
   };
   const body = encrypt(json, row.p256dh, row.auth);
   headers['Content-Length'] = String(body.length);
@@ -229,8 +261,9 @@ async function sendToPhone(phone, message, opts) {
   if (ph.length !== 10) return { ok: false, message: 'Enter a 10-digit phone number.', devices: 0, sent: 0, failed: 0, removed: 0, phones: 0 };
   return sendWhere('phone_norm = ?', [ph], message, opts);
 }
-const sendToAdmins = (message, opts) => sendWhere("app = 'admin'", [], Object.assign({ icon: 'admin' }, message), opts);
-const broadcast = (message, opts) => sendWhere("phone_norm <> ''", [], message, opts);
+// Owner alerts are high urgency by default (kind 'admin'); broadcasts normal (kind 'broadcast').
+const sendToAdmins = (message, opts) => sendWhere("app = 'admin'", [], Object.assign({ icon: 'admin' }, message), Object.assign({ kind: 'admin' }, opts));
+const broadcast = (message, opts) => sendWhere("phone_norm <> ''", [], message, Object.assign({ kind: 'broadcast' }, opts));
 async function hasDevice(phone) {
   const r = await rowsFor('phone_norm = ?', [normPhone(phone)]);
   return r.rows.length > 0;
@@ -252,6 +285,6 @@ async function stats() {
 
 module.exports = {
   publicKeyInfo, subscribe, unsubscribe, sendToPhone, sendToAdmins, broadcast, hasDevice, stats, checkSubscription, cleanMessage,
-  SCHEMA_MSG, PUSH_HOST,
+  deliveryFor, KINDS, SCHEMA_MSG, PUSH_HOST,
   _internal: { encrypt, vapidJwt, makeVapid, getVapid, b64u, unb64u, sendOne, setTransport: (t) => { transport = t || httpsTransport; }, reset: () => { vapidCache = null; } },
 };

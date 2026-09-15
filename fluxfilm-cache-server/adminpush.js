@@ -7,7 +7,7 @@
  *   POST /admin/api/push/unsubscribe        { endpoint }
  *   POST /admin/api/push/test               {}                   to the admin devices
  *   POST /admin/api/push/send               { phone, title, body, url }
- *   POST /admin/api/push/broadcast          { title, body, url, confirm: true }   all customers with reminders on
+ *   POST /admin/api/push/broadcast          { title, body, url, urgency: normal|high (default normal), confirm: true }   all customers with reminders on
  */
 function mount(app, deps) {
   const { auth } = deps;
@@ -59,7 +59,7 @@ function mount(app, deps) {
   app.post('/admin/api/push/test', async (req, res) => {
     if (!auth(req, res)) return;
     try {
-      const r = await push.sendToAdmins({ title: '🔔 FluxFilm test notification', body: 'Notifications work on this device. ' + new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }), url: '/panel', tag: 'admin-test' });
+      const r = await push.sendToAdmins({ title: '🔔 FluxFilm test notification', body: 'Notifications work on this device. ' + new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }), url: '/panel', tag: 'admin-test' }, { kind: 'test' });
       if (r.needSchema) return res.status(400).json(r);
       audit.record(req, { action: 'push.test', entity: 'push', summary: 'Test notification: ' + summary(r) });
       res.json(Object.assign(r, { message: r.devices ? summary(r) : 'No admin device yet — tap "Turn on for this device" first.' }));
@@ -72,7 +72,7 @@ function mount(app, deps) {
       const b = req.body || {}; const m = message(b);
       if (!m.title) return res.status(400).json({ ok: false, message: 'Write a title.' });
       if (badUrl(m.url)) return res.status(400).json({ ok: false, message: 'The link must start with / or https://' });
-      const r = await push.sendToPhone(b.phone, m);
+      const r = await push.sendToPhone(b.phone, m, { kind: 'direct' });
       if (r.message && !r.devices) return res.status(400).json(r);
       audit.record(req, { action: 'push.send', entity: 'customer', id: s(b.phone).replace(/\D/g, '').slice(-10), summary: 'Notification "' + m.title + '": ' + summary(r), details: m });
       res.json(Object.assign(r, { message: r.devices ? summary(r) : 'This customer has not switched on notifications.' }));
@@ -89,9 +89,11 @@ function mount(app, deps) {
       const wait = lastBroadcast + BROADCAST_GAP_MS - Date.now();
       if (wait > 0) return res.status(429).json({ ok: false, message: 'A broadcast was just sent — please wait ' + Math.ceil(wait / 1000) + ' seconds.' });
       lastBroadcast = Date.now();
-      const r = await push.broadcast(Object.assign({ tag: 'broadcast' }, m), { concurrency: 10 });
+      // Promos wait for the phone to wake (normal) unless the owner picks "high" for an urgent broadcast.
+      const urgency = b.urgency === 'high' ? 'high' : 'normal';
+      const r = await push.broadcast(Object.assign({ tag: 'broadcast' }, m), { concurrency: 10, kind: 'broadcast', urgency });
       if (r.needSchema) { lastBroadcast = 0; return res.status(400).json(r); }
-      audit.record(req, { action: 'push.broadcast', entity: 'push', id: r.phones + ' customers', summary: 'Broadcast "' + m.title + '" to ' + r.phones + ' customer(s): ' + summary(r), details: m });
+      audit.record(req, { action: 'push.broadcast', entity: 'push', id: r.phones + ' customers', summary: 'Broadcast "' + m.title + '" to ' + r.phones + ' customer(s)' + (urgency === 'high' ? ' (high urgency)' : '') + ': ' + summary(r), details: Object.assign({ urgency }, m) });
       res.json(Object.assign(r, { message: 'Sent to ' + r.phones + ' customer(s) — ' + summary(r) }));
     } catch (e) { fail(res, e); }
   });
