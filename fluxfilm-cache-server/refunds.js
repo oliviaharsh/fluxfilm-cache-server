@@ -468,8 +468,17 @@ function create(deps) {
     const rows = await M.db().query("SELECT order_id, email, status, raw_json FROM orders WHERE phone_norm = ? AND UPPER(status) = 'REFUNDED' ORDER BY created_at_sheet DESC LIMIT 20", [ph]);
     if ((rows || []).some((o) => refundInfo(o).state === 'ASK_CUSTOMER' && refundEmailMatches(o, match))) return true;
     let offers = [];
-    try { offers = await M.db().query("SELECT r.offer_id, r.expires_at, o.email, o.phone_norm, o.status FROM refund_offers r JOIN orders o ON o.order_id = r.order_id WHERE r.phone_norm = ? AND r.status = 'OFFERED' LIMIT 10", [ph]); }
-    catch (e) { if (!missingTable(e)) throw e; }
+    // Two plain queries, no JOIN: refund_offers (schema-v26, utf8mb4_unicode_ci) and the older orders table use different
+    // collations, and MariaDB refuses to compare them ("Illegal mix of collations") — that broke "Email me a code" live.
+    try {
+      const ro = await M.db().query("SELECT offer_id, order_id, expires_at FROM refund_offers WHERE phone_norm = ? AND status = 'OFFERED' LIMIT 10", [ph]);
+      const ids = [...new Set((ro || []).map((x) => s(x.order_id)).filter(Boolean))];
+      if (ids.length) {
+        const os = await M.db().query('SELECT order_id, email, phone_norm, status FROM orders WHERE order_id IN (' + ids.map(() => '?').join(', ') + ')', ids);
+        const byId = new Map((os || []).map((o) => [s(o.order_id), o]));
+        offers = (ro || []).filter((x) => byId.has(s(x.order_id))).map((x) => Object.assign({}, byId.get(s(x.order_id)), { offer_id: x.offer_id, expires_at: x.expires_at }));
+      }
+    } catch (e) { if (!missingTable(e)) throw e; }
     return (offers || []).some((x) => !expired(x) && offerEmailMatches(x, ph, match));
   }
   function sendCode(phone, email) {
