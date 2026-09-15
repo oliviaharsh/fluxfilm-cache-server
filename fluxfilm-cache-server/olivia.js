@@ -226,6 +226,20 @@ function couponReason(message) {
   if (/service|plan|purchase|renewal/.test(m)) return 'plan';
   return 'invalid';
 }
+/** "99 wala chahiye" → the chat plans that cost exactly ₹99 (a number that is not a duration / device count). */
+function plansByPrice(text, plans) {
+  const nums = [...String(text || '').toLowerCase().matchAll(/(?:₹|rs\.?\s*)?\b(\d{2,5})\b(?!\s*(months?|mahin|din|days?|years?|saal|device|screen|%|gb))/g)].map((m) => Number(m[1]));
+  if (!nums.length) return [];
+  return chatPlans(plans).filter((p) => nums.includes(Math.round(Number(p.price))));
+}
+/** While choosing Netflix, \"99 wala\" means the Netflix ₹99 plan even if another service also costs ₹99. */
+function narrowToFamily(list, st) {
+  const cur = st.service || (st.plan && st.plan.service) || '';
+  const fam = cur ? list.filter((p) => familyOf(p.service) === familyOf(cur)) : [];
+  return fam.length ? fam : list;
+}
+const PICK_WORDS_RE = /wala|wali|wale|chahiye|chaiye|de do|dedo|dijiye|want|give me|lena|leni|that one|ye wala|yahi|le lo|lelo/i; // not "buy it for 99": that is about an old price
+const familyOf = (service) => String(service || '').toLowerCase().split(' (')[0].trim();
 const QUESTION_RE = /\?\s*$|^(does|do|is|are|can|will|how|what|why|when|which|kya|kaise|kyun|kyu|kab|kitna)\b/i;
 const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[a-z]{2,}$/i;
 const GROUP_LINK_RE = /^https:\/\/(chat\.whatsapp\.com|wa\.me|api\.whatsapp\.com)\/[\w?=&%./-]+$/i;
@@ -361,6 +375,8 @@ function menuReply(st, lang, name) {
 const firstName = (n) => s(n).split(/\s+/)[0].replace(/[^\p{L}.'-]/gu, '').slice(0, 20);
 function resetPurchase(st) { for (const k of ['service', 'variant', 'days', 'plan', 'extraValue', 'options', 'title', 'price', 'coupon', 'groupJoined', 'flow', 'renew', 'renewSubs', 'renewOptions']) delete st[k]; }
 
+// Buttons that create, change or cancel an order: only an explicit tap or clear words, never an AI guess.
+const MONEY_BUTTONS = new Set(['pay', 'paid', 'change', 'rchange', 'cantpay', 'nocoupon', 'switch', 'twin', 'joined']);
 const CHOOSING_STEPS = new Set(['service', 'variant', 'duration', 'tv', 'extra_email', 'own_email', 'group', 'confirm', 'coupon', 'renew_pick', 'renew_duration', 'renew_confirm']);
 const PAY_STEPS = new Set(['paying', 'backup_name', 'backup_review', 'delivering']);
 const payButtons = (lang) => [btn('paid', lang), btn('cantpay', lang), btn('coupon', lang), btn('change', lang)];
@@ -576,6 +592,24 @@ async function renewConfirm(c, ctx) {
   return [{ intent: 'RENEW_CONFIRM', facts: { title, price: q.price, early: r.quote.early, amount: q.amount, newExpiry: r.quote.newExpiry, accountChange: r.quote.accountChange }, buttons: [btn('pay', lang), btn('coupon', lang), btn('rchange', lang), btn('menu', lang)] }];
 }
 
+/** Customer named a plan by its price ("99 wala"): go straight to that plan (group join / TV / email steps still apply). */
+async function pickPlan(c, ctx, p) {
+  const st = c.state; const lang = c.lang;
+  let pre = [];
+  if (st.orderId && PAY_STEPS.has(st.step)) {
+    const cur = currentPlan(st, ctx.cat);
+    if (cur && cur.service === p.service && cur.plan === p.plan) { delete st.paused; st.step = 'paying'; ctx.poll = 6; return [{ intent: 'PAYMENT_REMINDER', facts: { title: titleOf(cur, lang), amount: st.amount }, card: payCard(st), buttons: payButtons(lang) }]; }
+    const done = await paidAlready(c, ctx);
+    if (done) return done;
+    dropOrder(st); pre = [{ intent: 'OLD_QR_CANCELLED' }];
+  }
+  const joined = st.groupJoined && familyOf(st.service) === familyOf(p.service);
+  resetPurchase(st);
+  st.service = p.service; st.variant = variantOf(p.plan); st.plan = { service: p.service, plan: p.plan };
+  if (joined) st.groupJoined = true;
+  return pre.concat(advance(st, ctx.cat, lang, ctx.profile));
+}
+
 async function turn(c, input, ctx) {
   const st = c.state; const lang = c.lang;
   const choice = s(input.choice);
@@ -599,6 +633,7 @@ async function turn(c, input, ctx) {
   let action = '';
   let ents = {};
   let code = '';
+  let priced = [];
   if (choice === 'poll') action = (PAY_STEPS.has(st.step) && !st.paused) ? 'poll' : '';
   else if (choice) action = (allowed.has(choice) || choice === 'menu') ? choice : '';
   else if (text) {
@@ -610,6 +645,7 @@ async function turn(c, input, ctx) {
     else if (st.step === 'backup_name' && !g && !intentOf(text) && /^[\p{L} .'-]{2,60}$/u.test(text)) action = 'payer:' + text;
     // 2. Things that can be asked at any moment.
     else if (g === 'coupon') { action = 'coupon'; code = couponCodeIn(text, false); }
+    else if (g !== 'change' && (priced = narrowToFamily(plansByPrice(text, ctx.cat.plans), st)).length) action = (priced.length === 1 && PICK_WORDS_RE.test(text) && !QUESTION_RE.test(text) && !/earlier|pehle|before|last time|bought|liya tha|kharida/i.test(text)) ? 'pricepick' : 'pricematch';
     else if (g === 'change') action = 'change';
     else if (g === 'price') { ents = entities(text, ctx.cat.plans); action = (ents.service && !PAY_STEPS.has(st.step)) ? 'slots' : 'price'; }
     else if (g === 'renew' || g === 'household' || g === 'other') { action = g; if (g === 'renew') ents = entities(text, ctx.cat.plans); }
@@ -618,7 +654,9 @@ async function turn(c, input, ctx) {
       const it = intentOf(text);
       const inPayment = PAY_STEPS.has(st.step) && !st.paused; // after Main menu / a side question, a new plan request is allowed
       ents = inPayment ? {} : entities(text, ctx.cat.plans);
+      const payEnts = inPayment && st.orderId ? entities(text, ctx.cat.plans) : {};
       if (it === 'paid' && PAY_STEPS.has(st.step)) action = st.paused ? 'backpay_paid' : 'paid';
+      else if (payEnts.service) { st.pendingSwitch = { service: payEnts.service, variant: payEnts.variant || '', days: payEnts.days || 0 }; action = 'switchask'; }
       else if (it === 'cantpay' && st.step === 'paying') action = 'cantpay';
       else if (it === 'diff' && (st.step === 'variant' || (st.service && needsVariant(ctx.cat.plans, st.service)) || ents.service)) action = 'diff';
       else if (st.flow === 'renew' && (st.step === 'renew_pick' || st.step === 'renew_duration') && (ents.service || ents.days) && renewTextAction(st, ents, ctx)) action = renewTextAction(st, ents, ctx);
@@ -632,7 +670,7 @@ async function turn(c, input, ctx) {
       else if (it === 'buy' && !inPayment && !CHOOSING_STEPS.has(st.step)) action = 'buy'; // "I want to buy" while already choosing: keep going
       // A question ("does it work on TV?") is answered, never mapped onto a button.
       if (!action && !QUESTION_RE.test(text) && (st.lastButtons || []).length) {
-        const pick = await deps.words.classify(text, (st.lastButtons || []).filter((b) => !LINK_BUTTONS[b.id] && !/^group/.test(b.id)), lang, ctx.settings);
+        const pick = await deps.words.classify(text, (st.lastButtons || []).filter((b) => !LINK_BUTTONS[b.id] && !/^group/.test(b.id) && !MONEY_BUTTONS.has(b.id)), lang, ctx.settings);
         if (pick.tokens) { c.aiCalls++; c.aiTokens += pick.tokens; }
         if (pick.id && allowed.has(pick.id)) action = pick.id;
       }
@@ -704,6 +742,29 @@ async function turn(c, input, ctx) {
   }
   if (action === 'keep') return advance(st, ctx.cat, lang, ctx.profile);
   if (action === 'price') return priceReplies(st, ctx, lang);
+  if (action === 'pricematch' || action === 'pricepick') {
+    const list = priced.slice(0, 4);
+    if (action === 'pricepick' || (list.length === 1 && !PAY_STEPS.has(st.step) && !QUESTION_RE.test(text) && PICK_WORDS_RE.test(text))) return pickPlan(c, ctx, list[0]);
+    st.priceOptions = list.map((p) => ({ service: p.service, plan: p.plan }));
+    return [{ intent: 'PRICE_MATCH', facts: { price: list[0].price, titles: list.map((p) => titleOf(p, lang)) }, buttons: withBackToPay(st, lang, list.map((p, i) => btn('ppick:' + i, lang, titleOf(p, lang) + ' · ' + words.rupees(p.price))).concat([btn('coupon', lang)])) }];
+  }
+  if (action.startsWith('ppick:')) { const o = (st.priceOptions || [])[Number(action.slice(6))]; const p = o && ctx.cat.plans.find((x) => x.service === o.service && x.plan === o.plan); return p ? pickPlan(c, ctx, p) : advance(st, ctx.cat, lang, ctx.profile); }
+  if (action === 'switchask') {
+    const sw = st.pendingSwitch || {};
+    const cur = currentPlan(st, ctx.cat);
+    const same = cur && familyOf(sw.service) === familyOf(cur.service) && (!sw.variant || sw.variant === variantOf(cur.plan)) && (!sw.days || Math.abs(sw.days - cur.durationDays) <= 5);
+    if (same) { delete st.pendingSwitch; st.step = 'paying'; ctx.poll = 6; return [{ intent: 'PAYMENT_REMINDER', facts: { title: titleOf(cur, lang), amount: st.amount }, card: payCard(st), buttons: payButtons(lang) }]; }
+    st.paused = true;
+    return [{ intent: 'SWITCH_CONFIRM', facts: { title: st.title || '', amount: st.amount, service: sw.service }, buttons: [btn('switch', lang), btn('backpay', lang)] }];
+  }
+  if (action === 'switch') {
+    const sw = st.pendingSwitch; delete st.pendingSwitch;
+    const done = await paidAlready(c, ctx);
+    if (done) return done;
+    dropOrder(st); resetPurchase(st);
+    if (sw) { st.service = sw.service; if (sw.variant) st.variant = sw.variant; if (sw.days) st.days = sw.days; }
+    return [{ intent: 'OLD_QR_CANCELLED' }].concat(advance(st, ctx.cat, lang, ctx.profile));
+  }
   if (action === 'twin') {
     if (!st.twin) return priceReplies(st, ctx, lang);
     const done = await paidAlready(c, ctx);
@@ -729,7 +790,14 @@ async function turn(c, input, ctx) {
     if (ents.days) { st.days = ents.days; st.plan = null; }
     return advance(st, ctx.cat, lang, ctx.profile);
   }
-  if (action.startsWith('service:')) { resetPurchase(st); dropOrder(st); st.service = (st.services || [])[Number(action.slice(8))] || ''; return advance(st, ctx.cat, lang, ctx.profile); }
+  if (action.startsWith('service:')) {
+    const next = (st.services || [])[Number(action.slice(8))] || '';
+    const keep = familyOf(next) === familyOf(st.service) ? { variant: st.variant, days: st.days || (currentPlan(st, ctx.cat) || {}).durationDays } : {};
+    resetPurchase(st); dropOrder(st); st.service = next;
+    if (keep.variant) st.variant = keep.variant;
+    if (keep.days) st.days = keep.days;
+    return advance(st, ctx.cat, lang, ctx.profile);
+  }
   if (action.startsWith('variant:')) { st.variant = action.slice(8); st.plan = null; return advance(st, ctx.cat, lang, ctx.profile); }
   if (action === 'diff') {
     const svc = ents.service || st.service;
@@ -915,5 +983,5 @@ async function messagesOf(id) {
 
 module.exports = {
   DEFAULTS, validateSettings, getSettings, saveSettings, status, handle, recent, messagesOf, schemaReady,
-  _internal: { typoService, setDeps: (d) => { deps = Object.assign({}, deps, d); }, reset: () => { cache = null; schemaOk = null; }, entities, intentOf, globalIntentOf, couponCodeIn, couponReason, chatPlans, needsVariant, optionsFor, titleOf, phoneList },
+  _internal: { typoService, plansByPrice, MONEY_BUTTONS, setDeps: (d) => { deps = Object.assign({}, deps, d); }, reset: () => { cache = null; schemaOk = null; }, entities, intentOf, globalIntentOf, couponCodeIn, couponReason, chatPlans, needsVariant, optionsFor, titleOf, phoneList },
 };
