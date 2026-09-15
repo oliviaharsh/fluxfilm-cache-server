@@ -107,6 +107,37 @@ html.ff-lite .ff-slide { animation-duration: .2s; }
 .ff-photo-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
 .ff-photo-note { font-size: 12.5px; font-weight: 600; color: #64748b; margin-top: 6px; line-height: 1.4; }
 .ff-photo-note.bad { color: #b91c1c; }
+/* ✨ Avatar creator (AvatarCreator; drawing code = /avatar-maker.js, loaded only when opened) */
+.ff-avc { position: fixed; inset: 0; z-index: 95; background: #f8fafc; display: flex; flex-direction: column; animation: ffAvcIn .2s ease-out; }
+@keyframes ffAvcIn { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+.ff-avc-top { display: flex; align-items: center; gap: 8px; padding: calc(10px + env(safe-area-inset-top)) 12px 6px; }
+.ff-avc-top h2 { flex: 1; min-width: 0; margin: 0; font-size: 17px; font-weight: 900; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ff-avc-ib { min-width: 44px; min-height: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(15,23,42,.10); background: #fff; font-family: inherit; font-size: 14px; font-weight: 800; color: #0f172a; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex-shrink: 0; }
+.ff-avc-ib:disabled { opacity: .4; }
+.ff-avc-ib:active, .ff-avc-op:active, .ff-avc-sw:active { transform: scale(.94); }
+.ff-avc-prev { flex-shrink: 0; display: grid; place-items: center; padding: 6px 0 10px; }
+.ff-avc-big { width: min(46vw, 30vh, 210px); height: min(46vw, 30vh, 210px); border-radius: 999px; overflow: hidden; box-shadow: 0 10px 30px rgba(15,23,42,.18); background: #e2e8f0; }
+.ff-avc-big svg, .ff-avc-th svg { width: 100%; height: 100%; display: block; }
+.ff-avc-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 4px 12px 10px; scrollbar-width: none; flex-shrink: 0; }
+.ff-avc-tabs::-webkit-scrollbar, .ff-avc-row::-webkit-scrollbar { display: none; }
+.ff-avc-tab { flex-shrink: 0; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(15,23,42,.10); background: #fff; font-family: inherit; font-size: 13.5px; font-weight: 800; color: #475569; cursor: pointer; white-space: nowrap; }
+.ff-avc-tab.on { background: #0f172a; border-color: #0f172a; color: #fff; }
+.ff-avc-body { flex: 1; min-height: 0; overflow-y: auto; background: #fff; border-radius: 22px 22px 0 0; box-shadow: 0 -4px 20px rgba(15,23,42,.06); padding: 12px 0 8px; overscroll-behavior: contain; }
+.ff-avc-lbl { font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: #64748b; padding: 4px 16px 6px; }
+.ff-avc-row { display: flex; gap: 10px; overflow-x: auto; padding: 2px 16px 12px; scrollbar-width: none; }
+.ff-avc-op { flex-shrink: 0; width: 76px; border: 2px solid rgba(15,23,42,.08); background: #fff; border-radius: 18px; padding: 4px 4px 6px; cursor: pointer; font-family: inherit; transition: border-color .12s; }
+.ff-avc-op.on { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.18); }
+.ff-avc-th { display: block; width: 64px; height: 64px; border-radius: 14px; overflow: hidden; margin: 0 auto; }
+.ff-avc-op small { display: block; margin-top: 4px; font-size: 11px; font-weight: 700; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ff-avc-sw { flex-shrink: 0; width: 48px; height: 48px; margin: 3px 0; border-radius: 999px; border: 3px solid #fff; box-shadow: 0 0 0 1.5px rgba(15,23,42,.14); cursor: pointer; }
+.ff-avc-sw.on { box-shadow: 0 0 0 3px #22c55e; }
+.ff-avc-foot { display: flex; gap: 10px; padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid rgba(15,23,42,.06); }
+.ff-avc-msg { font-size: 13px; font-weight: 700; color: #b91c1c; text-align: center; padding: 0 16px 6px; background: #fff; }
+.ff-avc-new { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px; margin-bottom: 14px; border-radius: 18px; border: 0; background: linear-gradient(135deg,#0f172a,#1e3a2f); color: #fff; text-align: left; cursor: pointer; font-family: inherit; min-height: 64px; }
+.ff-avc-new b { display: block; font-size: 15px; font-weight: 900; }
+.ff-avc-new span { font-size: 12.5px; font-weight: 600; opacity: .8; }
+.ff-avc-new i { font-style: normal; font-size: 30px; }
+@media (prefers-reduced-motion: reduce) { .ff-avc { animation: none; } }
 .ff-photo-rm { margin-top: 6px; min-height: 36px; border: 0; background: none; color: #b91c1c; font-size: 13px; font-weight: 800; padding: 6px 0; cursor: pointer; font-family: inherit; }
 .ff-alist { margin-top: 12px; padding: 4px 0 !important; }
 .ff-arow { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: none; border: 0; text-align: left; cursor: pointer; font-family: inherit; }
@@ -3565,7 +3596,9 @@ function DashboardScreen({
       cursor: 'pointer'
     }
   }, profile?.profilePicUrl ? React.createElement("img", {
-    src: profile.profilePicUrl,
+    // ✨ creator avatars wink for 3 days after a plan starts or is renewed
+    src: ffAvatarMood_(profile.profilePicUrl, actionable.some(s => s.startDate && Date.now() - new Date(s.startDate).getTime() < 3 * 86400e3) ? 'wink' : ''),
+    alt: "",
     style: {
       width: '100%',
       height: '100%',
@@ -8177,6 +8210,288 @@ function ffSquarePhoto_(file) {
     img.src = src;
   });
 }
+// ✨ Avatar creator. The drawing code (avatarmaker.js) loads only when the sheet opens; the saved picture is
+// /avatar/<code>.svg, drawn by the server, so every <img> that shows a profile picture works unchanged.
+let ffAvatarMakerP_ = null;
+function ffLoadAvatarMaker_() {
+  if (window.FFAvatar) return Promise.resolve(window.FFAvatar);
+  if (!ffAvatarMakerP_) ffAvatarMakerP_ = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = '/avatar-maker.js?v=1';
+    s.async = true;
+    s.onload = () => window.FFAvatar ? res(window.FFAvatar) : rej(new Error('Avatar maker missing'));
+    s.onerror = () => {
+      ffAvatarMakerP_ = null;
+      rej(new Error('Could not load the avatar maker. Check your internet and try again.'));
+    };
+    document.head.appendChild(s);
+  });
+  return ffAvatarMakerP_;
+}
+// Same creator avatar with another expression (a wink on My plans right after a plan starts). Other pictures unchanged.
+function ffAvatarMood_(url, mood) {
+  const m = /^\/avatar\/(1[0-9a-z]{15})\.svg$/.exec(url || '');
+  const i = {
+    grin: '1',
+    wink: '2'
+  }[mood];
+  return m && i ? '/avatar/' + m[1].slice(0, 7) + i + m[1].slice(8) + '.svg' : url;
+}
+const FF_AVC_TABS = [{
+  k: 'face',
+  label: '🙂 Face',
+  rows: ['face', 'skin']
+}, {
+  k: 'hair',
+  label: '💇 Hair',
+  rows: ['hair', 'hairColor']
+}, {
+  k: 'eyes',
+  label: '👀 Eyes',
+  rows: ['eyes', 'brows']
+}, {
+  k: 'mood',
+  label: '😜 Mood',
+  rows: ['mood']
+}, {
+  k: 'beard',
+  label: '🧔 Beard',
+  rows: ['beard']
+}, {
+  k: 'glasses',
+  label: '🕶️ Glasses',
+  rows: ['glasses']
+}, {
+  k: 'jewel',
+  label: '💎 Jewellery',
+  rows: ['jewel']
+}, {
+  k: 'outfit',
+  label: '👕 Outfit',
+  rows: ['top', 'topColor', 'logo']
+}, {
+  k: 'fun',
+  label: '🍿 Fun',
+  rows: ['prop', 'bg']
+}];
+const FF_AVC_ROW = {
+  face: 'Face shape',
+  skin: 'Skin tone',
+  hair: 'Hair style',
+  hairColor: 'Hair colour',
+  eyes: 'Eyes',
+  brows: 'Eyebrows',
+  mood: 'Expression',
+  beard: 'Facial hair',
+  glasses: 'Glasses',
+  jewel: 'Bindi & earrings',
+  top: 'Top',
+  topColor: 'Top colour',
+  logo: 'Logo',
+  prop: 'Props',
+  bg: 'Background'
+};
+// Close-up crop for the small option pictures (full picture for outfit / logo / props).
+const FF_AVC_CROP = {
+  eyes: '58 66 84 84',
+  brows: '58 60 84 84',
+  glasses: '58 66 84 84',
+  hair: '28 10 144 144',
+  top: '0 0 200 200',
+  logo: '0 0 200 200',
+  prop: '0 0 200 200'
+};
+// React only touches the DOM when the SVG text really changed (dangerouslySetInnerHTML compares __html).
+function AvcThumb({
+  svg
+}) {
+  return React.createElement("span", {
+    className: "ff-avc-th",
+    "aria-hidden": "true",
+    dangerouslySetInnerHTML: {
+      __html: svg
+    }
+  });
+}
+function AvatarCreator({
+  phone,
+  initial,
+  onClose,
+  onSaved
+}) {
+  const [A, setA] = useState(window.FFAvatar || null);
+  const [cfg, setCfg] = useState(null);
+  const [hist, setHist] = useState([]);
+  const [tab, setTab] = useState('face');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const bigRef = useRef(null);
+  const frame = useRef(0);
+  useEffect(() => {
+    let live = true;
+    ffLoadAvatarMaker_().then(M => {
+      if (!live) return;
+      const v = M.validate(initial || {});
+      setA(M);
+      setCfg(v.ok ? v.config : Object.assign({}, M.DEFAULT));
+    }, e => live && setMsg(e.message));
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      live = false;
+      document.body.style.overflow = prevOverflow;
+      cancelAnimationFrame(frame.current);
+    };
+  }, []);
+  // Live preview: only the big SVG is redrawn, at most once per frame (fast taps collapse into one draw).
+  useEffect(() => {
+    if (!A || !cfg) return;
+    cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => {
+      if (bigRef.current) bigRef.current.innerHTML = A.svg(cfg);
+    });
+  }, [A, cfg]);
+  const push = next => {
+    setHist(h => h.concat([cfg]).slice(-40));
+    setCfg(next);
+    setMsg('');
+  };
+  const change = (k, v) => {
+    if (cfg && cfg[k] !== v) push({
+      ...cfg,
+      [k]: v
+    });
+  };
+  const undo = () => {
+    if (!hist.length) return;
+    setCfg(hist[hist.length - 1]);
+    setHist(h => h.slice(0, -1));
+  };
+  const save = () => {
+    if (!cfg || saving) return;
+    setSaving(true);
+    API.setAvatar(phone, cfg, r => {
+      setSaving(false);
+      if (r && r.ok) onSaved(r);else setMsg(r?.message || 'Could not save your avatar. Please try again.');
+    }, err => {
+      setSaving(false);
+      setMsg('Could not save your avatar: ' + (err?.message || err));
+    });
+  };
+  const current = FF_AVC_TABS.find(t => t.k === tab) || FF_AVC_TABS[0];
+  const wrapped = cfg && (cfg.hair === 'turban' || cfg.hair === 'hijab');
+  const row = key => {
+    const opts = A.OPTIONS[key];
+    const colors = key === 'hairColor' && wrapped ? A.WRAP : A.COLORS[key];
+    const label = key === 'hairColor' && wrapped ? cfg.hair === 'turban' ? 'Turban colour' : 'Hijab colour' : FF_AVC_ROW[key];
+    return React.createElement(React.Fragment, {
+      key: key
+    }, React.createElement("div", {
+      className: "ff-avc-lbl"
+    }, label), React.createElement("div", {
+      className: "ff-avc-row",
+      role: "radiogroup",
+      "aria-label": label
+    }, opts.map((o, n) => {
+      const on = cfg[key] === o;
+      if (colors) return React.createElement("button", {
+        key: o,
+        type: "button",
+        role: "radio",
+        "aria-checked": on,
+        "aria-label": label + ' ' + (n + 1),
+        className: "ff-avc-sw" + (on ? ' on' : ''),
+        style: {
+          background: colors[o]
+        },
+        onClick: () => change(key, o)
+      });
+      return React.createElement("button", {
+        key: o,
+        type: "button",
+        role: "radio",
+        "aria-checked": on,
+        className: "ff-avc-op" + (on ? ' on' : ''),
+        onClick: () => change(key, o)
+      }, React.createElement(AvcThumb, {
+        svg: A.svg({
+          ...cfg,
+          // headphones would hide the hair in the small hair pictures
+          prop: key === 'hair' && cfg.prop === 'headphones' ? 'none' : cfg.prop,
+          [key]: o
+        }, {
+          viewBox: FF_AVC_CROP[key] || '34 22 132 132'
+        })
+      }), React.createElement("small", null, A.LABELS[key] && A.LABELS[key][o] || o));
+    })));
+  };
+  return React.createElement("div", {
+    className: "ff-avc",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": "Create your avatar"
+  }, React.createElement("div", {
+    className: "ff-avc-top"
+  }, React.createElement("button", {
+    type: "button",
+    className: "ff-avc-ib",
+    onClick: onClose,
+    disabled: saving,
+    "aria-label": "Close"
+  }, "✕"), React.createElement("h2", null, "✨ Your avatar"), React.createElement("button", {
+    type: "button",
+    className: "ff-avc-ib",
+    onClick: undo,
+    disabled: !hist.length || saving,
+    "aria-label": "Undo"
+  }, "↩️"), React.createElement("button", {
+    type: "button",
+    className: "ff-avc-ib",
+    "data-ff": "avc-random",
+    onClick: () => A && push(A.random()),
+    disabled: !A || saving
+  }, "🎲 Random")), React.createElement("div", {
+    className: "ff-avc-prev"
+  }, React.createElement("div", {
+    className: "ff-avc-big",
+    ref: bigRef,
+    role: "img",
+    "aria-label": "Your avatar preview"
+  })), A && cfg ? React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "ff-avc-tabs",
+    role: "tablist"
+  }, FF_AVC_TABS.map(t => React.createElement("button", {
+    key: t.k,
+    type: "button",
+    role: "tab",
+    "aria-selected": tab === t.k,
+    className: "ff-avc-tab" + (tab === t.k ? ' on' : ''),
+    onClick: () => setTab(t.k)
+  }, t.label))), React.createElement("div", {
+    className: "ff-avc-body"
+  }, current.rows.map(row))) : React.createElement("div", {
+    className: "ff-avc-body",
+    style: {
+      display: 'grid',
+      placeItems: 'center'
+    }
+  }, msg ? null : React.createElement(Spinner, null)), msg && React.createElement("div", {
+    className: "ff-avc-msg",
+    role: "alert"
+  }, msg), React.createElement("div", {
+    className: "ff-avc-foot"
+  }, React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    disabled: saving,
+    onClick: onClose
+  }, "Cancel"), React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    disabled: saving || !cfg,
+    onClick: save
+  }, saving ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), "Saving…") : '✅ Save avatar')));
+}
 function AccountScreen({
   nav,
   subs,
@@ -8207,6 +8522,7 @@ function AccountScreen({
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState('');
   const [photoMsg, setPhotoMsg] = useState(null);
+  const [showCreator, setShowCreator] = useState(false);
   // Account → Notifications row (renewal reminders on this device).
   const [pushSt, setPushSt] = useState('off');
   useEffect(() => {
@@ -8296,6 +8612,23 @@ function AccountScreen({
     });
   }
   const hasOwnPhoto = /^\/profile-photo\//.test(profile?.profilePicUrl || '');
+  // ✨ The customer's own creator avatar stays in the list even after they switch to a photo or another avatar.
+  const myAvatarUrl = profile?.avatarUrl || '';
+  const pickList = myAvatarUrl ? [myAvatarUrl].concat(AVATARS) : AVATARS;
+  function avatarCreated(r) {
+    setProfile(p => ({
+      ...(p || {}),
+      profilePicUrl: r.profilePicUrl,
+      avatarUrl: r.profilePicUrl,
+      avatarConfig: r.avatarConfig
+    }));
+    onProfileUpdated && onProfileUpdated(r.profilePicUrl, {
+      avatarUrl: r.profilePicUrl,
+      avatarConfig: r.avatarConfig
+    });
+    setShowCreator(false);
+    closePicker();
+  }
   function closePicker() {
     setShowAvatarPicker(false);
     setPendingAvatar('');
@@ -8688,7 +9021,13 @@ function AccountScreen({
       fontWeight: 600,
       marginBottom: 14
     }
-  }, "Upload your own photo, or tap an avatar. Then tap Save."), React.createElement("div", {
+  }, "Upload your own photo, or tap an avatar. Then tap Save."), React.createElement("button", {
+    type: "button",
+    className: "ff-avc-new",
+    "data-ff": "avc-open",
+    disabled: avatarSaving,
+    onClick: () => setShowCreator(true)
+  }, React.createElement("i", null, "✨"), React.createElement("div", null, React.createElement("b", null, myAvatarUrl ? 'Edit your avatar' : 'Create your avatar'), React.createElement("span", null, "Pick face, hair, outfit & fun props"))), React.createElement("div", {
     className: "ff-photo-up" + (pendingPhoto ? ' on' : '')
   }, React.createElement("div", {
     className: "ff-photo-prev"
@@ -8724,7 +9063,7 @@ function AccountScreen({
       gap: 8,
       marginBottom: 16
     }
-  }, AVATARS.map((url, i) => {
+  }, pickList.map((url, i) => {
     const sel = pendingAvatar === url || !pendingAvatar && !pendingPhoto && profile?.profilePicUrl === url;
     return React.createElement("button", {
       key: i,
@@ -8781,7 +9120,12 @@ function AccountScreen({
     full: true,
     disabled: avatarSaving || !pendingAvatar && !pendingPhoto,
     onClick: pendingPhoto ? savePhoto : saveAvatar
-  }, avatarSaving ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), "Saving…") : '✅ Save Picture')))), section === 'profile' && React.createElement(Card, {
+  }, avatarSaving ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), "Saving…") : '✅ Save Picture')))), showCreator && React.createElement(AvatarCreator, {
+    phone: phone,
+    initial: profile?.avatarConfig,
+    onClose: () => setShowCreator(false),
+    onSaved: avatarCreated
+  }), section === 'profile' && React.createElement(Card, {
     style: {
       marginTop: 10
     }
@@ -8843,6 +9187,14 @@ function AccountScreen({
       marginTop: 4
     }
   }, s.label))))), section === 'profile' && React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    style: {
+      marginTop: 10
+    },
+    "data-ff": "avc-open-profile",
+    onClick: () => setShowCreator(true)
+  }, myAvatarUrl ? '✨ Edit your avatar' : '✨ Create your avatar'), section === 'profile' && React.createElement(Btn, {
     variant: "ghost",
     full: true,
     style: {
@@ -13648,11 +14000,12 @@ function App() {
     setCouponCache: setCouponCache,
     initialCoupons: d.coupons,
     initialSection: d.accountSection,
-    onProfileUpdated: url => {
+    onProfileUpdated: (url, extra) => {
       setScreenData(prev => ({
         ...(prev || {}),
         profile: {
           ...(prev?.profile || {}),
+          ...(extra || {}),
           profilePicUrl: url
         }
       }));
@@ -13794,6 +14147,9 @@ const API = {
   },
   removeProfilePhoto(phone, avatarUrl, onSuccess, onFailure) {
     apiCall_('removeProfilePhoto', [phone, avatarUrl], onSuccess, onFailure);
+  },
+  setAvatar(phone, config, onSuccess, onFailure) {
+    apiCall_('setAvatar', [phone, config], onSuccess, onFailure);
   },
   getActiveCouponsForCustomer(phone, onSuccess, onFailure) {
     apiCall_('getActiveCouponsForCustomer', [phone], onSuccess, onFailure);
