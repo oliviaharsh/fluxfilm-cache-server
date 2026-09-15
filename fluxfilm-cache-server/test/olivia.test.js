@@ -20,7 +20,10 @@ const mockDb = {
     if (/^SELECT id, phone_norm, lang, step, state_json/.test(sql)) return convs[p[0]] ? [convs[p[0]]] : [];
     if (/^INSERT INTO olivia_conversations/.test(sql)) { convs[p[0]] = { id: p[0], phone_norm: p[1], lang: p[2], step: p[3], state_json: p[4], status: p[5], order_id: p[6], turns: p[7], ai_calls: p[8], ai_tokens: p[9] }; return {}; }
     if (/^UPDATE olivia_conversations/.test(sql)) { const c = convs[p[9]]; Object.assign(c, { lang: p[0], step: p[1], state_json: p[2], status: p[3], order_id: p[4], turns: p[5], ai_calls: p[6], ai_tokens: p[7] }); return {}; }
-    if (/^INSERT INTO olivia_messages/.test(sql)) { msgs.push({ conversation_id: p[0], role: p[1], intent: p[2], body: p[3], meta_json: p[4], ai: p[5] }); return {}; }
+    if (/^INSERT INTO olivia_messages/.test(sql)) { msgs.push({ id: msgs.length + 1, conversation_id: p[0], role: p[1], intent: p[2], body: p[3], meta_json: p[4], ai: p[5], created_at: '2026-09-15 05:42:33' }); return {}; }
+    if (/^SELECT id, lang, status, order_id, turns, created_at, updated_at FROM olivia_conversations WHERE phone_norm = \? AND turns > 0/.test(sql)) return Object.values(convs).filter((c) => c.phone_norm === p[0] && c.turns > 0).map((c) => Object.assign({ created_at: '2026-09-15 05:40:00', updated_at: '2026-09-15 05:45:00' }, c));
+    if (/^SELECT m\.conversation_id, m\.role, m\.body FROM olivia_messages m JOIN/.test(sql)) { const olv = /role = 'olivia'/.test(sql); return p.map((id) => msgs.filter((m) => m.conversation_id === id && (olv ? m.role === 'olivia' && /^(PAYMENT_RECEIVED|RENEW_DONE|CONFIRM_PLAN)/.test(m.intent) : m.role === 'customer')).pop()).filter(Boolean); }
+    if (/^SELECT role, intent, body, created_at FROM olivia_messages WHERE conversation_id = \?/.test(sql)) return msgs.filter((m) => m.conversation_id === p[0]);
     if (/^SELECT id, phone_norm, lang, step, status, order_id/.test(sql)) return Object.values(convs);
     if (/^SELECT role, intent, body, ai, created_at FROM olivia_messages/.test(sql)) return msgs.filter((m) => m.conversation_id === p[0]);
     throw new Error('unexpected SQL: ' + sql);
@@ -447,6 +450,27 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   olivia._internal.setDeps({ words });
   await olivia.saveSettings({ aiWords: false }); olivia._internal.reset();
 
+  // ── language follows the customer's typing (Harsh: "I say in Hinglish - she should also") ──
+  ok('detect: Hinglish / English / Hindi / unsure', olivia._internal.detectLang('Netflix chahiye') === 'hinglish' && olivia._internal.detectLang('99 wala de do bhai') === 'hinglish' && olivia._internal.detectLang('I want to use coupon code') === 'en' && olivia._internal.detectLang('नेटफ्लिक्स चाहिए') === 'hi' && olivia._internal.detectLang('Ff20') === '' && olivia._internal.detectLang('RAMESH KUMAR') === '' && olivia._internal.detectLang('yes') === '');
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'lang:en' });
+  ok('picked English', r.lang === 'en' && /^Hello/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'mujhe netflix chahiye' });
+  ok('typing Hinglish → she answers in Hinglish (and remembers it)', r.lang === 'hinglish' && /Netflix do tarah ka hai|Aapne Netflix/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'Ff20' });
+  ok('a coupon-like word does not flip the language back', r.lang === 'hinglish');
+  r = await olivia.handle(PH, { conversationId: conv, text: 'I want private please' });
+  ok('clear English → English again', r.lang === 'en', r.lang);
+
+  // ── Past chats (customer menu) ──
+  const hist = await olivia.history(PH);
+  ok('past chats: only this phone\'s chats, newest first, with a preview of what the customer wrote', hist.ok && hist.chats.length >= 1 && hist.chats.every((x) => /^[a-f0-9]{32}$/.test(x.id)) && hist.chats.some((x) => x.preview) && /\+05:30$/.test(hist.chats[0].updatedAt), hist);
+  const tr = await olivia.transcript(PH, conv);
+  ok('past chat opens with both sides of the conversation', tr.ok && tr.messages.some((m) => m.role === 'customer') && tr.messages.some((m) => m.role === 'olivia'), tr.messages && tr.messages.length);
+  ok('past chat never shows a login; markers become plain words', !JSON.stringify(tr).includes('SuperSecret') && !JSON.stringify(tr).includes('[login shown in app]') && (JSON.stringify(tr).includes('Your login was shown here') || !msgs.some((m) => /login shown/.test(m.body))));
+  ok('another phone cannot open this chat', (await olivia.transcript('9000000001', conv)).ok === false);
+  ok('bad id refused', (await olivia.transcript(PH, '../../etc')).ok === false);
+  ok('cleanBody: payment card marker', olivia._internal.cleanBody('Please pay ₹99 [pay card]').includes('Payment QR was shown'));
+
   // ── words: AI rewrite only when it keeps the facts ──
   const base = words.template('CONFIRM_PLAN', { title: 'Netflix Sharing 1 month', price: 139 }, 'en');
   ok('check: faithful rewrite accepted', words.check('Great choice! Netflix Sharing 1 month is ₹139. Shall I send you the payment QR?', base));
@@ -497,6 +521,8 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('widget: Olivia photo in header + Help sheet, emoji fallback, AI tag always next to her name', widget.includes("var AVATAR = '/olivia-avatar.jpg?v=1'") && widget.includes('img.onload') && (widget.match(/aiTag()/g) || []).length >= 3 && widget.includes('Olivia is an AI assistant'));
   ok('server: /olivia-avatar.jpg served before the catch-all; file is a small JPEG', server.indexOf("app.get('/olivia-avatar.jpg'") > 0 && server.indexOf("app.get('/olivia-avatar.jpg'") < server.indexOf("app.get('*'") && (() => { const f = fs.readFileSync(path.join(root, 'olivia-avatar.jpg')); return f[0] === 0xff && f[1] === 0xd8 && f.length < 40000; })());
   ok('widget: chat fits above the phone keyboard (visualViewport) and keeps the newest message in view', widget.includes('visualViewport') && widget.includes('fitToKeyboard') && widget.includes('vv.height'));
+  ok('widget: ⋮ menu with Past chats / New chat, read-only past chat with Continue', widget.includes('oliviaHistory') && widget.includes('oliviaTranscript') && widget.includes('Past chats') && widget.includes('New chat') && widget.includes('Continue this chat'));
+  ok('server: history + transcript actions, rate limited', server.includes('oliviaHistory: (a) => oliviaMod.history(a[0])') && server.includes('oliviaTranscript: (a) => oliviaMod.transcript(a[0], a[1])') && server.includes('LIMITS.oliviaTranscript'));
   ok('widget: 2 choices — Chat with Olivia / WhatsApp our team', /Chat with Olivia/.test(widget) && /WhatsApp our team/.test(widget));
   const schemaSql = fs.readFileSync(path.join(root, 'db', 'schema-v21.sql'), 'utf8');
   ok('schema-v21: both tables, IF NOT EXISTS', /CREATE TABLE IF NOT EXISTS olivia_conversations/.test(schemaSql) && /CREATE TABLE IF NOT EXISTS olivia_messages/.test(schemaSql));
