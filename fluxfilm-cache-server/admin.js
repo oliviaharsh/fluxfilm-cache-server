@@ -138,6 +138,8 @@ function mountAdmin(app, deps) {
   });
   // WhatsApp / phone sales: quick new + renew orders, mark paid (quickorders.js).
   require('./quickorders').mount(app, Object.assign({ db, auth, audit }, deps.quick || {}));
+  // 💳 Credit renewals: receivables, mark paid / partial / cancel, ✉️ reminder email + 💬 WhatsApp text (credit.js).
+  require('./credit').mount(app, Object.assign({ db, auth, audit }, deps.credit || {}));
   // Order lookup + stock levels (adminlookup.js).
   require('./adminlookup').mount(app, Object.assign({ db, auth, audit }, deps.lookup || {}));
   // Stuck orders: fulfil / re-fulfil, deliver manually, refund, erase (adminorderactions.js).

@@ -22,6 +22,25 @@ const s = (v) => String(v == null ? '' : v).trim();
 function rawOf(v) { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (_) { return {}; } }
 
 const PAY_METHODS = ['UPI', 'CASH', 'BANK', 'OTHER'];
+const renewal = require('./renewal');
+const credit = require('./credit');
+
+/**
+ * New expiry for each "Start the new period from" choice (admin renew). AUTO = the shop's normal rule, exactly the
+ * preview createRenewOrder already gives (it knows about removal from the account); EXPIRY / TODAY are plain dates.
+ */
+function renewBases(q, durationDays, now) {
+  const exp = q && q.sub ? q.sub.expiry_date : null;
+  const D = Number(durationDays) || 30;
+  const pv = (q && q.renewal && q.renewal.preview) || null;
+  const e = renewal.computeAdminRenewal({ base: 'EXPIRY', expiry: exp, now: now || new Date(), durationDays: D });
+  const t = renewal.computeAdminRenewal({ base: 'TODAY', expiry: exp, now: now || new Date(), durationDays: D });
+  return {
+    AUTO: { newExpiryText: pv ? pv.newExpiryText || '' : '', message: pv ? pv.message || '' : '' },
+    EXPIRY: { newExpiryText: e.newExpiryText, message: e.message },
+    TODAY: { newExpiryText: t.newExpiryText, message: t.message },
+  };
+}
 
 /** What a plan needs from the admin, derived from the same plan columns the storefront uses. */
 function planMeta(p) {
@@ -141,10 +160,15 @@ function mount(app, deps) {
       const q = await M.order.get().renewQuote(s(req.query.sub_id), s(req.query.plan));
       if (!q.ok) return res.status(400).json(q);
       const plans = (await activePlans()).filter((p) => p.service === q.sub.service).map((p) => ({ plan: p.plan, price: p.price, durationDays: p.durationDays }));
+      const pl = plans.find((p) => p.plan === q.plan);
       res.json({
         ok: true, subId: q.sub.sub_id, service: q.sub.service, plan: q.plan, currentPlan: q.sub.plan, plans,
         price: q.price, earlyDiscount: q.earlyDiscount, amount: q.amount, daysLeft: q.daysLeft,
         mode: q.renewal.mode, message: q.renewal.message || '', preview: q.renewal.preview || null,
+        // "Start the new period from" (admin only): the new expiry for each choice, shown live before confirming.
+        expiry: q.sub.expiry_date || null, expiryText: q.sub.expiry_date ? renewal.prettyDate(renewal.toDate(q.sub.expiry_date)) : '',
+        bases: renewBases(q, pl ? pl.durationDays : null),
+        defaultBase: 'AUTO', creditDueDate: credit.defaultDueDate(),
       });
     } catch (e) { fail(res, e); }
   });
@@ -206,6 +230,20 @@ function mount(app, deps) {
     if (amount != null && (!Number.isFinite(amount) || amount < 0)) return res.status(400).json({ ok: false, field: 'amount', message: 'Amount must be a number.' });
     const method = s(b.payMethod).toUpperCase() || 'UPI';
     const rawExtra = { CreatedVia: 'ADMIN', PaymentMethod: method, AdminNote: s(b.notes).slice(0, 300) };
+    // 💳 On credit (renewals only): renews now, paid later (credit.js). Amount = what the customer owes.
+    const onCredit = s(b.payment).toUpperCase() === 'CREDIT';
+    let renewBase = '';
+    if (mode === 'RENEW') {
+      renewBase = renewal.normBase(b.renewBase);
+      rawExtra.RenewBase = renewBase;
+    }
+    if (onCredit) {
+      if (mode !== 'RENEW') return res.status(400).json({ ok: false, field: 'payment', message: 'Credit is only for renewals.' });
+      if (!(amount > 0)) return res.status(400).json({ ok: false, field: 'amount', message: 'Enter the amount due (more than ₹0).' });
+      const due = credit.parseDueDate(b.creditDueDate);
+      if (!due) return res.status(400).json({ ok: false, field: 'creditDueDate', message: 'Due date must look like 2026-09-20.' });
+      Object.assign(rawExtra, { PaymentMethod: 'CREDIT', Credit: true, CreditAmount: amount, CreditDueDate: due, CreditCreatedAt: new Date().toISOString(), CreditStatus: 'OPEN' });
+    }
 
     try {
       let out;
@@ -238,12 +276,19 @@ function mount(app, deps) {
         const own = await db.query('SELECT phone_norm FROM subscriptions WHERE sub_id = ? LIMIT 1', [subId]);
         if (!own.length) return res.status(400).json({ ok: false, field: 'subId', message: 'Subscription not found.' });
         if (s(own[0].phone_norm) !== phone) return res.status(400).json({ ok: false, field: 'subId', message: 'That subscription belongs to a different phone number.' });
-        out = await M.order.get().createRenewOrder(subId, s(b.plan), '', { amountOverride: amount, notes: 'ADMIN RENEW ' + method + (s(b.notes) ? ': ' + s(b.notes) : ''), rawExtra });
+        out = await M.order.get().createRenewOrder(subId, s(b.plan), '', { amountOverride: amount, notes: 'ADMIN RENEW ' + (onCredit ? 'CREDIT' : method) + (s(b.notes) ? ': ' + s(b.notes) : ''), rawExtra });
       }
       if (!out || !out.ok) return res.status(400).json(out || { ok: false, message: 'Order could not be created.' });
 
-      audit.record(req, { action: 'quick.' + mode.toLowerCase(), entity: 'order', id: out.orderId, summary: (mode === 'RENEW' ? 'Renew ' + s(b.subId) : s(b.service) + ' · ' + s(b.plan)) + ' · ₹' + out.amount + ' · ' + phone + (b.markPaid ? ' · marked paid (' + method + ')' : ' · unpaid') });
-      const result = { ok: true, mode, orderId: out.orderId, amount: out.amount, status: 'CREATED', upiLink: out.upiLink, customerCreated: !!out.customerCreated, renewNotice: out.renewNotice || '', renewPreview: out.renewPreview || null };
+      const baseTxt = mode === 'RENEW' ? ' · starts from ' + (renewBase === 'EXPIRY' ? 'old expiry' : renewBase === 'TODAY' ? 'today' : 'shop rule') : '';
+      audit.record(req, { action: 'quick.' + mode.toLowerCase(), entity: 'order', id: out.orderId, summary: (mode === 'RENEW' ? 'Renew ' + s(b.subId) : s(b.service) + ' · ' + s(b.plan)) + ' · ₹' + out.amount + ' · ' + phone + baseTxt + (onCredit ? ' · 💳 on credit, due ' + rawExtra.CreditDueDate : b.markPaid ? ' · marked paid (' + method + ')' : ' · unpaid'), details: mode === 'RENEW' ? { RenewBase: renewBase, credit: onCredit } : undefined });
+      const result = { ok: true, mode, orderId: out.orderId, amount: out.amount, status: 'CREATED', upiLink: out.upiLink, customerCreated: !!out.customerCreated, renewNotice: out.renewNotice || '', renewPreview: out.renewPreview || null, renewBase: renewBase || undefined };
+      if (onCredit) {
+        const c = await (deps.startCredit || credit.startCredit)({ db, fulfill: M.fulfill.get() }, out.orderId);
+        if (!c.ok) return res.json(Object.assign(result, { markPaidError: c.message }));
+        Object.assign(result, { status: 'CREDIT', fulfillment: c.fulfillment, creditDueDate: rawExtra.CreditDueDate, creditAmount: amount, upiLink: out.upiLink });
+        return res.json(result);
+      }
       if (b.markPaid) {
         const p = await markPaidAndFulfil(out.orderId, method, b.txnRef);
         if (!p.ok) return res.json(Object.assign(result, { markPaidError: p.message }));
@@ -268,4 +313,4 @@ function mount(app, deps) {
   });
 }
 
-module.exports = { mount, planMeta, checkFields, PAY_METHODS };
+module.exports = { mount, planMeta, checkFields, renewBases, PAY_METHODS };
