@@ -46,10 +46,13 @@ const DB_RECOVER = Object.assign(
     recoverGetAccess: (a) => recover.getAccess(a[0], a[1], a[2], a[3]),
   } : {},
   otptool ? {
-    // a[2] = device token from otpVerifyCode (required - a phone number alone no longer unlocks OTPs).
-    getLatestOtp: (a) => otptool.getLatestOtp(a[0], a[1], a[2]),
-    otpSendCode: (a) => require('./otpaccess').sendCode(a[0]),
-    otpVerifyCode: (a) => require('./otpaccess').verifyCode(a[0], a[1]),
+    // a[2] = device token from otpVerifyCode (required - a phone number alone no longer unlocks OTPs),
+    // a[3] = sub id / order id of the plan the customer tapped (only that purchase's login OTP is shown).
+    getLatestOtp: (a) => otptool.getLatestOtp(a[0], a[1], typeof a[2] === 'string' ? a[2] : '', typeof a[3] === 'string' ? a[3] : ''),
+    // Get OTP: [phone, email] - the code goes only to an email that belongs to an active plan on that phone.
+    otpSendCode: (a) => require('./otpaccess').sendGetOtpCode(String(a[0] || ''), String(a[1] || '')),
+    // [phone, code, email] = Get OTP code; [phone, code] = the older Refund / Games code (never unlocks Get OTP).
+    otpVerifyCode: (a) => (a[2] ? require('./otpaccess').verifyGetOtpCode(String(a[0] || ''), String(a[2]), String(a[1] || '')) : require('./otpaccess').verifyCode(a[0], a[1])),
     getOtpQuota: (a) => otptool.getOtpQuota(a[0], a[1]),
   } : {}
 );
