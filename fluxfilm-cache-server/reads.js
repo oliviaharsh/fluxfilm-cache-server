@@ -43,11 +43,15 @@ function calcEarlyDiscount(daysLeft, pInfo) {
   if (daysLeft >= TIER2_MIN && daysLeft <= TIER2_MAX && d72 > 0) return { amount: d72, tier: '7TO2' };
   return { amount: 0, tier: 'NONE' };
 }
-function renewEligibility(daysLeft) {
-  if (daysLeft == null) return 'TOO_LATE';
-  if (daysLeft >= 0) return 'CAN_RENEW';
-  if (daysLeft >= -5) return 'LATE_RENEW';
-  return 'TOO_LATE';
+// Days left + late-renew window are shared with order.js renewQuote (renewrules.js): calendar days in India
+// from the expiry DATE; renew allowed until 6 days after the expiry date.
+const renewRules = require('./renewrules');
+const renewEligibility = renewRules.renewEligibility;
+function renewableRow(r) {
+  const st = String(r.status || '').trim().toUpperCase();
+  const fs = String(r.fulfillment_status || '').trim().toUpperCase();
+  if (st && st !== 'ACTIVE' && st !== 'EXPIRED') return false;
+  return !['REFUNDED', 'CANCELLED', 'FAILED', 'NO_STOCK'].includes(fs);
 }
 function expiryMood(daysLeft) {
   if (daysLeft == null) return { emoji: '❓', text: 'Expiry unknown' };
@@ -55,7 +59,7 @@ function expiryMood(daysLeft) {
   if (daysLeft >= 6) return { emoji: '🙂', text: 'All good' };
   if (daysLeft >= 1) return { emoji: '😰', text: 'Expiring soon' };
   if (daysLeft === 0) return { emoji: '⚠️', text: 'Expires today' };
-  if (daysLeft >= -5) return { emoji: '😵', text: 'Expired (late renew allowed)' };
+  if (daysLeft >= -renewRules.LATE_RENEW_DAYS) return { emoji: '😵', text: 'Expired (late renew allowed)' };
   return { emoji: '🟥', text: 'Expired' };
 }
 
@@ -121,8 +125,8 @@ async function getMySubscriptions(phone) {
   const all = rows.map((r) => {
     const svc = String(r.service || '').trim();
     const plan = String(r.plan || '').trim();
-    const expDate = parseDbDate(r.expiry_date);
-    const daysLeft = expDate ? Math.ceil((expDate.getTime() - nowMs) / 86400000) : null;
+    // Calendar days in India from the expiry DATE: today = 0 ("Expires today"), yesterday = -1, tomorrow = 1.
+    const daysLeft = renewRules.daysLeftIst(r.expiry_date, nowMs);
     const pInfo = planInfo(plansMap, svc, plan);
     const disc = calcEarlyDiscount(daysLeft, pInfo);
     const elig = renewEligibility(daysLeft);
@@ -150,7 +154,8 @@ async function getMySubscriptions(phone) {
       moodText: mood.text,
       renewEligibility: elig,
       uiTone: elig === 'CAN_RENEW' ? 'normal' : (elig === 'LATE_RENEW' ? 'faded_red' : 'faded_grey'),
-      showRenewButton: elig !== 'TOO_LATE',
+      // Refunded / cancelled / not-yet-delivered rows cannot be renewed (order.js renewQuote refuses them too).
+      showRenewButton: elig !== 'TOO_LATE' && renewableRow(r),
       inventoryRef: String(r.inventory_ref || '').trim(),
       // ⏳ Renewal reminder pop-up skips refunded / cancelled plans (admin refund sets CANCELLED + REFUNDED).
       status: String(r.status || '').trim().toUpperCase(),

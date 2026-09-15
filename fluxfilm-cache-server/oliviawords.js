@@ -141,6 +141,12 @@ const T = {
     hinglish: () => 'Thodi der ke liye naye orders band hain 🚧 Thodi der baad try kijiye. Aapke plans safe hain.',
     hi: () => 'थोड़ी देर के लिए नए ऑर्डर बंद हैं 🚧 थोड़ी देर बाद कोशिश कीजिए। आपके प्लान सुरक्षित हैं।',
   },
+  // 🔒 Email lock (emaillock.js): the profile email must be confirmed with a code before this order. The Buy page does it.
+  CONFIRM_EMAIL_FIRST: {
+    en: () => 'For your safety, please confirm your email before paying 🔒 Open the Buy page: we will email you a 6-digit code, and then you can pay. No money was taken.',
+    hinglish: () => 'Aapki safety ke liye, pay karne se pehle apna email confirm kijiye 🔒 Buy page kholiye: hum aapke email par 6-digit code bhejenge, phir aap pay kar sakte hain. Koi paisa nahi kata.',
+    hi: () => 'आपकी सुरक्षा के लिए, पेमेंट से पहले अपना ईमेल कन्फ़र्म कीजिए 🔒 Buy पेज खोलिए: हम आपके ईमेल पर 6 अंकों का कोड भेजेंगे, फिर आप पेमेंट कर सकते हैं। कोई पैसा नहीं कटा।',
+  },
   FINISH_ON_WEBSITE: {
     en: (f) => f.title + ' needs a few extra choices, so please buy it from the Buy page on the website. Or I can help you with another plan.',
     hinglish: (f) => f.title + ' mein kuch extra options hain, isliye ise website ke Buy page se lijiye. Ya main koi aur plan dilwa doon?',

@@ -597,7 +597,10 @@ async function renewStart(c, ctx, serviceHint) {
 /** Step 2: same length or another length of the same kind of plan (same Sharing/Private, same number of devices). */
 function renewDurations(st, ctx, lang) {
   const r = st.renew;
-  const opts = (ctx.cat.plans || []).filter((p) => p.service === r.service && variantOf(p.plan) === variantOf(r.plan) && devicesInPlan(p.plan) === devicesInPlan(r.plan))
+  // Same list as the website renew page and the server check (renewrules.js), incl. old imported plan names.
+  const svcPlans = (ctx.cat.plans || []).filter((p) => p.service === r.service);
+  const allowed = require('./renewrules').renewPlanChoices(r.plan, svcPlans.map((p) => p.plan));
+  const opts = svcPlans.filter((p) => allowed.includes(p.plan))
     .sort((a, b) => a.durationDays - b.durationDays || a.price - b.price);
   if (!opts.length) { st.step = 'handoff'; return [{ intent: 'RENEW_PLAN_GONE', facts: { title: r.service + ' ' + r.plan }, buttons: [btn('whatsapp', lang), btn('menu', lang)] }]; }
   st.renewOptions = opts.map((p) => p.plan);
@@ -893,6 +896,8 @@ async function turn(c, input, ctx) {
     ctx.meta.push({ tool: 'createOrder', ok: !!(r && r.ok), orderId: r && r.orderId, paused: !!(r && r.paused), outOfStock: !!(r && r.outOfStock), coupon: !!st.coupon });
     if (!r || !r.ok) {
       if (r && r.paused) { st.step = 'menu'; return [{ intent: 'SHOP_PAUSED', buttons: [btn('menu', lang), btn('whatsapp', lang)] }]; }
+      // 🔒 Email lock: the email needs a code first (the Buy page shows the code step). Nothing was created.
+      if (r && (r.emailCheck || r.emailChangeRequired)) { st.step = 'confirm'; return [{ intent: 'CONFIRM_EMAIL_FIRST', buttons: [Object.assign(btn('buysite', lang), { service: p.service }), btn('whatsapp', lang), btn('menu', lang)] }]; }
       if (r && r.outOfStock) { st.plan = null; st.days = 0; return [{ intent: 'OUT_OF_STOCK', facts: { title: titleOf(p, lang) } }].concat(advance(st, ctx.cat, lang, ctx.profile)); }
       if (st.coupon && /coupon/i.test(s(r && r.message))) {
         const bad = st.coupon.code; delete st.coupon; st.awaitCoupon = true;

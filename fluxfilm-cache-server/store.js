@@ -5,9 +5,10 @@
  * their profile, recover access and use Get OTP — but no NEW order or renewal can be created.
  * Orders that already exist can still be paid, verified and delivered (someone may be mid-payment).
  *
- *   getStatus()          → { ok, paused, message, backText, since, helpBubble } (public, storefront polls it)
+ *   getStatus()          → { ok, paused, message, backText, since, helpBubble, sassy } (public, storefront polls it)
  *   helpBubble (default ON): the small floating 💬 Help bubble on Home / My plans / Account; OFF = only the top Help button.
  *   renewPopup (default ON) + renewPopupBefore (7, 1–14) / renewPopupAfter (3, 0–5): the ⏳ renewal reminder pop-up.
+ *   sassyGreeting (default ON): the fun rotating greeting on My plans; OFF = plain "Welcome back, Name".
  *   guard()              → null, or { ok:false, paused:true, message }         (createOrder / createRenewOrder)
  *   saveSettings(input)  → { ok, settings, changed }                            (admin)
  */
@@ -28,6 +29,7 @@ const DEFAULTS = Object.freeze({
   renewPopup: true,
   renewPopupBefore: 7,
   renewPopupAfter: 3,
+  sassyGreeting: true,
 });
 const RENEW_POPUP_MAX_BEFORE = 14;
 const RENEW_POPUP_MAX_AFTER = 5; // renew is allowed until 5 days after expiry (reads.js renewEligibility)
@@ -53,6 +55,7 @@ function validateSettings(input, prev) {
   // Saved values from an older build (or edited by hand) are clamped, never trusted.
   if (!Number.isInteger(out.renewPopupBefore) || out.renewPopupBefore < 1 || out.renewPopupBefore > RENEW_POPUP_MAX_BEFORE) out.renewPopupBefore = DEFAULTS.renewPopupBefore;
   if (!Number.isInteger(out.renewPopupAfter) || out.renewPopupAfter < 0 || out.renewPopupAfter > RENEW_POPUP_MAX_AFTER) out.renewPopupAfter = DEFAULTS.renewPopupAfter;
+  if (inb.sassyGreeting !== undefined) out.sassyGreeting = !(inb.sassyGreeting === false || inb.sassyGreeting === 0 || /^(false|0|off)$/i.test(s(inb.sassyGreeting)));
   if (inb.backText !== undefined) {
     const b = s(inb.backText).replace(/[<>]/g, '');
     if (b.length > 60) errors.push('"Back by" must be 60 characters or less (example: in 30 minutes).');
@@ -83,13 +86,13 @@ async function saveSettings(input) {
   if (!next.paused) next.since = '';
   await db.query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [KEY, JSON.stringify(next)]);
   cache = null;
-  const changed = ['paused', 'message', 'backText', 'helpBubble', 'renewPopup', 'renewPopupBefore', 'renewPopupAfter'].filter((k) => String(before[k]) !== String(next[k]));
+  const changed = ['paused', 'message', 'backText', 'helpBubble', 'sassyGreeting', 'renewPopup', 'renewPopupBefore', 'renewPopupAfter'].filter((k) => String(before[k]) !== String(next[k]));
   return { ok: true, settings: next, before, changed };
 }
 
 async function getStatus() {
   const c = await getSettings();
-  return { ok: true, paused: !!c.paused, message: c.paused ? c.message : '', backText: c.paused ? c.backText : '', since: c.paused ? c.since : '', helpBubble: c.helpBubble !== false,
+  return { ok: true, paused: !!c.paused, message: c.paused ? c.message : '', backText: c.paused ? c.backText : '', since: c.paused ? c.since : '', helpBubble: c.helpBubble !== false, sassy: c.sassyGreeting !== false,
     renewPopup: c.renewPopup !== false, renewPopupBefore: c.renewPopupBefore, renewPopupAfter: c.renewPopupAfter };
 }
 
