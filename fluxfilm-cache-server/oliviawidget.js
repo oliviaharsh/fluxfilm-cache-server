@@ -229,7 +229,8 @@
     // After-sale help (training run 3): the shop's own Recover screen and Get OTP tool (the customer verifies there, not in the chat).
     if (kind === 'recover') { closeChat(); if (typeof window.ffGoRecover === 'function') { try { window.ffGoRecover(); } catch (e) {} } return; }
     if (kind === 'otp') { closeChat(); if (typeof window.ffGoOtp === 'function') { try { window.ffGoOtp(); } catch (e) {} } return; }
-    var url = kind === 'helper' ? (typeof NETFLIX_HOUSEHOLD_LINK !== 'undefined' ? NETFLIX_HOUSEHOLD_LINK : '') : st.wa; // eslint-disable-line no-undef
+    // Household Helper Link 1 (FluxFilm's own Netflix accounts) or Link 2 (the rest): the shop page defines both links.
+    var url = kind === 'helper' ? (typeof NETFLIX_HOUSEHOLD_LINK !== 'undefined' ? NETFLIX_HOUSEHOLD_LINK : '') : kind === 'helper2' ? (typeof NETFLIX_HOUSEHOLD_LINK_2 !== 'undefined' ? NETFLIX_HOUSEHOLD_LINK_2 : '') : st.wa; // eslint-disable-line no-undef
     if (!url) url = st.wa;
     try { var w = window.open(url, '_blank'); if (w) w.opener = null; else location.href = url; } catch (e) { location.href = url; }
   }

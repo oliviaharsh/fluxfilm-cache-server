@@ -132,7 +132,8 @@ function optionsFor(plans, service, variant) {
 const stockOf = (stock, p) => ((stock || {})[p.service + '|||' + p.plan] || {}).stockLevel || 'OK';
 function titleOf(p, lang) {
   const v = variantOf(p.plan);
-  return p.service + (v ? ' ' + (v === 'sharing' ? 'Sharing' : 'Private') : '') + ' ' + words.durationLabel(p.durationDays, lang);
+  const n = devicesOf(p.plan);
+  return p.service + (v ? ' ' + (v === 'sharing' ? 'Sharing' : 'Private') : '') + ' ' + words.durationLabel(p.durationDays, lang) + (n >= 2 ? ' (' + words.devicesLabel(n, lang) + ')' : '');
 }
 
 // ── understanding free text (deterministic first) ──
@@ -202,9 +203,14 @@ function globalIntentOf(text) {
   // Off-script questions from the team's chats (training run 2). "Band ho gaya" comes before the price words ("pehle chal raha
   // tha" is not a price question); anything about paying or a login / password goes to its own flow instead.
   if (!/\b(pay|payment|upi|qr|gpay|g pay|paytm|phone ?pe|bhim|coupon|code|website|site|app|password|pasword|pass|login|log in|household|house hold)\b|tv code|not part of/.test(t) && /band ho|bnd ho|stop(ped)? working|not working|nahi chal (raha|rahi|rha)|nhi chal (raha|rahi|rha)|chal nahi (raha|rahi)|chal nhi (rha|rahi)|log ?out ho|logged out|signed out|kaam nahi kar|khul nahi (raha|rahi)|nahi khul|बंद हो गया|नहीं चल रहा/.test(t)) return 'stopped';
+  // Harsh's answers (15 Sep 2026): "kaunsa best hai" gets a recommendation; a discount request checks the early-renew discount;
+  // "mere email par milega?" is answered from the catalogue.
+  if (/\b(kaunsa|konsa|kon sa|kaun sa|which)\b.{0,20}\b(best|accha|acha|achha|sahi|badhiya|better|lu|lun|loon|le lu|lena chahiye|should i)\b|\b(recommend|suggest)\b|best (plan|kaunsa|konsa|kya)|सबसे अच्छा|कौन सा (लूँ|अच्छा)/.test(t)) return 'best';
+  if (!/code|coupon/.test(t) && /discount|chhoot|chhut|chut milegi|thoda kam|kam kar do|kam kardo|kam karo|koi offer|offer (do|de do|milega|hai kya)|छूट/.test(t)) return 'discount';
+  if (/\b(mere|meri|mera|apne|apni|apna|my( own)?)\s+(email|e-mail|mail|gmail|number|no|account|acc|id)\b.{0,20}\b(par|pe|pr|mein|me|on|chalega|milega|hoga|de|do|dena)\b|\bon my (own )?(email|number|account)\b/.test(t)) return 'ownacc';
   if (/cheap|sasta|saste|kam (kar|price|daam)|discount|less price|best price|mehnga|mahanga|expensive|costly|earlier|pehle|before|last time|pichli baar|group offer|₹\s?\d+|\brs\.?\s?\d+|\d+\s?(rs|rupees|rupay)\b|kitne ka|kitna (hai|lagega)|price|rate|daam/.test(t)) return 'price';
   if (/\b(for|at|in|mein|me|mai|ka|ki|only|sirf|just)\s+\d{2,4}\b(?!\s*(months?|mahin|din|days?|years?|saal|device))/.test(t) || /\b\d{2,4}\s*(rs|rupees?|rupay|inr|ka|ki|mein|me|mai)\b/.test(t) || (/\b(bought|buy|liya|kharida|paid|mila)\b/.test(t) && /\b\d{2,4}\b(?!\s*(months?|mahin|din|days?|years?|saal|device))/.test(t))) return 'price';
-  if (/\b(password|pasword|passwrd|passwod|pass|login|log in|id pass|sign in|signin)\b|पासवर्ड|लॉगिन/.test(t) && /bhul|bhool|forgot|forget|yaad nahi|nahi mil|nhi mil|not (working|opening)|wrong|galat|glt|incorrect|invalid|chahiye|chaiye|\bdo\b|de do|dedo|send|bhejo|kya hai|kaha|kahan|nahi chal|nhi chal|kaam nahi|khul nahi|reset|new|naya|nahi ho|nhi ho|not able|unable|can.?t|problem|issue|error|भूल|नहीं|गलत/.test(t)) return 'login';
+  if (/\b(password|pasword|passwrd|passwod|pass|login|log in|id pass|sign in|signin)\b|पासवर्ड|लॉगिन/.test(t) && /bhul|bhool|forgot|forget|yaad nahi|nahi mil|nhi mil|not (working|opening)|wrong|galat|glt|incorrect|invalid|badal diya|badal di|badla|change kar diya|change kr diya|changed|chahiye|chaiye|\bdo\b|de do|dedo|send|bhejo|kya hai|kaha|kahan|nahi chal|nhi chal|kaam nahi|khul nahi|reset|new|naya|nahi ho|nhi ho|not able|unable|can.?t|problem|issue|error|भूल|नहीं|गलत/.test(t)) return 'login';
   if (/घर/.test(t)) return 'household';
   // Buying questions the team answers every day on WhatsApp (training run 1): when the login comes, how to pay, TV.
   if (/\b(login|log in|id|id pass(word)?|password|details|credentials?)\b.{0,25}\b(kab|when|kitni der|kitne (der|time|min))\b|\b(kab|when|how (long|soon|fast)|kitni der)\b.{0,25}\b(login|id|password|details|credentials?)\b|लॉगिन कब/.test(t)) return 'whenlogin';
@@ -323,7 +329,8 @@ async function logMsg(convId, role, intent, body, meta, ai) {
 // ── the decision: one turn ──
 function btn(id, lang, label) { return { id, label: label || words.buttonLabel(id, lang) }; }
 function urlBtn(id, lang, url) { return { id, label: words.buttonLabel(id, lang), url }; }
-const LINK_BUTTONS = { whatsapp: 'whatsapp', helper: 'helper', myplans: 'myplans', buysite: 'buysite', recover: 'recover', getotp: 'otp' };
+const CHANGED_RE = /badal diya|badal di|badla|change kar diya|change kr diya|changed|बदल दिया/i;
+const LINK_BUTTONS = { helper1: 'helper', helper2: 'helper2', whatsapp: 'whatsapp', helper: 'helper', myplans: 'myplans', buysite: 'buysite', recover: 'recover', getotp: 'otp' };
 /** "2 devices", "3 screens", "do phone" → 2. 0 when the customer did not ask for more than one device. */
 function devicesWanted(text) {
   const DEV = '(devices?|dvices?|screens?|phones?|mobiles?|logins?|log ins?|डिवाइस|स्क्रीन|फ़ोन|फोन|मोबाइल)';
@@ -351,7 +358,7 @@ function deviceRuleOf(plans, service, variant) {
  * "2 devices ke liye chahiye" — the way the team sells it on WhatsApp: say yes warmly, ask the ONE missing choice
  * (which service → Sharing or Private), then show the real N-device plans with live prices. Never invents a plan:
  * when a service has none, its own device rule is quoted and the 1-device plans are offered.
- * 2+ device plans are still bought on the Buy page (same/separate logins, TV slots are chosen there).
+ * 2+ device plans are sold in the chat too (same / separate login asked like the checkout; Harsh, 15 Sep 2026), or on the Buy page.
  */
 function devicesReplies(st, ctx, lang) {
   const n = st.devices;
@@ -363,6 +370,12 @@ function devicesReplies(st, ctx, lang) {
     return [{ intent: 'ASK_SERVICE_FOR_DEVICES', facts: { n }, buttons: svcs.map((x, i) => btn('dsvc:' + i, lang, serviceLabel(plans, x))).concat([btn('menu', lang)]) }];
   }
   const all = devicePlansOf(plans, st.service, n);
+  // Netflix logs in on 2 devices and plays on 1 at a time: phone + TV one after the other needs no 2-device plan
+  // (Harsh, 15 Sep 2026: "ask if they want to watch at same time").
+  if (n === 2 && famKey(st.service) === 'netflix' && !st.sameTime) {
+    st.step = 'devices_sametime';
+    return [{ intent: 'ASK_SAME_TIME', facts: { service: st.service.split(' (')[0] }, buttons: [btn('dsame:yes', lang), btn('dsame:no', lang), btn('menu', lang)] }];
+  }
   if (!all.length) {
     const max = Math.max(1, ...plans.filter((p) => p && p.service === st.service && p.plan).map((p) => devicesOf(p.plan)));
     const svc = st.service;
@@ -382,14 +395,17 @@ function devicesReplies(st, ctx, lang) {
   const title = st.service + (variant ? ' ' + variantLabel(variant) : '');
   st.step = 'devices_list';
   if (!inStock.length) return [{ intent: 'OUT_OF_STOCK', facts: { title: title + ' (' + words.devicesLabel(n, lang) + ')' }, buttons: [btn('d1', lang), btn('menu', lang), btn('whatsapp', lang)] }];
+  // Sold right here in the chat now (Harsh, 15 Sep 2026); the Buy page stays as another way.
+  const shown = inStock.slice(0, 5);
+  st.deviceOptions = shown.map((p) => ({ service: p.service, plan: p.plan }));
   const go = Object.assign(btn('buysite', lang), { service: st.service });
   return [{
-    intent: 'MULTI_DEVICE_ON_WEBSITE',
-    facts: { n, title, group: isGroupService(plans, st.service), items: inStock.slice(0, 5).map((p) => words.durationLabel(p.durationDays, lang) + ' · ' + words.devicesLabel(devicesOf(p.plan), lang) + ' · ' + words.rupees(p.price)) },
-    buttons: [go, btn('d1', lang), btn('menu', lang)],
+    intent: 'MULTI_DEVICE_PLANS',
+    facts: { n, title, group: isGroupService(plans, st.service), items: shown.map((p) => words.durationLabel(p.durationDays, lang) + ' · ' + words.devicesLabel(devicesOf(p.plan), lang) + ' · ' + words.rupees(p.price)) },
+    buttons: shown.map((p, i) => btn('dplan:' + i, lang, words.durationLabel(p.durationDays, lang) + ' · ' + words.devicesLabel(devicesOf(p.plan), lang) + ' · ' + words.rupees(p.price))).concat([btn('d1', lang), go, btn('menu', lang)]),
   }];
 }
-const DEVICE_STEPS = new Set(['devices_service', 'devices_variant', 'devices_list', 'devices_none']);
+const DEVICE_STEPS = new Set(['devices_service', 'devices_variant', 'devices_list', 'devices_none', 'devices_sametime']);
 const isGroupService = (plans, service) => (plans || []).some((p) => p.service === service && p.requiresGroupJoin);
 function groupLinkOf(plans, service) {
   const p = (plans || []).find((x) => x.service === service && x.requiresGroupJoin && GROUP_LINK_RE.test(s(x.groupJoinLink)));
@@ -428,7 +444,8 @@ function advance(st, cat, lang, profile) {
     out.push({ intent: 'ASK_SHARING_OR_PRIVATE', facts: { service: st.service }, buttons: [btn('variant:sharing', lang), btn('variant:private', lang), btn('diff', lang), btn('menu', lang)] });
     return out;
   }
-  const opts = optionsFor(cat.plans, st.service, needsVariant(cat.plans, st.service) ? st.variant : '');
+  const dp = st.devicePlan && cat.plans.find((p) => p.service === st.devicePlan.service && p.plan === st.devicePlan.plan);
+  const opts = dp ? [dp] : optionsFor(cat.plans, st.service, needsVariant(cat.plans, st.service) ? st.variant : '');
   let chosen = st.plan && opts.find((p) => p.plan === st.plan.plan);
   if (!chosen && st.days) {
     const hits = opts.filter((p) => Math.abs(p.durationDays - st.days) <= 5);
@@ -442,10 +459,12 @@ function advance(st, cat, lang, profile) {
     st.plan = null; st.step = 'duration'; delete st.coupon;
     st.options = opts.map((p) => ({ service: p.service, plan: p.plan }));
     const title = st.service + (st.variant ? ' ' + variantLabel(st.variant) : '');
+    // 1 device is the default; when this service also sells a 2-device plan she offers it as one extra button.
+    const two = (cat.plans || []).some((p) => p && p.service === st.service && devicesOf(p.plan) >= 2 && (!st.variant || !needsVariant(cat.plans, st.service) || variantOf(p.plan) === st.variant) && stockOf(cat.stock, p) !== 'OUT');
     out.push({
       intent: 'ASK_DURATION', facts: { title },
       buttons: opts.map((p, i) => btn('plan:' + i, lang, words.durationLabel(p.durationDays, lang) + ' · ' + words.rupees(p.price) + (stockOf(cat.stock, p) === 'OUT' ? ' (sold out)' : '')))
-        .concat([btn('change', lang), btn('menu', lang)]),
+        .concat(two ? [btn('dplus', lang)] : [], [btn('change', lang), btn('menu', lang)]),
     });
     return out;
   }
@@ -461,6 +480,12 @@ function advance(st, cat, lang, profile) {
   if (chosen.needsExtraField && key === 'PRIME_DEVICE_TYPE' && !st.extraValue) {
     st.step = 'tv';
     out.push({ intent: 'ASK_TV', buttons: [btn('tv:yes', lang), btn('tv:no', lang), btn('change', lang)] });
+    return out;
+  }
+  // 2+ device plan: same login on all devices, or a separate login for each (the checkout's own question).
+  if (devicesOf(chosen.plan) >= 2 && chosen.loginChoice && !st.loginMode) {
+    st.step = 'login_mode';
+    out.push({ intent: 'ASK_LOGIN_MODE', facts: { n: devicesOf(chosen.plan) }, buttons: [btn('lmode:same', lang), btn('lmode:separate', lang), btn('change', lang)] });
     return out;
   }
   if (chosen.needsExtraField && key === 'YT_EMAIL' && !st.extraValue) {
@@ -485,10 +510,42 @@ function advance(st, cat, lang, profile) {
 
 function menuReply(st, lang, name) {
   st.step = 'menu';
-  return { intent: 'GREET_MENU', facts: { name: firstName(name) }, buttons: ['buy', 'renew', 'support', 'household', 'other'].map((id) => btn(id, lang)) };
+  // A real greeting (name given) asks once how to address the customer; the answer is remembered for this phone.
+  const ask = name !== undefined && !st.address;
+  return { intent: 'GREET_MENU', facts: { name: firstName(name), askAddress: ask }, buttons: ['buy', 'renew', 'support', 'household', 'other'].map((id) => btn(id, lang)).concat(ask ? [btn('addr:ji', lang), btn('addr:bro', lang)] : []) };
 }
 const firstName = (n) => s(n).split(/\s+/)[0].replace(/[^\p{L}.'-]/gu, '').slice(0, 20);
-function resetPurchase(st) { for (const k of ['service', 'variant', 'days', 'plan', 'extraValue', 'options', 'title', 'price', 'coupon', 'groupJoined', 'flow', 'renew', 'renewSubs', 'renewOptions', 'devices', 'deviceServices', 'helpKind', 'helpServices', 'helpService']) delete st[k]; }
+function resetPurchase(st) { for (const k of ['service', 'variant', 'days', 'plan', 'extraValue', 'options', 'title', 'price', 'coupon', 'groupJoined', 'flow', 'renew', 'renewSubs', 'renewOptions', 'devices', 'deviceServices', 'devicePlan', 'deviceOptions', 'loginMode', 'sameTime', 'bestAsked', 'helpKind', 'helpServices', 'helpService']) delete st[k]; }
+
+/** "Kaunsa best hai?" after Sharing/Private is known: how much each longer plan saves per month, then the lengths as buttons. */
+function bestSavings(st, ctx, lang) {
+  delete st.bestAsked;
+  const opts = optionsFor(ctx.cat.plans, st.service, needsVariant(ctx.cat.plans, st.service) ? st.variant : '').filter((p) => stockOf(ctx.cat.stock, p) !== 'OUT');
+  const month = opts.find((p) => Math.abs((Number(p.durationDays) || 0) - 30) <= 2);
+  const per = lang === 'hi' ? '/महीना' : lang === 'hinglish' ? '/mahina' : '/month';
+  const save = lang === 'hi' ? 'बचत' : lang === 'hinglish' ? 'bachat' : 'you save';
+  const items = !month ? [] : opts.filter((p) => (Number(p.durationDays) || 0) > 45).map((p) => {
+    const months = Math.round((Number(p.durationDays) || 0) / 30);
+    const saved = Math.round(month.price * months - p.price);
+    return saved > 0 ? words.durationLabel(p.durationDays, lang) + ' · ' + words.rupees(p.price) + ' (' + words.rupees(Math.round(p.price / months)) + per + ', ' + save + ' ' + words.rupees(saved) + ')' : '';
+  }).filter(Boolean);
+  const title = st.service.split(' (')[0] + (st.variant ? ' ' + variantLabel(st.variant) : '');
+  return (items.length && month ? [{ intent: 'BEST_LONG_TERM', facts: { title, monthPrice: month.price, items } }] : []).concat(advance(st, ctx.cat, lang, ctx.profile));
+}
+/** "Discount milega?": the customer's own early-renew discount if a plan qualifies; otherwise coupons only (Harsh, 15 Sep 2026). */
+async function discountReplies(c, ctx) {
+  const st = c.state; const lang = c.lang;
+  let r = null;
+  try { r = await tools().mySubscriptions(c.phone); } catch (e) { r = null; }
+  const best = ((r && r.actionable) || []).filter((x) => x && Number(x.earlyRenewDiscountEligible) > 0 && Number(x.daysLeft) >= 0)
+    .sort((a, b) => Number(b.earlyRenewDiscountEligible) - Number(a.earlyRenewDiscountEligible))[0];
+  ctx.meta.push({ tool: 'mySubscriptions', for: 'discount', early: !!best });
+  if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true;
+  if (best) return [{ intent: 'EARLY_RENEW_DISCOUNT', facts: { service: s(best.service).split(' (')[0], amount: Number(best.earlyRenewDiscountEligible), days: Number(best.daysLeft) }, buttons: withBackToPay(st, lang, [btn('renew', lang), btn('coupon', lang), btn('menu', lang)]) }];
+  const again = (st.lastButtons || []).length ? st.lastButtons : menuReply({}, lang).buttons;
+  const b = again.some((x) => x.id === 'coupon') || PAY_STEPS.has(st.step) ? again : again.concat([btn('coupon', lang)]);
+  return [{ intent: 'NO_EXTRA_DISCOUNT', buttons: st.paused ? withBackToPay(st, lang, b) : b, input: st.lastInput || undefined }];
+}
 
 // ── after-sale help (training run 3) ──
 // Sources: brain/procedures/access-recovery.md, netflix-household.md, service-interruption.md, payment-without-order-id.md.
@@ -510,6 +567,7 @@ async function supportReplies(c, ctx, kind, service) {
   const reply = (r) => [Object.assign(r, { buttons: withBackToPay(st, lang, r.buttons.concat([btn('menu', lang)])) })];
   let svc = service || '';
   if (!svc && kind === 'household') svc = servicesOf(plans).find((x) => famKey(x) === 'netflix') || 'Netflix';
+  let netflixRefs = [];
   // 1. The team's silent check first: does this number have that plan, and is it still running? (Read-only, nothing is shown.)
   if (kind !== 'paidnotgot') {
     let r = null;
@@ -529,6 +587,9 @@ async function supportReplies(c, ctx, kind, service) {
       if (svc) {
         const name = svc.split(' (')[0];
         const mine = subs.filter((x) => famKey(x.service) === famKey(svc));
+        // Only the account reference prefix is read (NFLX-H… = FluxFilm's accounts, NFLX-D… = the other helper); never shown or logged.
+        const live = mine.filter((x) => !hasDays(x) || Number(x.daysLeft) >= 0);
+        netflixRefs = (live.length ? live : mine).map((x) => s(x.inventoryRef).toUpperCase());
         if (!mine.length) return reply({ intent: 'NO_PLAN_ON_NUMBER', facts: { service: name }, buttons: [wa, btn('buy', lang)] });
         if (mine.every((x) => hasDays(x) && Number(x.daysLeft) < 0)) {
           const latest = mine.slice().sort((a, b) => Number(b.daysLeft) - Number(a.daysLeft))[0];
@@ -542,21 +603,25 @@ async function supportReplies(c, ctx, kind, service) {
   // 2. The team's first step for this problem (self-service first, the team on WhatsApp after).
   const name = svc ? svc.split(' (')[0] : '';
   const netflix = famKey(svc) === 'netflix';
+  // Harsh: Link 1 is for FluxFilm's own Netflix emails, Link 2 for the rest. Unknown → both (each helper says which email it is for).
+  const h1 = netflixRefs.some((x) => /^NFLX-H/.test(x)); const h2 = netflixRefs.some((x) => /^NFLX-D/.test(x));
+  const helperBtns = () => (h1 && !h2 ? [btn('helper', lang)] : h2 && !h1 ? [btn('helper2', lang, words.buttonLabel('helper', lang))] : [btn('helper1', lang), btn('helper2', lang)]);
+  const bothHelpers = !(h1 !== h2);
   const otpSvc = isOtpService(plans, svc);
   if (kind === 'paidnotgot') return reply({ intent: 'PAID_NOT_RECEIVED', buttons: [btn('myplans', lang), btn('recover', lang), wa] });
-  if (kind === 'household') return reply({ intent: 'HOUSEHOLD_HELPER', buttons: [btn('helper', lang), wa] });
+  if (kind === 'household') return reply({ intent: 'HOUSEHOLD_HELPER', facts: { bothHelpers }, buttons: helperBtns().concat([wa]) });
   if ((kind === 'otp' && (!svc || otpSvc)) || (kind === 'login' && otpSvc)) return reply({ intent: 'OTP_HELP', facts: { service: otpSvc ? name : '' }, buttons: [btn('getotp', lang), btn('myplans', lang), wa] });
   if (kind === 'stopped') {
     const hh = !svc || netflix;
-    return reply({ intent: 'STOPPED_WORKING', facts: { household: hh, otp: otpSvc }, buttons: [btn('myplans', lang), btn('recover', lang)].concat(hh ? [btn('helper', lang)] : [], otpSvc ? [btn('getotp', lang)] : [], [wa]) });
+    return reply({ intent: 'STOPPED_WORKING', facts: { household: hh, otp: otpSvc }, buttons: [btn('myplans', lang), btn('recover', lang)].concat(hh ? helperBtns() : [], otpSvc ? [btn('getotp', lang)] : [], [wa]) });
   }
   // Login / password problems (and "OTP" for a service that logs in with an ID + password, like Netflix).
-  return reply({ intent: 'LOGIN_HELP', facts: { service: name, household: netflix }, buttons: [btn('myplans', lang), btn('recover', lang)].concat(netflix ? [btn('helper', lang)] : [], [wa]) });
+  return reply({ intent: 'LOGIN_HELP', facts: { service: name, household: netflix, changed: kind === 'login' && CHANGED_RE.test(ctx.text || '') }, buttons: [btn('myplans', lang), btn('recover', lang)].concat(netflix ? helperBtns() : [], [wa]) });
 }
 
 // Buttons that create, change or cancel an order: only an explicit tap or clear words, never an AI guess.
 const MONEY_BUTTONS = new Set(['pay', 'paid', 'change', 'rchange', 'cantpay', 'nocoupon', 'switch', 'twin', 'joined', 'normal']);
-const CHOOSING_STEPS = new Set(['service', 'variant', 'duration', 'tv', 'extra_email', 'own_email', 'group', 'confirm', 'coupon', 'renew_pick', 'renew_duration', 'renew_confirm', 'devices_service', 'devices_variant', 'devices_list', 'devices_none']);
+const CHOOSING_STEPS = new Set(['service', 'variant', 'duration', 'tv', 'extra_email', 'own_email', 'group', 'confirm', 'coupon', 'renew_pick', 'renew_duration', 'renew_confirm', 'devices_service', 'devices_variant', 'devices_list', 'devices_none', 'devices_sametime', 'login_mode']);
 const PAY_STEPS = new Set(['paying', 'backup_name', 'backup_review', 'delivering']);
 const payButtons = (lang) => [btn('paid', lang), btn('cantpay', lang), btn('coupon', lang), btn('change', lang)];
 function payCard(st) {
@@ -597,9 +662,9 @@ async function deliverReplies(c, ctx) {
     if (ctx.installedApp && hasLogin && !r.accessWithheld) {
       const logins = Array.isArray(a.logins) && a.logins.length > 1 ? a.logins : [a];
       const card = { type: 'access', title, logins: logins.map((x, i) => ({ device: Number(x.device) || i + 1, user: s(x.user), pass: s(x.pass), profileName: s(x.profileName), profileNumber: s(x.profileNumber), profilePin: s(x.profilePin) })), postPaymentMessage: s(r.postPaymentMessage) };
-      return [{ intent: 'PAYMENT_RECEIVED_LOGIN_IN_CHAT', facts: { title }, card, buttons: group.concat([btn('menu', lang), btn('whatsapp', lang)]) }];
+      return [{ intent: 'PAYMENT_RECEIVED_LOGIN_IN_CHAT', facts: { title }, card }, { intent: 'THANKS_REFER', buttons: group.concat([btn('menu', lang), btn('whatsapp', lang)]) }];
     }
-    return [{ intent: 'PAYMENT_RECEIVED_LOGIN_EMAILED', facts: { title }, buttons: group.concat([btn('menu', lang), btn('whatsapp', lang)]) }];
+    return [{ intent: 'PAYMENT_RECEIVED_LOGIN_EMAILED', facts: { title } }, { intent: 'THANKS_REFER', buttons: group.concat([btn('menu', lang), btn('whatsapp', lang)]) }];
   }
   if (f === 'MANUAL_PENDING') { st.step = 'done'; c.status = 'DONE'; return [{ intent: 'DELIVERY_BEING_SET_UP', facts: { title }, buttons: [btn('menu', lang), btn('whatsapp', lang)] }]; }
   // NO_STOCK / ERROR after payment: a person must help. The customer's money is safe and the order is PAID.
@@ -699,14 +764,14 @@ function factPack(st, ctx, lang) {
   const lines = [];
   const plans = chatPlans(ctx.cat.plans);
   const focus = st.service ? plans.filter((p) => p.service === st.service || p.service.split(' (')[0] === st.service.split(' (')[0]) : plans;
-  // 2+ device plans too, so "kitne devices?" gets the real answer (they are bought on the Buy page).
+  // 2+ device plans too, so "kitne devices?" gets the real answer.
   const multi = (ctx.cat.plans || []).filter((p) => p && p.service && p.plan && devicesOf(p.plan) >= 2 && (!st.service || familyOf(p.service) === familyOf(st.service)));
-  for (const p of multi.slice(0, 20)) lines.push('- ' + titleOf(p, 'en') + ' for ' + devicesOf(p.plan) + ' devices: ' + words.rupees(p.price) + (stockOf(ctx.cat.stock, p) === 'OUT' ? ' (sold out)' : '') + ' (bought on the Buy page of the website)');
+  for (const p of multi.slice(0, 20)) lines.push('- ' + titleOf(p, 'en') + ': ' + words.rupees(p.price) + (stockOf(ctx.cat.stock, p) === 'OUT' ? ' (sold out)' : '') + ' (can be bought in this chat or on the Buy page)');
   for (const p of focus.slice(0, 40)) lines.push('- ' + titleOf(p, 'en') + ': ' + words.rupees(p.price) + (stockOf(ctx.cat.stock, p) === 'OUT' ? ' (sold out)' : '') + (p.requiresGroupJoin ? ' (Group Offer: join our WhatsApp group first)' : '') + (String(p.deviceRuleText || '').trim() ? ' — devices: ' + String(p.deviceRuleText).split(/\r?\n/)[0].trim().slice(0, 160) : ''));
   const where = PAY_STEPS.has(st.step) ? 'The customer has an unpaid order of ' + words.rupees(st.amount) + ' open and is on the payment step.' : st.plan ? 'The customer is choosing ' + st.title + '.' : 'The customer has not chosen a plan yet.';
   return [
     'Live plans and prices:', lines.join('\n') || '- (not loaded)', where,
-    'Sharing = lowest price, you watch on a shared profile. Private = your own profile that only you use. Both play in the same quality. FluxFilm rules: payment is by UPI QR and is checked automatically from the bank; the login is delivered right after payment and emailed. Coupons can be applied before paying (tap "Apply coupon"). Group Offer plans are cheaper but need joining the FluxFilm WhatsApp group. Renewals: My plans → Renew. The exact end date of a plan is shown in My plans. Refunds, replacement accounts and extra days are decided only by the FluxFilm team. Netflix household or TV code problems: first "Update household" on the TV or phone, then the Household Helper. Olivia cannot see, share or ask for passwords, OTPs or codes; the latest login is in My plans → Recover (verified by a code sent to the customer\'s email). JioHotstar / Zee5 / SonyLiv login OTP: Get OTP tool. Paid but no login: My plans, then Recover, then the team on WhatsApp with the payment screenshot. For anything else the FluxFilm team helps on WhatsApp.',
+    'FluxFilm has served customers for 4 years (anniversary 30 Sep). Plans come on FluxFilm\'s own accounts and numbers (only YouTube Premium, when listed, on the customer\'s email). Payment: UPI QR with any UPI app; a RuPay credit card is possible through the team on WhatsApp. Discounts: coupons and the automatic early-renew discount only; never extra discounts on Netflix Group Offer. Password changes: Netflix once, at most twice a month; JioHotstar 6-month and 1-year plans log out once every few months; Prime Video usually does not log out. The newest login is always in My plans → Recover. Sharing plans: use only your FluxFilm profile, never create, delete or rename profiles. Netflix may ask for a household check at random; it is not a problem with the account and the Household Helper fixes it every time. Extra days, pay later, outage days and refunds are decided by the team on WhatsApp. Sharing = lowest price, you watch on a shared profile. Private = your own profile that only you use. Both play in the same quality. FluxFilm rules: payment is by UPI QR and is checked automatically from the bank; the login is delivered right after payment and emailed. Coupons can be applied before paying (tap "Apply coupon"). Group Offer plans are cheaper but need joining the FluxFilm WhatsApp group. Renewals: My plans → Renew. The exact end date of a plan is shown in My plans. Refunds, replacement accounts and extra days are decided only by the FluxFilm team. Netflix household or TV code problems: first "Update household" on the TV or phone, then the Household Helper. Olivia cannot see, share or ask for passwords, OTPs or codes; the latest login is in My plans → Recover (verified by a code sent to the customer\'s email). JioHotstar / Zee5 / SonyLiv login OTP: Get OTP tool. Paid but no login: My plans, then Recover, then the team on WhatsApp with the payment screenshot. For anything else the FluxFilm team helps on WhatsApp.',
   ].join('\n');
 }
 
@@ -812,6 +877,8 @@ async function turn(c, input, ctx) {
     st.step = 'lang';
     return [{ intent: 'CHOOSE_LANGUAGE', buttons: [btn('lang:hinglish', 'en'), btn('lang:en', 'en'), btn('lang:hi', 'en')] }];
   }
+  // "bro" / "bhai" in the customer's own words: talk like that (Harsh: bro for younger customers, ji for older ones).
+  if (text && !st.address && /\b(bro|bruh|dude)\b/i.test(text)) st.address = 'bro';
   if (choice === 'start') return [menuReply(st, lang, ctx.profile.name)];
 
   const allowed = new Set(st.allowed || []);
@@ -847,7 +914,8 @@ async function turn(c, input, ctx) {
     else if (g === 'paidnotgot' && st.orderId && PAY_STEPS.has(st.step)) action = st.paused ? 'backpay_paid' : 'paid';
     else if (SUPPORT_KINDS.has(g) && (g !== 'stopped' || !PAY_STEPS.has(st.step))) { action = g; ents = entities(text, ctx.cat.plans); }
     else if (g === 'whenlogin' || g === 'paymethod' || (g === 'tv' && st.step !== 'tv')) { action = g; ents = entities(text, ctx.cat.plans); }
-    else if (['validity', 'quality', 'devicecount', 'refund', 'trust', 'paylater'].includes(g)) { action = g; ents = entities(text, ctx.cat.plans); }
+    else if (['validity', 'quality', 'devicecount', 'refund', 'trust', 'paylater', 'best', 'ownacc'].includes(g)) { action = g; ents = entities(text, ctx.cat.plans); }
+    else if (g === 'discount') action = 'discount';
     // 3. The step's own answers.
     if (!action) {
       const it = intentOf(text);
@@ -857,6 +925,10 @@ async function turn(c, input, ctx) {
       if (it === 'paid' && PAY_STEPS.has(st.step)) action = st.paused ? 'backpay_paid' : 'paid';
       else if (payEnts.service) { st.pendingSwitch = { service: payEnts.service, variant: payEnts.variant || '', days: payEnts.days || 0 }; action = 'switchask'; }
       else if (it === 'cantpay' && st.step === 'paying') action = 'cantpay';
+      else if ((it === 'yes' || /ek saath|same time|together|saath mein|dono par ek/i.test(text)) && st.step === 'devices_sametime') action = 'dsame:yes';
+      else if ((it === 'no' || /ek.?ek karke|alag alag time|one at a time|not together/i.test(text)) && st.step === 'devices_sametime') action = 'dsame:no';
+      else if (st.step === 'login_mode' && /alag|separate|different|har device/i.test(text)) action = 'lmode:separate';
+      else if (st.step === 'login_mode' && (it === 'yes' || /same|ek hi|ekhi|one login|single/i.test(text))) action = 'lmode:same';
       else if (it === 'diff' && st.devices && DEVICE_STEPS.has(st.step) && !ents.service) action = 'ddiff';
       else if (it === 'diff' && (st.step === 'variant' || (st.service && needsVariant(ctx.cat.plans, st.service)) || ents.service)) action = 'diff';
       // While choosing an N-device plan, a typed service / "sharing" / "3 months" stays in the N-device plans.
@@ -932,10 +1004,11 @@ async function turn(c, input, ctx) {
     // "2 devices ke liye chahiye" / "do phone": remember N, keep the service + Sharing/Private already known in THIS purchase.
     const e = entities(text, ctx.cat.plans);
     const n = action === 'devices' ? multi : st.devices;
-    const known = CHOOSING_STEPS.has(st.step) ? { service: st.service, variant: st.variant } : {};
+    const known = CHOOSING_STEPS.has(st.step) ? { service: st.service, variant: st.variant, sameTime: st.sameTime } : {};
     resetPurchase(st);
     st.devices = n;
     st.service = e.service || known.service || '';
+    if (known.sameTime && st.service === known.service && n === 2) st.sameTime = true;
     const variant = e.variant || (e.service && e.service !== known.service ? '' : known.variant);
     if (variant) st.variant = variant;
     return devicesReplies(st, ctx, lang);
@@ -948,7 +1021,49 @@ async function turn(c, input, ctx) {
   }
   if (action.startsWith('dvar:')) { if (!st.devices) return advance(st, ctx.cat, lang, ctx.profile); st.variant = action.slice(5) === 'private' ? 'private' : 'sharing'; return devicesReplies(st, ctx, lang); }
   if (action.startsWith('dmax:')) { const m = Number(action.slice(5)); if (!st.service || !(m >= 2)) return advance(st, ctx.cat, lang, ctx.profile); st.devices = m; return devicesReplies(st, ctx, lang); }
-  if (action === 'd1') { delete st.devices; delete st.deviceServices; st.plan = null; return advance(st, ctx.cat, lang, ctx.profile); }
+  if (action === 'd1') { for (const k of ['devices', 'deviceServices', 'devicePlan', 'deviceOptions', 'loginMode', 'sameTime']) delete st[k]; st.plan = null; return advance(st, ctx.cat, lang, ctx.profile); }
+  if (action === 'dsame:yes') { if (!st.devices || !st.service) return advance(st, ctx.cat, lang, ctx.profile); st.sameTime = true; return devicesReplies(st, ctx, lang); }
+  if (action === 'dsame:no') {
+    const svc = st.service.split(' (')[0];
+    for (const k of ['devices', 'deviceServices', 'devicePlan', 'deviceOptions', 'loginMode', 'sameTime']) delete st[k];
+    st.plan = null;
+    return [{ intent: 'ONE_DEVICE_ENOUGH', facts: { service: svc } }].concat(advance(st, ctx.cat, lang, ctx.profile));
+  }
+  if (action === 'dplus') { if (!st.service) return advance(st, ctx.cat, lang, ctx.profile); const keep = { service: st.service, variant: st.variant }; resetPurchase(st); Object.assign(st, keep); if (!st.variant) delete st.variant; st.devices = 2; return devicesReplies(st, ctx, lang); }
+  if (action.startsWith('dplan:')) {
+    const o = (st.deviceOptions || [])[Number(action.slice(6))];
+    if (!o) return st.devices ? devicesReplies(st, ctx, lang) : advance(st, ctx.cat, lang, ctx.profile);
+    st.plan = o; st.devicePlan = o; st.extraValue = ''; delete st.loginMode;
+    return advance(st, ctx.cat, lang, ctx.profile);
+  }
+  if (action === 'lmode:same' || action === 'lmode:separate') { if (!st.devicePlan) return advance(st, ctx.cat, lang, ctx.profile); st.loginMode = action.slice(6); return advance(st, ctx.cat, lang, ctx.profile); }
+  if (action === 'addr:ji' || action === 'addr:bro') {
+    st.address = action.slice(5);
+    return [Object.assign(menuReply(st, lang), { intent: 'ADDRESS_SET', facts: { address: st.address } })];
+  }
+  if (action === 'best') {
+    // "Kaunsa best hai?": privacy + own watchlist → Private, else Sharing; then how much a longer plan saves (Harsh, 15 Sep 2026).
+    if (ents.service && ents.service !== st.service) { resetPurchase(st); st.service = ents.service; }
+    if (ents.variant) st.variant = ents.variant;
+    st.bestAsked = true; st.plan = null;
+    if (!st.service || !servicesOf(ctx.cat.plans).includes(st.service)) {
+      const a = advance(st, ctx.cat, lang, ctx.profile);
+      if (a[0] && a[0].intent === 'ASK_SERVICE') a[0].intent = 'BEST_WHICH_SERVICE';
+      return a;
+    }
+    if (needsVariant(ctx.cat.plans, st.service) && !st.variant) {
+      st.step = 'variant';
+      return [{ intent: 'BEST_PRIVACY', facts: { service: st.service.split(' (')[0] }, buttons: [btn('variant:private', lang), btn('variant:sharing', lang), btn('diff', lang), btn('menu', lang)] }];
+    }
+    return bestSavings(st, ctx, lang);
+  }
+  if (action === 'discount') return discountReplies(c, ctx);
+  if (action === 'ownacc') {
+    // Plans come on FluxFilm's own accounts; only YouTube Premium is activated on the customer's email — and only when it is sold now.
+    const again = (st.lastButtons || []).length ? st.lastButtons : menuReply({}, lang).buttons;
+    const yt = (ctx.cat.plans || []).some((p) => /youtube/i.test(p.service) && stockOf(ctx.cat.stock, p) !== 'OUT');
+    return [{ intent: 'OWN_ACCOUNT', facts: { youtube: yt }, buttons: again, input: st.lastInput || undefined }];
+  }
   if (action === 'ddiff') {
     // The difference, told from the N-device plans' own benefits (not the 1-device ones).
     const all = devicePlansOf(ctx.cat.plans, st.service, st.devices || 2);
@@ -977,9 +1092,10 @@ async function turn(c, input, ctx) {
     return [{ intent: action === 'refund' ? 'REFUND_TO_TEAM' : 'PAY_LATER_TO_TEAM', buttons: withBackToPay(st, lang, [btn('whatsapp', lang), btn('menu', lang)]) }];
   }
   if (action === 'trust') {
-    // "Safe / legal / original hai?": no rule to answer from, so no AI claim either; the team answers on WhatsApp, buying can go on.
+    // "Safe hai?": Harsh's own line (15 Sep 2026) — FluxFilm has served customers since 30 Sep 2022. No "legal" claim.
     const again = (st.lastButtons || []).length ? st.lastButtons : menuReply({}, lang).buttons;
-    return [{ intent: 'QUESTION_TO_TEAM', buttons: again.some((b) => b.id === 'whatsapp') ? again : again.concat([btn('whatsapp', lang)]), input: st.lastInput || undefined }];
+    const years = Math.max(1, Math.round((deps.now().getTime() - Date.UTC(2022, 8, 30)) / (365.25 * 86400000)));
+    return [{ intent: 'TRUST_ANSWER', facts: { years }, buttons: again.some((b) => b.id === 'whatsapp') ? again : again.concat([btn('whatsapp', lang)]), input: st.lastInput || undefined }];
   }
   if (action === 'tv' || action === 'whenlogin' || action === 'paymethod' || action === 'validity' || action === 'quality' || action === 'devicecount') {
     // Answered from the catalogue (benefits, device rule, fulfilment); the step's own buttons stay, so buying continues.
@@ -993,7 +1109,7 @@ async function turn(c, input, ctx) {
     const tail = idle ? advance(st, ctx.cat, lang, ctx.profile) : [];
     const keep = (r) => (tail.length ? [r].concat(tail) : [Object.assign(r, { buttons: r.buttons || again, input: st.lastInput || undefined })]);
     if (action === 'paymethod') {
-      const card = /card|net ?banking/i.test(text);
+      const card = /card|net ?banking|credit|debit|rupay/i.test(text);
       return keep({ intent: 'PAYMENT_METHOD', facts: { paying: PAY_STEPS.has(st.step), card }, buttons: card ? withWa(again) : undefined });
     }
     if (action === 'validity') {
@@ -1130,7 +1246,7 @@ async function turn(c, input, ctx) {
     if (keep.days) st.days = keep.days;
     return advance(st, ctx.cat, lang, ctx.profile);
   }
-  if (action.startsWith('variant:')) { st.variant = action.slice(8); st.plan = null; return advance(st, ctx.cat, lang, ctx.profile); }
+  if (action.startsWith('variant:')) { st.variant = action.slice(8); st.plan = null; if (st.bestAsked) return bestSavings(st, ctx, lang); return advance(st, ctx.cat, lang, ctx.profile); }
   if (action === 'diff') {
     const svc = ents.service || st.service;
     const one = (v) => { const o = optionsFor(ctx.cat.plans, svc, v)[0]; return o ? o.benefits : []; };
@@ -1138,7 +1254,7 @@ async function turn(c, input, ctx) {
     return [{ intent: 'EXPLAIN_SHARING_VS_PRIVATE', facts: { sharing: one('sharing'), private: one('private') }, buttons: [btn('variant:sharing', lang), btn('variant:private', lang), btn('menu', lang)] }];
   }
   if (action.startsWith('plan:')) {
-    const o = (st.options || [])[Number(action.slice(5))]; st.plan = o || null; st.extraValue = '';
+    const o = (st.options || [])[Number(action.slice(5))]; st.plan = o || null; st.extraValue = ''; delete st.devicePlan; delete st.loginMode;
     const replies = advance(st, ctx.cat, lang, ctx.profile);
     if (st.pendingCoupon && st.step === 'confirm') { const pc = st.pendingCoupon; delete st.pendingCoupon; return couponReplies(c, ctx, pc); }
     return replies;
@@ -1173,6 +1289,7 @@ async function turn(c, input, ctx) {
       name: s(ctx.profile.name) || 'FluxFilm customer', email: st.email || ctx.profile.email,
       extraFieldKey: p.needsExtraField ? key : '', extraFieldValue: p.needsExtraField ? st.extraValue : '',
       couponCode: st.coupon ? st.coupon.code : '',
+      loginMode: st.devicePlan && st.loginMode ? st.loginMode : '',
     });
     ctx.meta.push({ tool: 'createOrder', ok: !!(r && r.ok), orderId: r && r.orderId, paused: !!(r && r.paused), outOfStock: !!(r && r.outOfStock), coupon: !!st.coupon });
     if (!r || !r.ok) {
@@ -1250,8 +1367,15 @@ async function handle(phone, input) {
   if (!profile.ok) return { ok: false, disabled: true, whatsappLink: a.settings.whatsappLink, message: 'Please log in to chat with Olivia.' };
 
   let c = await loadConv(inp.conversationId, a.phone);
-  if (!c) c = { id: crypto.randomBytes(16).toString('hex'), phone: a.phone, lang: '', state: {}, status: 'OPEN', turns: 0, aiCalls: 0, aiTokens: 0, isNew: true };
-  const ctx = { settings: a.settings, profile, installedApp: inp.installedApp === true, meta: [], poll: 0, cat: { plans: [], stock: {} } };
+  if (!c) {
+    c = { id: crypto.randomBytes(16).toString('hex'), phone: a.phone, lang: '', state: {}, status: 'OPEN', turns: 0, aiCalls: 0, aiTokens: 0, isNew: true };
+    // "Ji or bro" is asked once per customer: carry it over from their last chat.
+    try {
+      const prev = await db.query('SELECT state_json FROM olivia_conversations WHERE phone_norm = ? ORDER BY updated_at DESC LIMIT 5', [a.phone]);
+      for (const row of prev || []) { let x = {}; try { x = JSON.parse(row.state_json || '{}') || {}; } catch (_) { x = {}; } if (x.address === 'ji' || x.address === 'bro') { c.state.address = x.address; break; } }
+    } catch (_) { /* first chat, or the log is unavailable: she simply asks */ }
+  }
+  const ctx = { text: s(inp.text).slice(0, 500), settings: a.settings, profile, installedApp: inp.installedApp === true, meta: [], poll: 0, cat: { plans: [], stock: {} } };
   const choice = s(inp.choice);
   const isPoll = choice === 'poll';
   if (!isPoll) {
@@ -1278,7 +1402,7 @@ async function handle(phone, input) {
     const w = r.text ? { text: r.text, ai: !!r.ai, tokens: 0 } : await deps.words.say(r.intent, facts, c.lang || 'en', ctx.settings);
     if (w.tokens) { c.aiCalls++; c.aiTokens += w.tokens; }
     const buttons = (r.buttons || []).map((b) => (LINK_BUTTONS[b.id] ? Object.assign({ link: LINK_BUTTONS[b.id] }, b) : b));
-    w.text = words.format(w.text, facts, r.intent);
+    w.text = words.format(w.text, facts, r.intent, { address: c.state.address, lang: c.lang });
     const msg = { role: 'olivia', intent: r.intent, text: w.text, buttons };
     if (r.input) msg.input = r.input;
     if (r.card) msg.card = r.card;

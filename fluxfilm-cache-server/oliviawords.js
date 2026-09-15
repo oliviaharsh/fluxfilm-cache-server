@@ -39,9 +39,9 @@ const T = {
     hi: () => 'नमस्ते जी, मैं FluxFilm से Olivia हूँ 👋\n\nआपके लिए कौन सी भाषा आसान है?',
   },
   GREET_MENU: {
-    en: (f) => 'Hello' + (f.name ? ' {NAME}' : '') + '! 😊\n\nHow can I help you today?',
-    hinglish: (f) => 'Namaste' + (f.name ? ' {NAME}' : '') + ' ji! 😊\n\nBataiye, kya madad karoon?',
-    hi: (f) => 'नमस्ते' + (f.name ? ' {NAME}' : '') + ' जी! 😊\n\nबताइए, क्या मदद करूँ?',
+    en: (f) => 'Hello' + (f.name ? ' {NAME}' : '') + '! 😊\n\nHow can I help you today?' + (f.askAddress ? '\n(And how should I call you: ji or bro?)' : ''),
+    hinglish: (f) => 'Namaste' + (f.name ? ' {NAME}' : '') + ' ji! 😊\n\nBataiye, kya madad karoon?' + (f.askAddress ? '\n(Aur haan, aapko kaise bulaun: ji ya bro?)' : ''),
+    hi: (f) => 'नमस्ते' + (f.name ? ' {NAME}' : '') + ' जी! 😊\n\nबताइए, क्या मदद करूँ?' + (f.askAddress ? '\n(और हाँ, आपको कैसे बुलाऊँ: जी या bro?)' : ''),
   },
   ASK_SERVICE: {
     en: () => 'Sure!\n\nWhich one do you want?',
@@ -156,9 +156,9 @@ const T = {
   // Training run 3 (brain/procedures/netflix-household.md): the steps have an ORDER. The code only exists after the TV / phone asks
   // Netflix for it, so the device step is said first ("pehle website pe jaoge toh code nahi milega").
   HOUSEHOLD_HELPER: {
-    en: () => 'No problem 🙏 This is Netflix\'s household check. Please do it in this order:\n1. On the TV or phone, first tap "Update household" (or "I\'m travelling / Watch temporarily"), then "Send email".\n2. Then open the Household Helper, get the code and type it on the TV or phone.\nIf you open the Helper first, it will not find the code.',
-    hinglish: () => 'Koi baat nahi ji 🙏 Yeh Netflix ka household check hai, is order mein kijiye:\n1. TV ya phone par pehle "Update household" (ya "I\'m travelling / Watch temporarily") dabaiye, phir "Send email".\n2. Uske baad Household Helper kholiye, code lijiye aur TV ya phone par daal dijiye.\nPehle Helper kholenge to code nahi milega.',
-    hi: () => 'कोई बात नहीं जी 🙏 यह Netflix का household चेक है, इसी क्रम में कीजिए:\n1. TV या फ़ोन पर पहले "Update household" (या "I\'m travelling / Watch temporarily") दबाइए, फिर "Send email"।\n2. उसके बाद Household Helper खोलिए, कोड लीजिए और TV या फ़ोन पर डाल दीजिए।\nपहले Helper खोलेंगे तो कोड नहीं मिलेगा।',
+    en: (f) => 'No problem 🙏 This is Netflix\'s household check. Please do it in this order:\n1. On the TV or phone, first tap "Update household" (or "I\'m travelling / Watch temporarily"), then "Send email".\n2. Then open the Household Helper, get the code and type it on the TV or phone.\nIf you open the Helper first, it will not find the code.' + (f.bothHelpers ? '\n(There are 2 Helper links: each one says which Netflix email it is for.)' : '') + '\nNetflix asks for this at random. Your account is fine, and I can help you every time it happens 😊',
+    hinglish: (f) => 'Koi baat nahi ji 🙏 Yeh Netflix ka household check hai, is order mein kijiye:\n1. TV ya phone par pehle "Update household" (ya "I\'m travelling / Watch temporarily") dabaiye, phir "Send email".\n2. Uske baad Household Helper kholiye, code lijiye aur TV ya phone par daal dijiye.\nPehle Helper kholenge to code nahi milega.' + (f.bothHelpers ? '\n(Helper ke 2 link hain: har link par likha hai kaunse Netflix email ke liye hai.)' : '') + '\nNetflix yeh kabhi bhi random maang leta hai. Aapke account mein koi problem nahi, jab bhi aaye main help kar dungi 😊',
+    hi: (f) => 'कोई बात नहीं जी 🙏 यह Netflix का household चेक है, इसी क्रम में कीजिए:\n1. TV या फ़ोन पर पहले "Update household" (या "I\'m travelling / Watch temporarily") दबाइए, फिर "Send email"।\n2. उसके बाद Household Helper खोलिए, कोड लीजिए और TV या फ़ोन पर डाल दीजिए।\nपहले Helper खोलेंगे तो कोड नहीं मिलेगा।' + (f.bothHelpers ? '\n(Helper के 2 लिंक हैं: हर लिंक पर लिखा है किस Netflix ईमेल के लिए है।)' : '') + '\nNetflix यह कभी भी अचानक माँग लेता है। आपके अकाउंट में कोई दिक्कत नहीं, जब भी आए मैं मदद कर दूँगी 😊',
   },
   GROUP_JOIN: {
     en: (f) => (f.title ? 'Oh, the ' + rupees(f.price) + ' plan is our Group Offer 👥\n' + f.title : f.service + ' is our cheaper Group Offer 👥') + '\nThis price is only for members of the FluxFilm WhatsApp group.\nPlease join the group first (button below), then tap "I have joined".' + (f.normalPrice ? '\n\nDo not want to join? The normal plan is ' + rupees(f.normalPrice) + '.' : ''),
@@ -295,10 +295,70 @@ const T = {
     hinglish: (f) => 'Ji, aapka ' + rupees(f.amount) + ' ka payment' + (f.title ? ' (' + f.title + ')' : '') + ' abhi baaki hai.\nBadalne par woh QR cancel ho jayega.\n\nKya uski jagah ' + f.service + ' chahiye?',
     hi: (f) => 'जी, आपका ' + rupees(f.amount) + ' का पेमेंट' + (f.title ? ' (' + f.title + ')' : '') + ' अभी बाकी है।\nबदलने पर वह QR रद्द हो जाएगा।\n\nक्या उसकी जगह ' + f.service + ' चाहिए?',
   },
-  MULTI_DEVICE_ON_WEBSITE: {
-    en: (f) => 'Here are the ' + (f.title ? f.title + ' ' : '') + 'plans for ' + f.n + ' devices:' + bullets(f.items) + '\n\nThese plans are bought on the Buy page of the website (it asks a few extra choices there).' + (f.group ? '\nThis is our Group Offer, so please join our WhatsApp group first.' : '') + '\nTap "Open Buy page" below, or pick a 1-device plan here.',
-    hinglish: (f) => 'Ji, yeh rahe ' + (f.title ? f.title + ' ke ' : '') + f.n + ' devices wale plans:' + bullets(f.items) + '\n\nYeh plans website ke Buy page se milte hain (wahan kuch extra options hain).' + (f.group ? '\nYeh Group Offer hai, isliye pehle WhatsApp group join kijiye.' : '') + '\nNeeche "Open Buy page" dabaiye, ya yahan 1 device wala plan chuniye.',
-    hi: (f) => 'जी, ये रहे ' + (f.title ? f.title + ' के ' : '') + f.n + ' डिवाइस वाले प्लान:' + bullets(f.items) + '\n\nये प्लान वेबसाइट के Buy पेज से मिलते हैं (वहाँ कुछ और विकल्प हैं)।' + (f.group ? '\nयह Group Offer है, इसलिए पहले WhatsApp ग्रुप जॉइन कीजिए।' : '') + '\nनीचे "Open Buy page" दबाइए, या यहाँ 1 डिवाइस वाला प्लान चुनिए।',
+  MULTI_DEVICE_PLANS: {
+    en: (f) => 'Here are the ' + (f.title ? f.title + ' ' : '') + 'plans for ' + f.n + ' devices:' + bullets(f.items) + (f.group ? '\nThis is our Group Offer, so please join our WhatsApp group first.' : '') + '\n\nWhich one do you want?',
+    hinglish: (f) => 'Ji, yeh rahe ' + (f.title ? f.title + ' ke ' : '') + f.n + ' devices wale plans:' + bullets(f.items) + (f.group ? '\nYeh Group Offer hai, isliye pehle WhatsApp group join kijiye.' : '') + '\n\nKaunsa chahiye?',
+    hi: (f) => 'जी, ये रहे ' + (f.title ? f.title + ' के ' : '') + f.n + ' डिवाइस वाले प्लान:' + bullets(f.items) + (f.group ? '\nयह Group Offer है, इसलिए पहले WhatsApp ग्रुप जॉइन कीजिए।' : '') + '\n\nकौन सा चाहिए?',
+  },
+  ASK_SAME_TIME: {
+    en: (f) => 'Sure! ' + f.service + ' logs in on 2 devices, but plays on 1 at a time.\n\nDo you want to watch on both devices at the same time?',
+    hinglish: (f) => 'Ji, ' + f.service + ' ka login 2 devices par ho jata hai, lekin ek time par ek hi chalta hai.\n\nKya dono devices par ek saath (same time) dekhna hai?',
+    hi: (f) => 'जी, ' + f.service + ' का लॉगिन 2 डिवाइस पर हो जाता है, लेकिन एक समय पर एक ही चलता है।\n\nक्या दोनों डिवाइस पर एक साथ देखना है?',
+  },
+  ONE_DEVICE_ENOUGH: {
+    en: () => 'Then the normal 1-device plan is enough 😊\nYou can log in on both, and watch on one at a time.',
+    hinglish: () => 'Tab normal 1 device wala plan kaafi hai 😊\nLogin dono par ho jayega, bas ek time par ek par dekhiye.',
+    hi: () => 'तब सामान्य 1 डिवाइस वाला प्लान काफ़ी है 😊\nलॉगिन दोनों पर हो जाएगा, बस एक समय पर एक पर देखिए।',
+  },
+  ASK_LOGIN_MODE: {
+    en: (f) => 'One more thing 🔑\n\nThe same login on all ' + f.n + ' devices, or a separate login for each device?',
+    hinglish: (f) => 'Ek baat aur 🔑\n\nSabhi ' + f.n + ' devices par ek hi login chahiye, ya har device ka alag login?',
+    hi: (f) => 'एक बात और 🔑\n\nसभी ' + f.n + ' डिवाइस पर एक ही लॉगिन चाहिए, या हर डिवाइस का अलग लॉगिन?',
+  },
+  ADDRESS_SET: {
+    en: (f) => (f.address === 'bro' ? 'Done bro 😎\n\nWhat do you need?' : 'Sure 🙏\n\nHow can I help you today?'),
+    hinglish: (f) => (f.address === 'bro' ? 'Done bro 😎\n\nBatao, kya chahiye?' : 'Theek hai ji 🙏\n\nBataiye, kya madad karoon?'),
+    hi: (f) => (f.address === 'bro' ? 'ठीक है bro 😎\n\nबताओ, क्या चाहिए?' : 'ठीक है जी 🙏\n\nबताइए, क्या मदद करूँ?'),
+  },
+  BEST_WHICH_SERVICE: {
+    en: () => 'Happy to help you pick 😊\n\nFirst, which service do you want?',
+    hinglish: () => 'Zaroor, best plan chunne mein main help karti hoon 😊\n\nPehle bataiye, kaunsi service chahiye?',
+    hi: () => 'ज़रूर, सबसे अच्छा प्लान चुनने में मैं मदद करती हूँ 😊\n\nपहले बताइए, कौन सी सर्विस चाहिए?',
+  },
+  BEST_PRIVACY: {
+    en: (f) => 'Happy to help 😊\nWant your own privacy and your own watchlist on ' + f.service + '? Then Private is best 🔒\nJust want the lowest price? Then Sharing is fine 🤝',
+    hinglish: (f) => 'Zaroor 😊\n' + f.service + ' mein apni privacy aur apni alag watchlist chahiye? Tab Private best hai 🔒\nBas kam price mein dekhna hai? Tab Sharing theek hai 🤝',
+    hi: (f) => 'ज़रूर 😊\n' + f.service + ' में अपनी प्राइवेसी और अपनी अलग watchlist चाहिए? तब Private सबसे अच्छा है 🔒\nबस कम कीमत में देखना है? तब Sharing ठीक है 🤝',
+  },
+  BEST_LONG_TERM: {
+    en: (f) => 'A tip 💰 A longer ' + f.title + ' plan costs less per month (1 month is ' + rupees(f.monthPrice) + '):' + bullets(f.items),
+    hinglish: (f) => 'Ek tip 💰 ' + f.title + ' ka lamba plan lene par har mahina kam padta hai (1 mahina ' + rupees(f.monthPrice) + '):' + bullets(f.items),
+    hi: (f) => 'एक सलाह 💰 ' + f.title + ' का लंबा प्लान लेने पर हर महीना कम पड़ता है (1 महीना ' + rupees(f.monthPrice) + '):' + bullets(f.items),
+  },
+  EARLY_RENEW_DISCOUNT: {
+    en: (f) => 'Good news 😊 If you renew your ' + f.service + ' plan now, you get an early-renew discount of ' + rupees(f.amount) + '.\n\nShall I renew it?',
+    hinglish: (f) => 'Ji, ek achhi baat 😊 Aapka ' + f.service + ' plan abhi renew karenge to ' + rupees(f.amount) + ' ki early-renew chhoot milegi.\n\nRenew kar dein?',
+    hi: (f) => 'जी, एक अच्छी बात 😊 आपका ' + f.service + ' प्लान अभी रिन्यू करेंगे तो ' + rupees(f.amount) + ' की जल्दी रिन्यू छूट मिलेगी।\n\nरिन्यू कर दें?',
+  },
+  NO_EXTRA_DISCOUNT: {
+    en: () => 'The price shown is already our best price 🙏\nIf you have a coupon code, you can apply it.',
+    hinglish: () => 'Ji, jo price dikh raha hai wahi hamara best price hai 🙏\nCoupon code ho to laga sakte hain.',
+    hi: () => 'जी, जो कीमत दिख रही है वही हमारी सबसे अच्छी कीमत है 🙏\nकूपन कोड हो तो लगा सकते हैं।',
+  },
+  OWN_ACCOUNT: {
+    en: (f) => 'Our plans come on FluxFilm\'s own account 🙏\nWe give you the login details (an ID, or a login number).' + (f.youtube ? '\nOnly YouTube Premium is activated on your own email.' : ''),
+    hinglish: (f) => 'Ji, plans hamare FluxFilm account par milte hain 🙏\nLogin details hum dete hain (ID ya login number).' + (f.youtube ? '\nSirf YouTube Premium aapke apne email par activate hota hai.' : ''),
+    hi: (f) => 'जी, प्लान हमारे FluxFilm अकाउंट पर मिलते हैं 🙏\nलॉगिन की जानकारी हम देते हैं (ID या लॉगिन नंबर)।' + (f.youtube ? '\nसिर्फ़ YouTube Premium आपके अपने ईमेल पर एक्टिवेट होता है।' : ''),
+  },
+  TRUST_ANSWER: {
+    en: (f) => 'Yes, you can trust us 🙏\nFluxFilm has been serving customers for ' + f.years + ' years (our anniversary is on 30 Sep 🎉).\nPayments are checked straight from the bank, and our team is on WhatsApp if you need anything.',
+    hinglish: (f) => 'Ji, bilkul bharosa kar sakte hain 🙏\nFluxFilm ' + f.years + ' saal se customers ko service de raha hai (30 Sep ko hamari anniversary hai 🎉).\nPayment seedha bank se check hota hai, aur koi bhi baat ho to team WhatsApp par hai.',
+    hi: (f) => 'जी, बिल्कुल भरोसा कर सकते हैं 🙏\nFluxFilm ' + f.years + ' साल से ग्राहकों को सर्विस दे रहा है (30 Sep को हमारी सालगिरह है 🎉)।\nपेमेंट सीधे बैंक से चेक होता है, और कोई भी बात हो तो टीम WhatsApp पर है।',
+  },
+  THANKS_REFER: {
+    en: () => 'Enjoy watching! 😃\nOne more thing: refer a friend to FluxFilm and you get coins (about 1 month free) to buy any plan 🪙',
+    hinglish: () => 'Enjoy kijiye! 😃\nEk baat aur: dost ko FluxFilm refer kijiye, coins milenge (lagbhag 1 mahina free), jinse koi bhi plan le sakte hain 🪙',
+    hi: () => 'मज़े कीजिए! 😃\nएक बात और: दोस्त को FluxFilm रेफ़र कीजिए, कॉइन मिलेंगे (लगभग 1 महीना मुफ़्त), जिनसे कोई भी प्लान ले सकते हैं 🪙',
   },
   ASK_SERVICE_FOR_DEVICES: {
     en: (f) => 'Sure, we have plans for ' + f.n + ' devices 😊\n\nFor which one do you want it?',
@@ -352,16 +412,16 @@ const T = {
     hi: (f) => 'जी, ' + f.service + ' हमारी टीम एक्टिवेट करती है, इसलिए यह तुरंत नहीं होता।\nपेमेंट के बाद टीम सेट करती है, और ईमेल पर मिल जाता है।',
   },
   PAYMENT_METHOD: {
-    en: (f) => 'Payment is by UPI.\nScan the QR with any UPI app (Google Pay, PhonePe, Paytm, BHIM…).' + (f.card ? '\nFor any other way to pay, please ask our team on WhatsApp.' : '') + (f.paying ? '\nYour QR is above.' : '\nI send the QR once you pick a plan.'),
-    hinglish: (f) => 'Ji, payment UPI se hota hai.\nKisi bhi UPI app (Google Pay, PhonePe, Paytm, BHIM…) se QR scan kar lijiye.' + (f.card ? '\nKoi aur tareeka chahiye to WhatsApp par team se poochiye.' : '') + (f.paying ? '\nAapka QR upar hai.' : '\nPlan chunne ke baad main QR bhejti hoon.'),
-    hi: (f) => 'जी, पेमेंट UPI से होता है।\nकिसी भी UPI ऐप (Google Pay, PhonePe, Paytm, BHIM…) से QR स्कैन कर लीजिए।' + (f.card ? '\nकोई और तरीका चाहिए तो WhatsApp पर टीम से पूछिए।' : '') + (f.paying ? '\nआपका QR ऊपर है।' : '\nप्लान चुनने के बाद मैं QR भेजती हूँ।'),
+    en: (f) => 'Payment is by UPI.\nScan the QR with any UPI app (Google Pay, PhonePe, Paytm, BHIM…).' + (f.card ? '\nA RuPay credit card also works: for that, please message our team on WhatsApp.' : '') + (f.paying ? '\nYour QR is above.' : '\nI send the QR once you pick a plan.'),
+    hinglish: (f) => 'Ji, payment UPI se hota hai.\nKisi bhi UPI app (Google Pay, PhonePe, Paytm, BHIM…) se QR scan kar lijiye.' + (f.card ? '\nRuPay credit card se bhi ho sakta hai: uske liye WhatsApp par team se baat kijiye.' : '') + (f.paying ? '\nAapka QR upar hai.' : '\nPlan chunne ke baad main QR bhejti hoon.'),
+    hi: (f) => 'जी, पेमेंट UPI से होता है।\nकिसी भी UPI ऐप (Google Pay, PhonePe, Paytm, BHIM…) से QR स्कैन कर लीजिए।' + (f.card ? '\nRuPay क्रेडिट कार्ड से भी हो सकता है: उसके लिए WhatsApp पर टीम से बात कीजिए।' : '') + (f.paying ? '\nआपका QR ऊपर है।' : '\nप्लान चुनने के बाद मैं QR भेजती हूँ।'),
   },
   // Training run 3 (brain/procedures/access-recovery.md): self-service first — My plans → Recover, verified by a code sent to the
   // customer's own email. Olivia never shows, fetches or asks for a login in the chat.
   LOGIN_HELP: {
-    en: (f) => 'Sorry for the trouble 🙏\n' + (f.service ? 'The ' + f.service + ' login' : 'The login') + ' can change sometimes.\nOpen My plans, tap Recover on your plan and type the code sent to your email: your latest login is shown there.' + (f.household ? '\nNetflix asking for a household or TV code? Open the Household Helper.' : '') + '\nStill not working? Our team will check it on WhatsApp.',
-    hinglish: (f) => 'Sorry ji, pareshani ke liye 🙏\n' + (f.service ? f.service + ' ka login' : 'Login') + ' kabhi-kabhi badalta hai.\nMy plans kholkar apne plan par Recover dabaiye aur email par aaya code daaliye: latest login wahin dikh jayega.' + (f.household ? '\nNetflix household ya TV code maang raha hai? Household Helper kholiye.' : '') + '\nPhir bhi na chale to WhatsApp par team check karegi.',
-    hi: (f) => 'माफ़ कीजिए जी, परेशानी के लिए 🙏\n' + (f.service ? f.service + ' का लॉगिन' : 'लॉगिन') + ' कभी-कभी बदलता है।\nMy plans खोलकर अपने प्लान पर Recover दबाइए और ईमेल पर आया कोड डालिए: नया लॉगिन वहीं दिख जाएगा।' + (f.household ? '\nNetflix household या TV कोड माँग रहा है? Household Helper खोलिए।' : '') + '\nफिर भी न चले तो WhatsApp पर टीम चेक करेगी।',
+    en: (f) => 'Sorry for the trouble 🙏\n' + (f.service ? 'The ' + f.service + ' login' : 'The login') + ' can change sometimes.\nOpen My plans, tap Recover on your plan and type the code sent to your email: your latest login is shown there.' + (f.changed ? '\nMaybe we changed it: Recover shows the new login. If that does not work either, our team will fix it.' : '') + (f.household ? '\nNetflix asking for a household or TV code? Open the Household Helper.' : '') + '\nStill not working? Our team will check it on WhatsApp.',
+    hinglish: (f) => 'Sorry ji, pareshani ke liye 🙏\n' + (f.service ? f.service + ' ka login' : 'Login') + ' kabhi-kabhi badalta hai.\nMy plans kholkar apne plan par Recover dabaiye aur email par aaya code daaliye: latest login wahin dikh jayega.' + (f.changed ? '\nHo sakta hai humne hi badla ho: Recover mein naya login dikhega. Woh bhi na chale to team theek kar degi.' : '') + (f.household ? '\nNetflix household ya TV code maang raha hai? Household Helper kholiye.' : '') + '\nPhir bhi na chale to WhatsApp par team check karegi.',
+    hi: (f) => 'माफ़ कीजिए जी, परेशानी के लिए 🙏\n' + (f.service ? f.service + ' का लॉगिन' : 'लॉगिन') + ' कभी-कभी बदलता है।\nMy plans खोलकर अपने प्लान पर Recover दबाइए और ईमेल पर आया कोड डालिए: नया लॉगिन वहीं दिख जाएगा।' + (f.changed ? '\nहो सकता है हमने ही बदला हो: Recover में नया लॉगिन दिखेगा। वह भी न चले तो टीम ठीक कर देगी।' : '') + (f.household ? '\nNetflix household या TV कोड माँग रहा है? Household Helper खोलिए।' : '') + '\nफिर भी न चले तो WhatsApp पर टीम चेक करेगी।',
   },
   // JioHotstar / Zee5 / SonyLiv log in with FluxFilm's number + OTP: the shop's own Get OTP tool (Tools → Get OTP).
   OTP_HELP: {
@@ -487,6 +547,15 @@ const B = {
   buysite: { en: '🛒 Open Buy page', hinglish: '🛒 Buy page kholo', hi: '🛒 Buy पेज खोलो' },
   myplans: { en: '🎬 Open My plans', hinglish: '🎬 My plans kholo', hi: '🎬 My plans खोलो' },
   whatsapp: { en: '💬 WhatsApp our team', hinglish: '💬 WhatsApp par team', hi: '💬 WhatsApp पर टीम' },
+  'addr:ji': { en: '🙏 Call me ji', hinglish: '🙏 Ji boliye', hi: '🙏 जी बोलिए' },
+  'addr:bro': { en: '😎 Bro is fine', hinglish: '😎 Bro chalega', hi: '😎 Bro चलेगा' },
+  'dsame:yes': { en: '📺📱 Yes, at the same time', hinglish: '📺📱 Haan, ek saath', hi: '📺📱 हाँ, एक साथ' },
+  'dsame:no': { en: '👍 No, one at a time', hinglish: '👍 Nahi, ek-ek karke', hi: '👍 नहीं, एक-एक करके' },
+  dplus: { en: '📱 Need 2 devices?', hinglish: '📱 2 devices chahiye?', hi: '📱 2 डिवाइस चाहिए?' },
+  'lmode:same': { en: '🔑 Same login on all', hinglish: '🔑 Sab par ek hi login', hi: '🔑 सब पर एक ही लॉगिन' },
+  'lmode:separate': { en: '👥 Separate login for each', hinglish: '👥 Har device ka alag login', hi: '👥 हर डिवाइस का अलग लॉगिन' },
+  helper1: { en: '🏠 Household Helper (Link 1)', hinglish: '🏠 Household Helper (Link 1)', hi: '🏠 Household Helper (Link 1)' },
+  helper2: { en: '🏠 Household Helper (Link 2)', hinglish: '🏠 Household Helper (Link 2)', hi: '🏠 Household Helper (Link 2)' },
   helper: { en: '🏠 Open Household Helper', hinglish: '🏠 Household Helper kholo', hi: '🏠 Household Helper खोलो' },
   support: { en: '🔐 Login / account problem', hinglish: '🔐 Login / account problem', hi: '🔐 लॉगिन / अकाउंट समस्या' },
   recover: { en: '🔐 Open Recover', hinglish: '🔐 Recover kholo', hi: '🔐 Recover खोलो' },
@@ -551,11 +620,13 @@ const LEAD_EMOJI = {
   CONFIRM_PLAN: '🧾', CONFIRM_PLAN_COUPON: '🧾', SEND_PAYMENT: '💳', PAYMENT_REMINDER: '💳', PAYMENT_NOT_YET: '⏳', BACKUP_UNDER_REVIEW: '⏳',
   RENEW_PICK: '🔁', RENEW_DURATION: '🔁', RENEW_CONFIRM: '🔁', RENEW_CONFIRM_COUPON: '🔁', RENEW_NOTHING: '🔁',
   PRICE_HELP: '💰', PRICE_HELP_PLAN: '💰', PRICE_MATCH: '💰', PRICE_FROM: '💰', PAYMENT_METHOD: '💳', WHEN_LOGIN: '🔐', WHEN_LOGIN_MANUAL: '🔐', VALIDITY: '📅', DEVICES_ANSWER: '📱', QUALITY_UNSURE: '💬',
-  ASK_DEVICES_SHARING_OR_PRIVATE: '📱', MULTI_DEVICE_ON_WEBSITE: '📱', MULTI_DEVICE_NONE: '📱', SWITCH_CONFIRM: '🔄', QUESTION_TO_TEAM: '💬', ASK_COUPON: '🎟️', COUPON_INVALID: '🎟️',
+  ASK_DEVICES_SHARING_OR_PRIVATE: '📱', MULTI_DEVICE_PLANS: '📱', ASK_SAME_TIME: '📺', ASK_LOGIN_MODE: '🔑', EARLY_RENEW_DISCOUNT: '🎁', MULTI_DEVICE_NONE: '📱', SWITCH_CONFIRM: '🔄', QUESTION_TO_TEAM: '💬', ASK_COUPON: '🎟️', COUPON_INVALID: '🎟️',
 };
 const escRe = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-function format(text, facts, intent) {
+function format(text, facts, intent, opts) {
   let t = String(text || '').replace(/\*/g, '').trim();
+  // "Ji" or "bro" — however the customer chose to be called (asked once, remembered for their phone).
+  if (opts && opts.address === 'bro') t = t.replace(/^Namaste\b/, 'Hey').replace(/\bji\b/g, 'bro').replace(/\bJi\b/g, 'Bro');
   if (!t) return t;
   const f = facts || {};
   // The last question gets its own paragraph ("…₹39.\n\nShall I send the payment QR?").

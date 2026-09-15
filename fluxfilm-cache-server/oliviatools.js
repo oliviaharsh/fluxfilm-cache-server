@@ -42,6 +42,7 @@ function make(deps) {
         service: p.service, plan: p.plan, phone, name: extra.name, email: extra.email,
         extraFieldKey: extra.extraFieldKey || '', extraFieldValue: extra.extraFieldValue || '',
         couponCode: extra.couponCode || '',
+        loginMode: extra.loginMode || '',
         notes: 'Ordered in Olivia chat',
       });
     },
