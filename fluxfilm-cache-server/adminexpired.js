@@ -2,6 +2,7 @@
  * FluxFilm - admin "🚪 Expired customers still on accounts" + one-tap cleanup (admin-only, mounted by admin.js).
  *
  *   GET  /admin/api/remove-users                  the Sheet rule per account login (expiredusers.js) + counts
+ *                                                 (+ group.passwordChangedAt: last password change, passwordage.js)
  *                                                 (customers, accounts, safeAccounts, safeUsers, other,
  *                                                 changeNow / wait / later + advice per login). Alias: /expired-users
  *   GET  /admin/api/remove-users/settings         { rules: { minInactive, minDays } }  when to change the password
@@ -32,6 +33,8 @@ function mount(app, deps) {
     try {
       const E = expired();
       const r = await E.load((sql, p) => db.query(sql, p));
+      // 🔑 Last password change per login (group.passwordChangedAt, null = unknown) — passwordage.js, separate queries.
+      await require('./passwordage').attachToGroups((sql, p) => db.query(sql, p), r);
       res.json(Object.assign({ ok: true, counts: E.summarize(r) }, r));
     } catch (e) { fail(res, e); }
   };

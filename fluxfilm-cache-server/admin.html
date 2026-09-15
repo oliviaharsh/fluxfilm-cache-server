@@ -2367,6 +2367,11 @@ function loadAudit() {
 
 /* ================= password change (F5) ================= */
 var PW = { q: '', accounts: null, pick: null, impact: null, result: null, showAll: {} };
+// 🔑 "2 Sep 2026 (14 days ago)" / "unknown" — d = passwordChangedAt from the server (passwordage.js), short = "2 Sep".
+function pwAgeText(d, short) {
+  if (!d || !d.at) return 'unknown';
+  return esc(short ? d.short : prettyDate(d.at)) + ' (' + esc(d.ago) + ')';
+}
 function passwordView() {
   $('#view').innerHTML = '<div class="ph"><div><h1>🔑 Password change</h1><p>Change an account\'s password: expired customers are ticked as removed and active customers get the new password saved</p></div></div><div id="pwbody"></div>';
   renderPassword();
@@ -2395,7 +2400,8 @@ function renderPassword() {
   el.innerHTML = '<div class="qgrid"><div>' +
     '<div class="card qsec"><div class="row" style="justify-content:space-between"><h3 style="margin:0">' + svcIcon(im.account.service) + ' ' + esc(im.account.accountId) + ' <span class="muted" style="font-weight:400">· ' + esc(im.account.service) + '</span></h3><button class="btn ghost sm" data-back="1">Change</button></div>' +
     '<div class="creds" style="margin-top:10px"><div class="cr"><span>Login</span><code>' + esc(im.account.login) + '</code><button class="copy" data-copy="' + esc(im.account.login) + '">Copy</button></div>' +
-    '<div class="cr"><span>Current</span><code id="pwcur" data-p="' + esc(im.account.password) + '">••••••••</code><button class="copy" id="pwreveal">Show</button></div></div>' +
+    '<div class="cr"><span>Current</span><code id="pwcur" data-p="' + esc(im.account.password) + '">••••••••</code><button class="copy" id="pwreveal">Show</button></div>' +
+    '<div class="cr" id="pwage"><span>Last changed</span><span' + (im.account.passwordChangedAt ? '' : ' class="muted"') + '>' + pwAgeText(im.account.passwordChangedAt) + '</span></div></div>' +
     (im.sameLogin.length > 1 ? '<div class="qnote">This login is listed on ' + im.sameLogin.length + ' account rows (' + im.sameLogin.map(function (r) { return esc(r.account_id); }).join(', ') + ') — all of them get the new password.</div>' : '') + '</div>' +
     '<div class="card qsec"><h3>🟢 Active customers (' + im.active.length + ') <span class="muted" style="font-weight:400;font-size:.8rem">— new password saved for them</span></h3>' + peopleList('active', im.active) + '</div>' +
     '<div class="card qsec"><h3>🚪 Expired, not removed (' + im.expired.length + ') <span class="muted" style="font-weight:400;font-size:.8rem">— will be ticked removed</span></h3>' + peopleList('expired', im.expired, 'bad') + '</div>' +
@@ -2416,7 +2422,7 @@ function renderPassword() {
     $('#pwgo').disabled = true; $('#pwmsg').textContent = mail ? 'Saving and sending emails…' : 'Saving…';
     post('/admin/api/accounts/password-change', { service: im.account.service, accountId: im.account.accountId, password: pw, tickExpired: tick, emailActive: mail }).then(function (r) {
       if (!r.ok) { $('#pwgo').disabled = false; $('#pwmsg').textContent = '⚠️ ' + (r.message || 'failed'); return; }
-      PW.result = Object.assign({ password: pw, account: im.account }, r); renderPassword();
+      PW.result = Object.assign({ password: pw, account: im.account }, r); RU.data = null; renderPassword();
     });
   };
 }
@@ -2439,6 +2445,7 @@ function renderPwResult() {
   var lines = ['Password changed for ' + a.service + ' ' + a.accountId + ' (login ' + a.login + ')', 'New password: ' + r.password, '', 'Send the new login to these active customers (' + r.active.length + '):'].concat(r.active.map(function (x) { return (x.name || '—') + ' - ' + x.phone + ' - ' + x.service + ' ' + x.plan + ' - ends ' + prettyDate(x.expiry); }));
   var m = r.email;
   $('#pwbody').innerHTML = '<div class="card qresult good"><h2 style="margin:0 0 6px">✅ Password changed</h2><div class="muted">' + esc(r.summary) + '</div>' +
+    '<div class="muted" id="pwagedone" style="margin-top:4px">🔑 Last changed: <b>' + (r.passwordChangedAt ? esc(r.passwordChangedAt.ago) : 'today') + '</b></div>' +
     '<div class="qnote warn">Remember to change it on ' + esc(a.service) + ' itself if you haven\'t yet.</div>' +
     (m ? '<div class="qnote' + (m.failed.length ? ' bad' : '') + '">✉️ ' + m.sent + ' emailed · ' + m.noEmail + ' without email' + (m.failed.length ? ' · ' + m.failed.length + ' failed' : '') + '</div>' : '') +
     '<div class="fld" style="margin-top:14px"><label>For your AI agent (WhatsApp)</label><textarea class="inp" id="pwcopy" rows="10" style="width:100%;font-family:inherit">' + esc(lines.join('\n')) + '</textarea></div>' +
@@ -4240,6 +4247,11 @@ function ruNextLine(g) {
   if (!g.activeCount || !n) return 'Next expiry: <b>nobody active</b>';
   return 'Next expiry: <b>' + esc(n.label) + '</b> (' + esc(n.when) + ') — ' + (n.count > 1 ? n.count + ' customers' : esc(n.name || '1 customer'));
 }
+// "🔑 Last password change: 2 Sep (14 days ago)" — amber when older than 30 days while inactive customers wait.
+function ruPwLine(g) {
+  var d = g.passwordChangedAt, old = !!(d && d.stale && g.count > 0);
+  return '<div class="ru-pwage' + (old ? ' old' : '') + '" style="font-size:.76rem;' + (old ? 'color:#b45309;font-weight:600' : 'color:var(--mut)') + '">🔑 Last password change: ' + pwAgeText(d, true) + '</div>';
+}
 function ruAdvice(g) {
   var a = g.advice || {}, r = ruRules(), p = a.plan, n = a.nextExpiry, k = ruKind(g);
   if (k === 'NOW' && !g.activeCount) return { pill: '<span class="pill p-ok">🔑 Change password now (nobody active)</span>', note: '✅ Safe to reset: nobody active uses this login, so a new password disturbs no one.' };
@@ -4252,7 +4264,7 @@ function ruGroup(g, m) {
   var head = '<div class="ru-head"><div><b style="font-family:Consolas,monospace">' + svcIcon(g.services[0] || g.family) + ' ' + esc(ids.join(' / ')) + '</b>' +
     '<div class="muted" style="font-size:.74rem;word-break:break-all">' + esc(g.loginLabel || g.login || '(no login)') + '</div>' +
     '<div class="ru-counts"><b class="ru-active">' + ruPlural(g.activeCount, 'active customer') + '</b> · ' + g.count + ' inactive, not removed</div>' +
-    '<div class="muted" style="font-size:.76rem">' + ruNextLine(g) + '</div></div>' + adv.pill + '</div>' +
+    '<div class="muted" style="font-size:.76rem">' + ruNextLine(g) + '</div>' + ruPwLine(g) + '</div>' + adv.pill + '</div>' +
     (adv.note ? '<div class="ru-note">' + adv.note + '</div>' : '');
   var people = (m.people.length < g.people.length ? '<div class="muted" style="font-size:.72rem;margin-top:4px">Showing ' + m.people.length + ' of ' + g.count + ' (search)</div>' : '') +
     '<div>' + m.people.map(function (p) { return ruPerson(p, g); }).join('') + '</div>';
