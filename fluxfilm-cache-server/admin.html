@@ -833,7 +833,7 @@ function dashboard() {
 
 /* ================= customer 360 ================= */
 function customerView(phone) {
-  $('#view').innerHTML = '<div class="ph"><div><h1>🔍 Customer 360</h1><p>Search by name, phone, email or customer ID</p></div></div>' +
+  $('#view').innerHTML = '<div class="ph"><div><h1>🔍 Customer 360</h1><p>Search by name, phone, email or customer ID</p></div><button class="btn ghost" id="cexport" onclick="exCustomersDialog({})">⬇️ Export customers</button></div>' +
     '<div class="search"><input id="cp" class="inp" placeholder="Name, phone, email or customer ID…"/><button class="btn" onclick="lookup()">Search</button></div><div id="c360"></div>';
   attachCustomerSearch($('#cp'), function (c) { $('#cp').value = c.phone; lookup(); }, function (v, results) {
     // Enter: a phone number looks up directly; a name opens the only match, else keeps the list.
@@ -1685,7 +1685,7 @@ function attachCustomerSearch(input, onPick, onEnter) {
 /* ================= orders lookup ================= */
 var O = { q: '', view: 'all', rows: null, detail: null };
 function ordersView() {
-  $('#view').innerHTML = '<div class="ph"><div><h1>🧾 Orders</h1><p>Find any order by order ID, name, phone, email or UTR</p></div></div>' +
+  $('#view').innerHTML = '<div class="ph"><div><h1>🧾 Orders</h1><p>Find any order by order ID, name, phone, email or UTR</p></div><button class="btn ghost" id="oexport" onclick="exOrdersDialog({ q: O.q, view: O.view })">⬇️ Export to Excel</button></div>' +
     '<div class="search"><input id="oq" class="inp" placeholder="Order ID, name, phone, email or UTR…" value="' + esc(O.q) + '"/><button class="btn" id="ogo">Search</button></div>' +
     '<div class="row" id="oviews" style="margin:-4px 0 14px">' + [['all', 'All'], ['unpaid', '🧾 Unpaid'], ['undelivered', '⚠️ Paid, not delivered'], ['manual', '🛠 Manual to activate'], ['today', '📅 Today'], ['week', '🗓 Last 7 days']].map(function (v) { return '<button class="chip' + (O.view === v[0] ? ' on' : '') + '" data-v="' + v[0] + '">' + v[1] + '</button>'; }).join('') + '</div>' +
     '<div class="card list" id="olist" style="padding:6px 16px"><p class="muted">Loading…</p></div>';
@@ -5230,4 +5230,171 @@ document.addEventListener('click', function (e) { var b = e.target.closest('[dat
 // Old versions kept the admin key in this browser's storage: wipe it.
 try { localStorage.removeItem('ff_admin_key'); localStorage.removeItem('ff_admin_key2'); } catch (e) {}
 fetch('/admin/api/me', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (r) { S.weak = r.weakPassword; if (r.ok) { shell(); route(); } else loginView(); }).catch(function () { loginView('Could not reach the server.'); });
+</script>
+<script>
+/* ================= 📤 exports: orders + customers to Excel / CSV (adminexports.js) ================= */
+// Self-contained: adds the 📤 Exports menu item + screen here, so the main menu line stays untouched.
+// Downloads use fetch (session cookie) + Blob + <a download> — the admin key is never put in a URL.
+var EXP = { opts: null };
+(function () {
+  if (!MENU.some(function (m) { return m[0] === 'exports'; })) {
+    var at = -1; MENU.forEach(function (m, i) { if (m[0] === 'audit') at = i; });
+    MENU.splice(at >= 0 ? at : MENU.length, 0, ['exports', '📤', 'Exports']);
+  }
+  var baseViewMap = viewMap;
+  viewMap = function () { var m = baseViewMap(); m.exports = exportsView; return m; };
+})();
+var EX_PRIVATE = '🔒 Contains customer phone numbers and emails — keep this file private.';
+function exportsView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>📤 Exports</h1><p>Download the orders list or customer profiles as an Excel file (.xlsx) or CSV</p></div></div>' +
+    '<div class="card"><h3 style="margin-top:0">🧾 Orders</h3><p class="muted" style="margin-top:0">Date range, status, service, plan, payment, delivery, coupon, refunds. Includes a Summary sheet (totals, by service, by status).</p><button class="btn" onclick="exOrdersDialog({})">⬇️ Export orders</button></div>' +
+    '<div class="card"><h3 style="margin-top:0">👥 Customers</h3><p class="muted" style="margin-top:0">Joined date, active / expired / never bought, service used, email, total spent. One row per customer with orders, plans, coins, referrals, refunds and credit.</p><button class="btn" onclick="exCustomersDialog({})">⬇️ Export customers</button></div>' +
+    '<p class="muted" style="font-size:.8rem">' + EX_PRIVATE + ' Every export is written to the 🕘 Change log. At most 50,000 rows per file and 20 exports every 10 minutes.</p>';
+}
+function exOptions() {
+  if (EXP.opts) return Promise.resolve(EXP.opts);
+  return api('/admin/api/exports/options').then(function (r) { if (r && r.ok) EXP.opts = r; return r || { ok: false }; });
+}
+function exChips(id, items, selected, multi) {
+  return '<div class="row" style="gap:6px" id="' + id + '" data-multi="' + (multi ? 1 : 0) + '">' + items.map(function (it) {
+    return '<button type="button" class="chip' + (selected.indexOf(it[0]) >= 0 ? ' on' : '') + '" data-v="' + esc(it[0]) + '">' + esc(it[1]) + '</button>';
+  }).join('') + '</div>';
+}
+function exWireChips(id, onChange) {
+  var box = $('#' + id); if (!box) return;
+  box.onclick = function (e) {
+    var b = e.target.closest('[data-v]'); if (!b) return;
+    if (box.getAttribute('data-multi') === '1') b.classList.toggle('on');
+    else $$('#' + id + ' [data-v]').forEach(function (x) { x.classList.toggle('on', x === b); });
+    if (onChange) onChange();
+  };
+}
+function exVals(id) { return $$('#' + id + ' .chip.on').map(function (b) { return b.getAttribute('data-v'); }); }
+function exVal(id) { return exVals(id)[0] || ''; }
+var EX_DATES = [['all', 'All dates'], ['today', 'Today'], ['yesterday', 'Yesterday'], ['this_week', 'This week'], ['last7', 'Last 7 days'], ['this_month', 'This month'], ['last_month', 'Last month'], ['custom', 'Custom…']];
+function exDateHtml(prefix, preset) {
+  return '<div class="fld" style="grid-column:1/-1"><label>' + (prefix === 'exc' ? 'Joined' : 'Date') + ' (India time)</label>' + exChips(prefix + '_date', EX_DATES, [preset || 'all'], false) +
+    '<div class="row" id="' + prefix + '_custom" style="margin-top:8px"' + (preset === 'custom' ? '' : ' hidden') + '><input class="inp" type="date" id="' + prefix + '_from"/> to <input class="inp" type="date" id="' + prefix + '_to"/></div></div>';
+}
+function exFormatHtml(prefix) {
+  return '<div class="fld" style="grid-column:1/-1"><label>File type</label>' + exChips(prefix + '_fmt', [['xlsx', '📗 Excel (.xlsx)'], ['csv', '📄 CSV (UTF-8)']], ['xlsx'], false) + '</div>';
+}
+function exSave(blob, name) {
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a'); a.href = url; a.download = name; a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 5000);
+}
+/** POST the filters; a file comes back as a Blob and is saved; a JSON answer is an error (limit, rate limit, sign-in). */
+function exDownload(kind, body, btn, msg) {
+  btn.disabled = true; msg.textContent = '⏳ Making the file…';
+  fetch('/admin/api/exports/' + kind, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) {
+    var ct = r.headers.get('Content-Type') || '';
+    if (!r.ok || /json/i.test(ct)) {
+      return r.json().catch(function () { return { message: 'Export failed (' + r.status + ')' }; }).then(function (d) {
+        if (d && d.needLogin) { closeModal(); loginView('Your session ended — please sign in again.'); return; }
+        btn.disabled = false; msg.innerHTML = '<span style="color:var(--bad)">' + esc((d && d.message) || 'Export failed') + '</span>';
+      });
+    }
+    var name = r.headers.get('X-Export-Filename') || ('FluxFilm-' + kind + '.' + (body.format === 'csv' ? 'csv' : 'xlsx'));
+    var rows = r.headers.get('X-Export-Rows') || '';
+    return r.blob().then(function (b) {
+      exSave(b, name);
+      btn.disabled = false;
+      msg.innerHTML = '✅ ' + esc(name) + (rows ? ' · ' + Number(rows).toLocaleString('en-IN') + ' rows' : '');
+      toast('⬇️ Downloaded ' + name);
+    });
+  }).catch(function (e) { btn.disabled = false; msg.innerHTML = '<span style="color:var(--bad)">' + esc(e.message || 'Export failed') + '</span>'; });
+}
+function exCount(kind, body, el) {
+  el.textContent = 'Counting…';
+  var my = (EXP.countSeq = (EXP.countSeq || 0) + 1);
+  post('/admin/api/exports/' + kind + '/count', body).then(function (r) {
+    if (my !== EXP.countSeq || !el) return;
+    if (!r || !r.ok) { el.textContent = (r && r.message) || ''; return; }
+    var what = kind === 'orders' ? 'orders' : 'customers';
+    el.innerHTML = r.tooMany ? '<span style="color:var(--bad)">⚠️ ' + r.count.toLocaleString('en-IN') + ' ' + what + ' match — the limit is ' + r.limit.toLocaleString('en-IN') + '. Pick a shorter date range.</span>'
+      : '📊 ' + (r.exact ? '' : 'Up to ') + '<b>' + r.count.toLocaleString('en-IN') + '</b> ' + what + (r.exact ? ' will be exported' : ' before the payment / refund / plan filters') + ' · <span class="muted">' + esc(r.fileName) + '</span>';
+  });
+}
+function exDateBody(prefix) {
+  var p = exVal(prefix + '_date') || 'all';
+  return { date: p, from: p === 'custom' ? ($('#' + prefix + '_from').value || '') : '', to: p === 'custom' ? ($('#' + prefix + '_to').value || '') : '' };
+}
+function exOrdersDialog(pre) {
+  pre = pre || {};
+  // The Orders screen's current view becomes the starting filters.
+  var v = pre.view || 'all';
+  var st = v === 'unpaid' ? ['created'] : v === 'undelivered' ? ['paid'] : [];
+  var dl = v === 'undelivered' ? ['failed', 'pending'] : v === 'manual' ? ['manual'] : [];
+  var preset = v === 'today' ? 'today' : v === 'week' ? 'last7' : 'all';
+  modal('⬇️ Export orders', '<p class="muted">Loading…</p>', '', '');
+  exOptions().then(function (o) {
+    if (!$('#modal')) return;
+    var services = (o && o.services) || [];
+    var methods = (o && o.methods) || {};
+    var body = '<div data-nodirty="1"><div class="fields">' + exDateHtml('exo', preset) +
+      '<div class="fld" style="grid-column:1/-1"><label>Status</label>' + exChips('exo_st', [['paid', 'Paid'], ['created', 'Created (not paid)'], ['pending', 'Pending'], ['credit', 'On credit'], ['written_off', 'Credit written off'], ['refunded', 'Refunded'], ['failed', 'Failed / cancelled']], st, true) + '</div>' +
+      '<div class="fld" style="grid-column:1/-1"><label>Type</label>' + exChips('exo_type', [['new', 'New'], ['renewal', 'Renewal']], [], true) + '</div>' +
+      '<div class="fld" style="grid-column:1/-1"><label>Service</label>' + (services.length ? exChips('exo_svc', services.map(function (x) { return [x, x]; }), [], true) : '<span class="muted">No services found</span>') + '</div>' +
+      '<div class="fld"><label>Plan</label><select class="inp" id="exo_plan"><option value="">All plans</option></select></div>' +
+      '<div class="fld"><label>Has coupon</label>' + exChips('exo_cpn', [['', 'Any'], ['yes', 'Yes'], ['no', 'No']], [''], false) + '</div>' +
+      '<div class="fld" style="grid-column:1/-1"><label>Payment method</label>' + exChips('exo_pm', Object.keys(methods).map(function (k) { return [k, methods[k]]; }), [], true) + '</div>' +
+      '<div class="fld" style="grid-column:1/-1"><label>Delivery status</label>' + exChips('exo_dl', [['fulfilled', 'Delivered'], ['manual', 'Manual — to activate'], ['failed', 'Failed'], ['pending', 'Not delivered yet']], dl, true) + '</div>' +
+      '<div class="fld"><label>Refund</label><select class="inp" id="exo_rf"><option value="">Any order</option><option value="any">Only refunded</option><option value="none">Not refunded</option><option value="UPI">Refunded by UPI</option><option value="UPI_PENDING">UPI refund waiting</option><option value="CREDIT">Refund credit / coins</option><option value="COUPON">Refund coupon</option></select></div>' +
+      '<div class="fld"><label>Search (phone / name / order id)</label><input class="inp" id="exo_q" value="' + esc(pre.q || '') + '"/></div>' +
+      exFormatHtml('exo') + '</div>' +
+      '<p id="exo_count" style="font-size:.85rem;margin:10px 0 4px"></p>' +
+      '<p style="font-size:.8rem;background:#fef3c7;color:#92400e;padding:8px 10px;border-radius:8px;margin:6px 0 0">' + EX_PRIVATE + '</p></div>';
+    $('#modal .mbody').innerHTML = body;
+    $('#modal .mft').innerHTML = '<button class="btn green" id="exo_go">⬇️ Download</button><span id="exo_msg" class="muted" style="font-size:.8rem"></span>';
+    var plans = (o && o.plans) || [];
+    var fillPlans = function () {
+      var chosen = exVals('exo_svc'); var sel = $('#exo_plan'); if (!sel) return; var cur = sel.value;
+      var list = plans.filter(function (p) { return !chosen.length || chosen.indexOf(p.service) >= 0; }).map(function (p) { return p.plan; }).filter(function (x, i, a) { return x && a.indexOf(x) === i; });
+      sel.innerHTML = '<option value="">All plans</option>' + list.map(function (p) { return '<option' + (p === cur ? ' selected' : '') + '>' + esc(p) + '</option>'; }).join('');
+    };
+    var build = function () {
+      var d = exDateBody('exo');
+      return { format: exVal('exo_fmt') || 'xlsx', filters: { date: d.date, from: d.from, to: d.to, statuses: exVals('exo_st'), types: exVals('exo_type'), services: exVals('exo_svc'), plan: $('#exo_plan').value, hasCoupon: exVal('exo_cpn'), methods: exVals('exo_pm'), delivery: exVals('exo_dl'), refundKinds: $('#exo_rf').value ? [$('#exo_rf').value] : [], q: $('#exo_q').value.trim() } };
+    };
+    var t; var recount = function () { clearTimeout(t); t = setTimeout(function () { if ($('#exo_count')) exCount('orders', build(), $('#exo_count')); }, 300); };
+    ['exo_st', 'exo_type', 'exo_cpn', 'exo_pm', 'exo_dl', 'exo_fmt'].forEach(function (id) { exWireChips(id, recount); });
+    exWireChips('exo_svc', function () { fillPlans(); recount(); });
+    exWireChips('exo_date', function () { $('#exo_custom').hidden = exVal('exo_date') !== 'custom'; recount(); });
+    ['exo_plan', 'exo_rf', 'exo_from', 'exo_to'].forEach(function (id) { $('#' + id).addEventListener('change', recount); });
+    $('#exo_q').addEventListener('input', recount);
+    fillPlans(); recount();
+    $('#exo_go').onclick = function () { exDownload('orders', build(), $('#exo_go'), $('#exo_msg')); };
+  });
+}
+function exCustomersDialog() {
+  modal('⬇️ Export customers', '<p class="muted">Loading…</p>', '', '');
+  exOptions().then(function (o) {
+    if (!$('#modal')) return;
+    var services = (o && o.services) || [];
+    $('#modal .mbody').innerHTML = '<div data-nodirty="1"><div class="fields">' + exDateHtml('exc', 'all') +
+      '<div class="fld" style="grid-column:1/-1"><label>Plans</label>' + exChips('exc_plan', [['', 'Everyone'], ['active', 'Has an active plan'], ['expired', 'Expired only'], ['never', 'Never bought']], [''], false) + '</div>' +
+      '<div class="fld" style="grid-column:1/-1"><label>Service used</label>' + (services.length ? exChips('exc_svc', services.map(function (x) { return [x, x]; }), [], true) : '<span class="muted">No services found</span>') + '</div>' +
+      '<div class="fld"><label>Email</label>' + exChips('exc_em', [['', 'Any'], ['yes', 'Has email'], ['no', 'No email']], [''], false) + '</div>' +
+      '<div class="fld"><label>Total spent at least (₹)</label><input class="inp" id="exc_min" inputmode="decimal" placeholder="0"/></div>' +
+      '<div class="fld" style="grid-column:1/-1"><label>Search (phone / name / email / customer id)</label><input class="inp" id="exc_q"/></div>' +
+      exFormatHtml('exc') + '</div>' +
+      '<p class="muted" style="font-size:.75rem;margin:6px 0 0">City / state are not saved for customers, so there is no filter for them. Passwords, OTPs, logins and sessions are never exported.</p>' +
+      '<p id="exc_count" style="font-size:.85rem;margin:10px 0 4px"></p>' +
+      '<p style="font-size:.8rem;background:#fef3c7;color:#92400e;padding:8px 10px;border-radius:8px;margin:6px 0 0">' + EX_PRIVATE + '</p></div>';
+    $('#modal .mft').innerHTML = '<button class="btn green" id="exc_go">⬇️ Download</button><span id="exc_msg" class="muted" style="font-size:.8rem"></span>';
+    var build = function () {
+      var d = exDateBody('exc');
+      return { format: exVal('exc_fmt') || 'xlsx', filters: { date: d.date, from: d.from, to: d.to, planState: exVal('exc_plan'), services: exVals('exc_svc'), hasEmail: exVal('exc_em'), minSpent: $('#exc_min').value.trim(), q: $('#exc_q').value.trim() } };
+    };
+    var t; var recount = function () { clearTimeout(t); t = setTimeout(function () { if ($('#exc_count')) exCount('customers', build(), $('#exc_count')); }, 300); };
+    ['exc_plan', 'exc_svc', 'exc_em', 'exc_fmt'].forEach(function (id) { exWireChips(id, recount); });
+    exWireChips('exc_date', function () { $('#exc_custom').hidden = exVal('exc_date') !== 'custom'; recount(); });
+    ['exc_from', 'exc_to'].forEach(function (id) { $('#' + id).addEventListener('change', recount); });
+    ['exc_min', 'exc_q'].forEach(function (id) { $('#' + id).addEventListener('input', recount); });
+    recount();
+    $('#exc_go').onclick = function () { exDownload('customers', build(), $('#exc_go'), $('#exc_msg')); };
+  });
+}
 </script></body></html>
