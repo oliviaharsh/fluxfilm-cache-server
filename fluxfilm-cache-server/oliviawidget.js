@@ -31,7 +31,8 @@
     try { return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; } catch (e) { return false; }
   }
   function call(action, args) {
-    return fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action, args: args }) })
+    // credentials: the email-login session cookie (the server checks it matches the phone).
+    return fetch(API, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action, args: args }) })
       .then(function (r) { return r.json(); });
   }
   function load() {

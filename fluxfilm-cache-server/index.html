@@ -2945,6 +2945,169 @@ function AccountCreateModal({
     onClick: submit
   }, loading ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), " Creating…") : '✅ Create Account'))));
 }
+// 🔐 Email login (customerauth.js). First login on a device: phone → 6-digit code to a trusted email → logged in.
+// New number: name + email → code. No email on file: WhatsApp Help. The server decides where codes go (masked here).
+// ffEnsureLogin_(phone, done, hint): runs done(phone) at once when this browser already has a session for that
+// number (or the owner switched the email login off); otherwise opens the sheet first.
+function ffEnsureLogin_(phone, done, hint) {
+  const ph = normPhone_(phone || '');
+  const fits = a => a && (a.required === false || a.loggedIn && (!ph || a.phone === ph));
+  if (fits(window.__ffAuth)) return done(ph || window.__ffAuth.phone || '');
+  API.loginStatus(r => {
+    if (r && r.ok) window.__ffAuth = r;
+    if (fits(r)) return done(ph || r.phone || '');
+    if (!r || !r.ok || !window.ffOpenLogin) return done(ph);
+    window.ffOpenLogin({
+      phone: ph,
+      reason: 'login',
+      hint: hint || null,
+      after: p => done(p || ph)
+    });
+  }, () => done(ph));
+}
+function EmailLoginSheet({
+  open,
+  phone,
+  reason,
+  hint,
+  onClose,
+  onDone
+}) {
+  const E = React.createElement;
+  const [step, setStep] = useState('phone');
+  const [ph, setPh] = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [mode, setMode] = useState('login');
+  const [code, setCode] = useState('');
+  const [sent, setSent] = useState('');
+  const [target, setTarget] = useState('');
+  const [options, setOptions] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [resendAt, setResendAt] = useState(0);
+  const [, setTick] = useState(0);
+  const left = Math.max(0, Math.ceil((resendAt - Date.now()) / 1000));
+  useEffect(() => {
+    if (!left) return;
+    const t = setInterval(() => setTick(x => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [resendAt, left > 0]);
+  useEffect(() => {
+    if (!open) return;
+    const p = normPhone_(phone || '');
+    setPh(p); setName(hint && hint.name || ''); setEmail(hint && hint.email || ''); setMode('login');
+    setCode(''); setSent(''); setTarget(''); setOptions([]); setMsg(''); setResendAt(0); setBusy(false);
+    if (p && p.length === 10) start(p, '');else setStep('phone');
+  }, [open, phone]);
+  if (!open) return null;
+  function codeSent(r, m) {
+    setMode(m);
+    setSent(r.maskedEmail || 'your email');
+    if (m === 'login') { setTarget(r.target || ''); setOptions(Array.isArray(r.options) ? r.options : []); }
+    setResendAt(Date.now() + Number(r.waitSeconds || 30) * 1000);
+    setCode('');
+    setMsg(r.resent === false ? r.message || '' : '');
+    setStep('code');
+  }
+  function start(p, tgt) {
+    const num = normPhone_(p || ph);
+    if (num.length !== 10) { setStep('phone'); return setMsg('Enter your 10-digit phone number.'); }
+    setBusy(true); setMsg(''); setStep(s => s === 'phone' ? 'phone' : s === 'code' ? 'code' : 'load');
+    API.loginStart(num, tgt || '', r => {
+      setBusy(false);
+      if (r && r.newCustomer) { setMode('signup'); setStep('signup'); return; }
+      if (r && r.noEmail) { setStep('noemail'); return; }
+      if (!r || !r.ok) { setStep(s => s === 'load' ? 'phone' : s); setMsg(r?.message || 'Could not send the code. Please try again.'); return; }
+      codeSent(r, 'login');
+    }, () => { setBusy(false); setStep(s => s === 'load' ? 'phone' : s); setMsg('No internet? Please try again.'); });
+  }
+  function signup() {
+    if (busy) return;
+    if (name.trim().length < 2) return setMsg('Please type your name.');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) return setMsg('Please type a full email, like name@gmail.com.');
+    setBusy(true); setMsg('');
+    API.loginSignup(ph, name.trim(), email.trim(), r => {
+      setBusy(false);
+      if (r && r.known) return start(ph, '');
+      if (!r || !r.ok) return setMsg(r?.message || 'Could not send the code. Please try again.');
+      codeSent(r, 'signup');
+    }, () => { setBusy(false); setMsg('No internet? Please try again.'); });
+  }
+  function resend() {
+    if (busy || left > 0) return;
+    if (mode === 'signup') signup();else start(ph, target);
+  }
+  function verify() {
+    const c = code.replace(/\D/g, '');
+    if (busy) return;
+    if (c.length !== 6) return setMsg('Enter the 6-digit code from the email.');
+    setBusy(true); setMsg('');
+    const opts = mode === 'signup' ? { mode: 'signup', name: name.trim(), email: email.trim(), referralCode: typeof getRefCode_ === 'function' ? getRefCode_() : '' } : { mode: 'login', target };
+    API.loginVerify(ph, c, opts, r => {
+      setBusy(false);
+      if (!r || !r.ok) {
+        setMsg(r?.message || 'That code did not work.');
+        if (r && r.expired) { setCode(''); setResendAt(0); }
+        return;
+      }
+      window.__ffAuth = { ok: true, required: true, loggedIn: true, phone: ph, maskedEmail: r.maskedEmail || sent };
+      onDone && onDone(ph, r);
+    }, () => { setBusy(false); setMsg('No internet? Please try again.'); });
+  }
+  const txt = (t, extra) => E("div", { style: Object.assign({ fontFamily: PJS, fontSize: 14.5, fontWeight: 600, color: C.muted, lineHeight: 1.55, marginBottom: 12 }, extra || {}) }, t);
+  const link = (label, fn) => E("button", { type: "button", onClick: fn, style: { background: 'none', border: 0, padding: '10px 2px', minHeight: 44, color: '#2563eb', fontFamily: PJS, fontSize: 14, fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' } }, label);
+  const inputStyle = { width: '100%', boxSizing: 'border-box', padding: '14px', fontFamily: PJS, fontSize: 16, fontWeight: 700, color: C.text, background: '#fafafa', border: `1.5px solid ${C.border}`, borderRadius: 14, outline: 'none', marginBottom: 12 };
+  const mainBtn = (label, fn, dis, busyLabel) => E(Btn, { variant: "primary", full: true, disabled: busy || dis, onClick: fn }, busy ? E(React.Fragment, null, E(Spinner, null), " ", busyLabel || 'Please wait…') : label);
+  const otherNumber = link('Use another number', () => { setStep('phone'); setMsg(''); setCode(''); setSent(''); setResendAt(0); });
+  const helpBtn = E(Btn, { variant: "ghost", full: true, onClick: () => API.openWhatsApp() }, "💬 Help (WhatsApp)");
+  let title = reason === 'confirm' ? "🔐 Confirm it's you" : '🔐 Log in';
+  let body = null;
+  if (step === 'load') body = txt(E(React.Fragment, null, E(Spinner, null), " Sending your code…"));
+  else if (step === 'phone') {
+    body = E(React.Fragment, null, txt('Enter your phone number. We will email you a 6-digit code — no password needed.'),
+      E("input", { type: "tel", inputMode: "numeric", autoComplete: "tel-national", maxLength: 14, autoFocus: true, value: ph, placeholder: "10-digit phone number", "aria-label": "Phone number",
+        onChange: e => setPh(e.target.value.replace(/[^\d+ ]/g, '')), onKeyDown: e => { if (e.key === 'Enter') start(ph, ''); }, style: inputStyle }),
+      mainBtn('Continue ➜', () => start(ph, ''), normPhone_(ph).length !== 10, 'Checking…'));
+  } else if (step === 'signup') {
+    title = '👋 New here? Welcome!';
+    body = E(React.Fragment, null, txt(E(React.Fragment, null, "No account for ", E("b", { style: { color: C.text } }, ph), " yet. Your name and email, please — we'll send a code to check the email.")),
+      E("input", { type: "text", autoComplete: "name", maxLength: 60, autoFocus: !name, value: name, placeholder: "Your name", "aria-label": "Your name", onChange: e => setName(e.target.value), style: inputStyle }),
+      E("input", { type: "email", inputMode: "email", autoComplete: "email", maxLength: 120, value: email, placeholder: "name@gmail.com", "aria-label": "Email", onChange: e => setEmail(e.target.value), onKeyDown: e => { if (e.key === 'Enter') signup(); }, style: inputStyle }),
+      mainBtn('📧 Send code', signup, false, 'Sending…'), E("div", { style: { marginTop: 4 } }, otherNumber));
+  } else if (step === 'noemail') {
+    title = '🔐 Need a little help';
+    body = E(React.Fragment, null, txt("We don't have an email for this number — tap Help (WhatsApp) and our team will add it. Then log in here."), helpBtn, E("div", { style: { marginTop: 4 } }, otherNumber));
+  } else if (step === 'code') {
+    body = E(React.Fragment, null,
+      txt(E(React.Fragment, null, reason === 'confirm' && mode === 'login' ? "Quick check, bas ek baar on this phone. " : '', "We sent a code to ", E("b", { style: { color: C.text, overflowWrap: 'anywhere' } }, sent), ". It can take a minute — check Spam too.")),
+      E("label", { htmlFor: "ff-login-code", style: { display: 'block', fontFamily: PJS, fontSize: 13, fontWeight: 800, color: C.text, marginBottom: 6 } }, "6-digit code"),
+      E("input", { id: "ff-login-code", type: "text", inputMode: "numeric", autoComplete: "one-time-code", pattern: "[0-9]*", maxLength: 6, autoFocus: true, value: code, placeholder: "••••••",
+        onChange: e => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); setCode(v); }, onKeyDown: e => { if (e.key === 'Enter') verify(); },
+        style: Object.assign({}, inputStyle, { padding: '14px 10px', fontSize: 24, fontWeight: 800, letterSpacing: 8, textAlign: 'center', marginBottom: 12 }) }),
+      mainBtn('✅ Log in', verify, code.length !== 6, 'Checking…'),
+      E("div", { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 4, marginTop: 6 } },
+        left > 0 ? E("span", { style: { fontFamily: PJS, fontSize: 13.5, fontWeight: 700, color: C.muted, padding: '10px 2px' } }, "Send a new code in ", left, " s") : link('Send a new code', resend),
+        link('Not your email? Get help', () => API.openWhatsApp())),
+      mode === 'login' && options.length > 1 && E("div", { style: { marginTop: 8 } },
+        E("div", { style: { fontFamily: PJS, fontSize: 13, fontWeight: 800, color: C.text, marginBottom: 6 } }, "Send it to another email of yours:"),
+        E("div", { role: "radiogroup", style: { display: 'flex', flexDirection: 'column', gap: 8 } }, options.map(o => E("button", { key: o.id, type: "button", role: "radio", "aria-checked": target === o.id, disabled: busy || target === o.id || left > 0,
+          onClick: () => start(ph, o.id),
+          style: { textAlign: 'left', padding: '12px 14px', minHeight: 46, borderRadius: 14, border: `2px solid ${target === o.id ? '#16a34a' : C.border}`, background: target === o.id ? 'rgba(22,163,74,.06)' : '#fff', fontFamily: PJS, fontSize: 15, fontWeight: 800, color: C.text, cursor: 'pointer', overflowWrap: 'anywhere', opacity: left > 0 && target !== o.id ? .6 : 1 } }, (target === o.id ? '🔘 ' : '⚪ ') + o.maskedEmail)))),
+      E("div", { style: { marginTop: 2 } }, otherNumber));
+  }
+  return ReactDOM.createPortal(E("div", {
+    style: { position: 'fixed', inset: 0, zIndex: 96, background: 'rgba(15,23,42,.50)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0 8px 8px' }
+  }, E("div", {
+    role: "dialog", "aria-modal": true, "aria-label": title, className: "ff-login-sheet",
+    style: { width: 'min(520px,100%)', boxSizing: 'border-box', background: '#fff', borderRadius: '24px 24px 18px 18px', padding: '16px 14px 18px', boxShadow: '0 -8px 46px rgba(15,23,42,.25)', maxHeight: 'calc(100dvh - 16px)', overflowY: 'auto', animation: 'slideUp .22s ease' }
+  }, E("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 } },
+    E("div", { style: { fontFamily: PJS, fontSize: 18, fontWeight: 900, color: C.text, minWidth: 0 } }, title),
+    E("button", { type: "button", onClick: onClose, disabled: busy, "aria-label": "Close", style: { flexShrink: 0, width: 40, height: 40, borderRadius: 999, border: `1px solid ${C.border}`, background: '#f1f5f9', fontSize: 16, fontWeight: 800, color: C.muted, cursor: 'pointer' } }, "✕")),
+    // Message on top, so "That code is not right" is seen on small phones with the keyboard open.
+    msg && E("div", { role: "status", "aria-live": "polite", style: { marginBottom: 12, padding: '11px 13px', borderRadius: 14, background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontFamily: PJS, fontSize: 13.5, fontWeight: 700, lineHeight: 1.5 } }, msg),
+    body)), document.body);
+}
 // 🔒 Profile email lock (emaillock.js). mode 'confirm' = code to the email on file (checkout, when needed);
 // mode 'change' = [code from an old email when a plan is active] → code to the new email → save.
 // The server re-checks everything; this sheet only guides the customer.
@@ -3404,17 +3567,24 @@ function HomeScreen({
     _openOtp: true
   } : payload);
   useEffect(() => {
-    const saved = localStorage.getItem('ff_phone');
+    // Prefill only (no private call before login). ff_login_hint = a number that closed "Confirm it's you".
+    let saved = '';
+    try {
+      saved = localStorage.getItem('ff_phone') || localStorage.getItem('ff_login_hint') || '';
+    } catch (e) {}
     if (saved && !phone) {
       const ph = saved.replace(/\D/g, '').slice(-10);
       setPhone(ph);
-      if (ph) API.getMySubscriptions(ph, () => {}, () => {});
     }
   }, []);
   function handleLogin(e) {
     e.preventDefault();
-    const ph = normPhone_(phone);
-    if (!ph) return alert('Enter your phone number.');
+    const typed = normPhone_(phone);
+    if (!typed) return alert('Enter your phone number.');
+    // 🔐 Email login: a code to the customer's email first (skipped when this browser is already logged in).
+    ffEnsureLogin_(typed, p => continueLogin(normPhone_(p || typed)));
+  }
+  function continueLogin(ph) {
     setLoading(true);
     const empty = ffEmptyManage_();
     function finish(manageResp, profileRes) {
@@ -3510,8 +3680,8 @@ function HomeScreen({
     sub: 'Than official pricing'
   }, {
     icon: '🔒',
-    title: 'Phone Login',
-    sub: 'No passwords ever'
+    title: 'Safe Login',
+    sub: 'Code to your email, no passwords'
   }, {
     icon: '✅',
     title: 'WhatsApp Verified',
@@ -5438,6 +5608,7 @@ function DetailsScreen({
   const [emailLock, setEmailLock] = useState(null);
   const [emailSheet, setEmailSheet] = useState('');
   const emailOk = useRef(false);
+  const loginOk = useRef(''); // the number this browser is logged in with (checked once per number)
   useEffect(() => {
     if (!locked || !form.phone) return;
     API.emailLockStatus(form.phone, '', r => setEmailLock(r && r.ok ? r : null), () => {});
@@ -5502,6 +5673,25 @@ function DetailsScreen({
       if (!isPrimeDev && !form.extraVal.trim()) return alert('Please fill: ' + (planObj.extraFieldLabel || 'Required field'));
     }
     if (planObj?.loginChoice && !form.loginMode) return alert('Please choose: the same login on all devices, or a separate login for each device.');
+    // 🔐 Buying needs login: phone → email code → pay (no extra step when this browser is already logged in).
+    if (loginOk.current !== normPhone_(form.phone)) {
+      return ffEnsureLogin_(form.phone, p => {
+        const num = normPhone_(p || form.phone);
+        if (num && num !== normPhone_(form.phone)) {
+          // Logged in with another number in the sheet: show it here, the customer taps Continue again.
+          setForm(f => ({
+            ...f,
+            phone: num
+          }));
+          return;
+        }
+        loginOk.current = num;
+        proceed();
+      }, {
+        name: form.name.trim(),
+        email: form.email.trim()
+      });
+    }
     // 🔒 Email lock: verified / unchanged email → straight on. Unverified + recently changed (or not the last paid
     // order's email) → a 6-digit code first. The server refuses the order without it anyway.
     if (locked && !emailOk.current) {
@@ -10239,10 +10429,28 @@ function AccountScreen({
     variant: "danger",
     full: true,
     onClick: () => {
+      // 🔐 Logout also ends the session on the server (the cookie stops working everywhere it was copied).
+      API.logout(() => {}, () => {});
+      window.__ffAuth = null;
       clearFFSession();
       nav('home', {});
     }
-  }, "🚪 Logout"))));
+  }, "🚪 Logout"), React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    style: {
+      marginTop: 10
+    },
+    onClick: () => {
+      if (!confirm('Log out on all devices?\n\nEvery phone, laptop and installed app logged in with this number will need an email code again.')) return;
+      API.logoutAll(r => {
+        if (r && r.ok === false && !r.loginRequired) return alert(r.message || 'Could not log out everywhere. Please try again.');
+        window.__ffAuth = null;
+        clearFFSession();
+        nav('home', {});
+      }, () => alert('No internet? Please try again.'));
+    }
+  }, "📵 Log out all devices"))));
 }
 const COUPON_SCOPE_TEXT = {
   ANY: '🛒 New plans & renewals',
@@ -17340,6 +17548,52 @@ function App() {
     phone: '',
     after: null
   });
+  // 🔐 Email login sheet: { phone, reason: 'confirm' | 'login', hint, after(phone) } or null.
+  const [loginGate, setLoginGate] = useState(null);
+  const loginGateRef = useRef(null);
+  function openLoginGate(g) {
+    loginGateRef.current = g;
+    setLoginGate(g);
+  }
+  window.ffOpenLogin = openLoginGate;
+  function closeLoginGate() {
+    const g = loginGateRef.current;
+    loginGateRef.current = null;
+    setLoginGate(null);
+    if (g && g.reason === 'confirm') {
+      // Not confirmed: back to the public shop + login card (the number stays typed in for next time).
+      try {
+        if (g.phone) localStorage.setItem('ff_login_hint', g.phone);
+      } catch (e) {}
+      navReset('home', {});
+    }
+  }
+  function loginGateDone(ph, r) {
+    const g = loginGateRef.current;
+    loginGateRef.current = null;
+    setLoginGate(null);
+    const prev = normPhone_(getFFSession().phone || '');
+    if (prev && prev !== ph) clearFFSession();
+    try {
+      localStorage.removeItem('ff_login_hint');
+    } catch (e) {}
+    if (g && g.after) g.after(ph, r);else restoreLogin(ph, 'dashboard');
+  }
+  useEffect(() => {
+    const onLoginRequired = () => {
+      if (loginGateRef.current) return;
+      const ph = normPhone_(getFFSession().phone || '');
+      if (!ph) return;
+      window.__ffAuth = null;
+      openLoginGate({
+        phone: ph,
+        reason: 'confirm',
+        after: p => restoreLogin(p || ph, 'dashboard')
+      });
+    };
+    window.addEventListener('ff-login-required', onLoginRequired);
+    return () => window.removeEventListener('ff-login-required', onLoginRequired);
+  }, []);
   const [stockLevels, setStockLevels] = useState({});
   const [stockLoading, setStockLoading] = useState(true);
   // Share messages list real prices: hand them the loaded catalog + stock (read when a customer taps Share).
@@ -17652,6 +17906,26 @@ function App() {
       if (!saved.phone) setLoading('⏳ Loading…', 'Checking latest plans');
     }
     if (saved.phone) setRestoring(true);else pushClearUrl_(); // reminder tapped while logged out: just the home page
+    // 🔐 Email login: a saved phone is only restored when this browser has a session for it. Browsers from before
+    // the email login (ff_phone, no session) see "Confirm it's you" once; nothing private loads until then.
+    const authP = new Promise(res => API.loginStatus(r => res(r && r.ok ? r : null), () => res(null)));
+    const restoreAfterAuth = (ph, target) => authP.then(a => {
+      if (a) window.__ffAuth = a;
+      const want = normPhone_(ph);
+      if (!a || !a.required || a.loggedIn && a.phone === want) return restoreLogin(ph, target);
+      setRestoring(false);
+      setScreen('home');
+      openLoginGate({
+        phone: want,
+        reason: 'confirm',
+        after: p => restoreLogin(p || want, target)
+      });
+    });
+    if (!saved.phone) authP.then(a => {
+      if (a) window.__ffAuth = a;
+      // Logged in on this browser (e.g. after Recover) but the saved phone was cleared: open My plans.
+      if (a && a.required && a.loggedIn && a.phone && !getFFSession().phone) restoreLogin(a.phone, 'dashboard');
+    });
     API.getBootstrap(r => {
       if (r && r.ok !== false) {
         setBoot(r);
@@ -17659,11 +17933,11 @@ function App() {
       }
       if (saved.phone) {
         setLoading(null);
-        restoreLogin(saved.phone, saved.screen || 'dashboard');
+        restoreAfterAuth(saved.phone, saved.screen || 'dashboard');
       } else setLoading(null);
     }, () => {
       setLoading(null);
-      if (saved.phone) restoreLogin(saved.phone, 'dashboard');
+      if (saved.phone) restoreAfterAuth(saved.phone, 'dashboard');
     });
     API.getStockLevels(r => {
       if (r && r.levels) setStockLevels(r.levels);
@@ -17887,6 +18161,13 @@ function App() {
   return React.createElement(React.Fragment, null, React.createElement(LoadingOverlay, {
     msg: loadingMsg,
     sub: loadingSub
+  }), React.createElement(EmailLoginSheet, {
+    open: !!loginGate,
+    phone: loginGate ? loginGate.phone : '',
+    reason: loginGate ? loginGate.reason : 'login',
+    hint: loginGate ? loginGate.hint : null,
+    onClose: closeLoginGate,
+    onDone: loginGateDone
   }), restoring && React.createElement(RestoringScreen, {
     trending: trending,
     trendIndex: trendIndex
@@ -18154,6 +18435,8 @@ const API_URL = '/api';
 function apiCall_(action, args, onSuccess, onFailure) {
   fetch(API_URL, {
     method: 'POST',
+    // 🔐 Email login: the HttpOnly session cookie (ff_cs) goes with every call (also in the installed app).
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json'
     },
@@ -18162,6 +18445,17 @@ function apiCall_(action, args, onSuccess, onFailure) {
       args: args || []
     })
   }).then(r => r.json()).then(data => {
+    // No / expired session for a private action: the App shows "Confirm it's you" (once) instead of private data.
+    if (data && data.loginRequired) {
+      try {
+        window.dispatchEvent(new CustomEvent('ff-login-required', {
+          detail: {
+            action,
+            otherPhone: !!data.otherPhone
+          }
+        }));
+      } catch (e) {}
+    }
     if (onSuccess) onSuccess(data);
   }).catch(err => {
     if (onFailure) onFailure(err);
@@ -18170,6 +18464,25 @@ function apiCall_(action, args, onSuccess, onFailure) {
 const API = {
   getBootstrap(onSuccess, onFailure) {
     apiCall_('getBootstrap', [], onSuccess, onFailure);
+  },
+  // 🔐 Email login (customerauth.js). opts = { mode: 'login', target } | { mode: 'signup', name, email, referralCode }.
+  loginStatus(onSuccess, onFailure) {
+    apiCall_('loginStatus', [], onSuccess, onFailure);
+  },
+  loginStart(phone, target, onSuccess, onFailure) {
+    apiCall_('loginStart', [phone, target || ''], onSuccess, onFailure);
+  },
+  loginSignup(phone, name, email, onSuccess, onFailure) {
+    apiCall_('loginSignup', [phone, name, email], onSuccess, onFailure);
+  },
+  loginVerify(phone, code, opts, onSuccess, onFailure) {
+    apiCall_('loginVerify', [phone, code, opts || {}], onSuccess, onFailure);
+  },
+  logout(onSuccess, onFailure) {
+    apiCall_('logout', [], onSuccess, onFailure);
+  },
+  logoutAll(onSuccess, onFailure) {
+    apiCall_('logoutAll', [], onSuccess, onFailure);
   },
   getStoreStatus(onSuccess, onFailure) {
     apiCall_('getStoreStatus', [], onSuccess, onFailure);

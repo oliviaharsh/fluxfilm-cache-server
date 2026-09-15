@@ -29,7 +29,8 @@
  * #111/#114 (not on main yet). After those merge, move both onto one shared helper.
  *
  *   status(phone, subId?)                         → what the storefront needs to show (masked emails only)
- *   sendCode(phone, purpose, { email, target })   purpose: 'new' | 'old' | 'confirm'
+ *   sendCode(phone, purpose, { email, target })   purpose: 'new' | 'old' | 'confirm' | 'login' | 'signup' (🔐 customerauth.js)
+ *   loginOptions(ph) / phoneKnown(ph)             → trusted login emails (never a recently changed unverified one)
  *   verifyCode(phone, purpose, code, { email, target }) → 'new'/'old': { token } · 'confirm': marks verified
  *   authorizeChange(phone, curEmail, newEmail, newToken, oldToken) → { ok } (used by account.js)
  *   orderEmail(phone, requestedEmail)            → { ok, email } or { ok:false, emailCheck | emailChangeRequired }
@@ -151,6 +152,47 @@ async function oldOptions(ph, st, now) {
   return { active: plan.active, list };
 }
 
+/**
+ * 🔐 Email login (customerauth.js): the emails a login code may go to, best first. Only addresses a stranger who
+ * knows the phone cannot have written: the VERIFIED profile email, emails on subscriptions (active first, then past,
+ * newest expiry first) and emails on PAID + FULFILLED orders (newest first). An unverified profile email is used
+ * only when there is nothing else AND it was not set in the last 24 h AND no paid order contradicts it.
+ * → { list: [email…] (max 4), options: [{ id, maskedEmail }] }
+ */
+async function loginOptions(ph, now) {
+  now = now || Date.now();
+  const st = await stateFor(ph, now);
+  const list = [];
+  const add = (e) => { const x = normEmail(e); if (x && validEmail(x) && !list.includes(x)) list.push(x); };
+  if (st.hasEmail && st.verified) add(st.email);
+  let subs;
+  try { subs = await db.query('SELECT order_id, email, expiry_date, status, fulfillment_status, COALESCE(removed, 0) AS removed FROM subscriptions WHERE phone_norm = ?', [ph]); }
+  catch (e) {
+    if (!/removed/i.test(String(e && e.message))) throw e;
+    subs = await db.query('SELECT order_id, email, expiry_date, status, fulfillment_status FROM subscriptions WHERE phone_norm = ?', [ph]); // before schema-v13
+  }
+  const byExpiry = (a, b) => (expiryDay(b.expiry_date) > expiryDay(a.expiry_date) ? 1 : expiryDay(b.expiry_date) < expiryDay(a.expiry_date) ? -1 : 0);
+  const rows = (subs || []).slice();
+  rows.filter((r) => !subBlocked(r, now)).sort(byExpiry).forEach((r) => add(r.email));
+  (await paidEmails(ph)).forEach(add);
+  rows.filter((r) => subBlocked(r, now)).sort(byExpiry).forEach((r) => add(r.email));
+  if (!list.length && st.hasEmail && !st.verified && !st.needsCode) {
+    const changedAt = Date.parse(s(st.raw && st.raw.EmailChangedAt));
+    const recent = Number.isFinite(changedAt) && now - changedAt < RECENT_MS;
+    if (!recent) add(st.email);
+  }
+  const top = list.slice(0, 4);
+  return { list: top, options: top.map((e) => ({ id: optionId(ph, e), maskedEmail: maskEmail(e) })), customer: st.customer, profileEmail: st.email };
+}
+/** Has this phone ever been seen (profile, order or subscription)? New customers may sign up; known ones log in. */
+async function phoneKnown(ph) {
+  if (await loadCustomer(ph)) return true;
+  const o = await db.query('SELECT COUNT(*) AS n FROM orders WHERE phone_norm = ?', [ph]);
+  if (Number((o && o[0] || {}).n) > 0) return true;
+  const sub = await db.query('SELECT COUNT(*) AS n FROM subscriptions WHERE phone_norm = ?', [ph]);
+  return Number((sub && sub[0] || {}).n) > 0;
+}
+
 /** Storefront: masked emails only. subId (optional) = the plan being renewed. */
 async function status(phone, subId, now) {
   const ph = norm(phone);
@@ -234,6 +276,20 @@ function capStep(now, max) {
 // ---------------- which address a purpose sends to ----------------
 /** { ok, em } or { ok:false, message }. Re-derived on send AND on verify (never trusts the client). */
 async function targetFor(ph, purpose, opts, now) {
+  // 🔐 Email login: 'login' = a trusted email of a known phone (the client only picks an option id);
+  // 'signup' = the email a brand-new customer typed (only while the phone is unknown everywhere).
+  if (purpose === 'login') {
+    const lo = await loginOptions(ph, now);
+    const em = s(opts.target) ? lo.list.find((e) => optionId(ph, e) === s(opts.target)) : lo.list[0];
+    if (!em) return { ok: false, message: GENERIC_SEND };
+    return { ok: true, em, st: { email: lo.profileEmail } };
+  }
+  if (purpose === 'signup') {
+    const em = normEmail(opts.email);
+    if (!validEmail(em)) return { ok: false, message: 'Enter a valid email address, like name@gmail.com.' };
+    if (await phoneKnown(ph)) return { ok: false, known: true, message: 'This number already has a FluxFilm account. Go back and log in.' };
+    return { ok: true, em, st: {} };
+  }
   const st = await stateFor(ph, now);
   if (!st.customer) return { ok: false, message: GENERIC_SEND };
   if (purpose === 'confirm') {
@@ -256,7 +312,7 @@ async function targetFor(ph, purpose, opts, now) {
   return { ok: false, message: GENERIC_SEND };
 }
 
-const PURPOSES = new Set(['new', 'old', 'confirm']);
+const PURPOSES = new Set(['new', 'old', 'confirm', 'login', 'signup']);
 
 async function sendCode(phone, purpose, opts) {
   opts = opts || {};
@@ -267,7 +323,7 @@ async function sendCode(phone, purpose, opts) {
   if (!ph || ph.length < 10) return { ok: false, message: 'Enter your phone number.' };
   if (!PURPOSES.has(purpose)) return { ok: false, message: GENERIC_SEND };
   const t = await targetFor(ph, purpose, opts, now);
-  if (!t.ok) return { ok: false, same: !!t.same, message: t.message };
+  if (!t.ok) return { ok: false, same: !!t.same, known: !!t.known, message: t.message };
   const em = t.em;
   const k = codeKey(ph, em, purpose);
   const prev = await peek(k);
@@ -285,7 +341,8 @@ async function sendCode(phone, purpose, opts) {
   });
   if (claim && claim.wait) return { ok: true, resent: false, waitSeconds: 30, maskedEmail: maskEmail(em), message: 'Code already sent - check your email (and Spam).' };
   if (!claim || !claim.ok) return { ok: false, message: GENERIC_SEND };
-  const why = purpose === 'new' ? 'to make this your FluxFilm email' : purpose === 'old' ? 'to confirm it is you before your FluxFilm email is changed' : 'to confirm your FluxFilm email before you pay';
+  const why = purpose === 'new' ? 'to make this your FluxFilm email' : purpose === 'old' ? 'to confirm it is you before your FluxFilm email is changed'
+    : purpose === 'login' ? 'to log in to FluxFilm' : purpose === 'signup' ? 'to finish creating your FluxFilm account' : 'to confirm your FluxFilm email before you pay';
   const html = '<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:460px;margin:auto">' +
     '<h2 style="color:#16a34a;margin-bottom:4px">🔒 Your FluxFilm code</h2>' +
     '<p style="color:#475569">Enter this code ' + why + '. It expires in 10 minutes.</p>' +
@@ -329,6 +386,12 @@ async function verifyCode(phone, purpose, code, opts) {
     return { ok: false, message: 'That code is not right. ' + left + (left === 1 ? ' try' : ' tries') + ' left.' };
   }
   await del(k);
+  // 🔐 Login: the code reached this address. When it is the profile email, that also verifies it.
+  if (purpose === 'login') {
+    if (t.st && t.st.email && t.st.email === em) { try { await markVerified(ph, em, 'login', now); } catch (_) { /* login still works */ } }
+    return { ok: true, email: em, maskedEmail: maskEmail(em) };
+  }
+  if (purpose === 'signup') return { ok: true, email: em, maskedEmail: maskEmail(em) };
   if (purpose === 'confirm') {
     const done = await markVerified(ph, em, 'code', now);
     return done ? { ok: true, verified: true, message: 'Email confirmed ✅' } : EXPIRED;
@@ -415,7 +478,7 @@ async function notifyChanged(oldEmail, newEmail, name, mailer) {
 }
 
 module.exports = {
-  status, sendCode, verifyCode, authorizeChange, orderEmail, renewEmail, notifyChanged, markVerified, verifiedFields,
+  status, sendCode, verifyCode, authorizeChange, orderEmail, renewEmail, notifyChanged, markVerified, verifiedFields, loginOptions, phoneKnown,
   maskEmail, normEmail, validEmail, GENERIC_CHANGE,
   _internal: { mem, stateFor, tokenOk, makeToken, optionId, codeKey, phoneKey, emailKey, RESEND_AFTER_MS, MAX_TRIES, SENDS_PER_PHONE_HOUR, SENDS_PER_EMAIL_HOUR },
 };

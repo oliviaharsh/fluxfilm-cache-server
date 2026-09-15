@@ -24,6 +24,9 @@ const DEFAULTS = Object.freeze({
   backText: '',
   since: '',
   helpBubble: true,
+  // 🔐 Email login required (customerauth.js). ON = private actions need a signed session from an email code.
+  // OFF = emergency switch back to the old phone-only login (every change is in the admin change log).
+  emailLogin: true,
   // ⏳ Renewal reminder pop-up (storefront): on app open when a plan ends within `renewPopupBefore` days
   // or ended at most `renewPopupAfter` days ago (India calendar days).
   renewPopup: true,
@@ -44,6 +47,7 @@ function validateSettings(input, prev) {
     else out.message = m || DEFAULTS.message;
   }
   if (inb.helpBubble !== undefined) out.helpBubble = !(inb.helpBubble === false || inb.helpBubble === 0 || /^(false|0|off)$/i.test(s(inb.helpBubble)));
+  if (inb.emailLogin !== undefined) out.emailLogin = !(inb.emailLogin === false || inb.emailLogin === 0 || /^(false|0|off)$/i.test(s(inb.emailLogin)));
   if (inb.renewPopup !== undefined) out.renewPopup = !(inb.renewPopup === false || inb.renewPopup === 0 || /^(false|0|off)$/i.test(s(inb.renewPopup)));
   const whole = (v, lo, hi, label) => {
     const n = Number(s(v));
@@ -86,14 +90,19 @@ async function saveSettings(input) {
   if (!next.paused) next.since = '';
   await db.query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [KEY, JSON.stringify(next)]);
   cache = null;
-  const changed = ['paused', 'message', 'backText', 'helpBubble', 'sassyGreeting', 'renewPopup', 'renewPopupBefore', 'renewPopupAfter'].filter((k) => String(before[k]) !== String(next[k]));
+  const changed = ['paused', 'message', 'backText', 'helpBubble', 'emailLogin', 'sassyGreeting', 'renewPopup', 'renewPopupBefore', 'renewPopupAfter'].filter((k) => String(before[k]) !== String(next[k]));
   return { ok: true, settings: next, before, changed };
 }
 
 async function getStatus() {
   const c = await getSettings();
-  return { ok: true, paused: !!c.paused, message: c.paused ? c.message : '', backText: c.paused ? c.backText : '', since: c.paused ? c.since : '', helpBubble: c.helpBubble !== false, sassy: c.sassyGreeting !== false,
+  return { ok: true, paused: !!c.paused, message: c.paused ? c.message : '', backText: c.paused ? c.backText : '', since: c.paused ? c.since : '', helpBubble: c.helpBubble !== false, emailLogin: c.emailLogin !== false, sassy: c.sassyGreeting !== false,
     renewPopup: c.renewPopup !== false, renewPopupBefore: c.renewPopupBefore, renewPopupAfter: c.renewPopupAfter };
+}
+
+/** 🔐 Is the email login switched on? Fails CLOSED (on) when the setting can't be read. */
+async function emailLoginRequired() {
+  try { return (await getSettings()).emailLogin !== false; } catch (e) { return true; }
 }
 
 /** Called before creating any new order. Fails OPEN on a database hiccup (the order code has its own checks). */
@@ -107,4 +116,4 @@ async function guard() {
   };
 }
 
-module.exports = { DEFAULTS, validateSettings, getSettings, saveSettings, getStatus, guard, _internal: { reset: () => { cache = null; } } };
+module.exports = { DEFAULTS, validateSettings, getSettings, saveSettings, getStatus, guard, emailLoginRequired, _internal: { reset: () => { cache = null; } } };
