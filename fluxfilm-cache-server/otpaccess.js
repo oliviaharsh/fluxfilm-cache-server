@@ -21,10 +21,11 @@
  * restart does not reset them; every guess / send is claimed with INSERT or a compare-and-swap UPDATE (atomic).
  * If app_settings cannot be used, memory is the fallback (single Node process).
  *
- * LEGACY (Games prizes + UPI refunds still use it; NOT accepted by Get OTP any more):
- *   sendCode(phone, deps) / verifyCode(phone, code) / check(phone, token) / makeToken / verifyToken ("otp1" tokens).
- *   verifyToken also accepts an otp2 token (a stronger proof), so a Get OTP check covers those screens too.
- *   Replaced Get OTP code: _deleted-old-code/2026-09-15_getotp-profile-email/.
+ * GAMES + REFUNDS (15 Sep 2026) use the same code engine (sendEmailCode / verifyEmailCode) and the same otp2 token,
+ * each with its own email rule (games.js paidCustomerEmailOk, refunds.js the refunded order's email). Every use
+ * re-checks that the token's email is allowed for THAT tool, so a token from one tool never opens another by itself.
+ * The old "otp1" code to the profile email is gone: _deleted-old-code/2026-09-15_games-refunds-profile-email/.
+ * Replaced Get OTP code: _deleted-old-code/2026-09-15_getotp-profile-email/.
  */
 const crypto = require('crypto');
 const db = require('./db');
@@ -36,24 +37,11 @@ const SENDS_PER_HOUR = 6;
 const TOKEN_DAYS = () => Math.min(90, Math.max(1, Number(process.env.OTP_ACCESS_DAYS || 30)));
 const NO_ACTIVE = 'No active plan found for this number and email. Use the email you gave when you bought the plan. Need help? Tap Help.';
 const NEEDS_VERIFY = 'For your safety, confirm it\'s you: type the email you used when you bought this plan, and we\'ll email you a 6-digit code.';
-const codes = new Map(); // legacy: phone -> { hash, exp, tries }
 
 const s = (v) => String(v == null ? '' : v).trim();
 const up = (v) => s(v).toUpperCase();
 const norm = (v) => { const d = s(v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 const normEmail = (v) => String(v == null ? '' : v).replace(/\s+/g, '').toLowerCase();
-function maskEmail(e) {
-  const [u, d] = s(e).split('@');
-  if (!d) return '';
-  return (u.length <= 2 ? u[0] + '*' : u.slice(0, 2) + '*'.repeat(Math.min(6, Math.max(1, u.length - 2)))) + '@' + d;
-}
-function secret() {
-  const e = process.env;
-  if (s(e.OTP_ACCESS_SECRET)) return s(e.OTP_ACCESS_SECRET);
-  const base = [e.IMAP_PASS, e.DB_PASS, e.CACHE_CLEAR_KEY, e.ADMIN_PASSWORD].map(s).join('|');
-  return crypto.createHash('sha256').update('ff-otp-access|' + base).digest('hex');
-}
-const hmac = (data) => crypto.createHmac('sha256', secret()).update(data).digest('base64url');
 const sameText = (a, b) => { const x = crypto.createHash('sha256').update(String(a)).digest(); const y = crypto.createHash('sha256').update(String(b)).digest(); return crypto.timingSafeEqual(x, y); };
 
 // ---- Get OTP secret: derived from server-only env (no new env var). OTP_ACCESS_SECRET, if set, is mixed in. ----
@@ -139,9 +127,10 @@ async function unlockedGroups(phone, match, now) {
 
 // ---------------- app_settings store (memory when the DB can't be used) ----------------
 const mem = new Map(); // key -> JSON text
-const codeKey = (ph, em) => 'gotp_c_' + mac('c|' + ph + '|' + em).slice(0, 40);
-const sendKey = (ph) => 'gotp_n_' + mac('n|' + ph).slice(0, 40);
-const codeHash = (ph, em, code) => mac('code|' + ph + '|' + em + '|' + code);
+// kind = 'getotp' | 'games' | 'refund': a code sent for one tool can only be checked by that tool.
+const codeKey = (ph, em, kind) => 'gotp_c_' + mac('c|' + (kind || 'getotp') + '|' + ph + '|' + em).slice(0, 40);
+const sendKey = (ph, kind) => 'gotp_n_' + mac('n|' + (kind || 'getotp') + '|' + ph).slice(0, 40);
+const codeHash = (ph, em, code, kind) => mac('code|' + (kind || 'getotp') + '|' + ph + '|' + em + '|' + code);
 const parse = (raw) => { try { return JSON.parse(raw); } catch (_) { return null; } };
 async function del(k) {
   mem.delete(k);
@@ -192,36 +181,43 @@ function memAtomic(k, fn) {
   return out.result;
 }
 
-// ---------------- Get OTP: send + verify ----------------
-async function sendGetOtpCode(phone, email, deps) {
-  const mailer = (deps && deps.mailer) || require('./mailer');
-  const now = (deps && deps.now) || Date.now();
+// ---------------- the email-code engine (Get OTP, Games, Refunds) ----------------
+/**
+ * opts.eligible(ph, match, now) -> true when the typed email (match(normalisedEmail)) is allowed for this tool.
+ * opts.noMessage: the one generic "no" answer. opts.tool: name shown in the email.
+ */
+async function sendEmailCode(kind, phone, email, opts) {
+  opts = opts || {};
+  const mailer = opts.mailer || require('./mailer');
+  const now = opts.now || Date.now();
+  const NO = opts.noMessage || NO_ACTIVE;
   sweep();
   const ph = norm(phone); const em = normEmail(email);
   if (!ph || ph.length < 10) return { ok: false, message: 'Enter your 10-digit phone number (the one you bought with).' };
   if (!em || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return { ok: false, message: 'Enter a valid email address, like name@gmail.com.' };
+  if (typeof opts.eligible !== 'function') return { ok: false, noActive: true, message: NO };
   // Per-phone cap (wrong emails count too), kept in the DB so a restart does not reset it.
-  const cap = await atomic(sendKey(ph), (rec) => {
+  const cap = await atomic(sendKey(ph, kind), (rec) => {
     if (!rec || now > Number(rec.exp)) return { next: { n: 1, exp: now + 60 * 60e3 }, result: { ok: true } };
     if (Number(rec.n) >= SENDS_PER_HOUR) return { result: { ok: false } };
     return { next: { n: Number(rec.n) + 1, exp: rec.exp }, result: { ok: true } };
   });
   if (!cap || !cap.ok) return { ok: false, rateLimited: true, message: 'Too many tries for this number. Please wait an hour, or tap Help.' };
-  const groups = await unlockedGroups(ph, (x) => x === em, now);
-  if (!groups.length) return { ok: false, noActive: true, message: NO_ACTIVE };
-  const k = codeKey(ph, em);
+  if (!(await opts.eligible(ph, (x) => x === em, now))) return { ok: false, noActive: true, message: NO };
+  const k = codeKey(ph, em, kind);
   const code = String(crypto.randomInt(100000, 1000000));
   const claim = await atomic(k, (rec) => {
     if (rec && now <= Number(rec.exp) && now - Number(rec.sentAt || 0) < RESEND_AFTER_MS) return { result: { wait: true } };
-    return { next: { h: codeHash(ph, em, code), exp: now + CODE_TTL_MS, tries: 0, sentAt: now }, result: { ok: true } };
+    return { next: { h: codeHash(ph, em, code, kind), exp: now + CODE_TTL_MS, tries: 0, sentAt: now }, result: { ok: true } };
   });
   if (claim && claim.wait) return { ok: true, resent: false, message: 'Code already sent - check your email (and Spam).' };
   if (!claim || !claim.ok) return { ok: false, message: 'Could not send the email right now - please try again in a minute.' };
+  const tool = String(opts.tool || 'FluxFilm').replace(/[<>&"]/g, '');
   const html = '<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:460px;margin:auto">' +
     '<h2 style="color:#16a34a;margin-bottom:4px">🔒 Your FluxFilm verification code</h2>' +
-    '<p style="color:#475569">Enter this code in <b>Get OTP</b> to confirm it\'s you. It expires in 10 minutes.</p>' +
+    '<p style="color:#475569">Enter this code in <b>' + tool + '</b> to confirm it\'s you. It expires in 10 minutes.</p>' +
     '<div style="font-size:34px;font-weight:800;letter-spacing:8px;background:#f1f5f9;border-radius:12px;padding:16px;text-align:center;margin:14px 0">' + code + '</div>' +
-    '<p style="color:#94a3b8;font-size:12px">Didn\'t ask for this? You can ignore this email - nobody gets your OTP without this code. 💚</p></div>';
+    '<p style="color:#94a3b8;font-size:12px">Didn\'t ask for this? You can ignore this email - nothing happens without this code. 💚</p></div>';
   try {
     const r = await mailer.send(em, 'Your FluxFilm verification code: ' + code, html);
     if (r && r.ok === false) throw new Error(r.skipped || 'email not sent');
@@ -233,14 +229,15 @@ async function sendGetOtpCode(phone, email, deps) {
   return { ok: true, message: 'We sent a 6-digit code to your email. It can take a minute - check Spam too.' };
 }
 
-async function verifyGetOtpCode(phone, email, code, deps) {
-  const now = (deps && deps.now) || Date.now();
+async function verifyEmailCode(kind, phone, email, code, opts) {
+  opts = opts || {};
+  const now = opts.now || Date.now();
   const ph = norm(phone); const em = normEmail(email);
   const c = s(code).replace(/\D/g, '');
   if (c.length !== 6) return { ok: false, message: 'Enter the 6-digit code from the email.' };
   const EXPIRED = { ok: false, expired: true, message: 'The code expired. Tap "Email me a code" again.' };
-  if (!ph || !em) return EXPIRED;
-  const k = codeKey(ph, em);
+  if (!ph || !em || typeof opts.eligible !== 'function') return EXPIRED;
+  const k = codeKey(ph, em, kind);
   const res = await atomic(k, (rec) => {
     if (!rec || now > Number(rec.exp)) return { result: { expired: true } };
     if (Number(rec.tries || 0) >= MAX_TRIES) return { result: { locked: true } };
@@ -249,16 +246,24 @@ async function verifyGetOtpCode(phone, email, code, deps) {
   });
   if (!res || res.busy || res.expired) { if (res && res.expired) await del(k); return EXPIRED; }
   if (res.locked) { await del(k); return { ok: false, expired: true, message: 'Too many tries. Tap "Email me a code" again.' }; }
-  const h = Buffer.from(codeHash(ph, em, c)); const stored = Buffer.from(String(res.rec.h || ''));
-  if (!(h.length === stored.length && crypto.timingSafeEqual(h, stored))) {
+  const hh = Buffer.from(codeHash(ph, em, c, kind)); const stored = Buffer.from(String(res.rec.h || ''));
+  if (!(hh.length === stored.length && crypto.timingSafeEqual(hh, stored))) {
     const left = MAX_TRIES - Number(res.rec.tries);
     if (left <= 0) { await del(k); return { ok: false, expired: true, message: 'Too many tries. Tap "Email me a code" again.' }; }
     return { ok: false, message: 'That code is not right. ' + left + (left === 1 ? ' try' : ' tries') + ' left.' };
   }
   await del(k);
-  // The purchase may have ended / been refunded while the email was on its way.
-  if (!(await unlockedGroups(ph, (x) => x === em, now)).length) return { ok: false, noActive: true, message: NO_ACTIVE };
+  // Things may have changed while the email was on its way (refund, expiry, removal).
+  if (!(await opts.eligible(ph, (x) => x === em, now))) return { ok: false, noActive: true, message: opts.noMessage || NO_ACTIVE };
   return Object.assign({ ok: true }, makeToken2(ph, em, now));
+}
+
+const getOtpEligible = async (ph, match, now) => (await unlockedGroups(ph, match, now)).length > 0;
+function sendGetOtpCode(phone, email, deps) {
+  return sendEmailCode('getotp', phone, email, Object.assign({}, deps, { tool: 'Get OTP', eligible: getOtpEligible, noMessage: NO_ACTIVE }));
+}
+function verifyGetOtpCode(phone, email, code, deps) {
+  return verifyEmailCode('getotp', phone, email, code, Object.assign({}, deps, { eligible: getOtpEligible, noMessage: NO_ACTIVE }));
 }
 
 function makeToken2(phone, email, now) {
@@ -287,84 +292,39 @@ function unlockedForToken(phone, eh, now) {
   return unlockedGroups(phone, (em) => sameText(emailHash(em), eh), now);
 }
 
-// ---------------- LEGACY (Games / Refunds) ----------------
-function makeToken(phone, now) {
-  const ph = norm(phone);
-  const exp = (now || Date.now()) + TOKEN_DAYS() * 86400e3;
-  const payload = 'otp1.' + ph + '.' + exp;
-  return { token: payload + '.' + hmac(payload), expiresAt: new Date(exp).toISOString() };
-}
-function verifyToken(token, phone, now) {
-  if (readToken2(token, phone, now).ok) return true;
-  const parts = s(token).split('.');
-  if (parts.length !== 4 || parts[0] !== 'otp1') return false;
-  const [, ph, exp, sig] = parts;
-  if (ph !== norm(phone) || !/^\d{10}$/.test(ph)) return false;
-  if (!(Number(exp) > (now || Date.now()))) return false;
-  return sameText(sig, hmac('otp1.' + ph + '.' + exp));
+/** match function for "is this email the one in the token": use with any tool's eligible(ph, match). */
+function tokenMatcher(token, phone, now) {
+  const t = readToken2(token, phone, now);
+  if (!t.ok) return null;
+  return (em) => sameText(emailHash(em), t.eh);
 }
 
-async function emailFor(ph) {
-  const c = await db.query("SELECT email FROM customers WHERE phone_norm = ? AND email IS NOT NULL AND email <> '' LIMIT 1", [ph]);
-  if (c.length && s(c[0].email).includes('@')) return s(c[0].email);
-  const sub = await db.query("SELECT email FROM subscriptions WHERE phone_norm = ? AND email IS NOT NULL AND email <> '' ORDER BY expiry_date DESC LIMIT 1", [ph]);
-  return sub.length && s(sub[0].email).includes('@') ? s(sub[0].email) : '';
-}
-
-// Games page hint only. Get OTP uses checkGetOtp (no email hints).
-async function check(phone, token) {
+// ---------------- 🎮 Games: which emails prove "this is the customer" ----------------
+/**
+ * Email on a subscription row of this phone that is not refunded / cancelled / removed (active OR ended: a past
+ * customer may still play), or on a PAID + FULFILLED order of this phone. Never the profile email, never unpaid orders.
+ */
+async function paidCustomerEmailOk(phone, match) {
   const ph = norm(phone);
-  if (verifyToken(token, ph)) return { ok: true };
-  const email = ph ? await emailFor(ph) : '';
-  return {
-    ok: false, needsVerify: true, maskedEmail: maskEmail(email), hasEmail: !!email,
-    message: email ? 'For your safety, confirm it\'s you: we\'ll email a 6-digit code to ' + maskEmail(email) + '.' : 'We don\'t have an email for this number. Please message us on WhatsApp.',
-  };
-}
-
-// deps.eligible(phone) is REQUIRED; deps.notEligibleMessage / deps.tool / deps.emailFor: 🎮 Games (games.js), 💸 Refunds (refunds.js).
-async function sendCode(phone, deps) {
-  const mailer = (deps && deps.mailer) || require('./mailer');
-  const tool = (deps && deps.tool) || 'FluxFilm';
-  const ph = norm(phone);
-  if (!ph || ph.length < 10) return { ok: false, message: 'Enter your phone number.' };
-  if (!deps || typeof deps.eligible !== 'function') return { ok: false, message: 'This code is not available here.' };
-  if (!(await deps.eligible(ph))) return { ok: false, message: deps.notEligibleMessage || 'Not available for this number.' };
-  const email = typeof deps.emailFor === 'function' ? await deps.emailFor(ph) : await emailFor(ph);
-  if (!email) return { ok: false, noEmail: true, message: 'We don\'t have an email for this number. Please message us on WhatsApp.' };
-  const prev = codes.get(ph);
-  if (prev && prev.exp - CODE_TTL_MS + 45e3 > Date.now()) return { ok: true, maskedEmail: maskEmail(email), resent: false, message: 'Code already sent — check your email (and spam).' };
-  const code = String(crypto.randomInt(100000, 1000000));
-  codes.set(ph, { hash: hmac('code.' + ph + '.' + code), exp: Date.now() + CODE_TTL_MS, tries: 0 });
-  const html = '<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:460px;margin:auto">' +
-    '<h2 style="color:#16a34a;margin-bottom:4px">🔒 Your FluxFilm verification code</h2>' +
-    '<p style="color:#475569">Enter this code in <b>' + tool + '</b> to confirm it\'s you. It expires in 10 minutes.</p>' +
-    '<div style="font-size:34px;font-weight:800;letter-spacing:8px;background:#f1f5f9;border-radius:12px;padding:16px;text-align:center;margin:14px 0">' + code + '</div>' +
-    '<p style="color:#94a3b8;font-size:12px">Didn\'t ask for this? Someone may have typed your number — you can ignore this email. 💚</p></div>';
-  try {
-    const r = await mailer.send(email, 'Your FluxFilm verification code: ' + code, html);
-    if (r && r.ok === false) throw new Error(r.skipped || 'email not sent');
-  } catch (e) {
-    codes.delete(ph);
-    console.log('[otp-access] email failed:', e.message);
-    return { ok: false, message: 'Could not send the email right now — please try again in a minute.' };
+  if (!ph || typeof match !== 'function') return false;
+  let subs;
+  try { subs = await db.query("SELECT email, status, fulfillment_status, COALESCE(removed, 0) AS removed FROM subscriptions WHERE phone_norm = ? AND email IS NOT NULL AND email <> ''", [ph]); }
+  catch (e) {
+    if (!/removed/i.test(String(e && e.message))) throw e;
+    subs = await db.query("SELECT email, status, fulfillment_status FROM subscriptions WHERE phone_norm = ? AND email IS NOT NULL AND email <> ''", [ph]);
   }
-  return { ok: true, maskedEmail: maskEmail(email) };
-}
-
-async function verifyCode(phone, code) {
-  const ph = norm(phone);
-  const rec = codes.get(ph);
-  if (!rec || Date.now() > rec.exp) { codes.delete(ph); return { ok: false, expired: true, message: 'The code expired. Tap "Email me a code" again.' }; }
-  rec.tries += 1;
-  if (rec.tries > MAX_TRIES) { codes.delete(ph); return { ok: false, expired: true, message: 'Too many tries. Tap "Email me a code" again.' }; }
-  if (!sameText(rec.hash, hmac('code.' + ph + '.' + s(code).replace(/\D/g, '')))) return { ok: false, message: 'That code is not right. Please check the email and try again.' };
-  codes.delete(ph);
-  return Object.assign({ ok: true }, makeToken(ph));
+  for (const r of subs || []) {
+    if (Number(r.removed) === 1) continue;
+    const st = up(r.status); const fs = up(r.fulfillment_status);
+    if (st === 'REFUNDED' || st === 'REMOVED' || /^CANCEL/.test(st) || fs === 'REFUNDED' || fs === 'REMOVED' || /^CANCEL/.test(fs)) continue;
+    if (normEmail(r.email) && match(normEmail(r.email))) return true;
+  }
+  const orders = await db.query("SELECT email FROM orders WHERE phone_norm = ? AND UPPER(status) = 'PAID' AND UPPER(fulfillment_status) = 'FULFILLED' AND email IS NOT NULL AND email <> ''", [ph]);
+  return (orders || []).some((o) => !!normEmail(o.email) && match(normEmail(o.email)));
 }
 
 module.exports = {
+  sendEmailCode, verifyEmailCode, tokenMatcher, paidCustomerEmailOk,
   sendGetOtpCode, verifyGetOtpCode, checkGetOtp, unlockedForToken, unlockedGroups, NO_ACTIVE,
-  sendCode, verifyCode, check, makeToken, verifyToken,
-  _internal: { codes, mem, maskEmail, makeToken2, readToken2, emailHash, expiryDay, todayIST, rowBlocked, codeKey, sendKey },
+  _internal: { mem, makeToken2, readToken2, emailHash, expiryDay, todayIST, rowBlocked, codeKey, sendKey, normEmail },
 };

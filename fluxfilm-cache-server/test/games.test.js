@@ -24,6 +24,9 @@ function run(sqlIn, p) {
   if (/^SELECT 1 FROM orders WHERE phone_norm = \? AND UPPER\(status\) = 'PAID'/.test(sql)) return DB.paid.has(p[0]) ? [{ 1: 1 }] : [];
   if (/FROM quiz_questions WHERE kind = \? AND active = 1/.test(sql)) return DB.questions.filter((q) => q.kind === p[0] && q.active);
   if (/^SELECT email FROM (customers|subscriptions)/.test(sql)) return [];
+  // otpaccess.paidCustomerEmailOk: the verified email must be on a plan or a PAID + FULFILLED order of the phone
+  if (/^SELECT email, status, fulfillment_status, COALESCE\(removed, 0\) AS removed FROM subscriptions WHERE phone_norm = \?/.test(sql)) return [];
+  if (/^SELECT email FROM orders WHERE phone_norm = \? AND UPPER\(status\) = 'PAID' AND UPPER\(fulfillment_status\) = 'FULFILLED'/.test(sql)) return DB.paid.has(p[0]) ? [{ email: 'c@x.com' }] : [];
   if (/^SELECT game, kind, COUNT\(\*\) n FROM game_plays WHERE phone_norm = \? AND play_date = \?/.test(sql)) {
     const m = {}; DB.plays.filter((x) => x.phone_norm === p[0] && x.play_date === p[1]).forEach((x) => { const k = x.game + '|' + x.kind; m[k] = (m[k] || 0) + 1; });
     return Object.keys(m).map((k) => ({ game: k.split('|')[0], kind: k.split('|')[1], n: m[k] }));
@@ -82,7 +85,7 @@ Module._load = (function (orig) { return function (req) { if (req === './db') re
   const games = require('../games');
   const otpaccess = require('../otpaccess');
   const PH = '9876543210';
-  const TOKEN = otpaccess.makeToken(PH).token;
+  const TOKEN = otpaccess._internal.makeToken2(PH, 'c@x.com').token;
   const save = async (patch) => { const s = games.defaults(); patch(s); const r = await games.saveSettings(s); games._internal.resetCache(); return r; };
 
   // ---- settings ----
@@ -197,7 +200,7 @@ Module._load = (function (orig) { return function (req) { if (req === './db') re
   ok('spin decides on the server and gives a coupon locked to the phone (1 use, expiry, raw_json)', st.ok && st.spin && st.spin.coupon && cp && cp.allowed === PH && cp.raw.PerUserLimit === 1 && cp.raw.GlobalLimit === 1 && cp.raw.Active === 'TRUE' && /^FG[A-Z2-9]{7}$/.test(cp.code) && /^\d{4}-\d{2}-\d{2} 23:59:59$/.test(cp.expiry), { st, cp });
 
   // a prize is saved together with "game finished" (no lost prizes)
-  const P2 = '9876500001'; DB.paid.add(P2); const T2x = otpaccess.makeToken(P2).token;
+  const P2 = '9876500001'; DB.paid.add(P2); const T2x = otpaccess._internal.makeToken2(P2, 'c@x.com').token;
   await save((s) => { s.games.spin.slices = [{ label: '5', coins: 5, coupon: 0, weight: 1 }, { label: 'x', coins: 0, coupon: 0, weight: 0 }]; s.streakDays = 0; });
   st = await games.start(P2, T2x, 'quiz', {}, {});
   const qa = JSON.parse(DB.plays.find((x) => String(x.id) === st.playId).seed_json).a;
@@ -220,15 +223,15 @@ Module._load = (function (orig) { return function (req) { if (req === './db') re
 
   // practice + verification
   const NEW = '9000000001';
-  st = await games.start(NEW, otpaccess.makeToken(NEW).token, 'cricket', {}, {});
+  st = await games.start(NEW, otpaccess._internal.makeToken2(NEW, 'c@x.com').token, 'cricket', {}, {});
   ok('no paid order → PRACTICE play', st.ok && st.kind === 'PRACTICE' && st.data.plan.length === 6 && typeof st.data.target === 'number');
-  fin = await games.finish(NEW, otpaccess.makeToken(NEW).token, st.playId, { taps: [850, 850, 850, 850, 850, 850] });
+  fin = await games.finish(NEW, otpaccess._internal.makeToken2(NEW, 'c@x.com').token, st.playId, { taps: [850, 850, 850, 850, 850, 850] });
   ok('practice: result + "would win", but no coins', fin.ok && fin.practice && fin.coins === 0 && !DB.wallet[NEW], fin);
   st = await games.start(PH, 'bad-token', 'penalty', {}, {});
   ok('customer without the email code → practice (no prize)', st.ok && st.kind === 'PRACTICE');
 
   // penalty steps
-  const T2 = otpaccess.makeToken(PH).token;
+  const T2 = otpaccess._internal.makeToken2(PH, 'c@x.com').token;
   st = await games.start(PH, T2, 'yorker', {}, {});
   ok('yorker free play starts with a ball plan', st.ok && st.kind === 'FREE' && st.data.plan.length === yc.balls);
   const other = await games.finish('9111111111', T2, st.playId, { taps: [] });

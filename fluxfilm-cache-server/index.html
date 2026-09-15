@@ -10779,6 +10779,7 @@ function RefundChoice({
   const [upi, setUpi] = useState('');
   const [code, setCode] = useState('');
   const [verify, setVerify] = useState(null);
+  const [refEmail, setRefEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState('');
@@ -10875,18 +10876,26 @@ function RefundChoice({
       setMsg('⚠️ Network problem — please try again.');
     });
   };
+  // No email hints: the customer types the email on the refunded order; every "no" gets one generic message.
   const sendCode = () => {
+    const em = refEmail.replace(/\s+/g, '').toLowerCase();
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(em)) return setMsg('⚠️ Enter your email, like name@gmail.com.');
     setBusy(true);
     setMsg('');
-    API.refundSendCode(ph, r => {
+    API.refundSendCode(ph, em, r => {
       setBusy(false);
       if (r && r.ok) {
         setVerify(Object.assign({}, verify, {
           sent: true,
-          maskedEmail: r.maskedEmail || verify && verify.maskedEmail
+          noActive: false
         }));
         setMsg(r.message || '');
-      } else setMsg('⚠️ ' + (r && r.message || 'Could not send the code.'));
+      } else {
+        setVerify(Object.assign({}, verify, {
+          noActive: !!(r && r.noActive)
+        }));
+        setMsg('⚠️ ' + (r && r.message || 'Could not send the code.'));
+      }
     }, () => {
       setBusy(false);
       setMsg('⚠️ Could not send the code. Please try again.');
@@ -10902,11 +10911,17 @@ function RefundChoice({
         setOtpToken_(ph, r);
         setCode('');
         sendUpi();
-      } else setMsg('⚠️ ' + (r && r.message || 'That code did not work.'));
+      } else {
+        setMsg('⚠️ ' + (r && r.message || 'That code did not work.'));
+        if (r && (r.expired || r.noActive)) setVerify(Object.assign({}, verify, {
+          sent: false,
+          noActive: !!r.noActive
+        }));
+      }
     }, () => {
       setBusy(false);
       setMsg('⚠️ Could not check the code. Please try again.');
-    });
+    }, refEmail.replace(/\s+/g, '').toLowerCase(), 'refund');
   };
   const note = msg ? React.createElement("p", {
     key: "n",
@@ -10966,7 +10981,14 @@ function RefundChoice({
     key: "h"
   }, "Confirm it’s you"), React.createElement("p", {
     key: "p"
-  }, verify && verify.hasEmail === false ? verify.message : verify && verify.sent ? `We emailed a 6-digit code to ${verify.maskedEmail || 'your email'}. Type it below.` : `For your safety, we’ll email a 6-digit code to ${verify && verify.maskedEmail || 'your email'} before sending money to a UPI ID.`), verify && verify.sent && React.createElement(Input, {
+  }, verify && verify.sent ? 'We emailed you a 6-digit code. Type it below (check Spam too).' : 'For your safety, type the email you used on this order. We’ll email you a 6-digit code before sending money to a UPI ID.'), !(verify && verify.sent) && React.createElement(Input, {
+    key: "em",
+    label: "Email on this order",
+    placeholder: "name@gmail.com",
+    type: "email",
+    value: refEmail,
+    onChange: e => setRefEmail(e.target.value.slice(0, 120))
+  }), verify && verify.sent && React.createElement(Input, {
     key: "i",
     label: "6-digit code",
     placeholder: "123456",
@@ -10977,11 +10999,11 @@ function RefundChoice({
   }), note, React.createElement("div", {
     key: "b",
     className: "ff-sheet-btns"
-  }, verify && verify.hasEmail === false ? React.createElement(Btn, {
-    variant: "primary",
+  }, verify && verify.noActive && React.createElement(Btn, {
+    variant: "ghost",
     full: true,
     onClick: () => API.openWhatsApp()
-  }, "💬 WhatsApp support") : verify && verify.sent ? React.createElement(Btn, {
+  }, "💬 Help"), verify && verify.sent ? React.createElement(Btn, {
     variant: "primary",
     full: true,
     disabled: busy,
@@ -14981,8 +15003,8 @@ const API = {
   otpSendCode(phone, email, onSuccess, onFailure) {
     apiCall_('otpSendCode', [phone, email], onSuccess, onFailure);
   },
-  otpVerifyCode(phone, code, onSuccess, onFailure, email) {
-    apiCall_('otpVerifyCode', email ? [phone, code, email] : [phone, code], onSuccess, onFailure);
+  otpVerifyCode(phone, code, onSuccess, onFailure, email, kind) {
+    apiCall_('otpVerifyCode', [phone, code, email || '', kind || 'getotp'], onSuccess, onFailure);
   },
   getOtpQuota(phone, service, onSuccess, onFailure) {
     apiCall_('getOtpQuota', [phone, service], onSuccess, onFailure);
@@ -15019,8 +15041,8 @@ const API = {
   convertRefundToCredit(phone, orderId, onSuccess, onFailure) {
     apiCall_('convertRefundToCredit', [phone, orderId], onSuccess, onFailure);
   },
-  refundSendCode(phone, onSuccess, onFailure) {
-    apiCall_('refundSendCode', [phone], onSuccess, onFailure);
+  refundSendCode(phone, email, onSuccess, onFailure) {
+    apiCall_('refundSendCode', [phone, email], onSuccess, onFailure);
   },
   requestUpiRefund(phone, orderId, upiId, onSuccess, onFailure) {
     apiCall_('requestUpiRefund', [phone, orderId, upiId, getOtpToken_(phone)], onSuccess, onFailure);
