@@ -142,6 +142,15 @@ const isActive = (x, now) => up(x.status) === 'ACTIVE' && toMs(x.expiry_date) > 
 const isRefundEnded = (x) => x.refund_ended === true && up(x.status) === 'REFUNDED';
 const isExpired = (x, now) => toMs(x.expiry_date) < now || isRefundEnded(x);
 
+/** 📱 OTP device name(s): "LG TV", or "Device 1: LG TV · Device 2: Mi TV" for a multi-device plan (raw_json DeviceNames). */
+function deviceNameOf(x) {
+  const one = s(x.device_name) === 'null' ? '' : s(x.device_name) || s(rawOf(x.raw_json).DeviceName);
+  let list = x.device_names != null ? x.device_names : rawOf(x.raw_json).DeviceNames;
+  if (typeof list === 'string') { try { list = JSON.parse(list); } catch (_) { list = null; } }
+  if (!Array.isArray(list) || !(Number(x.device_count) >= 2)) return one;
+  return require('./otpdevices').deviceNamesText({ DeviceName: one, DeviceNames: list }, x.device_count) || one;
+}
+
 /** "Profile 3" (from NFLX-D1#P3) / "2 devices · TV" (Prime, device-aware) / '' when unknown. */
 function slotOf(x) {
   const m = s(x.inventory_ref).match(/#P(\d+)/i);
@@ -215,7 +224,7 @@ function compute(input) {
     const sec = out[g.section];
     const hasActive = g.active.length > 0;
     pending.sort((a, b) => toMs(b.expiry_date) - toMs(a.expiry_date));
-    const people = pending.map((x) => ({ subId: s(x.sub_id), orderId: s(x.order_id), name: nameOf(x), phone: s(x.phone_norm), service: s(x.service), plan: s(x.plan), expiry: s(x.expiry_date instanceof Date ? x.expiry_date.toISOString() : x.expiry_date), daysAgo: Math.max(0, Math.floor((now - toMs(x.expiry_date)) / 86400e3)), accountRef: s(x.inventory_ref), accountId: accountOfRef(x.inventory_ref) || s(x.account_id), slot: slotOf(x), deviceName: s(x.device_name) === 'null' ? '' : s(x.device_name) || s(rawOf(x.raw_json).DeviceName), switchedTo: x.switched_to ? s(x.switched_to) : undefined }));
+    const people = pending.map((x) => ({ subId: s(x.sub_id), orderId: s(x.order_id), name: nameOf(x), phone: s(x.phone_norm), service: s(x.service), plan: s(x.plan), expiry: s(x.expiry_date instanceof Date ? x.expiry_date.toISOString() : x.expiry_date), daysAgo: Math.max(0, Math.floor((now - toMs(x.expiry_date)) / 86400e3)), accountRef: s(x.inventory_ref), accountId: accountOfRef(x.inventory_ref) || s(x.account_id), slot: slotOf(x), deviceName: deviceNameOf(x), switchedTo: x.switched_to ? s(x.switched_to) : undefined }));
     const advice = adviceFor(pending.length, g.active.map((a) => ({ ms: toMs(a.expiry_date), name: nameOf(a) })), now, rules);
     const blank = () => ({ pending: 0, oldUsers: 0, hasActive: false, advice: 'NONE', changeOn: '' });
     for (const p of people) {
@@ -293,6 +302,7 @@ const SUBS_SQL =
   "SELECT s.sub_id, s.order_id, s.phone_norm, s.service, s.plan, s.status, s.expiry_date, s.inventory_ref, s.account_id, s.login_id, COALESCE(s.removed, 0) AS removed, s.renew_sub_id, s.device_count, s.device_type, s.tv_count, " +
   // 📱 OTP device name the owner typed (otpdevices.js) — same row, no cross-table compare.
   "IF(JSON_VALID(s.raw_json), JSON_UNQUOTE(JSON_EXTRACT(s.raw_json, '$.DeviceName')), NULL) AS device_name, " +
+  "IF(JSON_VALID(s.raw_json), JSON_EXTRACT(s.raw_json, '$.DeviceNames'), NULL) AS device_names, " +
   '(SELECT c.name FROM customers c WHERE c.phone_norm = s.phone_norm LIMIT 1) AS name ' +
   "FROM subscriptions s WHERE (COALESCE(s.inventory_ref, '') <> '' OR COALESCE(s.login_id, '') <> '') " +
   "AND ((UPPER(s.status) = 'ACTIVE' AND s.expiry_date > NOW()) OR (s.expiry_date < NOW() AND COALESCE(s.removed, 0) = 0))";
