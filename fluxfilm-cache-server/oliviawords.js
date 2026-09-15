@@ -291,6 +291,11 @@ const T = {
     hinglish: (f) => 'Aapka ' + rupees(f.amount) + ' ka payment' + (f.title ? ' (' + f.title + ')' : '') + ' abhi baaki hai. Kya uski jagah ' + f.service + ' chahiye? Tab woh QR cancel ho jayega.',
     hi: (f) => 'आपका ' + rupees(f.amount) + ' का पेमेंट' + (f.title ? ' (' + f.title + ')' : '') + ' अभी बाकी है। क्या उसकी जगह ' + f.service + ' चाहिए? तब वह QR रद्द हो जाएगा।',
   },
+  LOGIN_HELP: {
+    en: () => 'Your login is always saved in "My plans" 🔐 Open My plans and tap your plan to see it. It is also in the email we sent after payment. If it still does not work, our team will help you on WhatsApp.',
+    hinglish: () => 'Aapka login hamesha "My plans" mein saved rehta hai 🔐 My plans kholiye aur apne plan par tap kijiye, wahan dikh jayega. Payment ke baad bheje gaye email mein bhi hai. Phir bhi na chale to WhatsApp par team madad karegi.',
+    hi: () => 'आपका लॉगिन हमेशा "My plans" में सेव रहता है 🔐 My plans खोलिए और अपने प्लान पर टैप कीजिए, वहाँ दिख जाएगा। पेमेंट के बाद भेजे गए ईमेल में भी है। फिर भी न चले तो WhatsApp पर टीम मदद करेगी।',
+  },
   DIDNT_UNDERSTAND: {
     en: () => 'Sorry, I did not understand that 🙏 Please tap one of the options below.',
     hinglish: () => 'Sorry, samajh nahi aaya 🙏 Neeche diye options mein se ek dabaiye.',
@@ -342,6 +347,7 @@ const B = {
   switch: { en: '🔁 Yes, change plan', hinglish: '🔁 Haan, plan badlo', hi: '🔁 हाँ, प्लान बदलो' },
   normal: { en: '➡️ Normal plan instead', hinglish: '➡️ Normal plan lo', hi: '➡️ सामान्य प्लान लो' },
   menu: { en: '🏠 Main menu', hinglish: '🏠 Main menu', hi: '🏠 मेन मेन्यू' },
+  myplans: { en: '🎬 Open My plans', hinglish: '🎬 My plans kholo', hi: '🎬 My plans खोलो' },
   whatsapp: { en: '💬 WhatsApp our team', hinglish: '💬 WhatsApp par team', hi: '💬 WhatsApp पर टीम' },
   helper: { en: '🏠 Open Household Helper', hinglish: '🏠 Household Helper kholo', hi: '🏠 Household Helper खोलो' },
 };
@@ -381,7 +387,38 @@ function check(rewrite, base) {
   // Every rupee amount and every placeholder in the template must survive unchanged.
   for (const amt of (base.match(/₹\d+/g) || [])) if (!r.includes(amt)) return false;
   for (const ph of (base.match(/\{NAME\}|\{PAYER\}/g) || [])) if (!r.includes(ph)) return false;
+  for (const ph of (r.match(/\{NAME\}|\{PAYER\}/g) || [])) if (!base.includes(ph)) return false;
   return true;
+}
+
+/**
+ * WhatsApp-style look, added by CODE after the words are final (so an AI rewrite gets the same look):
+ *   *bold* for ₹ amounts, the plan name, coupon code, dates and "button names"; the closing question on its own
+ *   paragraph; one fitting emoji in front when the message has none. The chat window turns *x* into bold.
+ */
+const EMOJI_RE = /\p{Extended_Pictographic}/u;
+const LEAD_EMOJI = {
+  ASK_SERVICE: '🎬', ASK_SHARING_OR_PRIVATE: '🎬', ASK_DURATION: '🗓️', ASK_TV: '📺', ASK_OWN_EMAIL: '📧', ASK_EXTRA_EMAIL: '📧', BAD_EMAIL: '📧',
+  CONFIRM_PLAN: '🧾', CONFIRM_PLAN_COUPON: '🧾', SEND_PAYMENT: '💳', PAYMENT_REMINDER: '💳', PAYMENT_NOT_YET: '⏳', BACKUP_UNDER_REVIEW: '⏳',
+  RENEW_PICK: '🔁', RENEW_DURATION: '🔁', RENEW_CONFIRM: '🔁', RENEW_CONFIRM_COUPON: '🔁', RENEW_NOTHING: '🔁',
+  PRICE_HELP: '💰', PRICE_HELP_PLAN: '💰', PRICE_MATCH: '💰', SWITCH_CONFIRM: '🔄', QUESTION_TO_TEAM: '💬', ASK_COUPON: '🎟️', COUPON_INVALID: '🎟️',
+};
+const escRe = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function format(text, facts, intent) {
+  let t = String(text || '').replace(/\*/g, '').trim();
+  if (!t) return t;
+  const f = facts || {};
+  // The last question gets its own paragraph ("…₹39.\n\nShall I send the payment QR?").
+  if (!t.includes('\n') && t.length >= 50) {
+    const m = t.match(/^([\s\S]*[.!।](?:\s*\p{Extended_Pictographic}\uFE0F?)*)\s+([^.!?।\n]{3,}\?)\s*$/u);
+    if (m && m[1].length >= 25) t = m[1] + '\n\n' + m[2];
+  }
+  const names = [f.title, f.code, f.newExpiry, f.knownName].concat(Array.isArray(f.titles) ? f.titles : [])
+    .map(s).filter((x) => x.length >= 3 && x.length <= 60).sort((a, b) => b.length - a.length);
+  const re = new RegExp('"[^"\\n]{2,40}"|₹\\d+(?:\\/month)?' + (names.length ? '|' + names.map(escRe).join('|') : ''), 'g');
+  t = t.replace(re, (x) => (x[0] === '"' ? '*' + x.slice(1, -1) + '*' : '*' + x + '*'));
+  if (LEAD_EMOJI[intent] && !EMOJI_RE.test(t)) t = LEAD_EMOJI[intent] + ' ' + t;
+  return t;
 }
 
 const LANG_NAME = { en: 'simple English', hinglish: 'Hinglish (Hindi written in English letters, the way Indians chat on WhatsApp)', hi: 'simple Hindi in Devanagari script' };
@@ -422,7 +459,7 @@ async function say(intent, facts, lang, settings, deps) {
     'You are Olivia, the friendly store manager of FluxFilm, an Indian streaming-subscription shop. Many customers are older and not good with technology.',
     'Rewrite the given reply so it sounds warm, simple and human, in ' + LANG_NAME[L] + '. Keep it short (at most 3 short sentences unless it is a list).',
     'STRICT RULES: keep every fact exactly. Do not add or change any number, price, amount, duration, plan name or promise. Keep ₹ amounts exactly as written.',
-    'Keep placeholders like {NAME} and {PAYER} exactly as they are. Do not add links, emails, passwords, codes or new steps. Do not say payment is received unless the reply already says so.',
+    'Keep placeholders like {NAME} and {PAYER} exactly as they are, and never add a placeholder that is not there. Do not add links, emails, passwords, codes or new steps. Do not say payment is received unless the reply already says so. No markdown or * symbols.',
     st.voice ? 'Voice guide from the owner: ' + String(st.voice).slice(0, 2000) : '',
     'Answer as JSON: {"text": "..."}',
   ].filter(Boolean).join('\n');
@@ -482,4 +519,4 @@ async function answer(question, facts, knowledge, lang, settings, deps) {
   return { text, handoff: res.json.handoff === true, tokens: res.tokens || 0 };
 }
 
-module.exports = { LANGS, normLang, template, say, classify, answer, check, daysLeftLabel, buttonLabel, durationLabel, rupees, callModel, INTENTS: Object.keys(T), _internal: { T, B, fill } };
+module.exports = { LANGS, normLang, template, say, classify, answer, check, format, daysLeftLabel, buttonLabel, durationLabel, rupees, callModel, INTENTS: Object.keys(T), _internal: { T, B, fill } };

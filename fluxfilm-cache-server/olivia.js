@@ -190,6 +190,7 @@ function globalIntentOf(text) {
   if (/cheap|sasta|saste|kam (kar|price|daam)|discount|less price|best price|mehnga|mahanga|expensive|costly|earlier|pehle|before|last time|pichli baar|group offer|₹\s?\d+|\brs\.?\s?\d+|\d+\s?(rs|rupees|rupay)\b|kitne ka|kitna (hai|lagega)|price|rate|daam/.test(t)) return 'price';
   if (/\b(for|at|in|mein|me|mai|ka|ki|only|sirf|just)\s+\d{2,4}\b(?!\s*(months?|mahin|din|days?|years?|saal|device))/.test(t) || /\b\d{2,4}\s*(rs|rupees?|rupay|inr|ka|ki|mein|me|mai)\b/.test(t) || (/\b(bought|buy|liya|kharida|paid|mila)\b/.test(t) && /\b\d{2,4}\b(?!\s*(months?|mahin|din|days?|years?|saal|device))/.test(t))) return 'price';
   if (/renew|रिन्यू/.test(t)) return 'renew';
+  if (/\b(password|pasword|passwrd|passwod|pass|login|log in|id pass|sign in)\b|पासवर्ड|लॉगिन/.test(t) && /bhul|bhool|forgot|forget|yaad nahi|nahi mil|nhi mil|not (working|opening)|wrong|galat|incorrect|chahiye|chaiye|\bdo\b|de do|dedo|send|bhejo|kya hai|kaha|kahan|nahi chal|nhi chal|kaam nahi|khul nahi|reset|new|naya|nahi ho|nhi ho|not able|can.?t|भूल|नहीं/.test(t)) return 'login';
   if (/household|house hold|tv code|not part of|घर/.test(t)) return 'household';
   if (/human|agent|real person|call me|whatsapp|talk to|baat karni|baat karo|team se/.test(t)) return 'other';
   return '';
@@ -293,7 +294,7 @@ async function logMsg(convId, role, intent, body, meta, ai) {
 // ── the decision: one turn ──
 function btn(id, lang, label) { return { id, label: label || words.buttonLabel(id, lang) }; }
 function urlBtn(id, lang, url) { return { id, label: words.buttonLabel(id, lang), url }; }
-const LINK_BUTTONS = { whatsapp: 'whatsapp', helper: 'helper' };
+const LINK_BUTTONS = { whatsapp: 'whatsapp', helper: 'helper', myplans: 'myplans' };
 const isGroupService = (plans, service) => (plans || []).some((p) => p.service === service && p.requiresGroupJoin);
 function groupLinkOf(plans, service) {
   const p = (plans || []).find((x) => x.service === service && x.requiresGroupJoin && GROUP_LINK_RE.test(s(x.groupJoinLink)));
@@ -539,11 +540,11 @@ function factPack(st, ctx, lang) {
   const lines = [];
   const plans = chatPlans(ctx.cat.plans);
   const focus = st.service ? plans.filter((p) => p.service === st.service || p.service.split(' (')[0] === st.service.split(' (')[0]) : plans;
-  for (const p of focus.slice(0, 40)) lines.push('- ' + titleOf(p, 'en') + ': ' + words.rupees(p.price) + (stockOf(ctx.cat.stock, p) === 'OUT' ? ' (sold out)' : '') + (p.requiresGroupJoin ? ' (Group Offer: join our WhatsApp group first)' : ''));
+  for (const p of focus.slice(0, 40)) lines.push('- ' + titleOf(p, 'en') + ': ' + words.rupees(p.price) + (stockOf(ctx.cat.stock, p) === 'OUT' ? ' (sold out)' : '') + (p.requiresGroupJoin ? ' (Group Offer: join our WhatsApp group first)' : '') + (String(p.deviceRuleText || '').trim() ? ' — devices: ' + String(p.deviceRuleText).split(/\r?\n/)[0].trim().slice(0, 160) : ''));
   const where = PAY_STEPS.has(st.step) ? 'The customer has an unpaid order of ' + words.rupees(st.amount) + ' open and is on the payment step.' : st.plan ? 'The customer is choosing ' + st.title + '.' : 'The customer has not chosen a plan yet.';
   return [
     'Live plans and prices:', lines.join('\n') || '- (not loaded)', where,
-    'FluxFilm rules: payment is by UPI QR and is checked automatically from the bank; the login is delivered right after payment and emailed. Coupons can be applied before paying (tap "Apply coupon"). Group Offer plans are cheaper but need joining the FluxFilm WhatsApp group. Renewals: My plans → Renew. Netflix household or TV code problems: Household Helper. Olivia cannot see or share old passwords; use My plans or Recover. For anything else the FluxFilm team helps on WhatsApp.',
+    'Sharing = lowest price, you watch on a shared profile. Private = your own profile that only you use. Both play in the same quality. FluxFilm rules: payment is by UPI QR and is checked automatically from the bank; the login is delivered right after payment and emailed. Coupons can be applied before paying (tap "Apply coupon"). Group Offer plans are cheaper but need joining the FluxFilm WhatsApp group. Renewals: My plans → Renew. Netflix household or TV code problems: Household Helper. Olivia cannot see or share old passwords; use My plans or Recover. For anything else the FluxFilm team helps on WhatsApp.',
   ].join('\n');
 }
 
@@ -670,7 +671,7 @@ async function turn(c, input, ctx) {
     else if (g !== 'change' && (priced = narrowToFamily(plansByPrice(text, ctx.cat.plans), st)).length) action = (priced.length === 1 && PICK_WORDS_RE.test(text) && !QUESTION_RE.test(text) && !/earlier|pehle|before|last time|bought|liya tha|kharida/i.test(text)) ? 'pricepick' : 'pricematch';
     else if (g === 'change') action = 'change';
     else if (g === 'price') { ents = entities(text, ctx.cat.plans); action = (ents.service && !PAY_STEPS.has(st.step)) ? 'slots' : 'price'; }
-    else if (g === 'renew' || g === 'household' || g === 'other') { action = g; if (g === 'renew') ents = entities(text, ctx.cat.plans); }
+    else if (g === 'renew' || g === 'household' || g === 'other' || g === 'login') { action = g; if (g === 'renew') ents = entities(text, ctx.cat.plans); }
     // 3. The step's own answers.
     if (!action) {
       const it = intentOf(text);
@@ -748,10 +749,10 @@ async function turn(c, input, ctx) {
     const hadOrder = dropOrder(st); delete st.coupon;
     return (hadOrder ? [{ intent: 'OLD_QR_CANCELLED' }] : []).concat(renewDurations(st, ctx, lang));
   }
-  if (action === 'household' || action === 'other') {
+  if (action === 'household' || action === 'other' || action === 'login') {
     if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true;
-    const intent = action === 'household' ? 'HOUSEHOLD_HELPER' : 'HANDOFF_TO_HUMAN';
-    const b = action === 'household' ? [btn('helper', lang), btn('whatsapp', lang)] : [btn('whatsapp', lang)];
+    const intent = action === 'household' ? 'HOUSEHOLD_HELPER' : action === 'login' ? 'LOGIN_HELP' : 'HANDOFF_TO_HUMAN';
+    const b = action === 'household' ? [btn('helper', lang), btn('whatsapp', lang)] : action === 'login' ? [btn('myplans', lang), btn('whatsapp', lang)] : [btn('whatsapp', lang)];
     if (!st.paused) st.step = action === 'other' ? 'handoff' : 'info';
     return [{ intent, buttons: withBackToPay(st, lang, b.concat([btn('menu', lang)])) }];
   }
@@ -969,6 +970,7 @@ async function handle(phone, input) {
     const w = r.text ? { text: r.text, ai: !!r.ai, tokens: 0 } : await deps.words.say(r.intent, facts, c.lang || 'en', ctx.settings);
     if (w.tokens) { c.aiCalls++; c.aiTokens += w.tokens; }
     const buttons = (r.buttons || []).map((b) => (LINK_BUTTONS[b.id] ? Object.assign({ link: LINK_BUTTONS[b.id] }, b) : b));
+    w.text = words.format(w.text, facts, r.intent);
     const msg = { role: 'olivia', intent: r.intent, text: w.text, buttons };
     if (r.input) msg.input = r.input;
     if (r.card) msg.card = r.card;
