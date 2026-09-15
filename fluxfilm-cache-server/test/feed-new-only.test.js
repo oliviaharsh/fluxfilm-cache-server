@@ -245,9 +245,9 @@ const tvDetailCalls = (id) => calls.filter((c) => c.pathname === '/3/tv/' + id).
   const fn = (name) => fnIn(html, name);
   const H = new Function(fn('feedRelease_') + fn('feedSeasonChip_') + '; return { feedRelease_, feedSeasonChip_ };')();
   const soon = H.feedRelease_(day(12), 'movie');
-  ok('feed: upcoming = "🗓️ Coming soon · DD Mon"', /^🗓️ Coming soon · \d{1,2} [A-Z][a-z]+$/.test(soon), soon);
-  ok('feed: upcoming new season = "🗓️ Season 3 coming DD Mon"', /^🗓️ Season 3 coming \d{1,2} [A-Z][a-z]+$/.test(H.feedRelease_(day(12), 'series', 0, 'Season 3')));
-  ok('feed: flips by itself after the date (no re-post)', /^🎬 Released /.test(H.feedRelease_(day(12), 'movie', midIST(day(13)))) && /^🆕 Season 3 streaming since /.test(H.feedRelease_(day(12), 'series', midIST(day(13)), 'Season 3')));
+  ok('feed: upcoming = "🗓️ Coming DD Mon"', /^🗓️ Coming \d{1,2} [A-Z][a-z]+$/.test(soon), soon);
+  ok('feed: upcoming new season = "🗓️ Season 3 · Coming DD Mon"', /^🗓️ Season 3 · Coming \d{1,2} [A-Z][a-z]+$/.test(H.feedRelease_(day(12), 'series', 0, 'Season 3')));
+  ok('feed: flips by itself after the date (no re-post)', /^🎬 Released /.test(H.feedRelease_(day(12), 'movie', midIST(day(13)))) && /^🆕 Season 3 · \d{1,2} [A-Z][a-z]+$/.test(H.feedRelease_(day(12), 'series', midIST(day(13)), 'Season 3')));
   ok('feed chip: "🆕 Season 4" live, "🗓️ Season 3" before; none for movies / junk', H.feedSeasonChip_({ type: 'series', seasonLabel: 'Season 4', releaseDate: day(-3) }) === '🆕 Season 4' && H.feedSeasonChip_({ type: 'series', seasonLabel: 'Season 3', releaseDate: day(12) }) === '🗓️ Season 3' && H.feedSeasonChip_({ type: 'movie', seasonLabel: 'Season 3' }) === '' && H.feedSeasonChip_({ type: 'series', seasonLabel: '<img>' }) === '');
   ok('feed card renders the chip next to the platform name', /seasonChip && React\.createElement\("span", \{\s*className: "ff-feed-season"\s*\}, seasonChip\)/.test(html) && /const rel = feedRelease_\(p\.releaseDate, p\.type, 0, p\.seasonLabel\);/.test(html) && /\.ff-feed-season \{/.test(html));
   const a = html.indexOf('const shareText_ = {'); const b = html.indexOf('function copyText_(');

@@ -1,8 +1,8 @@
 /**
  * FluxFilm - ✨ AI fill for a 🍿 What's new post (admin editor button). Suggests; never saves.
  *
- * aiFill({ title, caption, sourceCaption, type }, deps) →
- *   { ok, fields: { title?, caption?, genres?, languages?, type?, releaseDate?, imageUrl?, trailerUrl? }, ai, tmdb, tokens, notes[], message }
+ * aiFill({ title, caption, sourceCaption, type, brand, ctaService }, deps) →
+ *   { ok, fields: { title?, caption?, genres?, languages?, type?, releaseDate?, seasonLabel?, imageUrl?, trailerUrl? }, ai, tmdb, tokens, notes[], message }
  *
  * - Text = the Reel's own caption (sourceCaption, fetched with the thumbnail) → else the typed caption → else the title.
  * - The AI (the same DeepSeek adapter + DEEPSEEK_API_KEY Olivia uses, oliviawords.callModel) only WRITES: a clean title
@@ -98,12 +98,14 @@ async function aiFill(input, deps) {
     const year = (text.match(/\((19|20)\d\d\)/) || [''])[0].replace(/\D/g, '');
     const query = fields.title || title || feed.searchTitle(text.split('\n')[0]).q;
     try {
-      const m = query ? await feed.tmdbMatch(query + (year && !/\d{4}/.test(query) ? ' (' + year + ')' : ''), { type: fields.type || i.type }) : null;
+      const m = query ? await feed.tmdbMatch(query + (year && !/\d{4}/.test(query) ? ' (' + year + ')' : ''), { type: fields.type || i.type, brand: i.brand, service: i.ctaService || i.service }) : null;
       if (m) {
         tmdb = true;
         fields.title = m.title || fields.title;
         const g = mapGenres(m.genres); if (g.length) fields.genres = g;
-        if (m.releaseDate) fields.releaseDate = m.releaseDate;
+        // 📅 Only a sure match dates the post (several titles with this name and no clear winner → the owner types it).
+        if (m.releaseDate && m.sure !== false) { fields.releaseDate = m.releaseDate; if (m.type === 'series' && m.seasonLabel) fields.seasonLabel = m.seasonLabel; }
+        else notes.push(feed.NO_DATE || 'Couldn\'t find the date — type it');
         if (m.type) fields.type = m.type;
         if (m.languages && m.languages.length && !fields.languages) fields.languages = m.languages;
         if (m.imageUrl) fields.imageUrl = m.imageUrl;

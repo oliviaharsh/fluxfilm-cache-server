@@ -27,7 +27,13 @@
  *           premiere is in the window (tv details: seasons[].air_date, last/next_episode_to_air with episode 1) →
  *           seasonLabel "Season N". Weekly episodes of an old season never qualify (TMDB's air_date filter alone
  *           matched any episode, which is how Deadliest Catch (2005) got in).
- *   Upcoming posts show "🗓️ Coming soon · DD Mon" and flip to "now streaming" by themselves after the date.
+ *   Upcoming posts show "🗓️ Coming DD Mon" and flip to "Released DD Mon" / "🆕 Season N · DD Mon" by themselves after the date.
+ *   Talk / news / reality / soap shows (weekly or daily, e.g. WWE Raw) are left out (skipWeeklyShows, ON by default).
+ * 📅 Automatic dates: refreshDates() (every import run for posts not checked in 20 h, and the admin "🔄 Refresh dates &
+ *   seasons" button) re-reads TMDB for imported posts: series → new season premiere + "Season N" / brand-new show's first
+ *   air date (no longer new → date left, the 🧹 cleanup lists it); movies → India release date when TMDB has one. Posts
+ *   the owner edited only get EMPTY date / season filled. autoDate() fills an empty date on manual posts by title
+ *   (+ "(2008)" year, type, brand's provider in India); unsure → nothing filled, "Couldn't find the date — type it".
  * 🧹 notNewCandidates() / hideNotNew(): admin tool listing LIVE imported posts that fail these rules (hide, never delete). Deduped by TMDB type+id (also posts the owner deleted are not re-imported),
  * max N new posts per India day, each hidden after N days. Auto-publish is ON by default once a key is set;
  * switched off, imports wait as drafts (OFF) for approval. The job never changes a post the owner edited; an
@@ -200,6 +206,9 @@ function validate(input, existing) {
   // 'IN' = releaseDate is TMDB's India release date (the import then never swaps it back to the worldwide date).
   const rr = i.releaseRegion !== undefined ? i.releaseRegion : existing && existing.releaseRegion;
   out.releaseRegion = out.type === 'movie' && rr === 'IN' ? 'IN' : '';
+  // 📅 dateAuto = the release date was found automatically (admin shows "auto"); cleared when the owner types another date.
+  const da = i.dateAuto !== undefined ? (i.dateAuto === true || i.dateAuto === 'true') : !!(existing && existing.dateAuto && existing.releaseDate === out.releaseDate);
+  out.dateAuto = !!(da && out.releaseDate);
   out.pinned = i.pinned === true || i.pinned === 'true' || i.pinned === 1;
   out.active = i.active === true || i.active === 'true' || i.active === 1;
   const pa = toIso(i.publishAt); const ha = toIso(i.hideAfter);
@@ -215,6 +224,8 @@ function validate(input, existing) {
   out.thumbAt = out.hasThumb ? s(existing.thumbAt) : '';
   if (existing && existing.instagramUrl !== out.instagramUrl) out.sourceCaption = '';
   out.importedAt = existing ? (existing.importedAt || '') : (out.source === 'tmdb' && i.importedAt === true ? now : '');
+  // Dates worked out at import are fresh: refreshDates() skips the post for 20 h.
+  out.datesAt = existing ? s(existing.datesAt) : (out.importedAt ? now : '');
   // An imported post whose words / picture / dates the owner changed is never touched by the import job again.
   const CONTENT = ['type', 'title', 'service', 'brand', 'ctaService', 'caption', 'releaseDate', 'imageUrl', 'trailerUrl', 'instagramUrl', 'cta', 'languages', 'genres'];
   out.edited = !!(existing && (existing.edited || (existing.source === 'tmdb' && CONTENT.some((k) => JSON.stringify(existing[k] == null ? '' : existing[k]) !== JSON.stringify(out[k])))));
@@ -418,6 +429,8 @@ async function getSettings() {
     releasedDays: Math.round(clampNum(x.releasedDays, 1, 90, 45)),
     upcomingDays: Math.round(clampNum(x.upcomingDays, 0, 90, 30)),
     seriesNewOnly: x.seriesNewOnly !== false,
+    // Talk / news / reality / soap shows (weekly or daily episodes all year, e.g. WWE Raw) are never "new": left out.
+    skipWeeklyShows: x.skipWeeklyShows !== false,
     providerMap: x.providerMap && typeof x.providerMap === 'object' ? x.providerMap : {},
   };
 }
@@ -427,7 +440,7 @@ function publicSettings(st) {
     hasKey: !!st.tmdbKey, keyType: st.tmdbKey ? (isV4(st.tmdbKey) ? 'read access token' : 'API key') : '',
     hasMetaToken: !!st.metaToken, aiKeySet: !!process.env.DEEPSEEK_API_KEY,
     autoPublish: st.autoPublish, platforms: st.platforms, languages: st.languages, minPopularity: st.minPopularity, minVotes: st.minVotes,
-    maxPerDay: st.maxPerDay, autoHideDays: st.autoHideDays, releasedDays: st.releasedDays, upcomingDays: st.upcomingDays, seriesNewOnly: st.seriesNewOnly, runEveryHours: RUN_EVERY_MS / 3600e3, providerMap: Object.assign({}, DEFAULT_PROVIDERS, st.providerMap),
+    maxPerDay: st.maxPerDay, autoHideDays: st.autoHideDays, releasedDays: st.releasedDays, upcomingDays: st.upcomingDays, seriesNewOnly: st.seriesNewOnly, skipWeeklyShows: st.skipWeeklyShows, runEveryHours: RUN_EVERY_MS / 3600e3, providerMap: Object.assign({}, DEFAULT_PROVIDERS, st.providerMap),
     defaultProviders: DEFAULT_PROVIDERS, languageNames: LANGS, defaultLanguages: DEFAULT_LANGS,
   };
 }
@@ -460,6 +473,7 @@ async function saveSettings(input) {
   if (i.releasedDays != null) set('releasedDays', Math.round(clampNum(i.releasedDays, 1, 90, 45)), 'released in last N days');
   if (i.upcomingDays != null) set('upcomingDays', Math.round(clampNum(i.upcomingDays, 0, 90, 30)), 'upcoming next M days');
   if (i.seriesNewOnly != null) { const on = !(i.seriesNewOnly === false || i.seriesNewOnly === 'false'); set('seriesNewOnly', on, 'series: new shows + new seasons only ' + (on ? 'on' : 'off')); }
+  if (i.skipWeeklyShows != null) { const on = !(i.skipWeeklyShows === false || i.skipWeeklyShows === 'false'); set('skipWeeklyShows', on, 'leave out talk / news / reality / soap shows ' + (on ? 'on' : 'off')); }
   if (i.providerMap && typeof i.providerMap === 'object') {
     const pm = {};
     for (const [k, v] of Object.entries(i.providerMap)) {
@@ -569,6 +583,42 @@ function movieNews(date, w) {
   if (!inWindow(date, w)) return { ok: false, reason: date < w.from ? 'Released ' + date + ' — more than ' + w.releasedDays + ' days before' : 'Comes out ' + date + ' — more than ' + w.upcomingDays + ' days ahead' };
   return { ok: true, kind: 'movie', date, upcoming: date > w.today };
 }
+// TMDB tv genre ids (discover rows) / names (details, stored posts) / show types of weekly or daily shows.
+const WEEKLY_GENRE_IDS = { 10763: 'News', 10764: 'Reality', 10766: 'Soap', 10767: 'Talk' };
+const WEEKLY_TYPES = ['Talk Show', 'News', 'Reality'];
+/** 'Reality' / 'Talk Show' / … when a TMDB row, details or a stored post is a talk / news / reality / soap show; '' otherwise. */
+function weeklyShow(row) {
+  const r = row || {};
+  if (WEEKLY_TYPES.includes(s(r.type))) return s(r.type);
+  const gs = Array.isArray(r.genres) ? r.genres : [];
+  for (const id of (Array.isArray(r.genre_ids) ? r.genre_ids : []).concat(gs.map((g) => g && g.id))) if (WEEKLY_GENRE_IDS[Number(id)]) return WEEKLY_GENRE_IDS[Number(id)];
+  const name = gs.map((g) => s(g && typeof g === 'object' ? g.name : g)).find((x) => /^(talk|news|reality|soap)$/i.test(x));
+  return name || '';
+}
+/** An old show (first aired 5+ years ago) whose seasons run all year (40+ episodes, like a weekly wrestling show). */
+function continuousShow(det, now) {
+  const d = det || {};
+  const first = ymd10(d.first_air_date);
+  if (!isYmd(first) || Date.parse(first) > (now || Date.now()) - 5 * 365 * DAY_MS) return false;
+  return (Array.isArray(d.seasons) ? d.seasons : []).some((x) => Number(x && x.season_number) >= 1 && Number(x.episode_count) >= 40);
+}
+function weeklyReason(kind) { return 'Weekly / daily show' + (kind ? ' (' + kind + ')' : '') + ' — not a new release'; }
+/**
+ * The date a customer cares about for a series picked by title (manual posts / ✨ AI fill): a new season that premiered
+ * in the last 90 days or starts in the next 90 → its premiere + "Season N"; else a season ≥ 2 that premiered in the
+ * last year → same; else the show's first air date.
+ */
+function showDates(det, now) {
+  const w = newWindow({ releasedDays: 90, upcomingDays: 90 }, now);
+  const q = seriesNews(det, w);
+  if (q.ok) return { releaseDate: q.date, seasonLabel: q.kind === 'new-season' ? q.seasonLabel : '' };
+  const yearAgo = istDay(Date.parse(w.today + 'T00:00:00+05:30') - 365 * DAY_MS);
+  const last = (Array.isArray(det && det.seasons) ? det.seasons : []).map((x) => ({ n: Number(x && x.season_number), date: ymd10(x && x.air_date) }))
+    .filter((x) => x.n >= 2 && isYmd(x.date) && x.date >= yearAgo && x.date <= w.to).sort((a, b) => b.n - a.n)[0];
+  if (last) return { releaseDate: last.date, seasonLabel: 'Season ' + last.n };
+  const first = ymd10(det && det.first_air_date);
+  return { releaseDate: isYmd(first) ? first : '', seasonLabel: '' };
+}
 // TV details are cached for 12 h (each 6-hourly run and ✨ Suggest ask about the same shows).
 const tvCache = new Map();
 async function tvDetails(key, id) {
@@ -657,17 +707,73 @@ async function tmdbMatch(title, opts) {
   const [r, g] = await Promise.all([tmdbGet(st.tmdbKey, '/search/multi', { query: q, include_adult: 'false', language: 'en-US', page: 1 }), genres(st.tmdbKey)]);
   const rows = (r.results || []).filter((x) => (x.media_type === 'movie' || x.media_type === 'tv') && x.poster_path);
   const norm = (x) => s(x).toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const nameOf = (x) => (x.media_type === 'tv' ? (x.name || x.original_name) : (x.title || x.original_title));
+  const dateOf = (x) => s(x.media_type === 'tv' ? x.first_air_date : x.release_date);
+  const pop = (c) => Number(c.x.popularity) || 0;
   const score = (x) => {
-    const name = x.media_type === 'tv' ? (x.name || x.original_name) : (x.title || x.original_title);
-    const date = s(x.media_type === 'tv' ? x.first_air_date : x.release_date);
+    const name = nameOf(x);
+    const date = dateOf(x);
     return (norm(name) === norm(q) ? 4 : norm(name).includes(norm(q)) ? 1 : 0) + (y && date.startsWith(y) ? 3 : 0) +
       (o.type === 'series' && x.media_type === 'tv' ? 1 : o.type === 'movie' && x.media_type === 'movie' ? 1 : 0) + Math.min(1, (Number(x.popularity) || 0) / 100);
   };
-  const best = rows.map((x) => [score(x), x]).sort((a, b) => b[0] - a[0])[0];
-  if (!best || best[0] < 1) return null;
-  const d = draftFrom(best[1], best[1].media_type, o.service || '', g);
-  try { const det = await tmdbDetails(st.tmdbKey, d.tmdbKey, o.service || ''); if (det && det.title) return Object.assign(d, { genres: det.genres.length ? det.genres : d.genres, trailerUrl: det.trailerUrl || '' }); } catch (_) {}
+  const scored = rows.map((x) => ({ x, sc: score(x), exact: norm(nameOf(x)) === norm(q) || norm(x.original_title || x.original_name) === norm(q), yearOk: !y || dateOf(x).startsWith(y) })).sort((a, b) => b.sc - a.sc);
+  if (!scored.length || scored[0].sc < 1) return null;
+  // 📅 sure = exactly one title with this name (+ year when given, + the kind picked). Several → the one streaming on the
+  // brand's provider in India; else the clearly most popular (2× the next); else not sure (no date is filled from it).
+  let pick = scored[0]; let sure = false;
+  let tops = scored.filter((c) => c.exact && c.yearOk);
+  const typed = tops.filter((c) => (o.type === 'series' ? c.x.media_type === 'tv' : o.type === 'movie' ? c.x.media_type === 'movie' : true));
+  if (typed.length) tops = typed;
+  if (tops.length === 1) { pick = tops[0]; sure = true; }
+  else if (tops.length > 1) {
+    const ids = s(providersFor(o.brand || o.service || '', Object.assign({}, DEFAULT_PROVIDERS, st.providerMap)) || providersFor(o.service || '', Object.assign({}, DEFAULT_PROVIDERS, st.providerMap))).split('|').map(Number).filter(Boolean);
+    const on = [];
+    if (ids.length) {
+      for (const c of tops.slice(0, 4)) {
+        try {
+          const wp = await tmdbGet(st.tmdbKey, '/' + c.x.media_type + '/' + Number(c.x.id) + '/watch/providers', {});
+          const inn = (wp && wp.results && wp.results.IN) || {};
+          const got = [].concat(inn.flatrate || [], inn.free || [], inn.ads || []).map((p) => Number(p && p.provider_id));
+          if (got.some((x) => ids.includes(x))) on.push(c);
+        } catch (_) { /* unknown = not on the provider */ }
+      }
+    }
+    const pool = (on.length ? on : tops).slice().sort((a, b) => pop(b) - pop(a));
+    pick = pool[0];
+    sure = pool.length === 1 || (pop(pool[0]) > 0 && pop(pool[0]) >= 2 * pop(pool[1]));
+  }
+  const best = pick.x;
+  const d = draftFrom(best, best.media_type, o.service || '', g);
+  d.sure = sure;
+  if (d.type === 'series') Object.assign(d, { seasonLabel: '' });
+  try {
+    const det = await tmdbDetails(st.tmdbKey, d.tmdbKey, o.service || '');
+    if (det && det.title) {
+      Object.assign(d, { genres: det.genres.length ? det.genres : d.genres, trailerUrl: det.trailerUrl || '' });
+      // Movies: India's release date when TMDB has one. Series: the new season's premiere + "Season N" when there is one.
+      if (d.type === 'movie' && det.releaseRegion === 'IN') Object.assign(d, { releaseDate: det.releaseDate, releaseRegion: 'IN' });
+      if (d.type === 'series' && det.raw) { const sd = showDates(det.raw, o.now); if (sd.releaseDate) Object.assign(d, sd); }
+    }
+  } catch (_) {}
   return d;
+}
+/**
+ * 📅 Manual post without a release date → { found, releaseDate, seasonLabel, releaseRegion, message } from TMDB by title
+ * (+ "(2008)" year, type, brand). Nothing found / not sure → found: false + "Couldn't find the date — type it".
+ */
+const NO_DATE = 'Couldn\'t find the date — type it';
+async function autoDate(input, opts) {
+  const i = input || {};
+  const o = opts || {};
+  if (i.type !== 'movie' && i.type !== 'series') return { found: false, message: '' };
+  const st = await getSettings();
+  if (!st.tmdbKey) return { found: false, nokey: true, message: '' };
+  let m = null;
+  try { m = await tmdbMatch(i.title, { type: i.type, brand: clean(i.brand, 40) || brandOf(i.ctaService || i.service), service: clean(i.ctaService || i.service, 60), now: o.now }); }
+  catch (_) { m = null; }
+  if (!m || !m.sure || !isYmd(m.releaseDate)) return { found: false, message: NO_DATE };
+  const seasonLabel = i.type === 'series' ? (m.seasonLabel || '') : '';
+  return { found: true, releaseDate: m.releaseDate, seasonLabel, releaseRegion: i.type === 'movie' && m.releaseRegion === 'IN' ? 'IN' : '', message: '📅 Date found automatically: ' + (seasonLabel ? seasonLabel + ' · ' : '') + m.releaseDate + ' — change it if it is wrong' };
 }
 
 /**
@@ -776,7 +882,7 @@ async function catalogServiceInfo() {
  * → { drafts, skipped (platforms without provider ids), notNew [{ title, tmdbKey, reason }], from, to }
  */
 async function discover(st, services, opts) {
-  const o = Object.assign({ days: st.releasedDays, upcomingDays: st.upcomingDays, seriesNewOnly: st.seriesNewOnly, languages: st.languages, minPopularity: st.minPopularity, minVotes: st.minVotes }, opts || {});
+  const o = Object.assign({ days: st.releasedDays, upcomingDays: st.upcomingDays, seriesNewOnly: st.seriesNewOnly, skipWeeklyShows: st.skipWeeklyShows !== false, languages: st.languages, minPopularity: st.minPopularity, minVotes: st.minVotes }, opts || {});
   const map = Object.assign({}, DEFAULT_PROVIDERS, st.providerMap);
   const w = newWindow({ releasedDays: o.days, upcomingDays: o.upcomingDays }, o.now);
   const from = w.from; const to = w.to;
@@ -798,10 +904,14 @@ async function discover(st, services, opts) {
       tmdbGet(st.tmdbKey, '/discover/movie', Object.assign({ 'primary_release_date.gte': from, 'primary_release_date.lte': to }, base)),
       tmdbGet(st.tmdbKey, '/discover/tv', Object.assign({ 'air_date.gte': from, 'air_date.lte': to }, base)),
     ]);
-    const rows = (mv.results || []).slice(0, 10).map((x) => draftFrom(x, 'movie', svc, g)).concat((tv.results || []).slice(0, 10).map((x) => draftFrom(x, 'tv', svc, g)));
+    const tvRows = (tv.results || []).slice(0, 10);
+    const rows = (mv.results || []).slice(0, 10).map((x) => draftFrom(x, 'movie', svc, g)).concat(tvRows.map((x) => draftFrom(x, 'tv', svc, g)));
     for (const d of rows) {
       if (!d.title || byKey.has(d.tmdbKey) || notNew.some((x) => x.tmdbKey === d.tmdbKey)) continue;
       if (d.popularity < (o.minPopularity || 0) || d.votes < (o.minVotes || 0)) continue;
+      // Talk / news / reality / soap shows (e.g. WWE Raw): weekly or daily episodes all year — never a "new" post.
+      const weekly = d.type === 'series' && o.skipWeeklyShows ? weeklyShow(tvRows.find((x) => 'tv:' + Number(x.id) === d.tmdbKey)) : '';
+      if (weekly) { notNew.push({ title: d.title, tmdbKey: d.tmdbKey, reason: weeklyReason(weekly) }); continue; }
       if (d.type === 'movie') {
         const q = movieNews(d.releaseDate, w);
         if (!q.ok) { notNew.push({ title: d.title, tmdbKey: d.tmdbKey, reason: q.reason }); continue; }
@@ -810,8 +920,11 @@ async function discover(st, services, opts) {
         // Brand-new show: the discover row already says so. Otherwise ask TMDB about its seasons.
         let q = seriesNews({ first_air_date: d.releaseDate }, w);
         if (!q.ok) {
-          try { q = seriesNews(await tvDetails(st.tmdbKey, d.tmdbKey.slice(3)), w); }
-          catch (e) { q = { ok: false, reason: 'Could not check its seasons (' + String((e && e.message) || e).slice(0, 60) + ')' }; }
+          try {
+            const det = await tvDetails(st.tmdbKey, d.tmdbKey.slice(3));
+            const wk = o.skipWeeklyShows ? (weeklyShow(det) || (continuousShow(det, o.now) ? 'all-year episodes' : '')) : '';
+            q = wk ? { ok: false, reason: weeklyReason(wk) } : seriesNews(det, w);
+          } catch (e) { q = { ok: false, reason: 'Could not check its seasons (' + String((e && e.message) || e).slice(0, 60) + ')' }; }
         }
         if (!q.ok) { notNew.push({ title: d.title, tmdbKey: d.tmdbKey, reason: q.reason }); continue; }
         Object.assign(d, { releaseDate: q.date, seasonLabel: q.seasonLabel || '', upcoming: q.upcoming });
@@ -914,6 +1027,8 @@ async function runImport(opts) {
       job.dayCount++; result.imported++;
       if (r.post.active) result.published++; else result.drafts++;
     }
+    // 3) 📅 Dates + season labels of imported posts (not checked in the last 20 h) straight from TMDB.
+    try { const dr = await refreshDates({ now }); if (dr.ok) result.dates = dr.updated.length; } catch (_) { /* next run */ }
     job.lastResult = result; job.lastError = '';
     if (found.skipped.length) job.lastNote = 'No TMDB provider id for: ' + found.skipped.join(', '); else job.lastNote = '';
     await writeJob(job);
@@ -934,10 +1049,74 @@ function jobPublic(j) {
 async function jobStatus() { return jobPublic(await readJob()); }
 
 /**
+ * 📅 "🔄 Refresh dates & seasons" (admin button, force) + every import run: imported posts (not HIDDEN) get the date
+ * the customer cares about, from TMDB:
+ *   series  new season premiered / premieres in today's window (or the import day's) → releaseDate = its premiere,
+ *           seasonLabel "Season N"; brand-new show → first air date, no label; no longer new → date left alone
+ *           (counted in notNew — the 🧹 cleanup lists it)
+ *   movies  India release date (Digital first) when TMDB has one → releaseDate + releaseRegion IN
+ * Posts the owner edited: only an EMPTY releaseDate / seasonLabel is filled (a label only next to its own date).
+ * An unedited post whose date moves later keeps showing until autoHideDays after it (hideAfter is only ever extended).
+ * opts: { force (ignore the 20 h "checked recently"), now, max } → { ok, checked, updated [{ id, title, from, to, seasonLabel }], unchanged, failed, notNew }
+ */
+async function refreshDates(opts) {
+  const o = opts || {};
+  const st = await getSettings();
+  if (!st.tmdbKey) return { ok: false, message: 'Add your TMDB key in Settings first.' };
+  const now = o.now || Date.now();
+  const nowIso = new Date(now).toISOString();
+  const wNow = newWindow(st, now);
+  const items = await list();
+  const out = { ok: true, checked: 0, updated: [], unchanged: 0, failed: 0, notNew: 0 };
+  let dirty = false;
+  for (const p of items) {
+    if (p.source !== 'tmdb' || !/^(movie|tv):\d{1,9}$/.test(s(p.tmdbKey)) || statusOf(p, new Date(now)) === 'HIDDEN') continue;
+    if (!o.force && p.datesAt && now - Date.parse(p.datesAt) < 20 * 3600e3) continue;
+    if (out.checked >= (o.max || 80)) break;
+    out.checked++;
+    let want = null;
+    try {
+      if (p.tmdbKey.startsWith('tv:')) {
+        const det = await tvDetails(st.tmdbKey, p.tmdbKey.slice(3));
+        let q = seriesNews(det, wNow);
+        if (!q.ok) q = seriesNews(det, newWindow(st, Date.parse(p.importedAt || p.createdAt || '') || now));
+        if (q.ok) want = { releaseDate: q.date, seasonLabel: q.kind === 'new-season' ? q.seasonLabel : '' };
+        else out.notNew++;
+      } else {
+        const d = await tmdbDetails(st.tmdbKey, p.tmdbKey, p.ctaService || p.service || '');
+        if (d && d.releaseRegion === 'IN') want = { releaseDate: d.releaseDate, releaseRegion: 'IN' };
+        else if (d && isYmd(d.releaseDate) && !p.releaseDate) want = { releaseDate: d.releaseDate };
+      }
+    } catch (_) { out.failed++; continue; }
+    p.datesAt = nowIso; dirty = true;
+    if (!want) { out.unchanged++; continue; }
+    const patch = {};
+    if (want.releaseDate !== p.releaseDate && (!p.edited || !p.releaseDate)) patch.releaseDate = want.releaseDate;
+    const date = patch.releaseDate || p.releaseDate;
+    if (p.type === 'series' && want.seasonLabel !== undefined) {
+      if (!p.edited) { if (want.seasonLabel !== (p.seasonLabel || '')) patch.seasonLabel = want.seasonLabel; }
+      else if (!p.seasonLabel && want.seasonLabel && date === want.releaseDate) patch.seasonLabel = want.seasonLabel;
+    }
+    if (p.type === 'movie' && want.releaseRegion === 'IN' && date === want.releaseDate && p.releaseRegion !== 'IN') patch.releaseRegion = 'IN';
+    if (!Object.keys(patch).length) { out.unchanged++; continue; }
+    if (patch.releaseDate && !p.edited && p.hideAfter && !p.hiddenBy) {
+      const h = hideAfterFor(st, patch.releaseDate, Date.parse(p.importedAt || p.createdAt || '') || now);
+      if (h && h > p.hideAfter) patch.hideAfter = h;
+    }
+    if (patch.releaseDate || patch.seasonLabel !== undefined) out.updated.push({ id: p.id, title: p.title, from: p.releaseDate || '', to: date, seasonLabel: patch.seasonLabel !== undefined ? patch.seasonLabel : (p.seasonLabel || ''), edited: !!p.edited });
+    else out.unchanged++;
+    Object.assign(p, patch, { updatedAt: nowIso });
+  }
+  if (dirty) await saveAll(items);
+  return out;
+}
+
+/**
  * 🧹 "Hide old titles imported by mistake" (admin, never automatic): LIVE imported posts that fail today's rules,
  * judged by the day each was imported (window = import day − releasedDays … + upcomingDays).
  *   movie   stored release date outside that window
  *   series  not a brand-new show, no "Season N" label, and TMDB shows no season premiering in that window
+ *   weekly  (skipWeeklyShows) talk / news / reality / soap shows, or 5+ year-old shows with 40+ episode seasons (WWE Raw)
  * → { ok, candidates: [{ id, title, brand, type, releaseDate, importedAt, edited, reason }], checked, unchecked }
  */
 async function notNewCandidates(opts) {
@@ -952,12 +1131,17 @@ async function notNewCandidates(opts) {
     const w = newWindow(st, ref);
     out.checked++;
     let q;
-    if (p.type === 'movie' || p.tmdbKey.startsWith('movie:')) q = isYmd(p.releaseDate) ? movieNews(p.releaseDate, w) : { ok: true };
+    const weekly = st.skipWeeklyShows && p.tmdbKey.startsWith('tv:') ? weeklyShow({ genres: p.genres }) : '';
+    if (weekly) q = { ok: false, reason: weeklyReason(weekly) };
+    else if (p.type === 'movie' || p.tmdbKey.startsWith('movie:')) q = isYmd(p.releaseDate) ? movieNews(p.releaseDate, w) : { ok: true };
     else if (!st.seriesNewOnly || p.seasonLabel || inWindow(p.releaseDate, w)) q = { ok: true };
     else {
       if (!st.tmdbKey) { out.unchecked++; continue; }
-      try { q = seriesNews(await tvDetails(st.tmdbKey, p.tmdbKey.slice(3)), w); }
-      catch (_) { out.unchecked++; continue; }
+      try {
+        const det = await tvDetails(st.tmdbKey, p.tmdbKey.slice(3));
+        const wk = st.skipWeeklyShows ? (weeklyShow(det) || (continuousShow(det, now) ? 'all-year episodes' : '')) : '';
+        q = wk ? { ok: false, reason: weeklyReason(wk) } : seriesNews(det, w);
+      } catch (_) { out.unchecked++; continue; }
     }
     if (q.ok) continue;
     out.candidates.push({ id: p.id, title: p.title, brand: p.brand || p.service || '', type: p.type, releaseDate: p.releaseDate || '', importedAt: p.importedAt || p.createdAt || '', edited: !!p.edited, reason: q.reason });
@@ -999,6 +1183,7 @@ module.exports = {
   getSettings, publicSettings, saveSettings, tmdbSearch, tmdbCreate, tmdbSuggest, tmdbProviders, providersFor, draftFrom, catalogServices, catalogServiceInfo,
   discover, runImport, jobStatus, startTimer, toIso,
   newWindow, seriesNews, movieNews, indiaReleaseDate, notNewCandidates, hideNotNew,
+  weeklyShow, continuousShow, showDates, refreshDates, autoDate, NO_DATE,
   BRANDS, brandOf, mainServiceFor, migrate, searchTitle, tmdbMatch, refreshThumb, pictureOf, LANGS,
   _internal: { pending, liked, genreCache, setFetch: (f) => { fetchImpl = f; }, reset: () => { cache = null; pending.clear(); liked.clear(); genreCache.at = 0; running = false; tvCache.clear(); } },
 };

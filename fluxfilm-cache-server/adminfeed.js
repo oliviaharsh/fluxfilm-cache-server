@@ -12,7 +12,8 @@
  *   POST /admin/api/feed/tmdb/providers    {}                    TMDB's current India provider ids
  *   POST /admin/api/feed/run               {}                    run the TMDB import now (daily cap still applies)
  *   GET  /admin/api/feed/cleanup/not-new                         🧹 LIVE imported posts that are not new / have no new season
- *   POST /admin/api/feed/cleanup/hide      { ids[] }             hide those (hideAfter = now; never deleted; change log)
+ *   POST /admin/api/feed/dates/refresh     {}                    📅 dates + "Season N" of imported posts from TMDB now (edited: empty fields only)
+ *   POST /admin/api/feed/cleanup/hide      { ids[] }            hide those (hideAfter = now; never deleted; change log)
  *   POST /admin/api/feed/thumb/refresh     { id }                📸 fetch the Instagram thumbnail + Reel caption again (server-side)
  *   POST /admin/api/feed/thumb             { id, dataUrl }       the admin page's shrunk copy of a big thumbnail ('' removes it)
  *   POST /admin/api/feed/ai-fill           { title, caption, sourceCaption, type }   ✨ suggestions only (nothing saved)
@@ -42,8 +43,16 @@ function mount(app, deps) {
     } catch (e) { fail(res, e); }
   });
 
-  route('/admin/api/feed/save', async (req, res, b) => {
+  route('/admin/api/feed/save', async (req, res, body) => {
+    // 📅 A movie / series saved without a release date (not an imported post): look the date up by title now.
+    let b = body; let autoDate = null;
+    if (feed.autoDate && (b.type === 'movie' || b.type === 'series') && !String(b.releaseDate || '').trim() && b.source !== 'tmdb' && b.autoDate !== false && String(b.title || '').trim()) {
+      try { autoDate = await feed.autoDate(b); } catch (_) { autoDate = { found: false, message: feed.NO_DATE || '' }; }
+      if (autoDate && autoDate.found) b = Object.assign({}, b, { releaseDate: autoDate.releaseDate, dateAuto: true, releaseRegion: autoDate.releaseRegion || '', seasonLabel: String(b.seasonLabel || '') || autoDate.seasonLabel || '' });
+      if (autoDate && !autoDate.message) autoDate = null;
+    }
     const r = await feed.save(b);
+    if (autoDate) r.autoDate = { found: !!autoDate.found, releaseDate: autoDate.releaseDate || '', seasonLabel: autoDate.seasonLabel || '', message: autoDate.message };
     if (!r.ok) return res.status(400).json(r);
     audit.record(req, { action: r.created ? 'feed.create' : 'feed.update', entity: 'feed', id: r.post.id, summary: (r.created ? 'Created' : 'Updated') + ' feed post "' + r.post.title + '" (' + (r.post.brand && r.post.brand !== r.post.service ? r.post.brand + ' → ' : '') + (r.post.service || r.post.type) + ', ' + (r.post.active ? 'on' : 'off') + (r.post.pinned ? ', pinned' : '') + ')' });
     // New / changed Reel link: fetch its thumbnail + caption now (server-side, time-boxed; the post is already saved).
@@ -70,7 +79,7 @@ function mount(app, deps) {
 
   route('/admin/api/feed/ai-fill', async (req, res, b) => {
     if (aiLimit && !aiLimit.hit('admin').ok) return res.status(429).json({ ok: false, message: 'Too many ✨ AI fills — wait a few minutes.' });
-    const r = await ai.aiFill({ title: b.title, caption: b.caption, sourceCaption: b.sourceCaption, type: b.type });
+    const r = await ai.aiFill({ title: b.title, caption: b.caption, sourceCaption: b.sourceCaption, type: b.type, brand: b.brand, ctaService: b.ctaService });
     if (r.ok && r.tokens) console.log('[feed] AI fill used ' + r.tokens + ' tokens');
     res.status(r.ok ? 200 : 400).json(r);
   });
@@ -143,6 +152,13 @@ function mount(app, deps) {
   app.get('/admin/api/feed/cleanup/not-new', async (req, res) => {
     if (!auth(req, res)) return;
     try { res.json(await feed.notNewCandidates()); } catch (e) { fail(res, e); }
+  });
+  // 📅 Dates + season labels of imported posts from TMDB now (edited posts: empty fields only). Change log lists them.
+  route('/admin/api/feed/dates/refresh', async (req, res) => {
+    const r = await feed.refreshDates({ force: true });
+    if (!r.ok) return res.status(400).json(r);
+    if (r.updated.length) audit.record(req, { action: 'feed.dates.refresh', entity: 'feed', id: r.updated.map((x) => x.id).join(',').slice(0, 190), summary: 'Refreshed dates of ' + r.updated.length + ' imported post(s): ' + r.updated.map((x) => '"' + x.title + '" ' + (x.from || '—') + ' → ' + x.to + (x.seasonLabel ? ' (' + x.seasonLabel + ')' : '')).join(', ').slice(0, 400), details: { updated: r.updated } });
+    res.json(Object.assign(r, { message: '📅 Checked ' + r.checked + ' · updated ' + r.updated.length + (r.notNew ? ' · ' + r.notNew + ' no longer new (use 🧹)' : '') + (r.failed ? ' · ' + r.failed + ' could not be checked' : '') }));
   });
   route('/admin/api/feed/cleanup/hide', async (req, res, b) => {
     const r = await feed.hideNotNew(b.ids);
