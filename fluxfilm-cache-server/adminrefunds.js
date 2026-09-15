@@ -16,6 +16,7 @@
  * the change log (audit_log).
  */
 const s = (v) => String(v == null ? '' : v).trim();
+const { isDeliveredSub, DELIVERY_COLS } = require('./delivered');
 // deps (admin.js deps.refundsAdmin): { refunds } = a refunds.create() instance (tests), else { coins, push, mailer, otpaccess, now }.
 const maskPhone = (ph) => { const p = s(ph).replace(/\D/g, '').slice(-10); return p.length === 10 ? p.slice(0, 2) + '••••••' + p.slice(-2) : '••••'; };
 
@@ -54,8 +55,8 @@ function mount(app, deps) {
       if (up(r.kind) !== 'UNDELIVERED') return res.status(400).json({ ok: false, message: 'This plan was delivered — use 💸 Offer refund (with a usage charge if needed).' });
       // Re-check delivery NOW (the customer may have been delivered since they asked).
       const o = (await db.query('SELECT order_id, status, fulfillment_status FROM orders WHERE order_id = ? LIMIT 1', [s(r.order_id)]))[0];
-      const subs = await db.query('SELECT sub_id, status, fulfillment_status, login_id FROM subscriptions WHERE order_id = ?', [s(r.order_id)]);
-      const deliveredNow = !!o && (up(o.fulfillment_status) === 'FULFILLED' || (subs || []).some((x) => up(x.fulfillment_status) === 'FULFILLED' || s(x.login_id)));
+      const subs = await db.query('SELECT sub_id, ' + DELIVERY_COLS + ' FROM subscriptions WHERE order_id = ?', [s(r.order_id)]);
+      const deliveredNow = !!o && (up(o.fulfillment_status) === 'FULFILLED' || (subs || []).some(isDeliveredSub));
       const warn = { ok: false, status: 409, delivered: true, message: '⚠️ This order was delivered after the customer asked — nothing was refunded. Check with the customer; if they still want a refund use 💸 Offer refund, or Reject with a message.' };
       if (!o) return res.status(404).json({ ok: false, message: 'Order not found.' });
       if (deliveredNow) return res.status(409).json(warn);

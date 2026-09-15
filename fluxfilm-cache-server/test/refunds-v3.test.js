@@ -102,12 +102,12 @@ function run(sql, p) {
   }
   if (/^SELECT \* FROM refund_requests ORDER BY \(status = 'OPEN'\) DESC, created_at DESC LIMIT 100$/.test(sql)) return S.requests.slice().sort((a, b) => (b.status === 'OPEN') - (a.status === 'OPEN')).map(clone);
   if (/^SELECT order_id, name, status, fulfillment_status, verified_at, created_at_sheet FROM orders WHERE order_id IN/.test(sql)) return S.orders.filter((o) => p.includes(o.order_id)).map(clone);
-  if (/^SELECT order_id, sub_id, status, fulfillment_status, login_id, expiry_date FROM subscriptions WHERE order_id IN/.test(sql)) return S.subs.filter((x) => p.includes(x.order_id)).map(clone);
+  if (/^SELECT order_id, sub_id, expiry_date, status, fulfillment_status, start_date, source, login_id, inventory_ref, account_id, profile_name, profile_number FROM subscriptions WHERE order_id IN/.test(sql)) return S.subs.filter((x) => p.includes(x.order_id)).map(clone);
   if (/^SELECT \* FROM refund_requests WHERE request_id = \? LIMIT 1( FOR UPDATE)?$/.test(sql)) return S.requests.filter((r) => r.request_id === p[0]).map(clone);
   if (/^UPDATE refund_requests SET status = \?, open_key = NULL, admin_message = \?, offer_id = \?, decided_at = \? WHERE request_id = \? AND status = 'OPEN' LIMIT 1$/.test(sql)) { const r = S.requests.find((x) => x.request_id === p[4]); if (!r || r.status !== 'OPEN') return { affectedRows: 0 }; Object.assign(r, { status: p[0], open_key: null, admin_message: p[1], offer_id: p[2], decided_at: p[3] }); return { affectedRows: 1 }; }
   if (/^SELECT order_id, name, email, service, plan FROM orders WHERE order_id = \? LIMIT 1$/.test(sql)) return S.orders.filter((o) => o.order_id === p[0]).map(clone);
   if (/^SELECT order_id, status, fulfillment_status FROM orders WHERE order_id = \? LIMIT 1$/.test(sql)) return S.orders.filter((o) => o.order_id === p[0]).map(clone);
-  if (/^SELECT sub_id, status, fulfillment_status, login_id FROM subscriptions WHERE order_id = \?$/.test(sql)) return S.subs.filter((x) => x.order_id === p[0]).map(clone);
+  if (/^SELECT sub_id, status, fulfillment_status, start_date, source, login_id, inventory_ref, account_id, profile_name, profile_number FROM subscriptions WHERE order_id = \?$/.test(sql)) return S.subs.filter((x) => x.order_id === p[0]).map(clone);
   // admin order refund (adminorderactions.js handleRefund, used by "Approve full refund")
   if (/^SELECT GET_LOCK/.test(sql)) return [{ l: 1 }];
   if (/^SELECT RELEASE_LOCK/.test(sql)) return [{ l: 1 }];
@@ -420,7 +420,7 @@ async function makeOffer(body) {
     deliveredOrder({ order_id: 'FF7007', phone: OTHER, phone_norm: OTHER, fulfillment_status: 'FAILED', verified_at: paidAgo(60) }),
   );
   S.subs.push(
-    deliveredSub({ sub_id: 'SUB-M1', order_id: 'FF7001', service: 'YouTube Premium', login_id: '', fulfillment_status: 'MANUAL_PENDING', inventory_ref: null }),
+    deliveredSub({ sub_id: 'SUB-M1', order_id: 'FF7001', service: 'YouTube Premium', login_id: '', fulfillment_status: 'MANUAL_PENDING', inventory_ref: null, account_id: null }),
     deliveredSub({ sub_id: 'SUB-D1', order_id: 'FF7004' }),
     deliveredSub({ sub_id: 'SUB-E1', order_id: 'FF7006', expiry_date: dt(days(-3)), start_date: dt(days(-33)) }),
   );
@@ -506,6 +506,38 @@ async function makeOffer(body) {
   cr = await RQ.createRequest(PH, { orderId: 'FF7003', reason: 'NOT_RECEIVED' });
   ok('before schema-v26: list still works, nothing can be requested, Help message', li.ok && li.items.every((i) => !i.canRequest) && cr.ok === false && /being set up/.test(cr.message), cr);
   S.noRequestsTable = false;
+
+  section('no-login plans + old-site imports count as delivered (bug 15 Sep 2026: YouTube invite had no Offer refund)');
+  fresh(); NOW = new Date(T0.getTime());
+  // Live shape: old-site YouTube family invite — no login / password / fulfilment status, profile "MIG_YT", order imported as FULFILLED.
+  S.orders.push(deliveredOrder({ order_id: 'FF8001', service: 'YouTube Premium', plan: '1 Month', final_amount: '120.00', source: null, created_at_sheet: dt(days(-10)), raw_json: '{}' }));
+  S.subs.push(deliveredSub({ sub_id: 'SUB-YT1', order_id: 'FF8001', service: 'YouTube Premium', plan: '1 Month', fulfillment_status: null, login_id: null, password: null, inventory_ref: null, account_id: null, profile_number: 'MIG_YT', source: null }));
+  // Node YouTube invite delivered with a profile only.
+  S.orders.push(deliveredOrder({ order_id: 'FF8002', service: 'YouTube Premium', plan: '1 Month', final_amount: '120.00', raw_json: '{}' }));
+  S.subs.push(deliveredSub({ sub_id: 'SUB-YT2', order_id: 'FF8002', service: 'YouTube Premium', plan: '1 Month', login_id: '', password: '', inventory_ref: null, account_id: null, profile_name: 'FluxFilm YT' }));
+  // Old-site import with no order in MySQL.
+  S.subs.push(deliveredSub({ sub_id: 'SUB-OLD1', order_id: 'OLD-123', service: 'JioHotstar', fulfillment_status: '', login_id: '', inventory_ref: null, account_id: null, source: null }));
+  let qy = await R.quoteOffer({ subId: 'SUB-YT2' });
+  ok('YouTube-style row (profile only, FULFILLED) → offer allowed', qy.ok && qy.allowed === true && qy.orderId === 'FF8002' && !qy.reason, qy);
+  qy = await R.quoteOffer({ subId: 'SUB-YT1' });
+  ok('legacy row (empty fulfilment, ACTIVE, start date, profile # MIG_YT) → delivered, offer allowed', qy.ok && qy.allowed === true && qy.orderId === 'FF8001', qy);
+  const offYt = await R.createOffer({ subId: 'SUB-YT1', reason: 'MID_PERIOD', notify: false });
+  ok('…and the offer can be created', offYt.ok && offer(offYt.offer.offerId) && offer(offYt.offer.offerId).order_id === 'FF8001', offYt);
+  qy = await R.quoteOffer({ subId: 'SUB-OLD1' });
+  ok('old-site plan with no paid order in MySQL → clear message, nothing else changes', qy.ok === false && qy.status === 404 && /bought on the old site — no paid order in the new system\. Use Extend, or refund outside FluxFilm\./.test(qy.message), qy);
+  qy = await R.quoteOffer({ orderId: 'FF404' });
+  ok('unknown order id → same old "No paid order found" message', qy.ok === false && qy.status === 404 && qy.message === 'No paid order found for this.', qy);
+  // Another old-site YouTube invite (no offer yet): the customer asks from Account → Request refund.
+  S.orders.push(deliveredOrder({ order_id: 'FF8004', service: 'YouTube Premium', plan: '1 Month', final_amount: '120.00', fulfillment_status: '', source: null, created_at_sheet: dt(days(-10)), raw_json: '{}' }));
+  S.subs.push(deliveredSub({ sub_id: 'SUB-YT4', order_id: 'FF8004', service: 'YouTube Premium', plan: '1 Month', fulfillment_status: null, login_id: null, password: null, inventory_ref: null, account_id: null, profile_number: 'MIG_YT', source: null }));
+  li = await RQ.listItems(PH);
+  const yt4 = itemOf('sub:SUB-YT4'), yt2 = itemOf('sub:SUB-YT2');
+  ok('customer Request refund on an active YouTube plan → mid-period (DELIVERED, estimate), not the 48 h wait', yt4.canRequest === true && yt4.kind === 'DELIVERED' && !yt4.waiting && yt4.estimate && yt4.estimate.charge === 40 && yt2.canRequest === true && yt2.kind === 'DELIVERED', { yt4, yt2 });
+  cr = await RQ.createRequest(PH, { subId: 'SUB-YT4', reason: 'NOT_NEEDED' });
+  ok('…request saved as DELIVERED with the estimate', cr.ok && cr.kind === 'DELIVERED' && S.requests.some((x) => x.order_id === 'FF8004' && x.kind === 'DELIVERED' && x.estimated_charge === 40), cr);
+  S.orders.push(deliveredOrder({ order_id: 'FF8003', service: 'Zee5', fulfillment_status: 'FAILED', verified_at: dt(days(-1)), created_at_sheet: dt(days(-1)), raw_json: '{}' }));
+  li = await RQ.listItems(PH);
+  ok('a FAILED order with no subscription row is still "not delivered" (48 h wait)', itemOf('order:FF8003').kind === 'UNDELIVERED' && itemOf('order:FF8003').waiting === true, itemOf('order:FF8003'));
   server.close();
 
   section('wiring: server actions, storefront, admin, schema, scripts parse');
@@ -515,6 +547,8 @@ async function makeOffer(body) {
   ok('storefront: banner text, three choices, ✕ close, sent pop-up, API wrappers send only [phone, id, method]', /is ready — choose how you want it/.test(idx) && /🎟️ Coupon — ₹\$\{item\.amount\} \+ \$\{pct\}% = ₹\$\{item\.couponValue \|\| item\.credit\} coupon, valid \$\{item\.couponDays \|\| 180\} days, one use/.test(idx) && /className: "ff-refund-x"/.test(idx) && /"Refund sent"/.test(idx) && /apiCall_\('chooseRefund', \[phone, id, method\]/.test(idx) && /apiCall_\('refundSentSeen', \[phone, orderId\]/.test(idx) && /\[\?&\]refund=1/.test(idx));
   const adminHtml = fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8');
   ok('admin: 💸 Offer refund (order actions + subscription card), Refunds view with ✅ Done + UTR + settings', /data-oa="offer"/.test(adminHtml) && /offerRefundDialog\(\\'' \+ id \+ '\\'\)/.test(adminHtml) && /'\/admin\/api\/refund-offers'/.test(adminHtml) && /data-rfdone=/.test(adminHtml) && /refunds: refundsView/.test(adminHtml) && /'\/admin\/api\/refunds\/settings'/.test(adminHtml));
+  const cardBtn = (adminHtml.match(/\(([^()]*(?:\([^()]*\))?[^()]*)\? '<button class="btn ghost sm" onclick="offerRefundDialog/) || [])[1] || '';
+  ok('admin: subscription card shows 💸 Offer refund without a login (only hidden for REFUNDED / CANCELLED / REMOVED)', cardBtn && !/login_id/.test(cardBtn) && /REFUNDED\|CANCEL\|REMOVED/.test(cardBtn), cardBtn);
   ok('server: Request refund actions (only orderId / subId / reason / text passed) with IP + phone limits', /getRefundRequestItems: \(a\) => refundRequestsMod\.listItems\(a\[0\]\)/.test(server2) && /createRefundRequest: \(a\) => refundRequestsMod\.createRequest\(a\[0\], a\[1\] && typeof a\[1\] === 'object' \? \{ orderId: a\[1\]\.orderId, subId: a\[1\]\.subId, reason: a\[1\]\.reason, text: a\[1\]\.text \} : \{\}\)/.test(server2) && /PHONE_LIMITS, \{ createRefundRequest: security\.rateLimiter\(10, 24 \* 60 \* 60e3\) \}/.test(server2));
   ok('storefront: Account → 💸 Request refund (list → reason → answer), estimate labelled "team decides", Help, countdown', /!section && React\.createElement\(RefundRequestButton, \{/.test(idx) && /"💸 Request refund"/.test(idx) && /Usage charge \(estimate — team decides\)/.test(idx) && /FF_RQ_REASONS_ = \[\['NOT_WORKING', '🔧 Not working'\], \['NOT_RECEIVED', '📭 Didn’t receive'\], \['NOT_NEEDED', '🙅 Don’t need anymore'\], \['QUALITY', '📉 Quality changed'\], \['OTHER', '✏️ Other'\]\]/.test(idx) && /ffRqLeft_\(left\)/.test(idx) && /apiCall_\('createRefundRequest', \[phone, req\]/.test(idx));
   ok('admin: 📨 Refund requests with Approve → offer full refund / Offer refund / Reject, Today card', /data-rqapprove=/.test(adminHtml) && /data-rqoffer=/.test(adminHtml) && /data-rqreject=/.test(adminHtml) && /'\/admin\/api\/refund-requests\/approve'/.test(adminHtml) && /key: 'refundrequests'/.test(fs.readFileSync(path.join(__dirname, '..', 'adminhome.js'), 'utf8')));

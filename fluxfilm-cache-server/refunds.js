@@ -29,6 +29,7 @@
  * the profile email): a phone number alone must never redirect money.
  */
 const crypto = require('crypto');
+const { isDeliveredSub } = require('./delivered');
 
 const s = (v) => String(v == null ? '' : v).trim();
 const up = (v) => s(v).toUpperCase();
@@ -616,7 +617,7 @@ function create(deps) {
   }
 
   // ------------------------------------------------------------------ admin: offers on delivered plans
-  const isDeliveredSub = (x) => up(x.fulfillment_status) === 'FULFILLED' || !!s(x.login_id);
+  // isDeliveredSub: delivered.js (no-login plans like YouTube invites and old-site imports count as delivered).
   const endedSub = (x) => ['REFUNDED', 'CANCELLED', 'CANCELED', 'REMOVED', 'ERASED'].includes(up(x.status));
 
   /** The order + subscriptions an offer is about. q = (sql, params) → rows. */
@@ -632,7 +633,9 @@ function create(deps) {
       const cands = await q("SELECT * FROM orders WHERE (order_id = ? OR renew_sub_id = ?) AND UPPER(status) IN ('PAID', 'REFUNDED') ORDER BY created_at_sheet DESC LIMIT 5", [s(sub.order_id), s(sub.sub_id)]);
       o = (cands || []).find((x) => s(x.order_id) === s(sub.order_id)) || (cands || []).find((x) => up(x.fulfillment_status) === 'FULFILLED') || null;
     } else throw new Refused('Order or subscription id required.', { status: 400 });
-    if (!o) throw new Refused('No paid order found for this.', { status: 404 });
+    if (!o) throw new Refused(sid && !oid
+      ? 'This plan was bought on the old site — no paid order in the new system. Use Extend, or refund outside FluxFilm.'
+      : 'No paid order found for this.', { status: 404, noPaidOrder: true });
     const renew = up(o.order_type) === 'RENEW' && s(o.renew_sub_id);
     let subs = await q('SELECT * FROM subscriptions WHERE ' + (renew ? 'sub_id = ?' : 'order_id = ?'), [renew ? s(o.renew_sub_id) : s(o.order_id)]);
     // Separate logins of one purchase (F1): every device row ends together.

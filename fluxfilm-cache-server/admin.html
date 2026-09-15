@@ -876,7 +876,7 @@ function subCard(s) {
     '<div class="bar' + (d != null && d <= 0 ? ' b' : d != null && d <= 7 ? ' w' : '') + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
     (creds ? '<div class="creds">' + creds + '</div>' : '') + rmUi +
     '<div class="row" style="justify-content:space-between"><div class="meta"><span class="pill p-grey">' + id + '</span>' + (s.inventory_ref ? '<span class="pill p-blue">' + esc(s.inventory_ref) + '</span>' : '') + statusPill(s.status) + (s.source ? '<span class="pill p-grey">' + esc(s.source) + '</span>' : '') + '</div>' +
-    '<span class="row" style="gap:6px">' + (s.login_id && !/REFUNDED|CANCEL/i.test(s.status || '') ? '<button class="btn ghost sm" onclick="offerRefundDialog(\'' + id + '\')">💸 Offer refund</button>' : '') + '<button class="btn ghost sm" onclick="extendDialog(\'' + id + '\')">⏱ Extend</button><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a></span></div></div>';
+    '<span class="row" style="gap:6px">' + (!/REFUNDED|CANCEL|REMOVED/i.test(s.status || '') ? '<button class="btn ghost sm" onclick="offerRefundDialog(\'' + id + '\')">💸 Offer refund</button>' : '') + '<button class="btn ghost sm" onclick="extendDialog(\'' + id + '\')">⏱ Extend</button><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a></span></div></div>';
 }
 function saveRemoved(id) {
   var cb = document.getElementById('rm_' + id), at = document.getElementById('rmat_' + id), msg = document.getElementById('rmmsg_' + id);
