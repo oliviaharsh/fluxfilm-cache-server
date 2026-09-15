@@ -2534,7 +2534,7 @@ function prPreview(e) {
 }
 
 /* ================= 🍿 What's new feed: posts, pictures, TMDB (feed.js, adminfeed.js) ================= */
-var FD = { list: [], services: [], settings: {}, edit: null, panel: '', found: [] };
+var FD = { list: [], services: [], serviceInfo: [], brands: [], settings: {}, edit: null, panel: '', found: [], commentsReady: false, commentCounts: {} };
 var FD_STATUS = { LIVE: ['🟢 Live', 'p-ok'], SCHEDULED: ['🕒 Scheduled', 'p-blue'], HIDDEN: ['🙈 Hidden (ended)', 'p-grey'], OFF: ['⏸ Off', 'p-grey'] };
 var FD_TYPES = [['movie', '🎬 Movie', 'A film'], ['series', '📺 Series', 'A show / new season'], ['announcement', '📣 News', 'An update from FluxFilm']];
 // Own styles (injected once) so this view does not touch the shared stylesheet. .ff-feed-* mirrors index.html.
@@ -2553,6 +2553,11 @@ var FD_CSS = '.fd-item .fd-thumb{width:54px;height:68px;border-radius:10px;objec
   '.ff-feed-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.ff-feed-tags span{padding:3px 9px;border-radius:999px;background:#f1f5f9;font-size:11.5px;font-weight:700;color:#475569}' +
   '.ff-feed-cta{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:10px 16px;border-radius:16px;background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff;font-size:15px;font-weight:800}.ff-feed-cta small{display:block;font-size:11.5px;font-weight:600;opacity:.92}' +
   '.ff-feed-ig{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#fff;font-weight:800;font-size:14px;background:linear-gradient(180deg,rgba(15,23,42,.05),rgba(15,23,42,.55))}.ff-feed-ig b{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;font-size:28px;background:linear-gradient(135deg,#f59e0b,#db2777,#7c3aed)}.ff-feed-ig.yt b{background:#dc2626}' +
+  '.fd-ai{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}.fd-ai #fdaimsg{flex-basis:100%}.fd-thumbrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;font-size:.78rem}.fd-thumbrow img{width:45px;height:80px;object-fit:cover;border-radius:8px;background:#0f172a}' +
+  '.fd-cmrow{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--line);border-radius:12px;background:#fff}.fd-cmrow .grow p{margin:4px 0;font-size:.9rem;overflow-wrap:anywhere}.fd-cm-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}' +
+  '.ff-feed-av.logo img{width:100%;height:100%;border-radius:50%;object-fit:contain;background:#fff;padding:3px;box-sizing:border-box}.ff-feed-igchip{position:absolute;left:10px;top:10px;z-index:1;padding:4px 10px;border-radius:999px;background:rgba(15,23,42,.72);color:#fff;font-size:12px;font-weight:800}' +
+  '.ff-feed-gen{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.ff-feed-gen span{padding:3px 10px;border-radius:999px;border:1px solid rgba(15,23,42,.1);background:#f1f5f9;font-size:12px;font-weight:700;color:#334155}.ff-feed-ytbtn{display:flex;justify-content:center;margin-top:10px;padding:10px;border:1.5px solid #fecaca;border-radius:14px;background:#fff5f5;color:#b91c1c;font-weight:800;font-size:14px}' +
+  '.ff-feed-cap.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}' +
   '@media(max-width:600px){.fd-item .pr-actions{width:100%}.fd-item .pr-actions .btn{flex:1;justify-content:center;min-height:40px}}';
 function fdCss() { if (!document.getElementById('fdcss')) { var st = document.createElement('style'); st.id = 'fdcss'; st.textContent = FD_CSS; document.head.appendChild(st); } }
 function fdType(t) { return (FD_TYPES.filter(function (x) { return x[0] === t; })[0] || [0, t])[1]; }
@@ -2570,9 +2575,10 @@ function fdSvcOpts(sel, allLabel) {
 function feedView() {
   fdCss();
   $('#view').innerHTML = '<div class="ph"><div><h1>🍿 What\'s new</h1><p>Instagram-style posts about new movies &amp; shows. Each post has a “Get Netflix from ₹…” button that opens that platform\'s plans.</p></div>' +
-    '<div class="row"><button class="btn ghost" id="fdset">⚙️ Settings</button><button class="btn ghost" id="fdtmdb">🔎 Find on TMDB</button><button class="btn ghost" id="fdsug">✨ Suggest new arrivals</button><button class="btn" id="fdnew">➕ New post</button></div></div><div id="fdbody"><p class="muted">Loading…</p></div>';
-  $('#fdnew').onclick = function () { fdEdit({ type: 'movie', active: false, cta: 'service', service: FD.services[0] || '', languages: [], genres: [] }); };
+    '<div class="row"><button class="btn ghost" id="fdset">⚙️ Settings</button><button class="btn ghost" id="fdcm">💬 Comments <span id="fdcmn"></span></button><button class="btn ghost" id="fdtmdb">🔎 Find on TMDB</button><button class="btn ghost" id="fdsug">✨ Suggest new arrivals</button><button class="btn" id="fdnew">➕ New post</button></div></div><div id="fdbody"><p class="muted">Loading…</p></div>';
+  $('#fdnew').onclick = function () { var svc = FD.services[0] || ''; fdEdit({ type: 'movie', active: false, cta: 'service', service: svc, ctaService: svc, brand: fdBrandOf(svc), languages: [], genres: [] }); };
   $('#fdset').onclick = fdSettings;
+  $('#fdcm').onclick = function () { fdComments('pending'); };
   $('#fdtmdb').onclick = fdSearch;
   $('#fdsug').onclick = fdSuggest;
   FD.edit = null; FD.panel = '';
@@ -2583,6 +2589,8 @@ function fdLoad(then) {
     if (!$('#fdbody')) return;
     if (!r.ok) { $('#fdbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
     FD.list = r.posts || []; FD.services = r.services || []; FD.settings = r.settings || {}; FD.job = r.job || null;
+    FD.serviceInfo = r.serviceInfo || []; FD.brands = r.brands || []; FD.commentsReady = !!r.commentsReady; FD.commentCounts = r.commentCounts || {};
+    var n = $('#fdcmn'); if (n) n.innerHTML = FD.commentCounts.pending ? '<span class="pill p-warn">' + FD.commentCounts.pending + ' to check</span>' : '';
     if (then) then(); else if (!FD.panel) fdRenderList();
   });
 }
@@ -2603,9 +2611,9 @@ function fdRenderList() {
     var st = FD_STATUS[p.status] || [p.status, 'p-grey']; var img = fdImg(p, 'w185');
     return '<div class="card pr-item fd-item">' + (img ? '<img class="fd-thumb" src="' + esc(img) + '" alt="" loading="lazy"/>' : '<div class="fd-thumb">🍿</div>') +
       '<div class="grow" style="min-width:0"><div class="row" style="gap:6px"><b>' + esc(p.title) + '</b><span class="pill ' + st[1] + '">' + st[0] + '</span>' + (p.pinned ? '<span class="pill p-warn">📌 Pinned</span>' : '') + '</div>' +
-      '<div class="muted" style="font-size:.78rem;margin-top:4px">' + esc(p.service || 'No platform') + ' · ' + fdType(p.type) + (p.publishAt ? ' · from ' + prNice(p.publishAt) : '') + (p.hideAfter ? ' · hides ' + prNice(p.hideAfter) : '') + (p.source === 'tmdb' ? ' · TMDB' : '') + '</div>' +
-      '<div class="muted" style="font-size:.78rem;margin-top:2px">👀 ' + p.views + ' views · ❤️ ' + p.likes + ' likes · 👆 ' + p.clicks + ' button taps · 📤 ' + p.shares + ' shares · ▶️ ' + (p.plays || 0) + ' plays' + (p.instagramUrl ? ' · 📸 Reel' : '') + '</div></div>' +
-      '<div class="pr-actions"><button class="btn sm ' + (p.active ? 'ghost' : 'green') + '" data-tog="' + p.id + '">' + (p.active ? '⏸ Turn off' : '▶️ Turn on') + '</button><button class="btn sm ghost" data-pin="' + p.id + '">' + (p.pinned ? 'Unpin' : '📌 Pin') + '</button><button class="btn sm dark" data-ed="' + p.id + '">✏️ Edit</button><button class="btn sm ghost" data-dup="' + p.id + '">⧉ Copy</button><button class="btn sm ghost" data-del="' + p.id + '" aria-label="Delete">🗑</button></div></div>';
+      '<div class="muted" style="font-size:.78rem;margin-top:4px">' + esc(p.brand || p.service || 'No platform') + (p.ctaService && p.ctaService !== p.brand ? ' → sells ' + esc(p.ctaService) : '') + ' · ' + fdType(p.type) + (p.publishAt ? ' · from ' + prNice(p.publishAt) : '') + (p.hideAfter ? ' · hides ' + prNice(p.hideAfter) : '') + (p.source === 'tmdb' ? ' · TMDB' : '') + '</div>' +
+      '<div class="muted" style="font-size:.78rem;margin-top:2px">👀 ' + p.views + ' views · ❤️ ' + p.likes + ' likes · 👆 ' + p.clicks + ' button taps · 📤 ' + p.shares + ' shares · ▶️ ' + (p.plays || 0) + ' plays' + (p.instagramUrl ? ' · 📸 Reel' + (p.hasThumb ? ' (thumbnail ✓)' : ' (no thumbnail)') : '') + (p.comments && (p.comments.visible || p.comments.pending) ? ' · 💬 ' + p.comments.visible + (p.comments.pending ? ' <b style="color:#b45309">+' + p.comments.pending + ' to check</b>' : '') : '') + '</div></div>' +
+      '<div class="pr-actions"><button class="btn sm ' + (p.active ? 'ghost' : 'green') + '" data-tog="' + p.id + '">' + (p.active ? '⏸ Turn off' : '▶️ Turn on') + '</button><button class="btn sm ghost" data-pin="' + p.id + '">' + (p.pinned ? 'Unpin' : '📌 Pin') + '</button><button class="btn sm dark" data-ed="' + p.id + '">✏️ Edit</button><button class="btn sm ghost" data-dup="' + p.id + '">⧉ Copy</button><button class="btn sm ghost" data-cmp="' + p.id + '" aria-label="Comments">💬</button><button class="btn sm ghost" data-del="' + p.id + '" aria-label="Delete">🗑</button></div></div>';
   }).join('') + '</div>';
   var body = $('#fdbody');
   body.innerHTML = h; body.oninput = body.onchange = null;
@@ -2615,27 +2623,61 @@ function fdRenderList() {
     var quick = function (p, patch, msg) { b.disabled = true; post('/admin/api/feed/save', Object.assign({}, p, patch)).then(function (r) { toast(r.ok ? msg(r.post) : '⚠️ ' + (r.message || 'error')); fdLoad(); }); };
     if (b.id === 'fdrun') { b.disabled = true; b.textContent = '⏳ Importing…'; post('/admin/api/feed/run', {}).then(function (r) { var x = r.result || {}; toast(r.ok ? '🤖 Imported ' + (x.imported || 0) + ' (' + (x.published || 0) + ' published, ' + (x.drafts || 0) + ' drafts)' : '⚠️ ' + (r.message || 'error')); fdLoad(); }); return; }
     if (b.dataset.ed) fdEdit(find(b.dataset.ed));
-    if (b.dataset.dup) { var c = Object.assign({}, find(b.dataset.dup)); delete c.id; c.title = c.title + ' (copy)'; c.active = false; c.hasImage = false; c.tmdbKey = ''; c.source = 'manual'; fdEdit(c); }
+    if (b.dataset.cmp) fdComments('all', b.dataset.cmp);
+    if (b.dataset.dup) { var c = Object.assign({}, find(b.dataset.dup)); delete c.id; c.title = c.title + ' (copy)'; c.active = false; c.hasImage = false; c.hasThumb = false; c.thumbAt = ''; c.tmdbKey = ''; c.source = 'manual'; fdEdit(c); }
     if (b.dataset.tog) quick(find(b.dataset.tog), { active: !find(b.dataset.tog).active }, function (p) { return p.active ? '▶️ Post on — live within 30 seconds' : '⏸ Post off'; });
     if (b.dataset.pin) quick(find(b.dataset.pin), { pinned: !find(b.dataset.pin).pinned }, function (p) { return p.pinned ? '📌 Pinned to the top' : 'Unpinned'; });
     if (b.dataset.del) { var d = find(b.dataset.del); if (confirm('Delete the post "' + d.title + '"? This cannot be undone.')) post('/admin/api/feed/delete', { id: d.id }).then(function (r) { toast(r.ok ? '🗑 Deleted' : '⚠️ ' + (r.message || 'error')); fdLoad(); }); }
   };
 }
+// 🏷️ Same rule as feed.js brandOf(): "Netflix (Group Offer)" → Netflix, "Prime Video + Shopping" → Prime Video, "SonyLiv Premium" → SonyLIV.
+var FD_BRAND_RE = [['Netflix', /netflix/i], ['Prime Video', /prime|amazon/i], ['JioHotstar', /hotstar|jio ?cinema/i], ['SonyLIV', /sony/i], ['Zee5', /zee ?5|\bzee\b/i], ['Crunchyroll', /crunchyroll/i], ['YouTube', /youtube/i], ['Apple TV+', /apple/i]];
+function fdBrandOf(v) {
+  var t = String(v == null ? '' : v).replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  if (!t) return '';
+  for (var i = 0; i < FD_BRAND_RE.length; i++) if (FD_BRAND_RE[i][1].test(t)) return FD_BRAND_RE[i][0];
+  var st = t.replace(/\([^)]*\)/g, ' ').replace(/\+\s*[A-Za-z]+/g, ' ').replace(/\b(premium|sharing|private|group offer|plans?|subscription)\b/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+  return st || t.slice(0, 40);
+}
+function fdBrandOpts(sel) {
+  var names = FD.brands.map(function (b) { return b.name; });
+  FD.services.forEach(function (s) { var b = fdBrandOf(s); if (names.indexOf(b) < 0) names.push(b); });
+  if (sel && names.indexOf(sel) < 0) names.unshift(sel);
+  return '<option value="">— none (news only) —</option>' + names.map(function (n) { return '<option' + (n === sel ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('');
+}
+// "Sell button uses plan": active catalog services with today's cheapest price; the post's brand first.
+function fdPlanOpts(sel, brand) {
+  var info = FD.serviceInfo.slice();
+  if (sel && !info.some(function (x) { return x.service === sel; })) info.unshift({ service: sel, minPrice: 0, gone: true });
+  info.sort(function (a, b) { var ab = fdBrandOf(a.service) === brand ? 0 : 1, bb = fdBrandOf(b.service) === brand ? 0 : 1; return ab - bb || a.service.localeCompare(b.service); });
+  return '<option value="">— no plan (no button) —</option>' + info.map(function (x) { return '<option value="' + esc(x.service) + '"' + (x.service === sel ? ' selected' : '') + '>' + esc(x.service) + (x.gone ? ' (not active)' : x.minPrice ? ' — from ₹' + x.minPrice : '') + '</option>'; }).join('');
+}
+function fdMainPlan(brand) {
+  var list = FD.services.filter(function (s) { return fdBrandOf(s) === brand; }).sort(function (a, b) { return a.length - b.length || a.localeCompare(b); });
+  return list[0] || '';
+}
 function fdEdit(p) {
   FD.panel = 'edit';
   FD.edit = Object.assign({ languages: [], genres: [], cta: 'service' }, p);
   var e = FD.edit;
+  if (e.ctaService == null) e.ctaService = e.service || '';
+  if (!e.brand) e.brand = fdBrandOf(e.ctaService || e.service);
   var tags = function (v) { return esc(fdTags(v).join(', ')); };
   $('#fdbody').innerHTML = '<div class="pr-edit"><div class="card"><div class="row" style="justify-content:space-between"><h3 style="margin:0">' + (e.id ? '✏️ Edit post' : '➕ New post') + '</h3><button class="btn ghost sm" id="fdback">← Back</button></div>' +
     '<div class="pr-f"><label>Kind<div class="pr-types">' + FD_TYPES.map(function (x) { return '<button type="button" class="pr-type' + (e.type === x[0] ? ' on' : '') + '" data-type="' + x[0] + '"><b>' + x[1] + '</b><span>' + x[2] + '</span></button>'; }).join('') + '</div></label>' +
     '<label>Title<input class="inp" data-k="title" maxlength="100" value="' + esc(e.title || '') + '" placeholder="Name of the movie or show"/></label>' +
-    '<div class="pr-two"><label>Platform<select class="inp" data-k="service">' + fdSvcOpts(e.service, '— none (news only) —') + '</select></label>' +
-    '<label>Button<select class="inp" data-k="cta"><option value="service"' + (e.cta !== 'none' ? ' selected' : '') + '>“Get ' + esc(e.service || 'platform') + '” → its plans</option><option value="none"' + (e.cta === 'none' ? ' selected' : '') + '>No button</option></select></label></div>' +
+    '<div class="fd-ai"><button type="button" class="btn ghost sm" id="fdai">✨ AI fill</button><span class="muted" style="font-size:.75rem">' + (e.sourceCaption ? 'Uses the Reel\'s own caption' : 'Uses the title / caption') + ' → title, caption, genres, date, poster. Nothing is saved until you tap 💾 Save.' + (FD.settings.aiKeySet ? '' : ' <b>No AI key yet</b> — only genres / date / poster.') + '</span><div id="fdaimsg"></div></div>' +
+    '<div class="pr-two"><label>Platform shown <span class="muted">(header + logo)</span><select class="inp" data-k="brand">' + fdBrandOpts(e.brand) + '</select></label>' +
+    '<label>Sell button uses plan:<select class="inp" data-k="ctaService">' + fdPlanOpts(e.ctaService, e.brand) + '</select></label></div>' +
+    '<label>Button<select class="inp" data-k="cta"><option value="service"' + (e.cta !== 'none' ? ' selected' : '') + '>“Get ' + esc(e.ctaService || 'plan') + ' from ₹…” → its plans</option><option value="none"' + (e.cta === 'none' ? ' selected' : '') + '>No button</option></select></label>' +
     '<label>Caption <span class="fd-count" id="fdcount"></span><textarea class="inp" data-k="caption" maxlength="600" rows="5" placeholder="What is it about? Why watch it?">' + esc(e.caption || '') + '</textarea></label>' +
     '<div class="pr-two"><label>Release date <span class="muted">(optional)</span><input class="inp" type="date" data-k="releaseDate" value="' + esc(e.releaseDate || '') + '"/></label>' +
     '<label>Trailer <span class="muted">(YouTube link, optional — plays inside the feed)</span><input class="inp" data-k="trailerUrl" value="' + esc(e.trailerUrl || '') + '" placeholder="https://www.youtube.com/watch?v=…"/></label></div>' +
     '<div><label>📸 Instagram Reel link <span class="muted">(optional)</span><input class="inp" data-k="instagramUrl" id="fdig" inputmode="url" autocomplete="off" value="' + esc(e.instagramUrl || '') + '" placeholder="https://www.instagram.com/reel/…"/></label>' +
-    '<div class="muted" style="font-size:.75rem;margin-top:4px">Public posts only. The video stays on Instagram and is credited to its creator.</div><div id="fdigmsg"></div><div id="fdigprev"></div></div>' +
+    '<div class="muted" style="font-size:.75rem;margin-top:4px">Public posts only. The video stays on Instagram and is credited to its creator.</div><div id="fdigmsg"></div>' +
+    (e.id && e.instagramUrl ? '<div class="fd-thumbrow">' + (e.hasThumb ? '<img src="/feed-img/' + esc(e.id) + 't?v=' + encodeURIComponent(e.thumbAt || e.updatedAt || '') + '" alt="" width="45" height="80" loading="lazy"/><span class="muted">📸 Thumbnail saved — customers see it before tapping play.</span>' : '<span class="muted">📸 No thumbnail yet' + (e.hasImage || e.imageUrl ? ' — your picture is shown instead.' : ' — the card shows a colour until you refresh or add a picture.') + '</span>') +
+      '<button type="button" class="btn ghost sm" id="fdthumb">🔄 Refresh thumbnail</button>' + (e.hasThumb ? '<button type="button" class="btn ghost sm" id="fdthumbdel">Remove</button>' : '') + '</div>' : '') +
+    '<div id="fdigprev"></div></div>' +
     '<div class="pr-two"><label>Languages <span class="muted">(commas)</span><input class="inp" data-k="languages" value="' + tags(e.languages) + '" placeholder="Hindi, English"/></label>' +
     '<label>Genres <span class="muted">(commas)</span><input class="inp" data-k="genres" value="' + tags(e.genres) + '" placeholder="Thriller, Drama"/></label></div>' +
     '<div><div class="muted" style="font-size:.8rem;margin-bottom:4px">Picture — poster (4:5 or 2:3) looks best</div>' + (e.id ? '<input type="file" accept="image/png,image/jpeg,image/webp" id="fdimg"/>' + (e.hasImage ? ' <button type="button" class="btn ghost sm" id="fdimgdel">Remove uploaded picture</button>' : '') : '<span class="muted" style="font-size:.8rem">Save first, then upload a picture — or paste a TMDB picture link below.</span>') + '</div>' +
@@ -2652,14 +2694,49 @@ function fdEdit(p) {
     var k = el.dataset.k, v = el.type === 'checkbox' ? el.checked : el.value;
     if (k === 'publishAt' || k === 'hideAfter') v = el.value ? el.value + ':00+05:30' : '';
     FD.edit[k] = v;
+    // Brand ↔ plan: a new brand picks that brand's main plan (unless the plan already is that brand); the plan keeps service in step.
+    if (k === 'brand' && fdBrandOf(FD.edit.ctaService) !== v) { FD.edit.ctaService = fdMainPlan(v); }
+    if (k === 'ctaService' && v && !FD.edit.brand) FD.edit.brand = fdBrandOf(v);
+    if (k === 'brand' || k === 'ctaService') { FD.edit.service = FD.edit.ctaService; if (!FD.edit.ctaService) FD.edit.cta = 'none'; else if (k === 'ctaService') FD.edit.cta = 'service'; var keep = FD.edit; fdEdit(keep); rfStateSet('dirty', '● Not saved yet'); return; }
     rfStateSet('dirty', '● Not saved yet'); refresh();
     if (k === 'instagramUrl') fdIgCheck();
   };
   body.onclick = function (ev) { var tb = ev.target.closest('[data-type]'); if (tb) { FD.edit.type = tb.dataset.type; fdEdit(FD.edit); } };
   $('#fdback').onclick = fdBack;
   $('#fdsave').onclick = function () {
-    var body2 = Object.assign({}, FD.edit, { languages: fdTags(FD.edit.languages), genres: fdTags(FD.edit.genres) });
-    saveSettingsBtn(this, '/admin/api/feed/save', body2, rfStateSet, function (r) { r.changed = ['x']; var st = r.status; FD.edit = Object.assign({}, r.post); fdLoad(function () { fdEdit(FD.edit); rfStateSet('ok', '✅ Saved — ' + ((FD_STATUS[st] || [st])[0])); }); });
+    var body2 = Object.assign({}, FD.edit, { service: FD.edit.ctaService || '', languages: fdTags(FD.edit.languages), genres: fdTags(FD.edit.genres) });
+    delete body2._img;
+    saveSettingsBtn(this, '/admin/api/feed/save', body2, rfStateSet, function (r) {
+      r.changed = ['x']; var st = r.status; FD.edit = Object.assign({}, r.post);
+      if (r.thumb && r.thumb.message) toast(r.thumb.message);
+      fdShrinkThumb(r.thumb, function () { fdLoad(function () { fdEdit(FD.edit); rfStateSet('ok', '✅ Saved — ' + ((FD_STATUS[st] || [st])[0])); }); });
+    });
+  };
+  if ($('#fdthumb')) $('#fdthumb').onclick = function () {
+    var b = this; b.disabled = true; b.textContent = '⏳ Asking Instagram…';
+    post('/admin/api/feed/thumb/refresh', { id: FD.edit.id }).then(function (r) {
+      toast(r.message || (r.ok ? 'Done' : '⚠️ error'));
+      if (!r.ok) { b.disabled = false; b.textContent = '🔄 Refresh thumbnail'; return; }
+      var keep = Object.assign({}, FD.edit, { hasThumb: r.post.hasThumb, thumbAt: r.post.thumbAt, sourceCaption: r.post.sourceCaption, imageUrl: FD.edit.imageUrl || r.post.imageUrl, updatedAt: r.post.updatedAt });
+      fdShrinkThumb(r, function (t) { if (t) keep.thumbAt = t; FD.edit = keep; fdEdit(keep); });
+    });
+  };
+  if ($('#fdthumbdel')) $('#fdthumbdel').onclick = function () { post('/admin/api/feed/thumb', { id: FD.edit.id, dataUrl: '' }).then(function (r) { if (r.ok) { FD.edit.hasThumb = false; FD.edit.thumbAt = ''; fdEdit(FD.edit); } else toast('⚠️ ' + (r.message || 'error')); }); };
+  $('#fdai').onclick = function () {
+    var b = this, out = $('#fdaimsg'); b.disabled = true; b.textContent = '⏳ Thinking…'; out.innerHTML = '';
+    post('/admin/api/feed/ai-fill', { title: FD.edit.title, caption: FD.edit.caption, sourceCaption: FD.edit.sourceCaption, type: FD.edit.type }).then(function (r) {
+      b.disabled = false; b.textContent = '✨ AI fill';
+      if (!r.ok) { out.innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'; return; }
+      var f = r.fields || {}, ed = FD.edit;
+      ['title', 'caption', 'releaseDate'].forEach(function (k) { if (f[k]) ed[k] = f[k]; });
+      if (f.type && ed.type !== 'announcement') ed.type = f.type;
+      if (f.genres) ed.genres = f.genres; if (f.languages) ed.languages = f.languages;
+      // Picture / trailer only when the post has none (never replaces the owner's choice).
+      if (f.imageUrl && !ed.imageUrl && !ed.hasImage) ed.imageUrl = f.imageUrl;
+      if (f.trailerUrl && !ed.trailerUrl) ed.trailerUrl = f.trailerUrl;
+      fdEdit(ed); rfStateSet('dirty', '● Check the ✨ suggestions, then 💾 Save');
+      $('#fdaimsg').innerHTML = '<div class="qnote">' + esc(r.message || '') + (r.notes && r.notes.length ? '<br>' + r.notes.map(esc).join('<br>') : '') + '</div>';
+    });
   };
   var fi = $('#fdimg');
   if (fi) fi.onchange = function () {
@@ -2680,6 +2757,25 @@ function fdEdit(p) {
   };
   var del = $('#fdimgdel'); if (del) del.onclick = function () { post('/admin/api/feed/image', { id: FD.edit.id, dataUrl: '' }).then(function (r) { if (r.ok) { FD.edit.hasImage = false; FD.edit._img = ''; fdEdit(FD.edit); } }); };
   refresh(); fdIgCheck();
+}
+// 📸 The server stores Instagram's thumbnail as it comes (up to ~330 KB). Above 120 KB this page shrinks it on a canvas
+// (same way as uploaded pictures) and saves the small copy, so customers download little. r = save / refresh result.
+var FD_THUMB_MAX = 120 * 1024;
+function fdShrinkThumb(r, done) {
+  var id = r && r.post && r.post.id || FD.edit && FD.edit.id;
+  if (!r || !r.thumb || !(r.bytes > FD_THUMB_MAX) || !id) return done();
+  var img = new Image();
+  img.onload = function () {
+    try {
+      var k = Math.min(1, 720 / Math.max(img.width, img.height)), cv = document.createElement('canvas');
+      cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      var q = 0.82, url = cv.toDataURL('image/jpeg', q);
+      while (url.length > FD_THUMB_MAX * 1.37 && q > 0.4) { q -= 0.08; url = cv.toDataURL('image/jpeg', q); }
+      post('/admin/api/feed/thumb', { id: id, dataUrl: url }).then(function (x) { done(x && x.ok ? x.thumbAt : ''); });
+    } catch (e) { done(); }
+  };
+  img.onerror = function () { done(); };
+  img.src = '/feed-img/' + id + 't?v=' + Date.now();
 }
 // 📸 Same rule as feed.js instagramUrl(): '' empty, null not valid, else the clean permalink (tracking like ?igsh= dropped).
 function fdIgNorm(v) {
@@ -2706,15 +2802,20 @@ function fdIgCheck() {
   };
 }
 function fdPreview(e) {
-  var img = fdImg(e), svc = e.service || 'FluxFilm', tags = fdTags(e.languages).concat(fdTags(e.genres));
+  var ig = fdIgNorm(e.instagramUrl);
+  var img = ig && e.hasThumb && e.id ? '/feed-img/' + e.id + 't?v=' + encodeURIComponent(e.thumbAt || '') : fdImg(e);
+  var brand = e.brand || fdBrandOf(e.ctaService || e.service) || 'FluxFilm', plan = e.ctaService || e.service || '', gen = fdTags(e.genres), langs = fdTags(e.languages);
+  var logo = ''; FD.serviceInfo.filter(function (x) { return fdBrandOf(x.service) === brand && x.logoUrl; }).sort(function (a, b) { return a.service.length - b.service.length; }).slice(0, 1).forEach(function (x) { logo = x.logoUrl; });
+  var price = ''; FD.serviceInfo.forEach(function (x) { if (x.service === plan && x.minPrice) price = '₹' + x.minPrice; });
   var rel = ''; if (/^\d{4}-\d{2}-\d{2}$/.test(e.releaseDate || '')) { var t = Date.parse(e.releaseDate + 'T00:00:00+05:30'); rel = (t > Date.now() ? '📅 Streaming from ' : (e.type === 'series' ? '📺 Out since ' : '🎬 Released ')) + prettyDate(e.releaseDate); }
-  return '<div class="fd-phone"><div class="ff-feed-post"><div class="ff-feed-head"><div class="ff-feed-av"><span>' + esc(svc.charAt(0).toUpperCase()) + '</span></div><div class="ff-feed-name"><b>' + esc(svc) + '</b><span>' + fdType(e.type) + ' · just now</span></div>' + (e.pinned ? '<span class="ff-feed-pin">📌 Pinned</span>' : '') + '</div>' +
+  return '<div class="fd-phone"><div class="ff-feed-post"><div class="ff-feed-head"><div class="ff-feed-av' + (logo ? ' logo' : '') + '">' + (logo ? '<img src="' + esc(logo) + '" alt=""/>' : '<span>' + esc(brand.charAt(0).toUpperCase()) + '</span>') + '</div><div class="ff-feed-name"><b>' + esc(brand) + '</b><span>' + fdType(e.type) + ' · just now</span></div>' + (e.pinned ? '<span class="ff-feed-pin">📌 Pinned</span>' : '') + '</div>' +
     '<div class="ff-feed-media">' + (img ? '<img src="' + esc(img) + '" alt=""/>' : '<div class="ff-feed-noimg">🍿</div>') +
-    (fdIgNorm(e.instagramUrl) ? '<div class="ff-feed-ig"><b>▶️</b><span>📸 Watch on Instagram</span></div>' : e.trailerUrl ? '<div class="ff-feed-ig yt"><b>▶️</b><span>Play trailer</span></div>' : '') + '</div>' +
-    '<div class="ff-feed-acts"><span>🤍</span><span>📤 Share</span>' + (e.trailerUrl ? '<span class="ff-feed-trailer">▶ Trailer</span>' : '') + '</div>' +
-    '<div class="ff-feed-body"><div class="ff-feed-title">' + esc(e.title || 'Title') + '</div>' + (rel ? '<div class="ff-feed-rel">' + rel + '</div>' : '') + (e.caption ? '<div class="ff-feed-cap">' + esc(e.caption) + '</div>' : '') +
-    (tags.length ? '<div class="ff-feed-tags">' + tags.map(function (x) { return '<span>' + esc(x) + '</span>'; }).join('') + '</div>' : '') +
-    (e.cta !== 'none' && e.service ? '<div class="ff-feed-cta"><span>Get ' + esc(e.service) + ' from ₹…<small>Streaming on ' + esc(e.service) + '</small></span><span>›</span></div>' : '') + '</div></div></div>';
+    (ig ? '<span class="ff-feed-igchip">📸 Instagram</span><div class="ff-feed-ig"><b>▶️</b>' + (img ? '' : '<span>📸 Watch on Instagram</span>') + '</div>' : e.trailerUrl ? '<div class="ff-feed-ig yt"><b>▶️</b><span>Play trailer</span></div>' : '') + '</div>' +
+    '<div class="ff-feed-acts"><span>🤍</span><span>📤 Share</span><span>💬</span></div>' +
+    '<div class="ff-feed-body"><div class="ff-feed-title">' + esc(e.title || 'Title') + '</div>' + (gen.length ? '<div class="ff-feed-gen">' + gen.map(function (x) { return '<span>' + esc(x) + '</span>'; }).join('') + '</div>' : '') + (rel ? '<div class="ff-feed-rel">' + rel + '</div>' : '') + (e.caption ? '<div class="ff-feed-cap clamp">' + esc(e.caption) + '</div>' : '') +
+    (langs.length ? '<div class="ff-feed-tags">' + langs.map(function (x) { return '<span>' + esc(x) + '</span>'; }).join('') + '</div>' : '') +
+    (e.trailerUrl ? '<div class="ff-feed-ytbtn">▶️ Watch on YouTube</div>' : '') +
+    (e.cta !== 'none' && plan ? '<div class="ff-feed-cta"><span>Get ' + esc(plan) + ' from ' + (price || '₹…') + '<small>Streaming on ' + esc(brand) + '</small></span><span>›</span></div>' : '') + '</div></div></div>';
 }
 function fdPanel(title, inner) {
   $('#fdbody').innerHTML = '<div class="card"><div class="row" style="justify-content:space-between"><h3 style="margin:0">' + title + '</h3><button class="btn ghost sm" id="fdback">← Back</button></div>' + inner + '</div>';
@@ -2728,6 +2829,10 @@ function fdSettings() {
     '<h4 style="margin:16px 0 4px">🎬 TMDB key (free) — turns on the automatic feed</h4><p class="muted" style="margin:0;font-size:.84rem">' + (st.hasKey ? '✅ A key is saved (' + esc(st.keyType) + '). It stays on the server and is never shown again.' : 'No key yet — posts can still be made by hand.') + '</p>' +
     '<ol class="fd-steps"><li>Open <b>themoviedb.org</b> → Sign up (free) → verify your email.</li><li>Profile → <b>Settings → API</b> → create an API key (personal use).</li><li>Copy the <b>API Read Access Token</b> (long) or the <b>API Key</b> and paste it here.</li></ol>' +
     '<div class="row"><input class="inp grow" id="fdkey" type="password" autocomplete="off" spellcheck="false" placeholder="' + (st.hasKey ? 'Paste a new key to replace it' : 'Paste TMDB key or token') + '"/><button class="btn green" id="fdkeysave">💾 Save key</button>' + (st.hasKey ? '<button class="btn ghost" id="fdkeydel">Remove key</button><button class="btn ghost" id="fdprov">🔌 Test + provider ids</button>' : '') + '</div><div id="fdprovout"></div>' +
+    '<h4 style="margin:20px 0 4px">📸 Instagram thumbnails — Meta token (optional)</h4><p class="muted" style="margin:0;font-size:.84rem">' + (st.hasMetaToken ? '✅ A Meta token is saved. It stays on the server and is never shown again.' : 'Without it the shop still tries Instagram\'s public embed page for the thumbnail (Instagram may block it sometimes).') + '</p>' +
+    '<ol class="fd-steps"><li><b>developers.facebook.com</b> → My Apps → Create app (type “Business”) → add the <b>oEmbed Read</b> product.</li><li>App settings → Basic: copy the <b>App ID</b> and <b>App secret</b>.</li><li>Paste them here as <b>App ID|App secret</b> (with the | in the middle).</li></ol>' +
+    '<div class="row"><input class="inp grow" id="fdmeta" type="password" autocomplete="off" spellcheck="false" placeholder="' + (st.hasMetaToken ? 'Paste a new token to replace it' : 'App ID|App secret') + '"/><button class="btn green" id="fdmetasave">💾 Save token</button>' + (st.hasMetaToken ? '<button class="btn ghost" id="fdmetadel">Remove</button>' : '') + '</div>' +
+    '<h4 style="margin:20px 0 4px">✨ AI fill</h4><p class="muted" style="margin:0;font-size:.84rem">' + (st.aiKeySet ? '✅ Uses the AI key Olivia uses (DEEPSEEK_API_KEY) for captions.' : 'No AI key: ✨ AI fill only adds genres, date and poster. For captions add <b>DEEPSEEK_API_KEY</b> in Hostinger → the Node app → Environment variables (the same key Olivia uses).') + '</p>' +
     '<h4 style="margin:20px 0 4px">🤖 Automatic import (every 6 hours)</h4><label class="rf-tog"><input type="checkbox" id="fdauto"' + (st.autoPublish ? ' checked' : '') + '/> <b>Publish imported posts by themselves</b></label>' +
     '<p class="muted" style="margin:0 0 10px;font-size:.8rem">ON: new titles go live at once. OFF: they wait as drafts (⏸ Off) until you turn them on. Posts you edit are never changed by the import.</p>' +
     '<div class="muted" style="font-size:.8rem;margin-bottom:4px">Platforms <span>(none ticked = every platform you sell)</span></div><div class="row" style="gap:12px">' + FD.services.map(function (s) { return '<label class="rf-tog" style="margin:0"><input type="checkbox" data-plat="' + esc(s) + '"' + ((st.platforms || []).indexOf(s) >= 0 ? ' checked' : '') + '/> ' + esc(s) + '</label>'; }).join('') + '</div>' +
@@ -2740,6 +2845,8 @@ function fdSettings() {
   var parseMap = function () { var out = {}; String($('#fdmap').value || '').split('\n').forEach(function (l) { var m = l.split('='); if (m.length === 2 && m[0].trim() && m[1].trim()) out[m[0].trim().toLowerCase()] = m[1].trim(); }); return out; };
   var after = function (r) { if (r.ok) { FD.settings = r.settings; fdSettings(); } };
   $('#fdkeysave').onclick = function () { var k = $('#fdkey').value.trim(); if (!k) return toast('Paste the key first'); post('/admin/api/feed/settings', { tmdbKey: k }).then(function (r) { $('#fdkey').value = ''; toast(r.ok ? '✅ Key saved' : '⚠️ ' + (r.message || 'error')); after(r); }); };
+  $('#fdmetasave').onclick = function () { var k = $('#fdmeta').value.trim(); if (!k) return toast('Paste the token first'); post('/admin/api/feed/settings', { metaToken: k }).then(function (r) { $('#fdmeta').value = ''; toast(r.ok ? '✅ Meta token saved' : '⚠️ ' + (r.message || 'error')); after(r); }); };
+  if ($('#fdmetadel')) $('#fdmetadel').onclick = function () { if (confirm('Remove the Meta token? Thumbnails already saved stay.')) post('/admin/api/feed/settings', { clearMetaToken: true }).then(function (r) { toast(r.ok ? 'Meta token removed' : '⚠️ ' + (r.message || 'error')); after(r); }); };
   if ($('#fdkeydel')) $('#fdkeydel').onclick = function () { if (confirm('Remove the TMDB key? Posts already made stay.')) post('/admin/api/feed/settings', { clearKey: true }).then(function (r) { toast(r.ok ? 'Key removed' : '⚠️ ' + (r.message || 'error')); after(r); }); };
   if ($('#fdprov')) $('#fdprov').onclick = function () {
     var out = $('#fdprovout'); out.innerHTML = '<p class="muted">Asking TMDB…</p>';
@@ -2749,6 +2856,43 @@ function fdSettings() {
     var ticked = function (attr) { return $$('[data-' + attr + ']').filter(function (x) { return x.checked; }).map(function (x) { return x.getAttribute('data-' + attr); }); };
     saveSettingsBtn(this, '/admin/api/feed/settings', { autoPublish: $('#fdauto').checked, platforms: ticked('plat'), languages: ticked('lang'), maxPerDay: $('#fdmax').value, autoHideDays: $('#fdhide').value, minPopularity: $('#fdpop').value, minVotes: $('#fdvotes').value, providerMap: parseMap() }, rfStateSet, function (r) { FD.settings = r.settings; });
   };
+}
+// 💬 Comments: moderation queue (pending first) + every comment per post. Approve / hide / delete / block commenter.
+var FD_CM_STATUS = { visible: ['🟢 Visible', 'p-ok'], pending: ['🕒 To check', 'p-warn'], hidden: ['🙈 Hidden', 'p-grey'] };
+function fdComments(status, postId) {
+  FD.panel = 'comments'; FD.cmStatus = status || 'pending'; FD.cmPost = postId || '';
+  var postOpts = '<option value="">All posts</option>' + FD.list.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === FD.cmPost ? ' selected' : '') + '>' + esc(p.title) + '</option>'; }).join('');
+  fdPanel('💬 Comments', '<p class="muted" style="font-size:.84rem;margin:8px 0 0">Customers must be logged in to comment. The shop blocks abuse, phone numbers, emails, UPI IDs, links and “DM me / whatsapp karo” selling before saving; unsure ones wait here (🕒 To check).</p>' +
+    '<div class="fd-cm-tabs">' + [['pending', '🕒 To check'], ['visible', '🟢 Visible'], ['hidden', '🙈 Hidden'], ['all', 'All']].map(function (x) { return '<button class="btn sm ' + (FD.cmStatus === x[0] ? 'dark' : 'ghost') + '" data-cmtab="' + x[0] + '">' + x[1] + ' <span data-cmn="' + x[0] + '"></span></button>'; }).join('') +
+    '<select class="inp" id="fdcmpost" style="max-width:260px">' + postOpts + '</select></div><div id="fdcmlist"><p class="muted">Loading…</p></div>');
+  var box = $('#fdbody');
+  box.onchange = function (ev) { if (ev.target.id === 'fdcmpost') fdComments(FD.cmStatus, ev.target.value); };
+  box.onclick = function (ev) {
+    var b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.cmtab) return fdComments(b.dataset.cmtab, FD.cmPost);
+    if (!b.dataset.cmact) return;
+    var act = b.dataset.cmact, id = +b.dataset.cmid;
+    if (act === 'delete' && !confirm('Delete this comment for good?')) return;
+    if (act === 'block' && !confirm('Block this customer from commenting? All their comments get hidden.')) return;
+    b.disabled = true;
+    post('/admin/api/feed/comments/action', { id: id, action: act }).then(function (r) { toast(r.ok ? ({ approve: '✅ Approved — visible now', hide: '🙈 Hidden', delete: '🗑 Deleted', block: '🚫 Commenter blocked', unblock: 'Unblocked' })[act] : '⚠️ ' + (r.message || 'error')); fdComments(FD.cmStatus, FD.cmPost); fdLoad(function () {}); });
+  };
+  api('/admin/api/feed/comments?status=' + encodeURIComponent(FD.cmStatus === 'all' ? '' : FD.cmStatus) + '&post=' + encodeURIComponent(FD.cmPost)).then(function (r) {
+    var out = $('#fdcmlist'); if (!out) return;
+    if (!r.ok) { out.innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'; return; }
+    if (!r.ready) { out.innerHTML = '<div class="qnote warn">💬 Comments are not switched on yet: run <b>db/schema-v24.sql</b> in phpMyAdmin (customers see “Comments coming soon” until then).</div>'; return; }
+    var c = r.counts || {}; ['pending', 'visible', 'hidden'].forEach(function (k) { var el = document.querySelector('[data-cmn="' + k + '"]'); if (el) el.textContent = c[k] ? '(' + c[k] + ')' : ''; });
+    var title = function (id) { var p = FD.list.filter(function (x) { return x.id === id; })[0]; return p ? p.title : id; };
+    var blocked = r.blocked || {}; var bl = Object.keys(blocked).map(function (k) { return k + ' ' + blocked[k]; }).join(' · ');
+    out.innerHTML = (bl ? '<p class="muted" style="font-size:.78rem">🛡️ Refused since the last restart (never saved): ' + esc(bl) + (r.bans ? ' · 🚫 ' + r.bans + ' blocked commenters' : '') + '</p>' : r.bans ? '<p class="muted" style="font-size:.78rem">🚫 ' + r.bans + ' blocked commenters</p>' : '') +
+      (!(r.comments || []).length ? '<p class="muted">No comments here.</p>' : '<div class="fd-res">' + r.comments.map(function (x) {
+        var st = FD_CM_STATUS[x.status] || [x.status, 'p-grey'];
+        return '<div class="fd-cmrow"><div class="grow" style="min-width:0"><div class="row" style="gap:6px"><b>' + esc(x.name) + '</b><span class="muted" style="font-size:.75rem">…' + esc(String(x.phone).slice(-4)) + '</span><span class="pill ' + st[1] + '">' + st[0] + '</span>' + (x.reason ? '<span class="pill p-grey">' + esc(x.reason) + '</span>' : '') + (x.banned ? '<span class="pill p-bad">🚫 blocked</span>' : '') + '</div>' +
+          '<p>' + esc(x.text) + '</p><div class="muted" style="font-size:.75rem">on “' + esc(title(x.postId)) + '” · ' + prNice(x.at) + '</div>' +
+          '<div class="pr-actions" style="margin-top:6px">' + (x.status !== 'visible' ? '<button class="btn sm green" data-cmact="approve" data-cmid="' + x.id + '">✅ Approve</button>' : '') + (x.status !== 'hidden' ? '<button class="btn sm ghost" data-cmact="hide" data-cmid="' + x.id + '">🙈 Hide</button>' : '') +
+          '<button class="btn sm ghost" data-cmact="delete" data-cmid="' + x.id + '">🗑 Delete</button>' + (x.banned ? '<button class="btn sm ghost" data-cmact="unblock" data-cmid="' + x.id + '">Unblock</button>' : '<button class="btn sm ghost" data-cmact="block" data-cmid="' + x.id + '">🚫 Block commenter</button>') + '</div></div></div>';
+      }).join('') + '</div>');
+  });
 }
 function fdResRows(rows, pickSvc) {
   if (!rows.length) return '<p class="muted">Nothing found.</p>';
