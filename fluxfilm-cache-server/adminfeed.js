@@ -42,8 +42,9 @@ function mount(app, deps) {
         comments.adminList({ status: 'pending', limit: 1 }).catch(() => ({ ready: false, counts: {}, byPost: {} })),
         marks ? marks.adminInfo().catch(() => ({ ready: false })) : Promise.resolve({ ready: false })]);
       const vu = videos ? await videos.usage().catch(() => ({ ready: false })) : { ready: false };
+      const al = marks && marks.likeCounts ? await marks.likeCounts().catch(() => null) : null;
       const byPost = cm.byPost || {};
-      const posts = feed.sortPosts(items).map((p) => Object.assign({}, p, { status: feed.statusOf(p), views: (st[p.id] || {}).views || 0, likes: (st[p.id] || {}).likes || 0, clicks: (st[p.id] || {}).clicks || 0, shares: (st[p.id] || {}).shares || 0, plays: (st[p.id] || {}).plays || 0, comments: byPost[p.id] || { visible: 0, pending: 0, hidden: 0 } }));
+      const posts = feed.sortPosts(items).map((p) => Object.assign({}, p, { status: feed.statusOf(p), views: (st[p.id] || {}).views || 0, likes: al ? (al[p.id] || 0) : (st[p.id] || {}).likes || 0, clicks: (st[p.id] || {}).clicks || 0, shares: (st[p.id] || {}).shares || 0, plays: (st[p.id] || {}).plays || 0, comments: byPost[p.id] || { visible: 0, pending: 0, hidden: 0 } }));
       res.json({ ok: true, posts, services: info.map((x) => x.service), serviceInfo: info, brands: feed.BRANDS.map((b) => ({ name: b.name, emoji: b.emoji })), settings: feed.publicSettings(settings), job, max: feed.MAX_POSTS, now: new Date().toISOString(), commentsReady: !!cm.ready, commentCounts: cm.counts || {}, marksReady: !!mk.ready, marksCounts: { likes: Number(mk.likes) || 0, saves: Number(mk.saves) || 0 }, video: videoSummary(vu, items) });
     } catch (e) { fail(res, e); }
   });

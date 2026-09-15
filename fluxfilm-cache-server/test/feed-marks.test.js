@@ -21,6 +21,7 @@ const mockDb = {
     let m;
     if ((m = sql.match(/^SELECT post_id FROM (feed_likes|feed_saves) LIMIT 1$/))) { if (!T.tables) throw missing(m[1]); return T.rows[m[1]].slice(0, 1); }
     if (sql === 'SELECT phone_norm FROM customers WHERE phone_norm = ? LIMIT 1') return T.customers.has(p[0]) ? [{ phone_norm: p[0] }] : [];
+    if (sql === 'SELECT post_id, COUNT(*) AS n FROM feed_likes GROUP BY post_id') { if (!T.tables) throw missing('feed_likes'); const o = {}; T.rows.feed_likes.forEach((x) => { o[x.post_id] = (o[x.post_id] || 0) + 1; }); return Object.entries(o).map(([post_id, n]) => ({ post_id, n })); }
     if ((m = sql.match(/^SELECT COUNT\(\*\) AS n FROM (feed_likes|feed_saves) WHERE phone_norm = \?$/))) return [{ n: T.rows[m[1]].filter((r) => r.phone_norm === p[0]).length }];
     if ((m = sql.match(/^SELECT COUNT\(\*\) AS n FROM (feed_likes|feed_saves)$/))) { if (!T.tables) throw missing(m[1]); return [{ n: T.rows[m[1]].length }]; }
     if ((m = sql.match(/^SELECT post_id FROM (feed_likes|feed_saves) WHERE phone_norm = \? AND post_id = \? LIMIT 1$/))) return T.rows[m[1]].filter((r) => r.phone_norm === p[0] && r.post_id === p[1]);
@@ -112,11 +113,21 @@ const OTHER = '9123456789';
 
   likeCounts.length = 0;
   r = await marks.set(ME, LIVE[3], 'like', true);
-  await marks.set(ME, LIVE[3], 'like', true);
-  ok('like: row + count +1 once (second tap not counted)', r.changed && JSON.stringify(likeCounts) === JSON.stringify([[LIVE[3], 1]]), likeCounts);
+  const second = await marks.set(ME, LIVE[3], 'like', true);
+  let lc = await marks.likeCounts();
+  ok('like: liking twice counts ONCE (count = unique rows; second tap changes nothing)', r.changed && second.changed === false && lc[LIVE[3]] === 1 && T.rows.feed_likes.filter((x) => x.post_id === LIVE[3]).length === 1, lc);
+  marks._internal.reset(); // server restart / redeploy: every in-memory cache gone
+  await marks.set('+91 ' + ME, LIVE[3], 'like', 'true');
+  lc = await marks.likeCounts();
+  ok('after a restart the same phone still cannot like again (row already there) — count stays 1', lc[LIVE[3]] === 1, lc);
+  await marks.set(OTHER, LIVE[3], 'like', true);
+  lc = await marks.likeCounts();
+  ok('two phones = two likes', lc[LIVE[3]] === 2, lc);
   await marks.set(ME, LIVE[3], 'like', false);
   await marks.set(ME, LIVE[3], 'like', false);
-  ok('unlike: count -1 once', JSON.stringify(likeCounts) === JSON.stringify([[LIVE[3], 1], [LIVE[3], -1]]), likeCounts);
+  await marks.set(OTHER, LIVE[3], 'like', false);
+  lc = await marks.likeCounts();
+  ok('unlike is idempotent too; count back to 0 (never negative); old per-device counter not used', !lc[LIVE[3]] && likeCounts.length === 0, { lc, likeCounts });
   await marks.set(ME, LIVE[2], 'like', 1);
   r = await marks.list(ME);
   ok('list: liked separate from saved', JSON.stringify(r.liked) === JSON.stringify([LIVE[2]]) && !r.saved.includes(LIVE[2]), r);

@@ -577,6 +577,9 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-feed-cprev > button { justify-self: start; border: 0; background: none; padding: 4px 0; font: inherit; font-size: 13.5px; font-weight: 700; color: #64748b; cursor: pointer; text-align: left; }
 .ff-feed-cprev p { margin: 0; font-size: 13.5px; line-height: 1.45; color: #334155; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .ff-feed-cprev p b { color: #0f172a; font-weight: 800; margin-right: 5px; }
+.ff-cp-av { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 6px; border-radius: 50%; overflow: hidden; vertical-align: -5px; background: #e2e8f0; font-size: 10.5px; font-weight: 800; line-height: 1; }
+.ff-cp-av img, .ff-feed-cm-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ff-feed-cm-av.pic { background: #e2e8f0; }
 .ff-feed-cadd { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 8px; min-height: 40px; padding: 0 4px 0 0; border: 0; background: none; font: inherit; font-size: 13.5px; font-weight: 600; color: #94a3b8; cursor: pointer; text-align: left; }
 .ff-feed-cadd i { width: 28px; height: 28px; flex: none; border-radius: 50%; background: #e2e8f0; display: grid; place-items: center; font-style: normal; font-size: 12px; font-weight: 800; color: #334155; }
 /* "Get <service> from ₹X": pill button in the post + a small floating copy while that post's own button is off screen */
@@ -737,6 +740,11 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-reel-title { margin-top: 6px; font-size: 17px; font-weight: 900; line-height: 1.25; text-shadow: 0 1px 4px rgba(0,0,0,.5); overflow-wrap: anywhere; }
 .ff-reel-rel { margin-top: 2px; font-size: 12.5px; font-weight: 700; color: #bbf7d0; }
 .ff-reel-cap { margin-top: 4px; font-size: 13.5px; font-weight: 500; line-height: 1.45; color: rgba(255,255,255,.94); white-space: pre-line; overflow-wrap: anywhere; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
+.ff-reel-cap { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.ff-reel-cap.open { max-height: 42vh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-right: 4px; }
+.ff-reel-info { transition: background .2s ease; }
+.ff-reel-info.open { background: linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.82) 18%,rgba(0,0,0,.9)); padding-top: 40px; }
+.ff-reels-list.lock { overflow-y: hidden; }
 .ff-reel-cap.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ff-reel-more { padding: 2px 0; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 800; color: rgba(255,255,255,.85); cursor: pointer; }
 .ff-reel-tags { display: flex; gap: 6px; margin-top: 6px; overflow: hidden; }
@@ -754,6 +762,10 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-reel-crop { position: absolute; inset: 0; z-index: 3; overflow: hidden; contain: strict; background: #000; }
 .ff-reel-crop iframe { position: absolute; display: block; max-width: none; border: 0; background: #000; }
 .ff-reel-crop.short { z-index: 1; }
+/* Instagram fallback row (always there while its player is open): never a dead screen if Instagram won't play here. */
+.ff-reel-igfb { position: absolute; left: 8px; right: 8px; top: calc(58px + env(safe-area-inset-top)); z-index: 6; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; pointer-events: none; }
+.ff-reel-igfb > * { pointer-events: auto; min-height: 34px; display: inline-flex; align-items: center; padding: 0 12px; border: 0; border-radius: 999px; background: rgba(0,0,0,.62); color: #fff; font: inherit; font-size: 12.5px; font-weight: 800; text-decoration: none; cursor: pointer; }
+.ff-reel-igfb > span { pointer-events: none; background: rgba(0,0,0,.4); font-weight: 700; }
 .ff-reel-igcrop iframe { pointer-events: auto; }
 .ff-reel.ig-on .ff-reel-cap, .ff-reel.ig-on .ff-reel-tags, .ff-reel.ig-on .ff-reel-rel, .ff-reel.ig-on .ff-reel-more, .ff-reel.ig-on .ff-reel-stage::after { display: none; }
 .ff-reel.ig-on .ff-reel-info { background: linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.6) 40%); padding-top: 24px; }
@@ -12104,9 +12116,11 @@ function feedLikeCount_(p) {
   return Math.max(0, (Number(p && p.likes) || 0) + (feedMarks_.adj[p && p.id] || 0));
 }
 // kind 'like' | 'save'. Updates every post / reel showing it at once; the account copy is written in the background.
+// ❤️ A like needs a login (one like per account, counted from unique rows on the server) → returns 'login' and changes nothing.
 function feedToggleMark_(kind, p, on) {
   const id = p && p.id;
   const key = kind === 'like' ? 'liked' : 'saved';
+  if (kind === 'like' && !feedMarks_.phone) return 'login';
   if (!id || feedMarks_[key].includes(id) === !!on) return;
   const apply = v => {
     feedMarks_[key] = v ? [id].concat(feedMarks_[key].filter(x => x !== id)) : feedMarks_[key].filter(x => x !== id);
@@ -12279,6 +12293,48 @@ const FEED_ICONS_ = {
   play: 'M8.6 5.5v13c0 .6.7 1 1.2.7l10-6.5c.5-.3.5-1 0-1.3l-10-6.5c-.5-.3-1.2.1-1.2.6z',
   grid: 'M5 4h4.6c.6 0 1 .4 1 1v4.6c0 .6-.4 1-1 1H5c-.6 0-1-.4-1-1V5c0-.6.4-1 1-1zM14.4 4H19c.6 0 1 .4 1 1v4.6c0 .6-.4 1-1 1h-4.6c-.6 0-1-.4-1-1V5c0-.6.4-1 1-1zM5 13.4h4.6c.6 0 1 .4 1 1V19c0 .6-.4 1-1 1H5c-.6 0-1-.4-1-1v-4.6c0-.6.4-1 1-1zM14.4 13.4H19c.6 0 1 .4 1 1V19c0 .6-.4 1-1 1h-4.6c-.6 0-1-.4-1-1v-4.6c0-.6.4-1 1-1z'
 };
+// 🖼️ Commenter picture: own photo (/profile-photo/…), creator avatar (/avatar/….svg) or a preset (https dicebear) — the
+// server sends the CURRENT one. No picture, a bad link or a picture that fails to load → a coloured first letter.
+const FEED_AV_COLORS_ = ['#16a34a', '#2563eb', '#db2777', '#7c3aed', '#ea580c', '#0891b2', '#b45309', '#dc2626'];
+function feedAvatarSrc_(u) {
+  let v = String(u || '').trim();
+  if (/^http:\/\/api\.dicebear\.com\//i.test(v)) v = 'https://' + v.slice(7);
+  if (/^\/profile-photo\/[a-f0-9]{24}(\?v=[A-Za-z0-9]{1,20})?$/.test(v) || /^\/avatar\/1[0-9a-z]{15}\.svg$/.test(v)) return v;
+  return /^https:\/\/[A-Za-z0-9.-]+\/[^\s"'<>\\]{1,250}$/.test(v) ? v : '';
+}
+function feedAvatarColor_(name) {
+  let h = 0;
+  for (const ch of String(name || '')) h = h * 31 + ch.codePointAt(0) >>> 0;
+  return FEED_AV_COLORS_[h % FEED_AV_COLORS_.length];
+}
+function FeedAvatar({
+  name,
+  url,
+  size,
+  small
+}) {
+  const src = feedAvatarSrc_(url);
+  const [failed, setFailed] = useState('');
+  const pic = src && failed !== src;
+  const px = size || 34;
+  return React.createElement("span", {
+    className: (small ? 'ff-cp-av' : 'ff-feed-cm-av') + (pic ? ' pic' : ''),
+    "aria-hidden": "true",
+    style: pic ? undefined : {
+      background: feedAvatarColor_(name),
+      color: '#fff'
+    }
+  }, pic ? React.createElement("img", {
+    src: src,
+    alt: "",
+    loading: "lazy",
+    decoding: "async",
+    width: px,
+    height: px,
+    referrerPolicy: "no-referrer",
+    onError: () => setFailed(src)
+  }) : String(name || '?').trim().charAt(0).toUpperCase() || '?');
+}
 // 💬 Comments bottom sheet (feedcomments.js). Everyone reads; a logged-in customer writes; the server moderates first.
 // Opened from 💬 / "View all N comments" / "Add a comment…". The tap already focused a hidden input (FeedScreen proxy),
 // so moving focus to the real box here keeps the phone keyboard open (iOS / Android only open it inside a tap).
@@ -12471,16 +12527,11 @@ function FeedComments({
   }, items.map(c => React.createElement("li", {
     key: c.id,
     className: c.id === fresh ? 'new' : ''
-  }, React.createElement("span", {
-    className: "ff-feed-cm-av",
-    "aria-hidden": "true"
-  }, c.avatar ? React.createElement("img", {
-    src: c.avatar,
-    alt: "",
-    loading: "lazy",
-    width: 34,
-    height: 34
-  }) : String(c.name || '?').charAt(0).toUpperCase()), React.createElement("div", {
+  }, React.createElement(FeedAvatar, {
+    name: c.name,
+    url: c.avatar,
+    size: 34
+  }), React.createElement("div", {
     className: "ff-feed-cm-b"
   }, React.createElement("b", null, c.name), c.text, React.createElement("small", null, feedWhen_(c.at))))));
   return ReactDOM.createPortal(React.createElement(React.Fragment, null, React.createElement("div", {
@@ -12645,6 +12696,11 @@ function FeedPost({
   }, [p.id]);
   function like(force) {
     const on = force === true ? true : !feedIsMarked_('like', p.id);
+    if (!phone) {
+      setNote('LIKELOGIN');
+      setTimeout(() => setNote(n => n === 'LIKELOGIN' ? '' : n), 4000);
+      return;
+    }
     if (on) setBurst(b => b + 1);
     feedToggleMark_('like', p, on);
   }
@@ -12774,7 +12830,9 @@ function FeedPost({
     className: "ff-feed-rel"
   }, rel, langs.length > 0 && React.createElement("span", null, (rel ? ' · ' : '') + langs.join(', '))), caption && React.createElement("div", {
     ref: capRef,
-    className: "ff-feed-cap" + (open ? '' : ' clamp')
+    className: "ff-feed-cap" + (open ? '' : ' clamp') + (long ? ' tap' : ''),
+    // Tap the caption itself to open / close it (like Instagram), same as "more / less".
+    onClick: long ? () => setOpen(o => !o) : undefined
   }, caption), long && React.createElement("button", {
     type: "button",
     className: "ff-feed-more",
@@ -12792,14 +12850,14 @@ function FeedPost({
     type: "button",
     className: "ff-feed-ytbtn",
     onClick: () => openExternal_(p.trailerUrl)
-  }, feedYouTubeId_(p.trailerUrl) ? '▶️ Watch on YouTube' : '▶ Watch the trailer'), note === 'LOGIN' ? React.createElement("div", {
+  }, feedYouTubeId_(p.trailerUrl) ? '▶️ Watch on YouTube' : '▶ Watch the trailer'), note === 'LOGIN' || note === 'LIKELOGIN' ? React.createElement("div", {
     className: "ff-feed-note",
     role: "status"
-  }, '🔖 Saved on this phone. ', React.createElement("button", {
+  }, note === 'LIKELOGIN' ? '❤️ ' : '🔖 Saved on this phone. ', React.createElement("button", {
     type: "button",
     className: "ff-feed-more",
     onClick: () => onLogin && onLogin()
-  }, "Log in"), ' to keep it on your account.') : note && React.createElement("div", {
+  }, "Log in"), note === 'LIKELOGIN' ? ' to like posts — one like per account.' : ' to keep it on your account.') : note && React.createElement("div", {
     className: "ff-feed-note",
     role: "status"
   }, note), (pv.length > 0 || ncomments > 0) && React.createElement("div", {
@@ -12810,7 +12868,12 @@ function FeedPost({
   }, ncomments === 1 ? 'View 1 comment' : 'View all ' + ncomments + ' comments'), pv.map(c => React.createElement("p", {
     key: c.id,
     onClick: () => onComments(p, false)
-  }, React.createElement("b", null, c.name), c.text))), React.createElement("button", {
+  }, React.createElement(FeedAvatar, {
+    name: c.name,
+    url: c.avatar,
+    size: 20,
+    small: true
+  }), React.createElement("b", null, c.name), c.text))), React.createElement("button", {
     type: "button",
     className: "ff-feed-cadd",
     onClick: () => onComments(p, true)
@@ -12858,6 +12921,9 @@ function FeedReels({
     n: 0
   });
   const [capOpen, setCapOpen] = useState('');
+  // Instagram fallback: the reel whose post also has a YouTube trailer can be switched to the trailer ("▶ Trailer").
+  const [altYt, setAltYt] = useState('');
+  const kindOf = p => p && altYt === p.id && feedYouTubeId_(p.trailerUrl) ? 'yt' : feedReelKind_(p);
   const [note, setNote] = useState(null);
   const [out, setOut] = useState(false);
   const [hint, setHint] = useState(items.length > 1);
@@ -12981,6 +13047,7 @@ function FeedReels({
     idxRef.current = i;
     setIdx(i);
     setCapOpen('');
+    setAltYt('');
     setHint(false);
     stop();
   }
@@ -13033,11 +13100,37 @@ function FeedReels({
   }
   function like(p, force) {
     const on = force === true ? true : !feedIsMarked_('like', p.id);
+    if (!phone) return flash({
+      text: '❤️ Log in to like',
+      login: true
+    });
     if (on) setBurst(b => ({
       id: p.id,
       n: b.n + 1
     }));
     feedToggleMark_('like', p, on);
+  }
+  // Caption like Instagram: 2 lines; tap (or "more") → the whole text in place over a darker fade, scrollable; tap again or
+  // swipe down on it → back to 2 lines. Never touches the video and the reel list can't move while it is open.
+  const capTouch = useRef({
+    y: 0,
+    top: 0
+  });
+  function toggleCap(id) {
+    setCapOpen(c => c === id ? '' : id);
+  }
+  function capTouchStart(e) {
+    capTouch.current = {
+      y: e.touches[0].clientY,
+      top: e.currentTarget.scrollTop
+    };
+  }
+  function capTouchEnd(e, id) {
+    const dy = (e.changedTouches[0] || {}).clientY - capTouch.current.y;
+    if (capOpen === id && dy > 40 && capTouch.current.top <= 0) {
+      e.preventDefault();
+      setCapOpen('');
+    }
   }
   function flash(n) {
     setNote(n);
@@ -13047,13 +13140,14 @@ function FeedReels({
   const cur = useRef({});
   cur.current = {
     p: items[idx],
+    kind: kindOf(items[idx]),
     playing,
     yt
   };
   if (!tapRef.current) tapRef.current = feedTaps_(() => {
     const c = cur.current;
     if (!c.p) return;
-    const kind = feedReelKind_(c.p);
+    const kind = c.kind;
     if (!c.playing) play(c.p);else if (kind === 'video' && videoRef.current) {
       const v = videoRef.current;
       if (v.paused) v.play().catch(() => {});else v.pause();
@@ -13062,7 +13156,7 @@ function FeedReels({
       feedYtCmd_(frameRef.current, on ? 'pauseVideo' : 'playVideo');
     }
   }, () => cur.current.p && like(cur.current.p, true));
-  const curKind = feedReelKind_(items[idx]);
+  const curKind = kindOf(items[idx]);
   const top = React.createElement("div", {
     className: "ff-reels-top"
   }, React.createElement("button", {
@@ -13104,11 +13198,11 @@ function FeedReels({
     "aria-label": "Reels"
   }, React.createElement("div", {
     ref: listRef,
-    className: "ff-reels-list",
+    className: "ff-reels-list" + (capOpen ? ' lock' : ''),
     onScroll: onScroll
   }, items.map((p, i) => {
     const near = Math.abs(i - idx) <= 1;
-    const kind = feedReelKind_(p);
+    const kind = kindOf(p);
     const on = i === idx && playing;
     const b = bits(p);
     const bi = b.brandInfo;
@@ -13242,9 +13336,23 @@ function FeedReels({
       scrolling: "no",
       tabIndex: -1,
       allow: "autoplay; encrypted-media; picture-in-picture",
-      sandbox: "allow-scripts allow-same-origin allow-presentation",
+      sandbox: "allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox",
       referrerPolicy: "strict-origin-when-cross-origin"
-    })), on && (kind === 'video' || kind === 'short') && React.createElement("button", {
+    })), on && kind === 'ig' && React.createElement("div", {
+      className: "ff-reel-igfb"
+    }, React.createElement("span", null, "Tap the video to play"), feedYouTubeId_(p.trailerUrl) && React.createElement("button", {
+      type: "button",
+      onClick: () => {
+        setAltYt(p.id);
+        setYt(-1);
+        setPlaying(true);
+        feedEvent_(p.id, 'play');
+      }
+    }, "▶ Trailer"), React.createElement("a", {
+      href: feedIgUrl_(p.instagramUrl),
+      target: "_blank",
+      rel: "noopener noreferrer"
+    }, "Instagram ↗")), on && (kind === 'video' || kind === 'short') && React.createElement("button", {
       type: "button",
       className: "ff-reel-mute",
       "aria-pressed": !muted,
@@ -13298,7 +13406,8 @@ function FeedReels({
       on: saved,
       size: 32
     }))), React.createElement("div", {
-      className: "ff-reel-info"
+      className: "ff-reel-info" + (capOpen === p.id ? ' open' : ''),
+      onClick: e => e.stopPropagation()
     }, React.createElement("div", {
       className: "ff-reel-brand"
     }, React.createElement("div", {
@@ -13317,11 +13426,29 @@ function FeedReels({
     }, p.title), rel && React.createElement("div", {
       className: "ff-reel-rel"
     }, rel), cap && React.createElement("div", {
-      className: "ff-reel-cap" + (capOpen === p.id ? '' : ' clamp')
-    }, cap), cap.length > 90 && React.createElement("button", {
+      className: "ff-reel-cap" + (capOpen === p.id ? ' open' : ' clamp'),
+      role: "button",
+      tabIndex: 0,
+      "aria-expanded": capOpen === p.id,
+      onClick: e => {
+        e.stopPropagation();
+        toggleCap(p.id);
+      },
+      onKeyDown: e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggleCap(p.id);
+        }
+      },
+      onTouchStart: capTouchStart,
+      onTouchEnd: e => capTouchEnd(e, p.id)
+    }, cap), cap.length > 60 && React.createElement("button", {
       type: "button",
       className: "ff-reel-more",
-      onClick: () => setCapOpen(capOpen === p.id ? '' : p.id)
+      onClick: e => {
+        e.stopPropagation();
+        toggleCap(p.id);
+      }
     }, capOpen === p.id ? 'less' : 'more'), (p.genres || []).length > 0 && React.createElement("div", {
       className: "ff-reel-tags"
     }, p.genres.slice(0, 4).map(g => React.createElement("span", {

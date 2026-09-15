@@ -53,14 +53,47 @@ function displayName(name) {
   const initial = /^\p{L}/u.test(last) ? last.charAt(0).toUpperCase() + '.' : '';
   return (first + (initial ? ' ' + initial : '')).slice(0, 30);
 }
-/** Only the shop's own profile-photo / creator-avatar links or plain https avatar pictures. */
+/**
+ * Only the shop's own profile-photo / creator-avatar links or plain https avatar pictures. Formats in customers.profile_pic_url
+ * (checked on live data 15 Sep): '' (most customers), /profile-photo/<24 hex>?v=<code> (own photo), /avatar/<code>.svg
+ * (creator, #109), https://api.dicebear.com/9.x/<style>/svg?seed=<name> (the 12 preset avatars). An old http:// preset
+ * link is upgraded to https (the page would block it otherwise).
+ */
 function safeAvatar(u) {
-  const v = s(u);
-  if (/^\/profile-photo\/[a-f0-9]{24}(\?v=[a-z0-9]{1,20})?$/.test(v)) return v;
+  let v = s(u);
+  if (/^http:\/\/api\.dicebear\.com\//i.test(v)) v = 'https://' + v.slice(7);
+  if (/^\/profile-photo\/[a-f0-9]{24}(\?v=[A-Za-z0-9]{1,20})?$/.test(v)) return v;
   if (/^\/avatar\/1[0-9a-z]{15}\.svg$/.test(v)) return v; // ✨ creator avatar (drawn by the server)
   return /^https:\/\/[A-Za-z0-9.-]+\/[^\s"'<>\\]{1,250}$/.test(v) ? v : '';
 }
 const ipHash = (ip) => crypto.createHash('sha256').update('ffcomment|' + s(ip)).digest('hex').slice(0, 24);
+
+// 🖼️ The commenter's CURRENT picture (profile photo / creator avatar / preset), looked up at read time by the comment
+// ids (the phone never leaves the server), cached a minute. A comment saved before the customer had a picture, or
+// before they changed it, shows the new one; a removed picture falls back to the coloured letter. Lookup errors → the
+// picture saved with the comment.
+const AVATAR_MS = 60e3;
+const avatarCache = new Map(); // comment id → { at, url }
+async function currentAvatars(ids) {
+  const now = Date.now();
+  const want = [...new Set(ids.map((x) => Math.floor(Number(x) || 0)).filter((x) => x > 0))];
+  const need = want.filter((id) => { const h = avatarCache.get(id); return !h || now - h.at >= AVATAR_MS; });
+  if (need.length) {
+    try {
+      const rows = await db.query('SELECT c.id AS id, cu.profile_pic_url AS pic FROM feed_comments c JOIN customers cu ON cu.phone_norm = c.phone_norm WHERE c.id IN (' + need.map(() => '?').join(', ') + ')', need);
+      const got = new Map((Array.isArray(rows) ? rows : []).map((r) => [Math.floor(Number(r.id)), safeAvatar(r.pic)]));
+      for (const id of need) if (got.has(id)) avatarCache.set(id, { at: now, url: got.get(id) });
+      if (avatarCache.size > 5000) avatarCache.clear();
+    } catch (_) { /* keep the saved pictures */ }
+  }
+  const out = {};
+  for (const id of want) { const h = avatarCache.get(id); if (h) out[id] = h.url; }
+  return out;
+}
+async function withAvatars(list) {
+  const cur = await currentAvatars(list.map((c) => c.id));
+  return list.map((c) => (Object.prototype.hasOwnProperty.call(cur, c.id) ? Object.assign({}, c, { avatar: cur[c.id] }) : c));
+}
 
 function publicRow(r) {
   return { id: Number(r.id), name: s(r.name) || 'FluxFilm member', avatar: safeAvatar(r.avatar_url), text: s(r.text), at: new Date(istParse(r.created_at) || Date.now()).toISOString() };
@@ -74,7 +107,7 @@ async function list(postId, cursor) {
   if (!(await ready())) return { ok: true, ready: false, comments: [], next: null, message: NOT_READY };
   const cur = Math.floor(Number(cursor) || 0);
   const rows = await db.query('SELECT id, name, avatar_url, text, created_at FROM feed_comments WHERE post_id = ? AND status = ?' + (cur > 0 ? ' AND id < ?' : '') + ' ORDER BY id DESC LIMIT ' + (PAGE + 1), cur > 0 ? [pid, 'visible', cur] : [pid, 'visible']);
-  const page = rows.slice(0, PAGE).map(publicRow);
+  const page = await withAvatars(rows.slice(0, PAGE).map(publicRow));
   return { ok: true, ready: true, comments: page, next: rows.length > PAGE ? page[page.length - 1].id : null };
 }
 
@@ -115,8 +148,12 @@ async function previews(postIds) {
     if (previewCache.size > 500) for (const [k, v] of previewCache) if (now - v.at >= PREVIEW_MS) previewCache.delete(k);
   }
   const cc = await counts();
+  const cur = await currentAvatars(ids.flatMap((id) => ((previewCache.get(id) || {}).comments || []).map((c) => c.id)));
   const out = {};
-  for (const id of ids) { const list = (previewCache.get(id) || {}).comments || []; out[id] = { total: Math.max(Number(cc[id]) || 0, list.length), comments: list }; }
+  for (const id of ids) {
+    const list = ((previewCache.get(id) || {}).comments || []).map((c) => (Object.prototype.hasOwnProperty.call(cur, c.id) ? Object.assign({}, c, { avatar: cur[c.id] }) : c));
+    out[id] = { total: Math.max(Number(cc[id]) || 0, list.length), comments: list };
+  }
   return { ok: true, ready: true, previews: out };
 }
 
@@ -226,5 +263,5 @@ async function adminAction(id, action) {
 
 module.exports = {
   list, add, counts, previews, ready, adminList, adminAction, displayName, safeAvatar, NOT_READY, PER_PHONE, PREVIEW_N, PREVIEW_MAX_POSTS,
-  _internal: { recent, lastTexts, blockedCounts, previewCache, reset: () => { readyVal = null; readyAt = 0; countCache = null; recent.clear(); lastTexts.clear(); previewCache.clear(); }, setFeed: (f) => { feedRef = f; }, istString, istParse },
+  _internal: { avatarCache, currentAvatars, recent, lastTexts, blockedCounts, previewCache, reset: () => { avatarCache.clear(); readyVal = null; readyAt = 0; countCache = null; recent.clear(); lastTexts.clear(); previewCache.clear(); }, setFeed: (f) => { feedRef = f; }, istString, istParse },
 };

@@ -351,13 +351,17 @@ function pictureOf(p, ig) {
   if (p.hasImage) return '/feed-img/' + p.id + '?v=' + encodeURIComponent(p.updatedAt || '');
   return posterPath(p.imageUrl);
 }
+/** ❤️ Unique account likes per post (feedmarks.js) once schema-v25 exists; null = use the old feed_stats counter. */
+async function accountLikes() {
+  try { return await require('./feedmarks').likeCounts(); } catch (_) { return null; }
+}
 async function commentCounts() {
   try { return await require('./feedcomments').counts(); } catch (_) { return {}; }
 }
 let cache = null; let cacheAt = 0;
 async function publicList(now) {
   if (!now && cache && Date.now() - cacheAt < 30e3) return cache;
-  const [items, st, cc] = await Promise.all([list(), stats().catch(() => ({})), commentCounts()]);
+  const [items, st, cc, al] = await Promise.all([list(), stats().catch(() => ({})), commentCounts(), accountLikes()]);
   const live = sortPosts(items.filter((p) => statusOf(p, now) === 'LIVE')).slice(0, 60);
   const out = {
     ok: true,
@@ -367,7 +371,7 @@ async function publicList(now) {
         id: p.id, type: p.type, title: p.title, brand: p.brand || brandOf(p.service), ctaService: p.ctaService || p.service, service: p.ctaService || p.service,
         caption: p.caption, releaseDate: p.releaseDate, seasonLabel: p.type === 'series' ? (p.seasonLabel || '') : '',
         languages: p.languages || [], genres: p.genres || [], trailerUrl: p.trailerUrl, instagramUrl: ig, cta: p.cta, pinned: !!p.pinned,
-        date: sortDate(p), likes: (st[p.id] || {}).likes || 0, comments: cc[p.id] || 0,
+        date: sortDate(p), likes: al ? Math.max(0, al[p.id] || 0) : (st[p.id] || {}).likes || 0, comments: cc[p.id] || 0,
         // 🎬 format 'reel' → Reels tab (+ the feed only when inFeed); video = our own uploaded file (feedvideo.js).
         format: p.format === 'reel' ? 'reel' : 'post', inFeed: p.format !== 'reel' || p.reelInFeed !== false,
         video: VIDEO_ID.test(s(p.videoId)) ? '/v/' + p.videoId + (p.videoType === 'video/webm' ? '.webm' : '.mp4') : '', videoType: VIDEO_ID.test(s(p.videoId)) ? s(p.videoType) : '',
@@ -1252,6 +1256,6 @@ module.exports = {
   discover, runImport, jobStatus, startTimer, toIso,
   newWindow, seriesNews, movieNews, indiaReleaseDate, notNewCandidates, hideNotNew,
   weeklyShow, continuousShow, showDates, refreshDates, autoDate, NO_DATE,
-  BRANDS, brandOf, mainServiceFor, migrate, searchTitle, tmdbMatch, storyFrom, refreshThumb, pictureOf, LANGS,
+  accountLikes, BRANDS, brandOf, mainServiceFor, migrate, searchTitle, tmdbMatch, storyFrom, refreshThumb, pictureOf, LANGS,
   _internal: { pending, liked, genreCache, setFetch: (f) => { fetchImpl = f; }, reset: () => { cache = null; pending.clear(); liked.clear(); genreCache.at = 0; running = false; tvCache.clear(); } },
 };

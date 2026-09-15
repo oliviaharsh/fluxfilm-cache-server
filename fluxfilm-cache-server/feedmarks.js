@@ -9,9 +9,10 @@
  *   importFeedMarks [phone, { liked: [ids], saved: [ids] }] → first login on a phone: that phone's local likes / saves are
  *                  copied to the account (INSERT IGNORE, LIVE posts only, ≤ 200 each), then the lists above
  *
- * Like COUNTS stay in app_settings feed_stats (feed.js). A new account like adds 1 (feed.countLike), an account unlike
- * removes 1 — only when a row really changed, so tapping twice or on two phones never counts twice. Imported likes are
- * NOT counted again (that phone already counted them as a device like).
+ * ❤️ LIKE COUNTS (fix 15 Sep): once schema-v25 exists the number under a post is COUNT(*) of feed_likes rows for that post —
+ * one row per phone per post (PRIMARY KEY phone_norm + post_id), so liking twice, after a restart / redeploy or from
+ * another browser never counts twice, and two phones count two. The old per-device counter in app_settings feed_stats
+ * (deduped only in server memory, so it could climb) is no longer shown. Liking needs a login (the storefront asks).
  *
  * Storage: db/schema-v25.sql → feed_likes, feed_saves. Fails soft: until it is run, getFeedMarks answers { ready: false }
  * and the storefront keeps likes / saves on the phone only (localStorage), exactly like before.
@@ -92,16 +93,26 @@ async function set(phone, postId, kind, on) {
     }
     const r = await db.query('INSERT IGNORE INTO ' + table + ' (phone_norm, post_id, created_at) VALUES (?, ?, ?)', [ph, pid, istString()]);
     const changed = !!(r && Number(r.affectedRows) > 0);
-    if (changed && kind === 'like') countLike(pid, 1);
+    if (changed && kind === 'like') likeCache = null;
     return { ok: true, on: true, changed };
   }
   const r = await db.query('DELETE FROM ' + table + ' WHERE phone_norm = ? AND post_id = ?', [ph, pid]);
   const changed = !!(r && Number(r.affectedRows) > 0);
-  if (changed && kind === 'like') countLike(pid, -1);
+  if (changed && kind === 'like') likeCache = null;
   return { ok: true, on: false, changed };
 }
-function countLike(pid, delta) {
-  try { const f = feed(); if (f.countLike) f.countLike(pid, delta); } catch (_) {}
+
+let likeCache = null; let likeAt = 0;
+/** { <postId>: unique account likes } — null before schema-v25 (then the old counter is shown). Cached 30 s. */
+async function likeCounts() {
+  if (likeCache && Date.now() - likeAt < 30e3) return likeCache;
+  try {
+    if (!(await ready())) return null;
+    const rows = await db.query('SELECT post_id, COUNT(*) AS n FROM feed_likes GROUP BY post_id', []);
+    const out = {}; for (const r of rows) { const id = safePost(r.post_id); if (id) out[id] = Number(r.n) || 0; }
+    likeCache = out; likeAt = Date.now();
+    return out;
+  } catch (_) { return likeCache; }
 }
 
 /** The account's liked / saved / commented post ids, newest first. */
@@ -157,6 +168,6 @@ async function adminInfo() {
 }
 
 module.exports = {
-  set, list, importLocal, ready, adminInfo, TABLES, MAX_PER_KIND, IMPORT_MAX, PER_PHONE, NOT_READY,
-  _internal: { recent, reset: () => { readyVal = null; readyAt = 0; recent.clear(); }, setFeed: (f) => { feedRef = f; }, istString },
+  set, list, importLocal, ready, adminInfo, likeCounts, TABLES, MAX_PER_KIND, IMPORT_MAX, PER_PHONE, NOT_READY,
+  _internal: { recent, reset: () => { readyVal = null; readyAt = 0; likeCache = null; recent.clear(); }, setFeed: (f) => { feedRef = f; }, istString },
 };
