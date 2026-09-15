@@ -25,7 +25,14 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
   function resume(then) { try { var p = ctx.resume && ctx.resume(); if (p && p.then) p.then(function () { if (then && ctx.state === 'running') then(); }, function () {}); } catch (e) {} }
   function unlock() {
     try {
-      if (!ctx) { var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; ctx = new AC(); out = ctx.createGain(); out.gain.value = 0.35; out.connect(ctx.destination); }
+      if (!ctx) {
+        var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; ctx = new AC();
+        // Loud but never clipping: a compressor in front of the speakers, then a strong master gain.
+        var comp = ctx.createDynamicsCompressor ? ctx.createDynamicsCompressor() : null;
+        out = ctx.createGain(); out.gain.value = 0.9;
+        if (comp) { comp.threshold.value = -14; comp.knee.value = 6; comp.ratio.value = 8; comp.attack.value = 0.003; comp.release.value = 0.25; out.connect(comp); comp.connect(ctx.destination); }
+        else out.connect(ctx.destination);
+      }
       if (ctx.state !== 'running') resume();
     } catch (e) { ctx = null; }
   }
@@ -36,16 +43,26 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.05);
   }
-  function kaching() {
-    var t = ctx.currentTime + 0.02;
-    // "ka": a tiny filtered noise click like a till drawer.
-    var n = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.04), ctx.sampleRate), d = n.getChannelData(0);
-    for (var i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  function drawer(t, v) {
+    // "ka": a filtered noise click like a till drawer.
+    var n = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.08), ctx.sampleRate), d = n.getChannelData(0);
+    for (var i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2);
     var src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
-    src.buffer = n; bp.type = 'bandpass'; bp.frequency.value = 3200; g.gain.value = 0.5;
+    src.buffer = n; bp.type = 'bandpass'; bp.frequency.value = 2600; if (bp.Q) bp.Q.value = 0.8; g.gain.value = v;
     src.connect(bp); bp.connect(g); g.connect(out); src.start(t);
-    // "ching": two bright bells.
-    [[1318.5, 0.07], [1975.5, 0.15]].forEach(function (b) { tone(t + b[1], b[0], 0.7, 0.3); tone(t + b[1], b[0] * 2.01, 0.35, 0.07, 'triangle'); });
+  }
+  function bell(t, f, dur, v) { tone(t, f, dur, v); tone(t, f * 2.01, dur * 0.5, v * 0.3, 'triangle'); tone(t, f * 3.02, dur * 0.25, v * 0.12); }
+  // New paid order: a loud ~3 s "ka-ching! ka-ching!" — drawer + bells twice, a rising sparkle, then a ringing chord.
+  function kaching() {
+    var t = ctx.currentTime + 0.03;
+    drawer(t, 0.9);
+    bell(t + 0.06, 1318.5, 0.9, 0.55);
+    bell(t + 0.16, 1975.5, 1.1, 0.5);
+    drawer(t + 0.55, 0.6);
+    bell(t + 0.6, 1568.0, 0.8, 0.45);
+    bell(t + 0.7, 2349.3, 1.0, 0.4);
+    [1046.5, 1318.5, 1568.0, 2093.0].forEach(function (f, i) { bell(t + 1.15 + i * 0.12, f, 0.5, 0.35); });
+    [1046.5, 1318.5, 1568.0, 2093.0].forEach(function (f) { tone(t + 1.7, f, 1.5, 0.22); tone(t + 1.7, f * 1.004, 1.5, 0.12, 'triangle'); });
   }
   function play(force) {
     try {
@@ -410,6 +427,10 @@ textarea.inp{resize:vertical}
 .ru-chip{border:1px solid var(--line);background:#fff;border-radius:14px;padding:10px 14px;font-size:.84rem;line-height:1.35;text-align:left;cursor:pointer;color:var(--ink);flex:1 1 220px}
 .ru-chip b{font-size:1.05rem}.ru-chip.warn{border-color:#fcd34d;background:#fffbeb}.ru-chip.ok{border-color:#bbf7d0;background:#f0fdf4}
 .ru-acc{padding:12px 14px;margin-bottom:10px}
+.ru-acc.ru-now{border-left:4px solid #ef4444}.ru-acc.ru-wait_date{border-left:4px solid #f59e0b}
+.ru-help{font-size:.82rem;line-height:1.45;margin:0 0 10px;color:var(--ink)}
+.ru-counts{font-size:.86rem;margin-top:3px}.ru-active{font-size:.95rem}
+.ru-note{font-size:.78rem;margin:6px 0 2px;line-height:1.4;color:var(--ink)}
 .ru-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}
 .ru-person{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f4f8;flex-wrap:wrap}.ru-person:last-child{border-bottom:0}
 .ru-person .grow{flex:1;min-width:170px}
@@ -450,6 +471,15 @@ textarea.inp{resize:vertical}
 @keyframes ffSpStreak { 0% { opacity: 0; transform: translateX(10px) scaleX(.2); } 25% { opacity: 1; } 100% { opacity: 0; transform: translateX(150px) scaleX(4); } }
 @keyframes ffSplashOut { to { opacity: 0; visibility: hidden; } }
 @media (prefers-reduced-motion: reduce) { #ff-splash { display: none !important; } }
+/* 📱 App-like presses (feedback run 2): no blue tap flash / mouse focus box (keyboard keeps a ring), no text selection on buttons, quick press-in */
+html{-webkit-tap-highlight-color:transparent}
+a,button,input,select,textarea,label,summary,.btn,[role="button"],[onclick]{-webkit-tap-highlight-color:transparent}
+:focus:not(:focus-visible){outline:none}
+a:focus-visible,button:focus-visible,summary:focus-visible,.btn:focus-visible,[role="button"]:focus-visible{outline:3px solid rgba(225,29,72,.45);outline-offset:2px}
+button,.btn,[role="button"]{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+button,.btn{transition:transform .1s ease,filter .1s ease}
+:where(button,.btn):active:not(:disabled){transform:scale(.96);filter:brightness(.94)}
+@media (prefers-reduced-motion: reduce){button,.btn{transition:none}}
 </style></head><body>
 <div id="ff-splash" hidden aria-hidden="true"><div class="ff-sp-streaks"><i style="transform:rotate(0deg)"><b style="background:#fecdd3;animation-delay:1.52s"></b></i><i style="transform:rotate(27deg)"><b style="background:#fb7185;animation-delay:1.54s"></b></i><i style="transform:rotate(54deg)"><b style="background:#f43f5e;animation-delay:1.56s"></b></i><i style="transform:rotate(60deg)"><b style="background:#fda4af;animation-delay:1.58s"></b></i><i style="transform:rotate(87deg)"><b style="background:#fbbf24;animation-delay:1.60s"></b></i><i style="transform:rotate(114deg)"><b style="background:#ffffff;animation-delay:1.52s"></b></i><i style="transform:rotate(120deg)"><b style="background:#fca5a5;animation-delay:1.54s"></b></i><i style="transform:rotate(147deg)"><b style="background:#fecdd3;animation-delay:1.56s"></b></i><i style="transform:rotate(174deg)"><b style="background:#fb7185;animation-delay:1.58s"></b></i><i style="transform:rotate(180deg)"><b style="background:#f43f5e;animation-delay:1.60s"></b></i><i style="transform:rotate(207deg)"><b style="background:#fda4af;animation-delay:1.52s"></b></i><i style="transform:rotate(234deg)"><b style="background:#fbbf24;animation-delay:1.54s"></b></i><i style="transform:rotate(240deg)"><b style="background:#ffffff;animation-delay:1.56s"></b></i><i style="transform:rotate(267deg)"><b style="background:#fca5a5;animation-delay:1.58s"></b></i><i style="transform:rotate(294deg)"><b style="background:#fecdd3;animation-delay:1.60s"></b></i><i style="transform:rotate(300deg)"><b style="background:#fb7185;animation-delay:1.52s"></b></i><i style="transform:rotate(327deg)"><b style="background:#f43f5e;animation-delay:1.54s"></b></i><i style="transform:rotate(354deg)"><b style="background:#fda4af;animation-delay:1.56s"></b></i></div><div class="ff-sp-stage"><div class="ff-sp-rib"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="ff-sp-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="ffasp-bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#3f0f20"/><stop offset="1" stop-color="#12040a"/></linearGradient><radialGradient id="ffasp-hi" cx="143" cy="61" r="460" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset=".55" stop-color="#ffffff" stop-opacity="0"/></radialGradient><linearGradient id="ffasp-mk" x1="0" y1="96" x2="0" y2="416" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fecdd3"/><stop offset="1" stop-color="#fb7185"/></linearGradient><filter id="ffasp-sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity=".45"/></filter><mask id="ffasp-f" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect width="512" height="512" fill="#fff"/><g fill="#000"><rect x="198" y="186" width="36" height="148" rx="6"/><rect x="198" y="186" width="98" height="32" rx="6"/><rect x="198" y="244" width="78" height="30" rx="6"/></g></mask></defs><rect width="512" height="512" rx="112" fill="url(#ffasp-bg)"/><rect width="512" height="512" rx="112" fill="url(#ffasp-hi)"/><g filter="url(#ffasp-sh)"><path transform="translate(8 0)" d="M170 128V384L392 256Z" fill="url(#ffasp-mk)" stroke="url(#ffasp-mk)" stroke-width="64" stroke-linejoin="round" mask="url(#ffasp-f)"/></g></svg></div></div></div>
 <script>
@@ -563,7 +593,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
   ['DATA'], ['golive', '🚚', 'Go-live import'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
@@ -608,7 +638,7 @@ function nav(v) {
   route();
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, removeusers: removeUsersView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -861,8 +891,10 @@ function custSessions() {
 }
 function subCard(s) {
   var d = daysLeft(s.expiry_date), st = istDate(s.start_date), ex = istDate(s.expiry_date);
-  var act = /ACTIVE/i.test(s.status) && (d == null || d > 0);
-  var pill = d == null ? statusPill(s.status) : d > 7 ? '<span class="pill p-ok">' + d + 'd left</span>' : d > 0 ? '<span class="pill p-warn">' + d + 'd left</span>' : d === 0 ? '<span class="pill p-bad">Ends today</span>' : '<span class="pill p-bad">Expired ' + (-d) + 'd ago</span>';
+  // A refunded / cancelled plan has ended even if its expiry date is still ahead: never show "Nd left" for it.
+  var stopped = /REFUNDED|CANCEL/i.test(s.status || '') || /REFUNDED/i.test(s.fulfillment_status || '');
+  var act = !stopped && /ACTIVE/i.test(s.status) && (d == null || d > 0);
+  var pill = stopped ? '<span class="pill p-bad">↩️ ' + (/CANCEL/i.test(s.status || '') ? 'Cancelled' : 'Refunded') + ' · ended</span>' : d == null ? statusPill(s.status) : d > 7 ? '<span class="pill p-ok">' + d + 'd left</span>' : d > 0 ? '<span class="pill p-warn">' + d + 'd left</span>' : d === 0 ? '<span class="pill p-bad">Ends today</span>' : '<span class="pill p-bad">Expired ' + (-d) + 'd ago</span>';
   var pct = st && ex && ex > st ? Math.max(0, Math.min(100, (Date.now() - st) / (ex - st) * 100)) : 0;
   var id = esc(s.sub_id);
   function cred(label, v) { return v && v !== '-' && v !== '—' ? '<div class="cr"><span>' + label + '</span><code title="' + esc(v) + '">' + esc(v) + '</code><button class="copy" data-copy="' + esc(v) + '">Copy</button></div>' : ''; }
@@ -876,10 +908,10 @@ function subCard(s) {
   var remind = 'Hi! Your FluxFilm ' + (s.service || '') + ' (' + (s.plan || '') + ') ' + (d != null && d > 0 ? 'expires in ' + d + ' day(s)' : 'has expired') + '. Renew now on shop.fluxfilm.in 🙏';
   return '<div class="sc' + (act ? '' : ' exp') + '"><div class="hd"><div class="sic">' + svcIcon(s.service) + '</div><div class="ttl"><b>' + esc(s.service || '—') + '</b><small>' + esc(s.plan || '') + (s.device_count ? ' · ' + esc(s.device_count) + ' device(s)' : '') + (s.device_type ? ' · ' + esc(s.device_type) : '') + (Number(s.group_size) > 1 ? ' · <b>Device ' + esc(s.group_index) + ' of ' + esc(s.group_size) + '</b> (separate logins, order ' + esc(s.order_id || '') + ')' : '') + '</small></div>' +
     '<div class="rt">' + pill + '<div style="margin-top:6px">Start: ' + prettyDate(s.start_date) + '</div><div>Expiry: <b style="color:var(--ink)">' + prettyDate(s.expiry_date, true) + '</b></div></div></div>' +
-    '<div class="bar' + (d != null && d <= 0 ? ' b' : d != null && d <= 7 ? ' w' : '') + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
+    (stopped ? '<div class="qnote warn" style="margin:8px 0">This plan was refunded — it has ended. Can\'t be renewed or extended. Tick <b>Removed from account</b> once you change the password.</div>' : '<div class="bar' + (d != null && d <= 0 ? ' b' : d != null && d <= 7 ? ' w' : '') + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>') +
     (creds ? '<div class="creds">' + creds + '</div>' : '') + rmUi +
     '<div class="row" style="justify-content:space-between"><div class="meta"><span class="pill p-grey">' + id + '</span>' + (s.inventory_ref ? '<span class="pill p-blue">' + esc(s.inventory_ref) + '</span>' : '') + statusPill(s.status) + (s.source ? '<span class="pill p-grey">' + esc(s.source) + '</span>' : '') + '</div>' +
-    '<span class="row" style="gap:6px"><button class="btn ghost sm" onclick="extendDialog(\'' + id + '\')">⏱ Extend</button><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a></span></div></div>';
+    '<span class="row" style="gap:6px">' + (stopped ? '' : (!/REFUNDED|CANCEL|REMOVED/i.test(s.status || '') ? '<button class="btn ghost sm" onclick="offerRefundDialog(\'' + id + '\')">💸 Offer refund</button><button class="btn ghost sm" onclick="refundNowDialog(\'' + id + '\')">⚡ Refund now</button>' : '') + '<button class="btn ghost sm" onclick="extendDialog(\'' + id + '\')">⏱ Extend</button><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a>') + '</span></div></div>';
 }
 function saveRemoved(id) {
   var cb = document.getElementById('rm_' + id), at = document.getElementById('rmat_' + id), msg = document.getElementById('rmmsg_' + id);
@@ -1651,7 +1683,7 @@ function openOrder(id, flash) {
     var delivered = /FULFILLED|MANUAL_PENDING/i.test(o.fulfillment_status || '');
     var refundedOrder = String(o.status).toUpperCase() === 'REFUNDED';
     var steps = '<div class="osteps"><span class="' + 'on">🧾 Created<small>' + prettyDate(o.created_at_sheet, true) + '</small></span><span class="' + (paid || refundedOrder ? 'on' : '') + '">💳 Paid<small>' + (paid || refundedOrder ? prettyDate(o.verified_at, true) || '✓' : 'not yet') + '</small></span>' +
-      (refundedOrder ? '<span class="on">💸 Refunded<small>not delivered</small></span></div>' :
+      (refundedOrder ? '<span class="on">💸 Refunded<small>' + ((r.subs || []).some(function (x) { return x.login_id; }) ? 'after delivery' : 'not delivered') + '</small></span></div>' :
       '<span class="' + (delivered ? 'on' : paid ? 'bad' : '') + '">📦 Delivered<small>' + (delivered ? (/MANUAL/i.test(o.fulfillment_status) ? 'manual' : prettyDate(o.fulfilled_at, true) || '✓') : paid ? 'not yet ⚠️' : '—') + '</small></span></div>');
     var subs = (r.subs || []).map(function (s) {
       var cred = function (label, v) { return v ? '<div class="cr"><span>' + label + '</span><code>' + esc(v) + '</code><button class="copy" data-copy="' + esc(v) + '">Copy</button></div>' : ''; };
@@ -1707,8 +1739,12 @@ function orderActionsHtml(r) {
   if (r.refulfilled) h += '<div class="qnote">🔁 Delivered again after a failed attempt · ' + prettyDate(r.refulfilledAt, true) + (r.manualDelivered ? ' (by hand)' : '') + '</div>';
   // Cash refund still open (refunds.js): the owner sends the money, then marks it sent here (or ticks the Today to-do).
   if (a.upiDone && a.upiDone.allowed) h += '<div class="oabtns"><button class="btn purple" data-oa="upidone">✅ Mark UPI refund sent</button></div><div id="oa_form"></div><div id="oa_msg"></div>';
+  // 💸 Offer refund (Refunds v3): a delivered plan — the customer chooses coins / coupon / UPI in the app.
+  // ⚡ Refund now: the owner already agreed it with the customer (delivered or not) — issue it in one step.
+  var rnow = a.refundNow && a.refundNow.allowed, offerOk = a.offer && a.offer.allowed;
+  if (offerOk || rnow) h += '<div class="oabtns">' + (offerOk ? '<button class="btn purple" data-oa="offer">💸 Offer refund</button>' : '') + (rnow ? '<button class="btn dark" data-oa="refundnow">⚡ Refund now</button>' : '') + '<span class="muted" style="font-size:.75rem">' + (offerOk ? 'Offer: the customer chooses in the app. ' : '') + (rnow ? '⚡ Refund now: already agreed with the customer — UPI / coins / coupon at once.' : '') + '</span></div>' + (a.fulfil.allowed || a.manual.allowed || a.refund.allowed || a.erase.allowed ? '' : '<div id="oa_form"></div><div id="oa_msg"></div>');
   var any = a.fulfil.allowed || a.manual.allowed || a.refund.allowed || a.erase.allowed;
-  if (!any && a.upiDone && a.upiDone.allowed) return h + '</div>';
+  if (!any && ((a.upiDone && a.upiDone.allowed) || offerOk || rnow)) return h + '</div>';
   if (!any) return h + '<div class="muted" style="font-size:.85rem">' + (a.refunded ? 'Nothing else to do for a refunded order.' : a.delivered ? '✅ Delivered — nothing to fix.' : esc(a.refund.reason || a.fulfil.reason || '')) + '</div></div>';
   if (r.lastError && !a.delivered && a.status === 'PAID') h += '<div class="qnote bad">⚠️ Last delivery error: ' + esc(r.lastError) + (r.lastErrorAt ? ' <span class="muted">(' + prettyDate(r.lastErrorAt, true) + ')</span>' : '') + '</div>';
   if (r.stock && a.status === 'PAID') h += '<div class="qnote ' + (r.stock.stockLevel === 'OUT' ? 'bad' : r.stock.stockLevel === 'LOW' ? 'warn' : '') + '">📦 Stock for ' + esc(r.service) + ' · ' + esc(r.plan) + ': <b>' + esc(oaStockText(r.stock)) + '</b>' + (r.stock.stockLevel === 'OUT' ? ' — add an account in 📦 Stock first, or deliver manually / refund.' : '') + '</div>';
@@ -1724,9 +1760,14 @@ function orderActionsHtml(r) {
 }
 // How a refund was / is being paid (adminorderactions.js → refund.kind / state).
 function oaRefundHow(f) {
+  if (f.byAdmin && !f.delivered) return ' <span class="muted">(⚡ by admin · not delivered)</span> ' + oaRefundHow1(f);
+  var off = f.delivered ? ' <span class="muted">(delivered plan · ' + (f.byAdmin ? '⚡ by admin' : 'offer ' + esc(f.offerId)) + ' · paid ' + money(f.paid) + (f.charge ? ' − charge ' + money(f.charge) : ', no charge') + ' · access ended)</span> ' : '';
+  return off + oaRefundHow1(f);
+}
+function oaRefundHow1(f) {
   if (f.kind === 'CREDIT') return 'as <b>' + esc(f.credit || f.coins) + ' coins of refund credit</b>' + (f.bonus ? ' (incl. +' + esc(f.bonus) + ' bonus — customer chose coins instead of cash)' : '') + ' · pays up to 100% of an order';
   if (f.kind === 'COUPON') return 'as coupon <b>' + esc(f.coupon) + '</b>' + (f.couponExpiry ? ' (single use, until ' + esc(String(f.couponExpiry).slice(0, 10)) + ')' : '');
-  if (f.kind === 'UPI_PENDING') return f.state === 'UPI_REQUESTED' ? '— <b style="color:#b91c1c">⏳ customer asked for UPI: send it to ' + esc(f.upi) + '</b>' : '— <b>⏳ waiting for the customer to choose</b> (coins +10% or UPI)';
+  if (f.kind === 'UPI_PENDING') return f.state === 'UPI_REQUESTED' ? '— <b style="color:#b91c1c">⏳ customer asked for UPI: send it to ' + esc(f.upi) + '</b>' : '— <b>⏳ waiting for the customer to choose</b> (coins / coupon with extra, or exact UPI)';
   if (f.kind === 'UPI') return 'to UPI' + (f.upi ? ' ' + esc(f.upi) : '') + (f.upiSentAt ? ' · sent ' + prettyDate(f.upiSentAt, true) : '');
   return 'by ' + esc(f.method || '—');
 }
@@ -1744,6 +1785,8 @@ function wireOrderActions(r) {
   box.onclick = function (e) {
     var b = e.target.closest('[data-oa]'); if (!b) return;
     var act = b.getAttribute('data-oa'), form = $('#oa_form'); oaMsg('');
+    if (act === 'offer') { offerRefundForm(form, { orderId: id }, function (x) { oaAfter(id, '<div class="qnote" style="margin-bottom:10px">' + esc(x.message || 'Refund offered') + '</div>'); }); return; }
+    if (act === 'refundnow') { refundNowForm(form, { orderId: id }, function (x) { oaAfter(id, '<div class="qnote" style="margin-bottom:10px">' + esc(x.message || 'Refunded') + '</div>' + oaNotes(x)); }); return; }
     if (act === 'fulfil') {
       if (!confirm(a.fulfil.label.replace(/^\S+\s/, '') + ' ' + id + ' now? It picks a free account exactly like a website order and emails the customer.')) return;
       b.disabled = true; oaMsg('<div class="qnote">Working…</div>');
@@ -1795,9 +1838,9 @@ function wireOrderActions(r) {
       var maxA = Number(a.refund.maxAmount) || 0;
       form.innerHTML = '<div class="oaform" data-nodirty><b>💸 Refund</b><span class="muted" style="font-size:.75rem">The order becomes <b>Refunded</b> for you and the customer; coins / refund credit used on it go back to them, a coupon use is released and unpaid referral rewards are cancelled. Nothing is deleted.</span>' +
         (maxA > 0 ? '<label>How do you want to refund?<select class="inp" id="oa_method">' +
-          '<option value="Coins">🪙 Coins — refund credit, ₹1 = 1 coin, can pay the FULL price of their next plan (keeps the sale)</option>' +
-          '<option value="Coupon">🎟️ Coupon — a personal single-use coupon worth the amount</option>' +
-          '<option value="UPI_ASK">🏦 UPI cash — ask the customer (they can take coins +10% or give a UPI ID)</option>' +
+          '<option value="UPI_ASK">🙋 Let the customer choose — coins or coupon with extra %, or the exact amount to UPI (recommended)</option>' +
+          '<option value="Coins">🪙 Coins now — refund credit, ₹1 = 1 coin, no extra (can pay the FULL price of their next plan)</option>' +
+          '<option value="Coupon">🎟️ Coupon now — a personal single-use coupon worth the amount, no extra</option>' +
           '<option value="UPI">✔️ Already sent by UPI / bank (just record it)</option>' +
           '<option value="Other">✔️ Other — already refunded outside (just record it)</option></select></label>' : '<input type="hidden" id="oa_method" value="Other"/><div class="qnote">This order cost ₹0 (refund credit / coupon / coins paid for it) — refunding gives those back to the customer.</div>') +
         '<div id="oa_mhelp" class="muted" style="font-size:.75rem"></div>' +
@@ -1809,7 +1852,7 @@ function wireOrderActions(r) {
       var HELP = {
         Coins: 'Added straight away as refund credit. Unlike normal coins (max-% per order rule), refund credit can pay up to 100% of a new plan or renewal. Customer gets a push + email.',
         Coupon: 'Creates coupon RF…… worth the amount: only for this phone, single use, valid 180 days, shown in their Account → Coupons. If the next plan costs less, the rest of the coupon is lost — Coins is better for that.',
-        UPI_ASK: 'Nothing is sent yet. On their home screen the customer chooses: coins of refund credit with 10% extra, or a UPI refund (they type their UPI ID after an email code). If they choose UPI you get a 💸 Today to-do to send it.',
+        UPI_ASK: 'Nothing is sent yet. On their home screen the customer chooses: coins or a coupon with the extra % from 💸 Refunds → settings (added instantly), or the exact amount to their UPI ID (after an email code). If they choose UPI it shows in 💸 Refunds to send.',
         UPI: 'Only if you already sent the money. Add the UTR if you have it.',
         Other: 'Only if you already refunded them some other way.'
       };
@@ -1818,7 +1861,7 @@ function wireOrderActions(r) {
       mh();
       $('#oa_rgo').onclick = function () {
         var body = { orderId: id, amount: $('#oa_amt').value, method: $('#oa_method').value, reference: $('#oa_rref').value, note: $('#oa_rnote').value, notify: $('#oa_rnotify').checked };
-        var sure = { Coins: '\n\n' + money(body.amount) + ' of refund credit is added to the customer’s wallet now.', Coupon: '\n\nA single-use coupon worth ' + money(body.amount) + ' is created for this customer now.', UPI_ASK: '\n\nThe customer will be asked: coins +10% or a UPI refund. You send nothing yet.', UPI: '\n\nMake sure you have already sent the money.', Other: '\n\nMake sure you have already refunded them.' }[body.method] || '';
+        var sure = { Coins: '\n\n' + money(body.amount) + ' of refund credit is added to the customer’s wallet now.', Coupon: '\n\nA single-use coupon worth ' + money(body.amount) + ' is created for this customer now.', UPI_ASK: '\n\nThe customer will choose: coins / coupon with extra, or the exact amount to UPI. You send nothing yet.', UPI: '\n\nMake sure you have already sent the money.', Other: '\n\nMake sure you have already refunded them.' }[body.method] || '';
         if (!confirm('Refund ' + id + ': ' + money(body.amount) + ' — ' + $('#oa_method').value + '?' + sure)) return;
         this.disabled = true; var go = this;
         post('/admin/api/order/refund', body).then(function (x) {
@@ -1849,6 +1892,244 @@ function wireOrderActions(r) {
   };
 }
 
+/* ================= 💸 Refunds v3: offer refund on a delivered plan · refunds to send · settings ================= */
+// The customer chooses how to get a refund (coins / coupon +bonus%, instant, or the exact amount to UPI). Rules: refunds.js.
+function rfStatusPill(st) { var c = { OFFERED: 'p-warn', UPI_REQUESTED: 'p-bad', DONE: 'p-ok', CANCELLED: 'p-grey', EXPIRED: 'p-grey' }[st] || 'p-grey'; var t = { OFFERED: 'waiting for customer', UPI_REQUESTED: 'UPI to send', DONE: 'done', CANCELLED: 'cancelled', EXPIRED: 'expired' }[st] || st; return '<span class="pill ' + c + '">' + esc(t) + '</span>'; }
+function rfOfferLine(f) {
+  var how = f.method === 'COINS' ? '🪙 ' + esc(f.credit) + ' coins' : f.method === 'COUPON' ? '🎟️ coupon ' + esc(f.coupon) + ' (' + money(f.credit) + ')' : f.method === 'UPI' ? '🏦 UPI ' + esc(f.upi) + (f.reference ? ' · ref ' + esc(f.reference) : '') : '';
+  if (f.byAdmin) return '<b>' + money(f.refund) + '</b> ' + rfStatusPill(f.status) + ' <span class="pill p-blue">⚡ by admin</span> <span class="muted" style="font-size:.75rem">' + esc(f.offerId) + ' · ' + esc(f.reasonLabel || f.reason) + ' · paid ' + money(f.paid) + (f.charge ? ' − charge ' + money(f.charge) : '') + (how ? ' · ' + how : '') + (f.method === 'UPI' && f.status === 'UPI_REQUESTED' ? ' (to send)' : '') + (f.emailSent ? ' · emailed' : '') + (f.note ? ' · “' + esc(f.note) + '”' : '') + ' · ' + prettyDate(f.createdAt, true) + '</span>';
+  return '<b>' + money(f.refund) + '</b> ' + rfStatusPill(f.status) + ' <span class="muted" style="font-size:.75rem">' + esc(f.offerId) + ' · ' + (f.reason === 'NO_REPLACEMENT' ? 'no replacement' : 'mid-period, charge ' + money(f.charge) + (f.daysUsed != null ? ' (' + esc(f.daysUsed) + '/' + esc(f.totalDays) + ' days)' : '')) + ' · paid ' + money(f.paid) + (how ? ' · ' + how : '') + (f.status === 'OFFERED' ? ' · open until ' + prettyDate(f.expiresAt) : '') + (f.emailSent ? ' · emailed' : '') + (f.note ? ' · “' + esc(f.note) + '”' : '') + '</span>';
+}
+function offerRefundDialog(subId) {
+  modal('💸 Offer refund', '<div id="orf_box"></div>', '', '');
+  offerRefundForm($('#orf_box'), { subId: subId }, function (x) { closeModal(); toast('💸 Refund offered'); if ($('#c360') && S.cust && $('#cp')) lookup(true); });
+}
+function offerRefundForm(box, target, after, prefill) {
+  if (!box) return;
+  prefill = prefill || {};
+  box.innerHTML = '<p class="muted" style="font-size:.8rem">Loading…</p>';
+  api('/admin/api/refund-offers/quote', target).then(function (q) {
+    if (!box.isConnected) return;
+    if (!q.ok) { box.innerHTML = '<div class="qnote bad">⚠️ ' + esc(q.message || 'Could not load') + '</div>'; return; }
+    var head = '<div class="qnote">' + svcIcon(q.service) + ' <b>' + esc(q.service) + ' · ' + esc(q.plan) + '</b> · ' + esc(q.orderId) + ' · ' + esc(q.name || '') + ' ' + esc(q.phone || '') +
+      '<br>Paid <b>' + money(q.paid) + '</b> · paid period ' + prettyDate(q.periodStart) + ' → ' + prettyDate(q.periodEnd) + ' · used <b>' + esc(q.daysUsed) + ' of ' + esc(q.totalDays) + ' days</b></div>' +
+      (q.offer ? '<div class="qnote">💸 ' + rfOfferLine(q.offer) + (q.offer.status === 'OFFERED' ? ' <button class="btn red sm" id="orf_cancel">🚫 Cancel offer</button>' : '') + '</div>' : '');
+    var wireCancel = function () {
+      var c = box.querySelector('#orf_cancel'); if (!c) return;
+      c.onclick = function () {
+        var why = prompt('Cancel refund offer ' + q.offer.offerId + ' (' + money(q.offer.refund) + ')? Why? (optional)', ''); if (why == null) return;
+        c.disabled = true;
+        post('/admin/api/refund-offers/cancel', { offerId: q.offer.offerId, reason: why }).then(function (x) { if (!x.ok) { c.disabled = false; alert(x.message || 'failed'); return; } toast('🚫 Offer cancelled'); offerRefundForm(box, target, after); });
+      };
+    };
+    if (!q.allowed) { box.innerHTML = '<div class="oaform" data-nodirty><b>💸 Offer refund</b>' + head + (q.offer && q.offer.status === 'OFFERED' ? '' : '<div class="qnote warn">' + esc(q.reason || '') + '</div>') + '</div>'; wireCancel(); return; }
+    box.innerHTML = '<div class="oaform" data-nodirty><b>💸 Offer refund</b><span class="muted" style="font-size:.75rem">The customer gets an email and a banner in the app, and chooses: coins or a coupon (+' + esc(q.bonusPercent) + '%, instant) or the exact amount to their UPI (you send it from ↩️ Refunds). When they take it, this plan stops working (Recover / Get OTP / renew stop). The offer stays open ' + esc(q.offerDays) + ' days.</span>' + head +
+      '<label>Reason<select class="inp" id="orf_reason"><option value="NO_REPLACEMENT">No replacement available — no charge, full ' + money(q.paid) + '</option><option value="MID_PERIOD">Mid-period refund — usage charge</option></select></label>' +
+      '<div id="orf_chargebox"><label>Usage charge (₹) <span class="muted" style="font-size:.72rem">suggested ' + money(q.suggestedCharge) + ' = ' + esc(q.daysUsed) + ' ÷ ' + esc(q.totalDays) + ' days × ' + money(q.paid) + '</span><input class="inp" id="orf_charge" type="number" min="0" step="1" max="' + esc(q.paid) + '" value="' + esc(q.suggestedCharge) + '"/></label></div>' +
+      '<label>Note shown to the customer (optional)<input class="inp" id="orf_note" maxlength="300" placeholder="e.g. Sorry, we have no replacement account right now" autocomplete="off"/></label>' +
+      '<div class="qnote" id="orf_total"></div>' +
+      '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="orf_notify" checked/> Email the customer' + (q.email ? ' (' + esc(q.email) + ')' : ' — this order has no email, they will see it in the app') + '</label>' +
+      '<button class="btn purple" id="orf_go">💸 Offer refund</button><div id="orf_msg"></div></div>';
+    var calc = function () {
+      var mid = $('#orf_reason').value === 'MID_PERIOD';
+      $('#orf_chargebox').style.display = mid ? '' : 'none';
+      var c = mid ? Math.max(0, Math.min(q.paid, Math.round(Number($('#orf_charge').value) || 0))) : 0, r = Math.max(0, q.paid - c);
+      $('#orf_total').innerHTML = 'Refund <b>' + money(r) + '</b>' + (c ? ' = paid ' + money(q.paid) + ' − charge ' + money(c) : ' (no charge)') + ' · customer can take ' + money(r + Math.round(r * q.bonusPercent / 100)) + ' as coins / coupon, or ' + money(r) + ' by UPI';
+      return { mid: mid, c: c, r: r };
+    };
+    if (prefill.reason) $('#orf_reason').value = prefill.reason;
+    if (prefill.note) $('#orf_note').value = prefill.note;
+    $('#orf_reason').onchange = calc; $('#orf_charge').oninput = calc; calc();
+    $('#orf_go').onclick = function () {
+      var v = calc();
+      if (v.r < 1) { $('#orf_msg').innerHTML = '<div class="qnote bad">The charge leaves nothing to refund.</div>'; return; }
+      if (!confirm('Offer a refund of ' + money(v.r) + ' for ' + q.orderId + '?\n\nThe customer is emailed and chooses in the app. The plan stops working when they take it.')) return;
+      var go = this; go.disabled = true;
+      post('/admin/api/refund-offers', { orderId: q.orderId, reason: $('#orf_reason').value, charge: v.mid ? $('#orf_charge').value : 0, note: $('#orf_note').value, notify: $('#orf_notify').checked }).then(function (x) {
+        go.disabled = false;
+        if (!x.ok) { $('#orf_msg').innerHTML = '<div class="qnote bad">⚠️ ' + esc(x.message || 'failed') + '</div>'; return; }
+        var m = $('#modal'); if (m) m.removeAttribute('data-dirty');
+        toast('💸 Refund offered'); if (after) after(x);
+      });
+    };
+  });
+}
+/* ================= ⚡ Refund now: already agreed with the customer → refund at once (adminrefundnow.js) ================= */
+function refundNowDialog(subId) {
+  modal('⚡ Refund now', '<div id="rnw_box"></div>', '', '');
+  refundNowForm($('#rnw_box'), { subId: subId }, function () { closeModal(); if ($('#c360') && S.cust && $('#cp')) lookup(true); });
+}
+function refundNowForm(box, target, after) {
+  if (!box) return;
+  box.innerHTML = '<p class="muted" style="font-size:.8rem">Loading…</p>';
+  api('/admin/api/order/refund-now/quote', target).then(function (q) {
+    if (!box.isConnected) return;
+    if (!q.ok) { box.innerHTML = '<div class="qnote bad">⚠️ ' + esc(q.message || 'Could not load') + '</div>'; return; }
+    var what = (q.legacy ? esc(q.subId) : esc(q.orderId)) + ' — ' + esc(q.service) + ' ' + esc(q.plan);
+    var head = '<div class="qnote">' + svcIcon(q.service) + ' <b>' + esc(q.service) + ' · ' + esc(q.plan) + '</b> · ' + (q.legacy ? esc(q.subId) + ' (old-site plan)' : esc(q.orderId)) + ' · ' + esc(q.name || '') + ' ' + esc(q.phone || '') +
+      '<br>' + (q.legacy ? 'Paid: <b>not in the new system</b>' : 'Paid <b>' + money(q.paid) + '</b>') + (q.delivered ? ' · used <b>' + esc(q.daysUsed) + ' of ' + esc(q.totalDays) + ' days</b>' + (q.periodEnd ? ' (until ' + prettyDate(q.periodEnd) + ')' : '') : ' · <b>not delivered</b>') + '</div>' +
+      (q.openOffer ? '<div class="qnote warn">An open refund offer (' + esc(q.openOffer.offerId) + ', ' + money(q.openOffer.refund) + ') will be closed — handled by admin.</div>' : '') +
+      (q.openRequest ? '<div class="qnote warn">The customer’s refund request (' + esc(q.openRequest.requestId) + ') will be closed — handled by admin.</div>' : '') +
+      (q.phoneOk ? '' : '<div class="qnote warn">No 10-digit phone number: only 🏦 UPI “Already sent” can be recorded.</div>');
+    if (!q.allowed) { box.innerHTML = '<div class="oaform" data-nodirty><b>⚡ Refund now</b>' + head + '<div class="qnote warn">' + esc(q.reason || 'Not possible.') + '</div></div>'; return; }
+    box.innerHTML = '<div class="oaform" data-nodirty><b>⚡ Refund now</b><span class="muted" style="font-size:.75rem">For a refund you already agreed with the customer. It happens at once — no offer, no request.' + (q.delivered ? ' This plan stops working (Recover / Get OTP / renew stop).' : '') + '</span>' + head +
+      (q.legacy ? '<div class="qnote">This plan was bought on the old site, so there is no order to refund. Type what they paid: the refund is recorded on the plan.</div><label>Paid (₹) *<input class="inp" id="rn_paid" type="number" min="1" step="1" inputmode="numeric"/></label>' : '') +
+      '<label>Reason<select class="inp" id="rn_reason"><option value="NO_REPLACEMENT">No replacement — no charge</option><option value="MID_PERIOD">Mid-period — usage charge</option><option value="NOT_DELIVERED">Not delivered — no charge</option><option value="OTHER">Other (write why)</option></select></label>' +
+      '<label id="rn_rtextl">Why?<input class="inp" id="rn_rtext" maxlength="200" autocomplete="off"/></label>' +
+      '<div class="row2"><label id="rn_chargel">Usage charge (₹) <span class="muted" style="font-size:.72rem" id="rn_sugg"></span><input class="inp" id="rn_charge" type="number" min="0" step="1" inputmode="numeric" value="0"/></label>' +
+      '<label>Refund amount (₹)<input class="inp" id="rn_amt" type="number" min="1" step="1" inputmode="numeric"/></label></div>' +
+      '<label>How<select class="inp" id="rn_method"><option value="UPI">🏦 UPI</option><option value="COINS">🪙 Coins (refund credit)</option><option value="COUPON">🎟️ Coupon (one use, ' + esc(q.couponDays || 180) + ' days)</option></select></label>' +
+      '<div id="rn_upibox" style="display:grid;gap:8px"><div class="row2"><label>UPI ID *<input class="inp" id="rn_upi" placeholder="name@okhdfcbank" autocomplete="off" autocapitalize="none"/></label><label>UTR / reference (optional)<input class="inp" id="rn_ref" autocomplete="off"/></label></div>' +
+      '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rn_sent" checked/> Already sent' + (q.legacy ? '' : ' (untick = add to 💸 Refunds to send)') + '</label></div>' +
+      '<div id="rn_bonusbox" class="row" style="gap:8px;align-items:center;flex-wrap:wrap"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rn_bonus"' + (Number(q.bonusPercent) > 0 ? ' checked' : '') + '/> Add bonus</label><input class="inp" id="rn_pct" type="number" min="0" max="50" step="1" value="' + esc(q.bonusPercent) + '" style="max-width:90px"/> %</div>' +
+      '<label>Note to the customer (optional)<input class="inp" id="rn_note" maxlength="300" autocomplete="off"/></label>' +
+      '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rn_notify" checked/> Send email to customer' + (q.email ? ' (' + esc(q.email) + ')' : ' — no email on this ' + (q.legacy ? 'plan' : 'order')) + '</label>' +
+      '<div class="qnote" id="rn_total"></div><div id="rn_msg"></div>' +
+      '<button class="btn dark" id="rn_review">Review</button><div id="rn_confirm"></div></div>';
+    var touched = false, int = function (id) { var v = $(id).value; return v === '' ? null : Math.round(Number(v)); };
+    var calc = function () {
+      var reason = $('#rn_reason').value, method = $('#rn_method').value;
+      var paid = q.legacy ? (int('#rn_paid') || 0) : Number(q.paid) || 0;
+      var noCharge = reason === 'NO_REPLACEMENT' || reason === 'NOT_DELIVERED';
+      var sugg = q.legacy ? Math.round(paid * (Number(q.daysUsed) || 0) / (Number(q.totalDays) || 30)) : Number(q.suggestedCharge) || 0;
+      $('#rn_rtextl').style.display = reason === 'OTHER' ? '' : 'none';
+      $('#rn_chargel').style.display = noCharge ? 'none' : '';
+      $('#rn_sugg').textContent = q.delivered && paid ? 'suggested ' + money(sugg) + ' = ' + q.daysUsed + ' ÷ ' + q.totalDays + ' days × ' + money(paid) : '';
+      var charge = noCharge ? 0 : Math.max(0, int('#rn_charge') || 0);
+      if (!touched) $('#rn_amt').value = Math.max(0, paid - charge);
+      var amt = int('#rn_amt') || 0;
+      $('#rn_upibox').style.display = method === 'UPI' ? 'grid' : 'none';
+      $('#rn_bonusbox').style.display = method === 'UPI' ? 'none' : 'flex';
+      var pct = method !== 'UPI' && $('#rn_bonus').checked ? Math.max(0, Math.min(50, int('#rn_pct') || 0)) : 0;
+      var value = amt + Math.round(amt * pct / 100);
+      var err = !paid ? 'Type what the customer paid.' : charge > paid ? 'The charge is more than paid.' : amt > paid ? 'The refund can’t be more than paid (' + money(paid) + ').' : amt < 1 ? 'The refund must be at least ₹1.' : '';
+      $('#rn_total').innerHTML = err ? '⚠️ ' + esc(err) : 'Refund <b>' + money(amt) + '</b> (paid ' + money(paid) + (paid - amt ? ' − ' + money(paid - amt) : ', no charge') + ')' + (method === 'UPI' ? '' : ' → customer gets <b>' + money(value) + '</b>' + (pct ? ' (+' + pct + '%)' : ''));
+      return { reason: reason, method: method, paid: paid, charge: paid - amt, amt: amt, pct: pct, value: value, err: err };
+    };
+    $('#rn_amt').oninput = function () { touched = true; calc(); };
+    ['#rn_reason', '#rn_method', '#rn_charge', '#rn_bonus', '#rn_pct', '#rn_sent'].concat(q.legacy ? ['#rn_paid'] : []).forEach(function (sel) { $(sel).oninput = calc; $(sel).onchange = calc; });
+    if (!q.delivered) $('#rn_reason').value = 'NOT_DELIVERED';
+    if (q.delivered && !q.legacy) $('#rn_charge').value = q.suggestedCharge || 0;
+    calc();
+    $('#rn_review').onclick = function () {
+      var v = calc(), msg = $('#rn_msg'); msg.innerHTML = ''; $('#rn_confirm').innerHTML = '';
+      if (v.err) { msg.innerHTML = '<div class="qnote bad">' + esc(v.err) + '</div>'; return; }
+      if (v.reason === 'OTHER' && $('#rn_rtext').value.trim().length < 3) { msg.innerHTML = '<div class="qnote bad">Write why (a few words).</div>'; $('#rn_rtext').focus(); return; }
+      var upi = $('#rn_upi').value.replace(/\s+/g, ''), sent = $('#rn_sent').checked;
+      if (v.method === 'UPI' && !/^[a-zA-Z0-9][a-zA-Z0-9._-]{1,99}@[a-zA-Z][a-zA-Z0-9]{1,49}$/.test(upi)) { msg.innerHTML = '<div class="qnote bad">Enter a UPI ID like name@okhdfcbank.</div>'; $('#rn_upi').focus(); return; }
+      if (v.method === 'UPI' && !sent && q.legacy) { msg.innerHTML = '<div class="qnote bad">Old-site plan: send the UPI refund first, then record it with “Already sent”.</div>'; return; }
+      var ends = q.delivered ? ' This plan will stop working.' : ' The order is marked refunded.';
+      var line = v.method === 'UPI' ? (sent ? 'Refund ' + money(v.amt) + ' to ' + upi + ' (already sent' + ($('#rn_ref').value.trim() ? ', ref ' + $('#rn_ref').value.trim() : '') + ')' : 'Add ' + money(v.amt) + ' to Refunds to send → ' + upi)
+        : v.method === 'COINS' ? 'Add ' + v.value + ' coins of refund credit (' + money(v.amt) + (v.pct ? ' + ' + v.pct + '%' : '') + ')'
+          : 'Create a ' + money(v.value) + ' coupon (' + money(v.amt) + (v.pct ? ' + ' + v.pct + '%' : '') + ', one use, ' + (q.couponDays || 180) + ' days)';
+      $('#rn_confirm').innerHTML = '<div class="qnote warn" style="font-size:.9rem"><b>' + esc(line) + '</b> for ' + what + '.' + esc(ends) + ($('#rn_notify').checked && q.email ? ' The customer is emailed.' : ' No email.') + '</div>' +
+        '<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn purple" id="rn_go">⚡ Confirm refund ' + money(v.amt) + '</button><button class="btn ghost" id="rn_back">Back</button></div>';
+      $('#rn_back').onclick = function () { $('#rn_confirm').innerHTML = ''; };
+      $('#rn_go').onclick = function () {
+        var go = this; go.disabled = true; msg.innerHTML = '<div class="qnote">Working…</div>';
+        var body = { orderId: q.legacy ? '' : q.orderId, subId: q.legacy ? q.subId : '', reason: v.reason, reasonText: $('#rn_rtext').value, charge: v.charge, amount: v.amt, method: v.method, upi: upi, reference: $('#rn_ref').value, upiSent: sent, addBonus: $('#rn_bonus').checked, bonusPercent: $('#rn_pct').value, note: $('#rn_note').value, notify: $('#rn_notify').checked };
+        if (q.legacy) body.paid = v.paid;
+        post('/admin/api/order/refund-now', body).then(function (x) {
+          go.disabled = false;
+          if (!x.ok) { msg.innerHTML = '<div class="qnote bad">⚠️ ' + esc(x.message || 'failed') + '</div>'; return; }
+          msg.innerHTML = '';
+          var m = $('#modal'); if (m) m.removeAttribute('data-dirty');
+          toast(x.message || '⚡ Refunded'); if (after) after(x);
+        });
+      };
+    };
+  });
+}
+var RF = { data: null };
+function refundsView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>↩️ Refunds</h1><p>UPI refunds to send, refunds the customer is still choosing, and refund offers on delivered plans</p></div><button class="btn ghost" id="rfreload">⟳ Refresh</button></div><div id="rfbody"><p class="muted">Loading…</p></div>';
+  $('#rfreload').onclick = loadRefundsView;
+  loadRefundsView();
+}
+function loadRefundsView() {
+  api('/admin/api/refunds').then(function (r) {
+    if (!$('#rfbody')) return;
+    if (!r.ok) { $('#rfbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
+    RF.data = r; renderRefundsView();
+  });
+}
+function renderRefundsView() {
+  var d = RF.data, st = d.settings || {};
+  var send = (d.toSend || []).map(function (x, i) {
+    return '<div class="li" style="align-items:flex-start"><span style="font-size:1.1rem">' + svcIcon(x.service) + '</span><div class="grow"><b>' + money(x.amount) + ' → <code>' + esc(x.upi) + '</code></b> <button class="copy" data-copy="' + esc(x.upi) + '">Copy UPI</button>' +
+      '<div class="muted" style="font-size:.75rem">' + esc(x.name || '—') + ' · ' + esc(x.phone) + ' · <a href="#" data-rfo="' + esc(x.orderId) + '">' + esc(x.orderId) + '</a> · ' + esc(x.service) + ' ' + esc(x.plan) + (x.delivered ? ' · delivered plan' + (x.charge ? ' (paid ' + money(x.paid) + ' − charge ' + money(x.charge) + ')' : ' (no charge)') : ' · not delivered') + (x.byAdmin ? ' · ⚡ by admin' : '') + (x.requestedAt ? ' · asked ' + prettyDate(x.requestedAt, true) : '') + '</div>' +
+      '<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><input class="inp" style="max-width:230px" placeholder="UTR / reference (optional)" id="rfutr_' + i + '" autocomplete="off"/><button class="btn green sm" data-rfdone="' + i + '">✅ Done</button></div></div></div>';
+  }).join('');
+  var choosing = (d.choosing || []).map(function (x) {
+    return '<div class="li"><span style="font-size:1.1rem">' + svcIcon(x.service) + '</span><div class="grow"><b>' + money(x.amount) + '</b> <span class="muted">· ' + esc(x.name || '—') + ' · ' + esc(x.phone) + '</span><div class="muted" style="font-size:.75rem"><a href="#" data-rfo="' + esc(x.orderId) + '">' + esc(x.orderId) + '</a> · ' + esc(x.service) + ' ' + esc(x.plan) + (x.kind === 'offer' ? ' · offer ' + esc(x.offerId) + ' (delivered plan) · open until ' + prettyDate(x.expiresAt) : ' · not delivered') + '</div></div>' +
+      (x.kind === 'offer' ? '<button class="btn ghost sm" data-rfcancel="' + esc(x.offerId) + '">🚫 Cancel</button>' : '') + '</div>';
+  }).join('');
+  var rqPill = function (st) { return '<span class="pill ' + ({ OPEN: 'p-bad', OFFERED: 'p-ok', APPROVED: 'p-ok', REJECTED: 'p-grey' }[st] || 'p-grey') + '">' + esc({ OPEN: 'waiting for you', OFFERED: 'offer sent', APPROVED: 'full refund approved', REJECTED: 'rejected' }[st] || st) + '</span>'; };
+  var reqs = (d.requests || []).filter(function (x, i) { return x.status === 'OPEN' || i < 30; }).map(function (x, i) {
+    var live = x.live || null, open = x.status === 'OPEN';
+    var state = x.kind === 'UNDELIVERED' ? (live && live.delivered ? '<span class="pill p-warn">delivered since they asked</span>' : '<span class="pill p-bad">not delivered</span>') : '<span class="pill p-blue">delivered plan</span>';
+    return '<div class="li" style="align-items:flex-start;' + (open ? '' : 'opacity:.7') + '"><span style="font-size:1.1rem">' + svcIcon(x.service) + '</span><div class="grow"><b>' + esc(x.service) + ' · ' + esc(x.plan) + '</b> · ' + money(x.paid) + ' ' + rqPill(x.status) + ' ' + (open ? state : '') +
+      '<div class="muted" style="font-size:.75rem">' + esc(x.name || '—') + ' · ' + esc(x.phone) + ' · <a href="#" data-rfo="' + esc(x.orderId) + '">' + esc(x.orderId) + '</a>' + (x.subId ? ' · ' + esc(x.subId) : '') + ' · asked ' + prettyDate(x.createdAt, true) + (x.hoursSincePayment != null ? ' · paid ' + (x.hoursSincePayment >= 48 ? Math.floor(x.hoursSincePayment / 24) + ' days' : x.hoursSincePayment + ' h') + ' ago' : '') + '</div>' +
+      '<div style="font-size:.85rem;margin-top:4px">Reason: <b>' + esc(x.reasonLabel || x.reason) + '</b>' + (x.text ? ' — “' + esc(x.text) + '”' : '') + (x.kind === 'DELIVERED' ? ' <span class="muted">(estimate shown: charge ' + money(x.estimatedCharge) + ')</span>' : ' <span class="muted">(full refund, no charge)</span>') + '</div>' +
+      (x.adminMessage && !open ? '<div class="muted" style="font-size:.75rem">Message: ' + esc(x.adminMessage) + '</div>' : '') +
+      (open ? '<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">' + (x.kind === 'UNDELIVERED' ? '<button class="btn green sm" data-rqapprove="' + i + '">✅ Approve → offer full refund</button>' : '<button class="btn purple sm" data-rqoffer="' + i + '">💸 Offer refund</button>') + '<button class="btn ghost sm" data-rqreject="' + i + '">❌ Reject</button></div>' : '') + '</div></div>';
+  }).join('');
+  var recent = (d.offers || []).filter(function (f) { return f.status !== 'OFFERED'; }).slice(0, 40).map(function (f) {
+    return '<div class="li"><span style="font-size:1.1rem">' + svcIcon(f.service) + '</span><div class="grow">' + rfOfferLine(f) + '<div class="muted" style="font-size:.72rem">' + esc(f.name || '') + ' ' + esc(f.phone) + ' · <a href="#" data-rfo="' + esc(f.orderId) + '">' + esc(f.orderId) + '</a> · ' + esc(f.service) + ' ' + esc(f.plan) + (f.byAdmin ? '' : ' · offered ' + prettyDate(f.createdAt, true)) + '</div></div></div>';
+  }).join('');
+  $('#rfbody').innerHTML =
+    (d.ready ? '' : '<div class="qnote warn">Run <b>db/schema-v26.sql</b> in phpMyAdmin to switch on 💸 Offer refund for delivered plans. Not-delivered refunds and the UPI list below already work.</div>') +
+    '<div class="subhead"><h3>📨 Refund requests (' + (d.requests || []).filter(function (x) { return x.status === 'OPEN'; }).length + ' waiting)</h3></div><div class="card list" style="padding:6px 16px">' + (reqs || '<p class="muted">No requests from customers.</p>') + '<p class="muted" style="font-size:.72rem">Customers ask from Account → Request refund. Orders that were not delivered can only ask 48 hours after payment. Offer refund / Approve / Reject all email the customer.</p></div>' +
+    '<div class="subhead"><h3>💸 Refunds to send (' + (d.toSend || []).length + ')</h3></div><div class="card list" style="padding:6px 16px">' + (send || '<p class="muted">Nothing to send. 🎉</p>') + '<p class="muted" style="font-size:.72rem">Send the exact amount to the UPI ID (check the UPI name looks like the customer), then tap ✅ Done. The customer gets an email and a pop-up next time they open the website.</p></div>' +
+    '<div class="subhead"><h3>⏳ Customer still choosing (' + (d.choosing || []).length + ')</h3></div><div class="card list" style="padding:6px 16px">' + (choosing || '<p class="muted">None.</p>') + '</div>' +
+    '<div class="subhead"><h3>⚙️ Refund settings</h3></div><div class="card"><div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-end">' +
+    '<label>Extra for coins / coupon (%)<input class="inp" id="rfbonus" type="number" min="0" max="50" step="1" value="' + esc(st.bonusPercent) + '" style="max-width:120px"/></label>' +
+    '<label>Days the customer has to choose (delivered plans)<input class="inp" id="rfdays" type="number" min="1" max="90" step="1" value="' + esc(st.offerDays) + '" style="max-width:120px"/></label>' +
+    '<button class="btn" id="rfsave">Save</button><span class="muted" id="rfsmsg" style="font-size:.8rem"></span></div><p class="muted" style="font-size:.72rem;margin:8px 0 0">UPI refunds are always the exact amount. A new % applies to new offers (an open offer keeps the % it was made with).</p></div>' +
+    (recent ? '<div class="subhead"><h3>🕘 Recent offers &amp; ⚡ refunds by admin</h3></div><div class="card list" style="padding:6px 16px">' + recent + '</div>' : '');
+  $('#rfsave').onclick = function () {
+    $('#rfsmsg').textContent = 'Saving…';
+    post('/admin/api/refunds/settings', { bonusPercent: $('#rfbonus').value, offerDays: $('#rfdays').value }).then(function (x) { $('#rfsmsg').textContent = x.ok ? '✅ Saved' : '⚠️ ' + (x.message || 'failed'); if (x.ok) toast('Refund settings saved'); });
+  };
+  $('#rfbody').onclick = function (e) {
+    var o = e.target.closest('[data-rfo]'); if (o) { e.preventDefault(); openOrder(o.getAttribute('data-rfo')); return; }
+    var rq = e.target.closest('[data-rqoffer],[data-rqapprove],[data-rqreject]');
+    if (rq) {
+      var one = d.requests[+(rq.getAttribute('data-rqoffer') || rq.getAttribute('data-rqapprove') || rq.getAttribute('data-rqreject'))]; if (!one) return;
+      if (rq.hasAttribute('data-rqoffer')) {
+        modal('💸 Offer refund · request ' + esc(one.requestId), '<div id="orf_box"></div>', '', '');
+        offerRefundForm($('#orf_box'), { orderId: one.orderId }, function () { closeModal(); toast('💸 Refund offered'); loadRefundsView(); }, { reason: one.reason === 'NOT_WORKING' || one.kind === 'UNDELIVERED' ? 'NO_REPLACEMENT' : 'MID_PERIOD' });
+        return;
+      }
+      if (rq.hasAttribute('data-rqapprove')) {
+        if (!confirm('Approve a FULL refund of ' + money(one.paid) + ' for ' + one.orderId + '?\n\nDelivery is checked again first. The customer is emailed and chooses UPI (exact) or coins / coupon with extra.')) return;
+        rq.disabled = true;
+        post('/admin/api/refund-requests/approve', { requestId: one.requestId }).then(function (x) { rq.disabled = false; if (!x.ok) { alert(x.message || 'failed'); if (x.delivered) loadRefundsView(); return; } toast('✅ Full refund approved'); loadRefundsView(); });
+        return;
+      }
+      var m = prompt('Reject refund request for ' + one.service + ' ' + one.plan + '?\nMessage for the customer (they get it by email and in the app):', ''); if (m == null) return;
+      rq.disabled = true;
+      post('/admin/api/refund-requests/reject', { requestId: one.requestId, message: m }).then(function (x) { rq.disabled = false; if (!x.ok) { alert(x.message || 'failed'); return; } toast('❌ Request rejected'); loadRefundsView(); });
+      return;
+    }
+    var c = e.target.closest('[data-rfcancel]');
+    if (c) {
+      var why = prompt('Cancel refund offer ' + c.getAttribute('data-rfcancel') + '? Why? (optional)', ''); if (why == null) return;
+      c.disabled = true;
+      post('/admin/api/refund-offers/cancel', { offerId: c.getAttribute('data-rfcancel'), reason: why }).then(function (x) { if (!x.ok) { c.disabled = false; alert(x.message || 'failed'); return; } toast('🚫 Offer cancelled'); loadRefundsView(); });
+      return;
+    }
+    var b = e.target.closest('[data-rfdone]'); if (!b) return;
+    var x = d.toSend[+b.getAttribute('data-rfdone')]; if (!x) return;
+    if (!confirm('You sent ' + money(x.amount) + ' to ' + x.upi + ' for ' + x.orderId + '?')) return;
+    b.disabled = true;
+    post('/admin/api/order/refund-upi-done', { orderId: x.orderId, reference: ($('#rfutr_' + b.getAttribute('data-rfdone')) || {}).value || '', notify: true }).then(function (r) {
+      if (!r.ok) { b.disabled = false; alert(r.message || 'failed'); return; }
+      toast('✅ Refund marked sent — customer told'); loadRefundsView();
+    });
+  };
+}
+
 /* ================= stock levels ================= */
 var K = { data: null, filter: 'all', q: '', open: {} };
 function stockView() {
@@ -1870,7 +2151,7 @@ function renderStock() {
   var ru = d.removeUsers;
   var h = '<div class="kpis"><div class="kpi"><div class="ic">🔴</div><div><div class="n">' + counts.OUT + '</div><div class="l">Plans out of stock</div></div></div><div class="kpi"><div class="ic">🟡</div><div><div class="n">' + counts.LOW + '</div><div class="l">Plans running low</div></div></div>' +
     '<div class="kpi"><div class="ic">🧱</div><div><div class="n">' + nFull + '</div><div class="l">Accounts full</div></div></div></div>' +
-    '<div class="row" style="margin:-6px 0 10px"><a href="#removeusers" class="chip" data-kru="" onclick="event.preventDefault()">🚪 Remove users' + (ru && ru.customers ? ' · ' + ru.customers + ' customers on ' + ru.accounts + ' accounts' : '') + ' →</a></div>';
+    '<div class="row" style="margin:-6px 0 10px"><a href="#removeusers" class="chip" data-kru="" onclick="event.preventDefault()">🚪 Remove users' + (ru && ru.todo && (ru.changeNow.accounts || ru.wait.accounts) ? ' · ' + esc(ru.todo) : '') + ' →</a></div>';
   h += '<div class="subhead"><h3>Plans</h3></div><div class="kgrid">' + services.map(function (sv) {
     var list = byService[sv].slice().sort(function (a, b) { return (a.durationDays || 0) - (b.durationDays || 0); });
     return '<div class="card kcard ' + worst(list).toLowerCase() + '"><div class="row" style="justify-content:space-between;margin-bottom:8px"><b>' + svcIcon(sv) + ' ' + esc(sv) + '</b></div>' +
@@ -1903,7 +2184,7 @@ function renderAccounts() {
     var rows = groups[sv], open = expandAll || K.open[sv];
     var used = rows.reduce(function (n, a) { return n + (a.used || 0); }, 0), cap = rows.reduce(function (n, a) { return n + (a.isActive && a.cap ? a.cap : 0); }, 0);
     return '<div class="card" style="padding:0;margin-bottom:10px;overflow:hidden"><button class="ksvc" data-ksvc="' + esc(sv) + '"><span>' + (open ? '▾' : '▸') + ' ' + svcIcon(sv) + ' <b>' + esc(sv) + '</b> <span class="muted">· ' + rows.length + ' accounts' + (cap ? ' · ' + used + ' / ' + cap + ' ' + esc(rows[0].unit || '') + ' used' : '') + '</span></span>' +
-      '<span>' + (rows.some(function (a) { return a.status === 'FULL' || a.status === 'TV_FULL'; }) ? '<span class="pill p-warn">has full</span> ' : '') + (function () { var seen = {}, n = rows.reduce(function (t, a) { if (seen[a.accountId]) return t; seen[a.accountId] = 1; return t + (a.expiredOnAccount || 0); }, 0); return n ? '<span class="pill p-bad">🚪 ' + n + ' to log out</span>' : ''; })() + '</span></button>' +
+      '<span>' + (rows.some(function (a) { return a.status === 'FULL' || a.status === 'TV_FULL'; }) ? '<span class="pill p-warn">has full</span> ' : '') + (function () { var seen = {}, n = rows.reduce(function (t, a) { if (seen[a.accountId]) return t; seen[a.accountId] = 1; return t + (a.expiredOnAccount || 0); }, 0); var seenNow = {}, now = rows.filter(function (a) { if (a.removeAdvice !== 'NOW' || seenNow[a.accountId]) return false; seenNow[a.accountId] = 1; return true; }).length; return (now ? '<span class="pill p-bad">🔑 ' + now + ' to change now</span> ' : '') + (n ? '<span class="pill p-grey">🚪 ' + n + ' inactive</span>' : ''); })() + '</span></button>' +
       (open ? '<div class="list" style="padding:0 14px 8px">' + rows.map(accountRow).join('') + '</div>' : '') + '</div>';
   }).join('') : '<div class="card muted">No accounts match.</div>');
 }
@@ -1913,7 +2194,7 @@ function accountRow(a) {
   return '<div class="li"><div class="grow"><b style="font-family:Consolas,monospace">' + esc(a.accountId) + '</b> ' + pill + (a.plan ? ' <span class="pill p-blue">' + esc(a.plan) + '</span>' : '') +
     '<div class="muted" style="font-size:.72rem">' + esc(a.login || '(no login)') + (a.notes ? ' · ' + esc(a.notes) : '') + '</div>' +
     (a.cap ? '<div class="bar' + (pct >= 100 ? ' b' : pct >= 75 ? ' w' : '') + '" style="margin-top:6px;max-width:320px"><i style="width:' + pct + '%"></i></div><div class="muted" style="font-size:.7rem;margin-top:3px">' + a.used + ' / ' + a.cap + ' ' + esc(a.unit) + (a.tvCap != null ? ' · TV ' + a.tvUsed + ' / ' + a.tvCap : '') + '</div>' : '') + '</div>' +
-    '<div class="row" style="gap:6px"><button class="chip" data-see="' + esc(a.accountId) + '">👥 ' + a.activeSubs + ' active</button>' + (a.expiredOnAccount ? '<button class="chip clear" data-kru="' + esc(a.accountId) + '" title="Open 🚪 Remove users for this account">🚪 ' + a.expiredOnAccount + ' to log out</button>' : '') + (a.expiredOldUsers ? '<span class="pill p-grey" title="Nobody active on this login: safe to reset devices / change the password">🧹 ' + a.expiredOldUsers + ' old users</span>' : '') + '</div></div>';
+    '<div class="row" style="gap:6px"><button class="chip" data-see="' + esc(a.accountId) + '">👥 ' + a.activeSubs + ' active</button>' + (a.expiredOnAccount || a.expiredOldUsers ? '<button class="chip clear" data-kru="' + esc(a.accountId) + '" title="Open 🚪 Remove users for this account">' + (a.removeAdvice === 'NOW' ? '🔑 Change now' : a.removeAdvice === 'WAIT_DATE' ? '⏳ Change on ' + esc(a.removeOn) : '⏳ Wait') + ' · ' + (a.expiredOnAccount || a.expiredOldUsers) + ' inactive' + (a.expiredOnAccount ? '' : ' (nobody active)') + '</button>' : '') + '</div></div>';
 }
 
 /* ================= Today (action list + to-dos) ================= */
@@ -1972,7 +2253,7 @@ function renderTodayItems() {
       if (it.list && it.list.length) extra = '<div class="tnames">' + it.list.map(function (s) { return svcIcon(s.service) + ' ' + esc(s.service) + ' · ' + esc(s.phone_norm) + ' · ' + prettyDate(s.expiry_date, true); }).join('<br>') + '</div>';
       // Paid but not delivered: each stuck order opens straight into its actions (Fulfil / Refund / Erase).
       if (it.orders && it.orders.length && it.count > 0) extra = '<span class="tnames">' + it.orders.filter(function (o) { return o && o.order_id; }).map(function (o) { return '<span class="tstuck" role="button" data-toid="' + esc(o.order_id) + '">' + svcIcon(o.service) + ' <b>' + esc(o.order_id) + '</b> · ' + esc(o.name || '') + ' · ' + esc(o.service) + ' ' + esc(o.plan) + ' · ' + money(o.final_amount) + ' ' + statusPill(o.fulfillment_status || 'PENDING') + ' <u>Fix ›</u></span>'; }).join('') + '</span>';
-      return '<button class="tcard ' + (it.count > 0 ? it.tone : 'clear') + '" data-i="' + i + '"><span class="tic">' + it.icon + '</span><span class="tbody"><b>' + esc(it.title) + '</b>' + (it.sub && it.count > 0 ? ' <span class="muted tsub">' + esc(it.sub) + '</span>' : '') + extra + '</span><span class="tcount">' + (it.count > 0 ? it.count : '✓') + '</span></button>';
+      return '<button class="tcard ' + (it.count > 0 ? it.tone : 'clear') + '" data-i="' + i + '"><span class="tic">' + it.icon + '</span><span class="tbody"><b>' + esc(it.title) + '</b>' + (it.sub && (it.count > 0 || it.showSub) ? ' <span class="muted tsub">' + esc(it.sub) + '</span>' : '') + extra + '</span><span class="tcount">' + (it.count > 0 ? it.count : '✓') + '</span></button>';
     }).join('') + '</div>';
   $('#titems').onclick = function (e) { var so = e.target.closest('[data-toid]'); if (so) { openOrder(so.getAttribute('data-toid')); return; } var b = e.target.closest('.tcard'); if (b) todayGo(items[+b.getAttribute('data-i')].go); };
 }
@@ -2608,6 +2889,7 @@ function fdLoad(then) {
     if (!r.ok) { $('#fdbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
     FD.list = r.posts || []; FD.services = r.services || []; FD.settings = r.settings || {}; FD.job = r.job || null;
     FD.serviceInfo = r.serviceInfo || []; FD.brands = r.brands || []; FD.commentsReady = !!r.commentsReady; FD.commentCounts = r.commentCounts || {};
+    FD.marksReady = r.marksReady !== false; FD.marksCounts = r.marksCounts || {}; FD.video = r.video || { ready: false };
     var n = $('#fdcmn'); if (n) n.innerHTML = FD.commentCounts.pending ? '<span class="pill p-warn">' + FD.commentCounts.pending + ' to check</span>' : '';
     if (then) then(); else if (!FD.panel) fdRenderList();
   });
@@ -2659,17 +2941,22 @@ function fdCleanup() {
 function fdRenderList() {
   FD.panel = ''; FD.edit = null;
   var h = FD.settings.hasKey ? fdJobCard() : '<div class="qnote" style="margin:0 0 12px">🤖 Add a free TMDB key in ⚙️ Settings and the feed fills itself: new movies &amp; shows on your platforms in India, with poster, story, genres and trailer.</div>';
+  // ❤️ 🔖 Liked / saved posts follow the customer's account only after db/schema-v25.sql (feedmarks.js).
+  h += FD.marksReady ? '<div class="muted" style="font-size:.8rem;margin:0 0 10px">❤️ ' + (FD.marksCounts.likes || 0) + ' account likes · 🔖 ' + (FD.marksCounts.saves || 0) + ' saves (customers see them in What\'s new → ☰ menu)</div>'
+    : '<div class="qnote warn" style="margin:0 0 12px">🔖 Liked &amp; saved posts stay on each customer\'s phone for now. Run <b>db/schema-v25.sql</b> in phpMyAdmin once so they follow the customer\'s account (any phone).</div>';
+  h += fdVideoCard();
   if (!FD.list.length) h += '<div class="card" style="text-align:center;padding:28px"><div style="font-size:2.4rem">🍿</div><h3>No posts yet</h3><p class="muted">➕ New post, or 🔎 Find on TMDB once you have a key.</p></div>';
   else h += '<div class="pr-list">' + FD.list.map(function (p) {
     var st = FD_STATUS[p.status] || [p.status, 'p-grey']; var img = fdImg(p, 'w185');
     return '<div class="card pr-item fd-item">' + (img ? '<img class="fd-thumb" src="' + esc(img) + '" alt="" loading="lazy"/>' : '<div class="fd-thumb">🍿</div>') +
-      '<div class="grow" style="min-width:0"><div class="row" style="gap:6px"><b>' + esc(p.title) + '</b><span class="pill ' + st[1] + '">' + st[0] + '</span>' + (p.seasonLabel ? '<span class="pill p-blue">🆕 ' + esc(p.seasonLabel) + '</span>' : '') + (p.pinned ? '<span class="pill p-warn">📌 Pinned</span>' : '') + '</div>' +
+      '<div class="grow" style="min-width:0"><div class="row" style="gap:6px"><b>' + esc(p.title) + '</b><span class="pill ' + st[1] + '">' + st[0] + '</span>' + (p.format === 'reel' ? '<span class="pill p-blue">🎬 Reel' + (p.videoId ? ' · video' : '') + (p.reelInFeed === false ? ' · Reels only' : '') + '</span>' : '') + (p.seasonLabel ?'<span class="pill p-blue">🆕 ' + esc(p.seasonLabel) + '</span>' : '') + (p.pinned ? '<span class="pill p-warn">📌 Pinned</span>' : '') + '</div>' +
       '<div class="muted" style="font-size:.78rem;margin-top:4px">' + esc(p.brand || p.service || 'No platform') + (p.ctaService && p.ctaService !== p.brand ? ' → sells ' + esc(p.ctaService) : '') + ' · ' + fdType(p.type) + (fdRelease(p) ? ' · ' + fdRelease(p) + (p.dateAuto ? ' (auto)' : '') : '') + (p.publishAt ? ' · from ' + prNice(p.publishAt) : '') + (p.hideAfter ? ' · hides ' + prNice(p.hideAfter) : '') + (p.source === 'tmdb' ? ' · TMDB' : '') + '</div>' +
       '<div class="muted" style="font-size:.78rem;margin-top:2px">👀 ' + p.views + ' views · ❤️ ' + p.likes + ' likes · 👆 ' + p.clicks + ' button taps · 📤 ' + p.shares + ' shares · ▶️ ' + (p.plays || 0) + ' plays' + (p.instagramUrl ? ' · 📸 Reel' + (p.hasThumb ? ' (thumbnail ✓)' : ' (no thumbnail)') : '') + (p.comments && (p.comments.visible || p.comments.pending) ? ' · 💬 ' + p.comments.visible + (p.comments.pending ? ' <b style="color:#b45309">+' + p.comments.pending + ' to check</b>' : '') : '') + '</div></div>' +
       '<div class="pr-actions"><button class="btn sm ' + (p.active ? 'ghost' : 'green') + '" data-tog="' + p.id + '">' + (p.active ? '⏸ Turn off' : '▶️ Turn on') + '</button><button class="btn sm ghost" data-pin="' + p.id + '">' + (p.pinned ? 'Unpin' : '📌 Pin') + '</button><button class="btn sm dark" data-ed="' + p.id + '">✏️ Edit</button><button class="btn sm ghost" data-dup="' + p.id + '">⧉ Copy</button><button class="btn sm ghost" data-cmp="' + p.id + '" aria-label="Comments">💬</button><button class="btn sm ghost" data-del="' + p.id + '" aria-label="Delete">🗑</button></div></div>';
   }).join('') + '</div>';
   var body = $('#fdbody');
   body.innerHTML = h; body.oninput = body.onchange = null;
+  fdWireVideoCard();
   body.onclick = function (e) {
     var b = e.target.closest('button'); if (!b) return;
     var find = function (id) { return FD.list.filter(function (x) { return x.id === id; })[0]; };
@@ -2680,7 +2967,7 @@ function fdRenderList() {
     if (b.id === 'fdrun') { b.disabled = true; b.textContent = '⏳ Importing…'; post('/admin/api/feed/run', {}).then(function (r) { var x = r.result || {}; toast(r.ok ? '🤖 Imported ' + (x.imported || 0) + ' (' + (x.published || 0) + ' published, ' + (x.drafts || 0) + ' drafts)' : '⚠️ ' + (r.message || 'error')); fdLoad(); }); return; }
     if (b.dataset.ed) fdEdit(find(b.dataset.ed));
     if (b.dataset.cmp) fdComments('all', b.dataset.cmp);
-    if (b.dataset.dup) { var c = Object.assign({}, find(b.dataset.dup)); delete c.id; c.title = c.title + ' (copy)'; c.active = false; c.hasImage = false; c.hasThumb = false; c.thumbAt = ''; c.tmdbKey = ''; c.source = 'manual'; fdEdit(c); }
+    if (b.dataset.dup) { var c = Object.assign({}, find(b.dataset.dup)); delete c.id; delete c.videoId; delete c.videoType; c.title = c.title + ' (copy)'; c.active = false; c.hasImage = false; c.hasThumb = false; c.thumbAt = ''; c.tmdbKey = ''; c.source = 'manual'; fdEdit(c); }
     if (b.dataset.tog) quick(find(b.dataset.tog), { active: !find(b.dataset.tog).active }, function (p) { return p.active ? '▶️ Post on — live within 30 seconds' : '⏸ Post off'; });
     if (b.dataset.pin) quick(find(b.dataset.pin), { pinned: !find(b.dataset.pin).pinned }, function (p) { return p.pinned ? '📌 Pinned to the top' : 'Unpinned'; });
     if (b.dataset.del) { var d = find(b.dataset.del); if (confirm('Delete the post "' + d.title + '"? This cannot be undone.')) post('/admin/api/feed/delete', { id: d.id }).then(function (r) { toast(r.ok ? '🗑 Deleted' : '⚠️ ' + (r.message || 'error')); fdLoad(); }); }
@@ -2720,7 +3007,7 @@ function fdEdit(p) {
   if (!e.brand) e.brand = fdBrandOf(e.ctaService || e.service);
   var tags = function (v) { return esc(fdTags(v).join(', ')); };
   $('#fdbody').innerHTML = '<div class="pr-edit"><div class="card"><div class="row" style="justify-content:space-between"><h3 style="margin:0">' + (e.id ? '✏️ Edit post' : '➕ New post') + '</h3><button class="btn ghost sm" id="fdback">← Back</button></div>' +
-    '<div class="pr-f"><label>Kind<div class="pr-types">' + FD_TYPES.map(function (x) { return '<button type="button" class="pr-type' + (e.type === x[0] ? ' on' : '') + '" data-type="' + x[0] + '"><b>' + x[1] + '</b><span>' + x[2] + '</span></button>'; }).join('') + '</div></label>' +
+    '<div class="pr-f">' + fdFormatBox(e) + '<label>Kind<div class="pr-types">' + FD_TYPES.map(function (x) { return '<button type="button" class="pr-type' + (e.type === x[0] ? ' on' : '') + '" data-type="' + x[0] + '"><b>' + x[1] + '</b><span>' + x[2] + '</span></button>'; }).join('') + '</div></label>' +
     '<label>Title<input class="inp" data-k="title" maxlength="100" value="' + esc(e.title || '') + '" placeholder="Name of the movie or show"/></label>' +
     '<div class="fd-ai"><button type="button" class="btn ghost sm" id="fdai">✨ AI fill</button>' + (e.caption && (FD.settings.aiKeySet || FD.settings.hasGeminiKey) ? '<button type="button" class="btn ghost sm" id="fdairw" title="Write the caption again with a different hook">✨ Rewrite</button>' : '') + '<span class="muted" style="font-size:.75rem">' + (e.sourceCaption ? 'Uses the Reel\'s own caption' : 'Uses the title / caption') + ' → title, caption, genres, date, poster. Nothing is saved until you tap 💾 Save.' + (FD.settings.aiKeySet || FD.settings.hasGeminiKey ? '' : ' <b>No AI key yet</b> — only genres / date / poster.') + '</span><div id="fdaimsg"></div></div>' +
     '<div class="pr-two"><label>Platform shown <span class="muted">(header + logo)</span><select class="inp" data-k="brand">' + fdBrandOpts(e.brand) + '</select></label>' +
@@ -2759,11 +3046,15 @@ function fdEdit(p) {
     rfStateSet('dirty', '● Not saved yet'); refresh();
     if (k === 'instagramUrl') fdIgCheck();
   };
-  body.onclick = function (ev) { var tb = ev.target.closest('[data-type]'); if (tb) { FD.edit.type = tb.dataset.type; fdEdit(FD.edit); } };
+  body.onclick = function (ev) {
+    var tb = ev.target.closest('[data-type]'); if (tb) { FD.edit.type = tb.dataset.type; fdEdit(FD.edit); return; }
+    var fb = ev.target.closest('[data-format]'); if (fb) { FD.edit.format = fb.dataset.format; if (FD.edit.reelInFeed == null) FD.edit.reelInFeed = true; fdEdit(FD.edit); rfStateSet('dirty', '● Not saved yet'); }
+  };
+  fdWireVideo();
   $('#fdback').onclick = fdBack;
   $('#fdsave').onclick = function () {
     var body2 = Object.assign({}, FD.edit, { service: FD.edit.ctaService || '', languages: fdTags(FD.edit.languages), genres: fdTags(FD.edit.genres) });
-    delete body2._img; delete body2._dateNote;
+    delete body2._img; delete body2._dateNote; delete body2._videoNew;
     saveSettingsBtn(this, '/admin/api/feed/save', body2, rfStateSet, function (r) {
       r.changed = ['x']; var st = r.status; FD.edit = Object.assign({}, r.post);
       if (r.autoDate && r.autoDate.message) { FD.edit._dateNote = r.autoDate.message; toast(r.autoDate.found ? '📅 Date filled automatically' : '📅 ' + r.autoDate.message); }
@@ -2827,6 +3118,118 @@ function fdEdit(p) {
   };
   var del = $('#fdimgdel'); if (del) del.onclick = function () { post('/admin/api/feed/image', { id: FD.edit.id, dataUrl: '' }).then(function (r) { if (r.ok) { FD.edit.hasImage = false; FD.edit._img = ''; fdEdit(FD.edit); } }); };
   refresh(); fdIgCheck();
+}
+// 🎬 Post type: Post (feed) / Reel (full-screen video in the Reels tab). A Reel's video, best first: uploaded MP4 / WebM
+// (our own player: full screen, autoplay muted, loop) › YouTube Shorts link (Trailer box) › Instagram Reel link.
+var FD_VIDEO_TYPES = ['video/mp4', 'video/webm'];
+function fdMb(b) { var m = (Number(b) || 0) / 1048576; return m >= 1024 ? (Math.round(m / 102.4) / 10) + ' GB' : (m >= 10 ? Math.round(m) : Math.round(m * 10) / 10) + ' MB'; }
+function fdVideoUrl(e) { return '/v/' + e.videoId + (e.videoType === 'video/webm' || e._videoMime === 'video/webm' ? '.webm' : '.mp4'); }
+function fdFormatBox(e) {
+  var reel = e.format === 'reel', v = FD.video || {};
+  var h = '<label>Post type<div class="pr-types">' +
+    '<button type="button" class="pr-type' + (reel ? '' : ' on') + '" data-format="post"><b>🖼️ Post</b><span>Picture + caption in the feed</span></button>' +
+    '<button type="button" class="pr-type' + (reel ? ' on' : '') + '" data-format="reel"><b>🎬 Reel</b><span>Full-screen video in the Reels tab</span></button></div></label>';
+  if (!reel) return h;
+  h += '<div class="card fd-reelbox" style="background:#f8fafc;margin:0">' +
+    '<label class="rf-tog"><input type="checkbox" data-k="reelInFeed"' + (e.reelInFeed !== false ? ' checked' : '') + '/> Also show this Reel in the feed</label>' +
+    '<div class="muted" style="font-size:.8rem;margin:6px 0">Video — best first: <b>① upload a video</b> (plays full screen, starts by itself, loops) · ② YouTube <b>Shorts</b> link in “Trailer” · ③ Instagram Reel link below (Instagram’s own player, needs a tap).</div>';
+  if (!v.ready) h += '<div class="qnote warn" id="fdvidnote">🎬 Uploading videos needs <b>db/schema-v25.sql</b> — run it once in phpMyAdmin. YouTube Shorts / Instagram links work already.</div>';
+  else {
+    h += (e.videoId ? '<div class="fd-thumbrow"><video id="fdvidprev" src="' + esc(fdVideoUrl(e)) + '" muted playsinline loop controls preload="metadata" width="90" height="160" style="border-radius:10px;background:#000;object-fit:cover"></video>' +
+      '<span class="muted">✅ Video ready' + (e._videoNew ? ' — 💾 Save to put it on the post' : '') + '</span>' +
+      (e.id ? '<button type="button" class="btn ghost sm" id="fdvidposter">📸 Use this frame as the picture</button>' : '') + '<button type="button" class="btn ghost sm" id="fdviddel">Remove video</button></div>' : '') +
+      '<label>' + (e.videoId ? 'Replace video' : 'Upload video') + ' <span class="muted">(MP4 or WebM, max ' + fdMb(v.maxBytes || 26214400) + ', ≤ ' + (v.maxSeconds || 90) + ' s)</span><input type="file" id="fdvid" accept="video/mp4,video/webm"/></label>' +
+      '<div class="muted" style="font-size:.78rem">💡 Upload vertical 720p, ~30–60 s — usually 3–8 MB. Videos: ' + fdMb(v.bytes) + ' of ' + fdMb(v.totalBytes) + ' used.</div><div id="fdvidmsg"></div>';
+  }
+  return h + '</div>';
+}
+// Storage card on the post list: "Videos: 312 MB of 2 GB used", each video's size, 🗑️ delete (frees the chunks), limits.
+function fdVideoCard() {
+  var v = FD.video || {};
+  if (!v.ready) return '';
+  var list = v.list || [];
+  return '<details class="card" style="margin:0 0 12px"><summary style="cursor:pointer"><b>🎬 Videos: ' + fdMb(v.bytes) + ' of ' + fdMb(v.totalBytes) + ' used</b> <span class="muted">(' + (v.videos || 0) + ' Reel video' + (v.videos === 1 ? '' : 's') + ')</span></summary>' +
+    '<div class="muted" style="font-size:.78rem;margin:6px 0">Stored in the MySQL database — counts toward the Hostinger disk quota. 💡 Vertical 720p, ~30–60 s is usually 3–8 MB.</div>' +
+    (list.length ? '<div class="pr-list">' + list.map(function (x) {
+      return '<div class="row" style="gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eef2f7"><span style="min-width:64px"><b>' + fdMb(x.size) + '</b></span><span class="grow muted" style="font-size:.8rem;min-width:0">' + (x.post ? '🎬 ' + esc(x.post.title) : x.status === 'ready' ? 'Not on a post' : '⏳ Unfinished upload') + (x.duration ? ' · ' + Math.round(x.duration) + ' s' : '') + ' · ' + esc(prettyDate(x.createdAt)) + '</span>' +
+        (x.post ? '' : '<button type="button" class="btn ghost sm" data-viddel="' + esc(x.id) + '">🗑️ Delete</button>') + '</div>';
+    }).join('') + '</div>' : '<div class="muted" style="font-size:.8rem">No videos uploaded yet.</div>') +
+    '<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap"><label style="font-size:.8rem">Max per video (MB)<input class="inp" type="number" min="1" max="50" id="fdvidmax" value="' + esc((v.limits || {}).videoMaxMb || 25) + '" style="width:90px"/></label>' +
+    '<label style="font-size:.8rem">Total storage (MB)<input class="inp" type="number" min="50" max="20480" id="fdvidtotal" value="' + esc((v.limits || {}).videoTotalMb || 2048) + '" style="width:110px"/></label><button type="button" class="btn sm" id="fdvidlim">Save limits</button></div></details>';
+}
+function fdWireVideoCard() {
+  $$('[data-viddel]').forEach(function (b) {
+    b.onclick = function () {
+      if (!confirm('Delete this video? It is removed from the database for good.')) return;
+      b.disabled = true;
+      post('/admin/api/feed/video/delete', { id: b.getAttribute('data-viddel') }).then(function (r) { toast(r.ok ? '🗑️ Video deleted' : '⚠️ ' + (r.message || 'error')); fdLoad(); });
+    };
+  });
+  var s = $('#fdvidlim'); if (s) s.onclick = function () {
+    post('/admin/api/feed/video/settings', { videoMaxMb: Number($('#fdvidmax').value), videoTotalMb: Number($('#fdvidtotal').value) }).then(function (r) { toast(r.ok ? '✅ Video limits saved' : '⚠️ ' + (r.message || 'error')); if (r.ok) fdLoad(); });
+  };
+}
+function fdWireVideo() {
+  var inp = $('#fdvid'), out = $('#fdvidmsg');
+  if (inp) inp.onchange = function () {
+    var f = inp.files[0], v = FD.video || {}; if (!f) return;
+    if (FD_VIDEO_TYPES.indexOf(f.type) < 0) { out.innerHTML = '<div class="qnote bad">⚠️ Pick an MP4 or WebM video.</div>'; return; }
+    if (f.size > (v.maxBytes || 26214400)) { out.innerHTML = '<div class="qnote bad">⚠️ Too big (' + fdMb(f.size) + '). Max ' + fdMb(v.maxBytes || 26214400) + ' — upload vertical 720p, ~30–60 s (usually 3–8 MB).</div>'; return; }
+    inp.disabled = true;
+    fdUploadVideo(f, v.maxSeconds || 90, function (msg) { out.innerHTML = '<div class="qnote">' + msg + '</div>'; }, function (r) {
+      inp.disabled = false;
+      if (!r.ok) { out.innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'Upload failed') + '</div>'; return; }
+      FD.edit.videoId = r.id; FD.edit._videoMime = r.mime; FD.edit._videoNew = true; fdEdit(FD.edit); rfStateSet('dirty', '● Video uploaded — 💾 Save the post');
+    });
+  };
+  var del = $('#fdviddel'); if (del) del.onclick = function () {
+    var id = FD.edit.videoId, fresh = FD.edit._videoNew; FD.edit.videoId = ''; FD.edit._videoNew = false;
+    if (fresh) post('/admin/api/feed/video/delete', { id: id });
+    fdEdit(FD.edit); rfStateSet('dirty', '● Not saved yet — 💾 Save removes the video');
+  };
+  // Poster = a frame of the video drawn on a canvas, saved like an uploaded picture (small JPEG).
+  var pb = $('#fdvidposter'), vid = $('#fdvidprev'); if (pb && vid) pb.onclick = function () {
+    try {
+      var cv = document.createElement('canvas'), k = Math.min(1, 720 / Math.max(vid.videoWidth || 1, vid.videoHeight || 1));
+      cv.width = Math.round((vid.videoWidth || 540) * k); cv.height = Math.round((vid.videoHeight || 960) * k);
+      cv.getContext('2d').drawImage(vid, 0, 0, cv.width, cv.height);
+      var q = 0.8, url = cv.toDataURL('image/jpeg', q); while (url.length > 300000 && q > 0.45) { q -= 0.1; url = cv.toDataURL('image/jpeg', q); }
+      post('/admin/api/feed/image', { id: FD.edit.id, dataUrl: url }).then(function (r) { if (!r.ok) return toast('⚠️ ' + (r.message || 'error')); toast('🖼️ Frame saved as the picture'); FD.edit.hasImage = true; FD.edit.updatedAt = r.updatedAt; FD.edit._img = url; fdEdit(FD.edit); });
+    } catch (x) { toast('⚠️ Play the video to the frame you want first'); }
+  };
+}
+// Length check (≤ 90 s) + SHA-256 in the browser, then 1 MB raw chunks one after another (2 tries each), then finish.
+function fdVideoLength(file, done) {
+  try {
+    var u = URL.createObjectURL(file), el = document.createElement('video'), t = setTimeout(function () { fin(null); }, 8000);
+    var fin = function (d) { clearTimeout(t); try { URL.revokeObjectURL(u); } catch (x) {} done(d); };
+    el.preload = 'metadata'; el.muted = true;
+    el.onloadedmetadata = function () { fin(isFinite(el.duration) ? el.duration : null); };
+    el.onerror = function () { fin(null); };
+    el.src = u;
+  } catch (x) { done(null); }
+}
+function fdUploadVideo(file, maxSeconds, progress, done) {
+  progress('⏳ Checking the video…');
+  fdVideoLength(file, function (dur) {
+    if (dur && dur > maxSeconds + 0.5) return done({ ok: false, message: 'Reels can be up to ' + maxSeconds + ' seconds — this one is ' + Math.round(dur) + ' s.' });
+    if (!window.crypto || !crypto.subtle) return done({ ok: false, message: 'This browser cannot check the file — use Chrome on https.' });
+    file.arrayBuffer().then(function (buf) { return crypto.subtle.digest('SHA-256', buf); }).then(function (hash) {
+      var sha = Array.prototype.map.call(new Uint8Array(hash), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+      post('/admin/api/feed/video/start', { mime: file.type, size: file.size, sha256: sha, duration: dur }).then(function (r) {
+        if (!r.ok) return done(r);
+        var n = 0, tries = 0;
+        var next = function () {
+          if (n >= r.chunks) { progress('⏳ Checking the upload…'); return post('/admin/api/feed/video/finish', { id: r.id }).then(done); }
+          progress('⏳ Uploading… ' + Math.round(n / r.chunks * 100) + '%');
+          var part = file.slice(n * r.chunkSize, Math.min(file.size, (n + 1) * r.chunkSize));
+          fetch('/admin/api/feed/video/chunk?id=' + encodeURIComponent(r.id) + '&n=' + n, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: part })
+            .then(handle).then(function (x) { if (x && x.ok) { n++; tries = 0; next(); } else if (++tries < 2) next(); else done(x || { ok: false }); }, function (e) { if (++tries < 2) next(); else done({ ok: false, message: e.message }); });
+        };
+        next();
+      });
+    }, function (e) { done({ ok: false, message: 'Could not read the file: ' + e.message }); });
+  });
 }
 // 📸 The server stores Instagram's thumbnail as it comes (up to ~330 KB). Above 120 KB this page shrinks it on a canvas
 // (same way as uploaded pictures) and saves the small copy, so customers download little. r = save / refresh result.
@@ -3393,7 +3796,22 @@ function renderMaintenance() {
     '<p class="muted" style="margin:4px 0 0;font-size:.84rem">Keep this ON. First login on a phone = a code to the email we trust for that number; then the phone stays logged in for 180 days. ' +
     '<b>Emergency only:</b> OFF = the old phone-number login (anyone who knows a number can open that account). Every change goes in the change log. Saves at once.</p>' +
     (s.emailLogin === false ? '<div class="rf-banner" style="margin-top:8px;background:#fef2f2;color:#991b1b">⚠️ Email login is OFF — accounts are open with just a phone number. Turn it back on as soon as the problem is fixed.</div>' : '') +
-    '<span class="rf-state" id="mtloginstate"></span></div>';
+    '<span class="rf-state" id="mtloginstate"></span></div>' +
+    '<div class="card"><h3>⏳ Renewal reminder pop-up</h3><label class="rf-tog"><input type="checkbox" id="mtrenew"' + (s.renewPopup !== false ? ' checked' : '') + '/> <b>Remind customers to renew when they open the website</b></label>' +
+    '<p class="muted" style="margin:4px 0 0;font-size:.84rem">A friendly pop-up with their plan, the renew price, early-renew discount, coupon and coins. At most once per visit and once every 12 hours per plan; "Remind me later" waits 24 hours. Never on checkout, payment or Recover. Saves at once.</p><span class="rf-state" id="mtrenewstate"></span>' +
+    '<div class="mt-f" style="margin-top:10px"><label>Days before expiry <span class="muted">(1–14)</span><input class="inp" id="mtrrbefore" type="number" inputmode="numeric" min="1" max="14" value="' + esc(s.renewPopupBefore != null ? s.renewPopupBefore : 7) + '"/></label>' +
+    '<label>Days after expiry <span class="muted">(0–5, renew is allowed up to 5)</span><input class="inp" id="mtrrafter" type="number" inputmode="numeric" min="0" max="5" value="' + esc(s.renewPopupAfter != null ? s.renewPopupAfter : 3) + '"/></label></div>' +
+    '<div class="rf-save"><button class="btn green" id="mtrrsave">💾 Save days</button><span class="rf-state" id="mtrrstate"></span></div></div>' +
+    '<div class="card"><h3>😏 Greeting on My plans</h3><label class="row" style="gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="mtsass"' + (s.sassyGreeting !== false ? ' checked' : '') + ' style="width:22px;height:22px;flex:none;margin-top:2px"/>' +
+    '<span><b>Sassy greeting</b><br><span class="muted">ON: a fun line that changes with the time, the day and the customer\'s plans (e.g. "Missed me?? Here we go again!! 😏", "Your Netflix ends in 2 days — don\'t leave me on read 👀"). OFF: plain "Welcome back, Name 👋". Saves at once.</span></span></label></div>';
+  $('#mtsass').onchange = function () {
+    var box = this, on = box.checked; box.disabled = true;
+    post('/admin/api/store', { sassyGreeting: on }).then(function (r) {
+      box.disabled = false;
+      if (!r.ok) { box.checked = !on; toast('⚠️ Not changed: ' + (r.message || 'error')); return; }
+      MT.s = r.settings; toast(on ? '😏 Sassy greeting ON — live now' : '👋 Plain greeting — live now');
+    });
+  };
   $('#mtlogin').onchange = function () {
     var on = this.checked, box = this;
     if (!on && !confirm('Turn OFF email login?\n\nEMERGENCY ONLY: anyone who knows a customer\'s phone number could open their account until you turn it back on.')) { box.checked = true; return; }
@@ -3414,6 +3832,16 @@ function renderMaintenance() {
       MT.s = r.settings; if (el) { el.className = 'rf-state ok'; el.textContent = on ? '✅ Bubble on — live now' : '✅ Bubble off — live now'; }
     });
   };
+  $('#mtrenew').onchange = function () {
+    var on = this.checked, box = this, el = $('#mtrenewstate'); box.disabled = true;
+    post('/admin/api/store', { renewPopup: on }).then(function (r) {
+      box.disabled = false;
+      if (!r.ok) { box.checked = !on; toast('⚠️ Not changed: ' + (r.message || 'error')); return; }
+      MT.s = r.settings; if (el) { el.className = 'rf-state ok'; el.textContent = on ? '✅ Reminder on — live now' : '✅ Reminder off — live now'; }
+    });
+  };
+  var rrst = function (k, x) { var el = $('#mtrrstate'); if (el) { el.className = 'rf-state ' + k; el.textContent = x; } };
+  $('#mtrrsave').onclick = function () { saveSettingsBtn(this, '/admin/api/store', { renewPopupBefore: $('#mtrrbefore').value, renewPopupAfter: $('#mtrrafter').value }, rrst, function (r) { MT.s = r.settings; }); };
   var body = function (extra) { return Object.assign({ message: $('#mtmsg').value, backText: $('#mtback').value }, extra || {}); };
   $('#mtsave').onclick = function () { saveSettingsBtn(this, '/admin/api/store', body(), st, function (r) { MT.s = r.settings; refreshPauseBar(r.settings); }); };
   $('#mttog').onclick = function () {
@@ -3747,7 +4175,7 @@ function bankClick(e) {
 // the old Sheet DASHBOARD rule). Units are always spelled out: customers (people to log out) vs accounts (logins).
 var RU = { data: null, q: '', fam: 'all', open: {} };
 function removeUsersView() {
-  $('#view').innerHTML = '<div class="ph"><div><h1>🚪 Remove users</h1><p>Expired customers still on an account that other customers use — log them out, then tap ✅ Removed</p></div><button class="btn ghost" id="ruref">⟳ Refresh</button></div><div id="rubody"><p class="muted">Loading…</p></div>';
+  $('#view').innerHTML = '<div class="ph"><div><h1>🚪 Remove users</h1><p>Inactive customers still on a shared login — change the password when it is worth it, then tap ✅ Removed</p></div><button class="btn ghost" id="ruref">⟳ Refresh</button></div><div id="rubody"><p class="muted">Loading…</p></div>';
   $('#ruref').onclick = function () { RU.data = null; removeUsersView(); };
   if (RU.data) return renderRemoveUsers();
   api('/admin/api/remove-users').then(function (r) {
@@ -3758,11 +4186,17 @@ function removeUsersView() {
 }
 function ruPlural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
 // Same numbers as the server's summarize(), worked out again after a local ✅ Removed tick.
+// Recommendation per login from the server (expiredusers.js adviceFor): NOW / WAIT_DATE / WAIT_FEW.
+function ruKind(g) { return (g.advice && g.advice.kind) || (g.action === 'SAFE' ? 'NOW' : 'WAIT_FEW'); }
 function ruCount(sec) {
-  var c = { customers: 0, accounts: 0, safeAccounts: 0, safeUsers: 0, byFamily: {} };
+  var c = { customers: 0, accounts: 0, safeAccounts: 0, safeUsers: 0, byFamily: {}, changeNow: { accounts: 0, inactive: 0, nobodyActive: 0 }, wait: { accounts: 0, inactive: 0, next: null }, later: { accounts: 0, inactive: 0 } };
   ((sec && sec.groups) || []).forEach(function (g) {
     if (g.action === 'REMOVE') { c.customers += g.count; c.accounts++; var f = c.byFamily[g.family] || (c.byFamily[g.family] = { customers: 0, accounts: 0 }); f.customers += g.count; f.accounts++; }
     else { c.safeAccounts++; c.safeUsers += g.count; }
+    var k = ruKind(g), p = g.advice && g.advice.plan;
+    if (k === 'NOW') { c.changeNow.accounts++; c.changeNow.inactive += g.count; if (!g.activeCount) c.changeNow.nobodyActive++; }
+    else if (k === 'WAIT_DATE') { c.wait.accounts++; c.wait.inactive += g.count; if (p && (!c.wait.next || p.date < c.wait.next.date)) c.wait.next = { date: p.date, label: p.label }; }
+    else { c.later.accounts++; c.later.inactive += g.count; }
   });
   return c;
 }
@@ -3785,58 +4219,94 @@ function ruPerson(p, g) {
     '<div class="muted" style="font-size:.74rem">' + esc(p.plan || p.service) + (p.slot ? ' · ' + esc(p.slot) : '') + ' · <b style="color:var(--bad)">' + ago + '</b> (' + prettyDate(p.expiry) + ')' + (p.orderId ? ' · <a href="#" data-ruorder="' + esc(p.orderId) + '">' + esc(p.orderId) + '</a>' : '') + '</div></div>' +
     '<button class="btn ghost sm" data-rurm="' + esc(p.subId) + '" data-runame="' + esc(p.name) + '">✅ Removed</button></div>';
 }
+function ruRules() { return (RU.data && RU.data.rules) || (RU.data && RU.data.counts && RU.data.counts.rules) || { minInactive: 3, minDays: 10 }; }
+// "Next expiry: 17 Sep (in 2 days) — Rahul" (soonest expiry among the login's ACTIVE customers, IST calendar days).
+function ruNextLine(g) {
+  var n = g.advice && g.advice.nextExpiry;
+  if (!g.activeCount || !n) return 'Next expiry: <b>nobody active</b>';
+  return 'Next expiry: <b>' + esc(n.label) + '</b> (' + esc(n.when) + ') — ' + (n.count > 1 ? n.count + ' customers' : esc(n.name || '1 customer'));
+}
+function ruAdvice(g) {
+  var a = g.advice || {}, r = ruRules(), p = a.plan, n = a.nextExpiry, k = ruKind(g);
+  if (k === 'NOW' && !g.activeCount) return { pill: '<span class="pill p-ok">🔑 Change password now (nobody active)</span>', note: '✅ Safe to reset: nobody active uses this login, so a new password disturbs no one.' };
+  if (k === 'NOW') return { pill: '<span class="pill p-bad">🔑 Change password now</span>', note: g.count + ' inactive (' + r.minInactive + '+ needed) and the next expiry is ' + esc(n ? n.when : '') + ' (' + r.minDays + '+ days needed) — nobody will need another change soon.' };
+  if (k === 'WAIT_DATE') return { pill: '<span class="pill p-warn">⏳ Wait — change on ' + esc(p ? p.label : n ? n.label : '?') + '</span>', note: p ? 'Change once on ' + esc(p.label) + ' (' + esc(p.when) + '): by then <b>' + p.inactive + ' inactive</b> (' + g.count + ' now + ' + (p.inactive - g.count) + ' ending). ' + (p.activeLeft ? 'Next expiry after that: ' + esc(p.nextAfter ? p.nextAfter.label : '?') + '.' : 'Nobody active after that.') : 'The next expiry is soon — change after it.' };
+  return { pill: '<span class="pill p-grey">⏳ Wait — only ' + g.count + ' inactive</span>', note: 'Next expiry is ' + esc(n ? n.when : '?') + '. ' + (p ? 'Worth changing on ' + esc(p.label) + ' (' + p.inactive + ' inactive by then' + (p.activeLeft ? '' : ', nobody active') + ').' : '') };
+}
 function ruGroup(g, m) {
-  var ids = g.accountIds.length ? g.accountIds : [g.login];
+  var ids = g.accountIds.length ? g.accountIds : [g.login], k = ruKind(g), adv = ruAdvice(g);
   var head = '<div class="ru-head"><div><b style="font-family:Consolas,monospace">' + svcIcon(g.services[0] || g.family) + ' ' + esc(ids.join(' / ')) + '</b>' +
-    '<div class="muted" style="font-size:.74rem;word-break:break-all">' + esc(g.loginLabel || g.login || '(no login)') + ' · ' + ruPlural(g.activeCount, 'active customer') + '</div></div>';
-  if (g.action === 'REMOVE') {
-    return '<div class="card ru-acc">' + head + '<span class="pill p-bad">⚠️ Log out ' + g.count + '</span></div>' +
-      (m.people.length < g.people.length ? '<div class="muted" style="font-size:.72rem;margin-top:4px">Showing ' + m.people.length + ' of ' + g.count + ' (search)</div>' : '') +
-      '<div>' + m.people.map(function (p) { return ruPerson(p, g); }).join('') + '</div>' +
-      (g.count > 1 ? '<button class="btn dark sm ru-all" data-ruall="' + esc(g.key) + '">✅ Remove all ' + g.count + ' on this account</button>' : '') + '</div>';
-  }
-  // Nobody active on this login: change the password (the 🔑 tool ticks everyone removed and covers every ID on the login).
-  return '<div class="card ru-acc">' + head + '<span class="pill p-ok">✅ Safe → reset password</span></div>' +
-    '<div class="muted" style="font-size:.76rem;margin:6px 0">' + ruPlural(g.count, 'old user') + ': ' + g.people.map(function (p) { return esc(p.name); }).join(', ') + '</div>' +
-    '<div class="row" style="gap:6px;flex-wrap:wrap">' + ids.slice(0, 1).map(function (id) { return'<button class="btn ghost sm" data-rupw="' + esc(id) + '" data-rusvc="' + esc((g.accountServices && g.accountServices[id]) || g.services[0] || g.family) + '">🔑 Change password' + (ids.length > 1 ? ' (all ' + ids.length + ' IDs)' : '') + '</button>'; }).join('') + '</div></div>';
+    '<div class="muted" style="font-size:.74rem;word-break:break-all">' + esc(g.loginLabel || g.login || '(no login)') + '</div>' +
+    '<div class="ru-counts"><b class="ru-active">' + ruPlural(g.activeCount, 'active customer') + '</b> · ' + g.count + ' inactive, not removed</div>' +
+    '<div class="muted" style="font-size:.76rem">' + ruNextLine(g) + '</div></div>' + adv.pill + '</div>' +
+    (adv.note ? '<div class="ru-note">' + adv.note + '</div>' : '');
+  var people = (m.people.length < g.people.length ? '<div class="muted" style="font-size:.72rem;margin-top:4px">Showing ' + m.people.length + ' of ' + g.count + ' (search)</div>' : '') +
+    '<div>' + m.people.map(function (p) { return ruPerson(p, g); }).join('') + '</div>';
+  // Waiting logins keep their list folded: nothing to do today.
+  if (k !== 'NOW') people = '<details' + (RU.q ? ' open' : '') + ' style="margin-top:6px"><summary style="cursor:pointer;font-size:.8rem">👥 ' + ruPlural(g.count, 'inactive customer') + '</summary>' + people + '</details>';
+  // 🔑 Change password = the existing tool (ticks everyone removed and covers every ID on the login).
+  var acts = '<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:6px">' + ids.slice(0, 1).map(function (id) { return '<button class="btn ' + (k === 'NOW' ? 'dark' : 'ghost') + ' sm" data-rupw="' + esc(id) + '" data-rusvc="' + esc((g.accountServices && g.accountServices[id]) || g.services[0] || g.family) + '">🔑 Change password' + (k === 'NOW' ? '' : ' anyway') + (ids.length > 1 ? ' (all ' + ids.length + ' IDs)' : '') + '</button>'; }).join('') +
+    (g.count > 1 ? '<button class="btn ghost sm ru-all" data-ruall="' + esc(g.key) + '">✅ Tick all ' + g.count + ' removed</button>' : '') + '</div>';
+  return '<div class="card ru-acc ru-' + k.toLowerCase() + '">' + head + people + acts + '</div>';
+}
+function ruSettingsBox() {
+  var r = ruRules();
+  return '<details class="card" id="ruset" style="padding:10px 14px;margin-bottom:10px"' + (RU.open.ruset ? ' open' : '') + '><summary style="cursor:pointer">⚙️ <b>When to change the password</b> <span class="muted">— ' + r.minInactive + '+ inactive and next expiry ' + r.minDays + '+ days away</span></summary>' +
+    '<div class="row" style="gap:10px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">' +
+    '<label style="font-size:.8rem">Min inactive users<br><input class="inp" type="number" min="1" max="50" step="1" id="ruminin" value="' + r.minInactive + '" style="width:110px"/></label>' +
+    '<label style="font-size:.8rem">Min days until next expiry<br><input class="inp" type="number" min="0" max="60" step="1" id="rumindays" value="' + r.minDays + '" style="width:110px"/></label>' +
+    '<button class="btn sm" data-rusave="1">💾 Save</button></div>' +
+    '<p class="muted" style="font-size:.74rem;margin:6px 0 0">A login with nobody active is always "change now". Defaults: 3 inactive, 10 days. Saved in the change log.</p></details>';
 }
 function renderRemoveUsers() {
   var el = $('#rubody'); if (!el || !RU.data) return;
   var d = RU.data, c = ruCounts(), o = c.other || { customers: 0, accounts: 0, safeAccounts: 0, safeUsers: 0 };
   var main = (d.main && d.main.groups) || [], other = (d.other && d.other.groups) || [];
-  var fams = Object.keys(c.byFamily || {}).sort();
+  var now = c.changeNow || { accounts: 0, inactive: 0, nobodyActive: 0 }, wait = c.wait || { accounts: 0, inactive: 0 }, later = c.later || { accounts: 0, inactive: 0 }, r = ruRules();
+  var ow = o.changeNow || { accounts: 0 }, owa = o.wait || { accounts: 0 };
+  // Family chips count the logins listed (every recommendation), not only the ones to change now.
+  var famN = {}; main.forEach(function (g) { famN[g.family] = (famN[g.family] || 0) + 1; });
+  var fams = Object.keys(famN).sort();
   if (RU.fam !== 'all' && fams.indexOf(RU.fam) < 0) RU.fam = 'all';
-  var famLine = fams.map(function (f) { return esc(f) + ' ' + c.byFamily[f].customers + ' on ' + c.byFamily[f].accounts; }).join(' · ');
-  var h = '<div class="ru-chips">' +
-    '<button class="ru-chip warn" data-rujump="rua">⚠️ <b>' + ruPlural(c.customers, 'customer') + '</b> on <b>' + ruPlural(c.accounts, 'account') + '</b> to log out' + (famLine ? '<br><span class="muted" style="font-size:.74rem">' + famLine + '</span>' : '') + '</button>' +
-    '<button class="ru-chip ok" data-rujump="rub">✅ <b>' + ruPlural(c.safeAccounts, 'account') + '</b> safe to reset<br><span class="muted" style="font-size:.74rem">' + ruPlural(c.safeUsers, 'old user') + ' · nobody active</span></button>' +
-    '<button class="ru-chip" data-rujump="ruc">📺 Other services: <b>' + ruPlural(o.customers, 'customer') + '</b><br><span class="muted" style="font-size:.74rem">on ' + ruPlural(o.accounts, 'account') + ' · Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube</span></button></div>' +
+  var h = '<p class="ru-help">A login is shared, so the only way to log out an inactive customer is a <b>new password</b> — and that disturbs the active ones. Change it only when it is worth it: <b>nobody active</b> (✅ Safe to reset), or <b>' + r.minInactive + '+ inactive</b> and the next expiry <b>' + r.minDays + '+ days</b> away. Otherwise wait and change once on the date shown.</p>' +
+    '<div class="ru-chips">' +
+    '<button class="ru-chip warn" data-rujump="rua">🔑 <b>' + ruPlural(now.accounts, 'account') + '</b> to change now<br><span class="muted" style="font-size:.74rem">' + ruPlural(now.inactive, 'inactive customer') + (now.nobodyActive ? ' · ' + now.nobodyActive + ' with nobody active' : '') + '</span></button>' +
+    '<button class="ru-chip" data-rujump="ruw">⏳ <b>' + ruPlural(wait.accounts, 'account') + '</b> waiting<br><span class="muted" style="font-size:.74rem">' + (wait.next ? 'next change ' + esc(wait.next.label) : 'no date yet') + ' · ' + ruPlural(wait.inactive || 0, 'inactive customer') + '</span></button>' +
+    '<button class="ru-chip ok" data-rujump="rub">💤 <b>' + ruPlural(later.accounts, 'account') + '</b> not worth it yet<br><span class="muted" style="font-size:.74rem">fewer than ' + r.minInactive + ' inactive · next expiry far</span></button>' +
+    '<button class="ru-chip" data-rujump="ruc">📺 Other services: <b>' + ow.accounts + '</b> to change now<br><span class="muted" style="font-size:.74rem">' + owa.accounts + ' waiting · Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube</span></button></div>' +
+    ruSettingsBox() +
     '<div class="search" style="margin-bottom:10px"><input class="inp" id="ruq" placeholder="🔎 Name, phone, order or account…" value="' + esc(RU.q) + '" autocomplete="off"/></div>' +
-    '<div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">' + [['all', 'All (' + c.customers + ')']].concat(fams.map(function (f) { return [f, f + ' (' + c.byFamily[f].customers + ')']; })).map(function (f) { return '<button class="chip' + (RU.fam === f[0] ? ' on' : '') + '" data-rufam="' + esc(f[0]) + '">' + esc(f[1]) + '</button>'; }).join('') + '</div>' +
+    '<div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">' + [['all', 'All (' + main.length + ')']].concat(fams.map(function (f) { return [f, f + ' (' + famN[f] + ')']; })).map(function (f) { return '<button class="chip' + (RU.fam === f[0] ? ' on' : '') + '" data-rufam="' + esc(f[0]) + '">' + esc(f[1]) + '</button>'; }).join('') + '</div>' +
     '<div id="ruparts"></div>';
   el.innerHTML = h;
   renderRuParts();
   var t; $('#ruq').addEventListener('input', function () { RU.q = $('#ruq').value.trim(); clearTimeout(t); t = setTimeout(renderRuParts, 200); });
+  $('#ruset').addEventListener('toggle', function () { RU.open.ruset = $('#ruset').open; });
   el.onclick = ruClick;
 }
 function renderRuParts() {
   var box = $('#ruparts'); if (!box) return;
   var d = RU.data, main = (d.main && d.main.groups) || [], other = (d.other && d.other.groups) || [];
-  var pick = function (list, action, famOnly) {
-    return list.filter(function (g) { return g.action === action && (!famOnly || RU.fam === 'all' || g.family === RU.fam); }).map(function (g) { return { g: g, m: ruMatch(g) }; }).filter(function (x) { return x.m.show; });
+  var pick = function (list, kind, famOnly) {
+    return list.filter(function (g) { return ruKind(g) === kind && (!famOnly || RU.fam === 'all' || g.family === RU.fam); }).map(function (g) { return { g: g, m: ruMatch(g) }; }).filter(function (x) { return x.m.show; });
   };
-  var rem = pick(main, 'REMOVE', true), safe = pick(main, 'SAFE', true), oth = other.map(function (g) { return { g: g, m: ruMatch(g) }; }).filter(function (x) { return x.m.show; });
+  var planDate = function (x) { var p = x.g.advice && x.g.advice.plan; return p ? p.date : '9999'; };
+  var byDate = function (a, b) { return planDate(a) < planDate(b) ? -1 : planDate(a) > planDate(b) ? 1 : 0; };
+  var rem = pick(main, 'NOW', true), wait = pick(main, 'WAIT_DATE', true).sort(byDate), later = pick(main, 'WAIT_FEW', true).sort(byDate), oth = other.map(function (g) { return { g: g, m: ruMatch(g) }; }).filter(function (x) { return x.m.show; });
   var draw = function (list) { return list.map(function (x) { return ruGroup(x.g, x.m); }).join(''); };
   var searching = !!RU.q;
   box.innerHTML =
-    '<div class="subhead" id="rua" style="margin-top:6px"><h3>⚠️ Log these customers out (' + rem.reduce(function (n, x) { return n + x.m.people.length; }, 0) + ')</h3></div>' +
-    '<p class="muted" style="font-size:.78rem;margin:-4px 0 10px">Their plan ended but they are still on an account other customers use. Remove the profile / sign the device out, then tap ✅ Removed. Same rule as the old Sheet dashboard (no day limit; renewals are skipped).</p>' +
-    (rem.length ? draw(rem) : '<div class="card muted" style="margin-bottom:8px">' + (searching ? 'No match.' : '🎉 Nobody to log out.') + '</div>') +
-    '<details class="card" id="rub" style="padding:10px 14px;margin:14px 0 8px"' + (searching || RU.open.rub ? ' open' : '') + '><summary style="cursor:pointer"><b>✅ Safe to reset (' + safe.length + ' accounts)</b> <span class="muted">— nobody active: change the password, old users are ticked removed</span></summary>' +
-    (safe.length ? draw(safe) : '<p class="muted">None.</p>') + '</details>' +
+    '<div class="subhead" id="rua" style="margin-top:6px"><h3>🔑 Change now (' + rem.length + ')</h3></div>' +
+    '<p class="muted" style="font-size:.78rem;margin:-4px 0 10px">Change the password with 🔑, give the new one to the active customers, then tick the inactive ones ✅ Removed. ✅ Safe to reset = nobody active on that login, so nobody is disturbed. Same list rule as the old Sheet dashboard (no day limit; renewals are skipped).</p>' +
+    (rem.length ? draw(rem) : '<div class="card muted" style="margin-bottom:8px">' + (searching ? 'No match.' : '🎉 No password to change today.') + '</div>') +
+    '<div class="subhead" id="ruw" style="margin-top:14px"><h3>⏳ Wait — change on a date (' + wait.length + ')</h3></div>' +
+    '<p class="muted" style="font-size:.78rem;margin:-4px 0 10px">Someone else\'s plan ends soon. Change once on that date instead of today and again then.</p>' +
+    (wait.length ? draw(wait) : '<div class="card muted" style="margin-bottom:8px">' + (searching ? 'No match.' : 'None.') + '</div>') +
+    '<details class="card" id="rub" style="padding:10px 14px;margin:14px 0 8px"' + (searching || RU.open.rub ? ' open' : '') + '><summary style="cursor:pointer"><b>💤 Not worth it yet (' + ruPlural(later.length, 'account') + ')</b> <span class="muted">— too few inactive and the next expiry is far</span></summary>' +
+    (later.length ? draw(later) : '<p class="muted">None.</p>') + '</details>' +
     '<details class="card" id="ruc" style="padding:10px 14px;margin-bottom:8px"' + (searching || RU.open.ruc ? ' open' : '') + '><summary style="cursor:pointer"><b>📺 Other services (whole-account / OTP)</b> <span class="muted">— Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube</span></summary>' +
     (oth.length ? draw(oth) : '<p class="muted">None.</p>') + '</details>';
-  $$('#ruparts details').forEach(function (dt) { dt.addEventListener('toggle', function () { RU.open[dt.id] = dt.open; }); });
+  $$('#ruparts details[id]').forEach(function (dt) { dt.addEventListener('toggle', function () { RU.open[dt.id] = dt.open; }); });
 }
 function ruFind(key) {
   var d = RU.data, all = [].concat((d.main && d.main.groups) || [], (d.other && d.other.groups) || []);
@@ -3852,9 +4322,22 @@ function ruDrop(subIds) {
   });
   RU.data.recount = true; K.data = null; T.data = null;
   renderRemoveUsers();
+  // Fewer inactive can change the recommendation: fetch the server's answer quietly and redraw.
+  api('/admin/api/remove-users').then(function (r) { if (r && r.ok && $('#rubody')) { RU.data = r; renderRemoveUsers(); } });
 }
 function ruClick(e) {
   var j = e.target.closest('[data-rujump]'); if (j) { var tg = $('#' + j.getAttribute('data-rujump')); if (tg) { if (tg.tagName === 'DETAILS') { tg.open = true; RU.open[tg.id] = true; } tg.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
+  var sv = e.target.closest('[data-rusave]');
+  if (sv) {
+    var body = { minInactive: $('#ruminin').value, minDays: $('#rumindays').value };
+    sv.disabled = true;
+    post('/admin/api/remove-users/settings', body).then(function (r) {
+      sv.disabled = false;
+      if (!r.ok) { toast('⚠️ ' + (r.message || 'failed')); return; }
+      toast('⚙️ Saved: ' + r.rules.minInactive + '+ inactive, ' + r.rules.minDays + '+ days'); RU.data = null; K.data = null; T.data = null; removeUsersView();
+    });
+    return;
+  }
   var f = e.target.closest('[data-rufam]'); if (f) { RU.fam = f.getAttribute('data-rufam'); $$('#rubody [data-rufam]').forEach(function (x) { x.classList.toggle('on', x === f); }); renderRuParts(); return; }
   var ord = e.target.closest('[data-ruorder]'); if (ord) { e.preventDefault(); openOrder(ord.getAttribute('data-ruorder')); return; }
   var pw = e.target.closest('[data-rupw]'); if (pw) { PW.q = ''; PW.accounts = null; PW.result = null; PW.showAll = {}; PW.impact = null; PW.pick = { service: pw.getAttribute('data-rusvc'), accountId: pw.getAttribute('data-rupw') }; nav('password'); loadImpact(); return; }

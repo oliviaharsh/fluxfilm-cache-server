@@ -2,7 +2,7 @@
  * FluxFilm - admin 🚧 Maintenance screen (admin-only): pause / resume new orders.
  *
  *   GET  /admin/api/store   → { settings }
- *   POST /admin/api/store   { paused?, message?, backText?, helpBubble?, emailLogin? }   (change log)
+ *   POST /admin/api/store   { paused?, message?, backText?, helpBubble?, emailLogin?, sassyGreeting?, renewPopup?, renewPopupBefore?, renewPopupAfter? }   (change log)
  *   GET  /admin/api/customer-sessions?phone=   → { sessions: [{ id, createdAt, lastSeen, expiresAt, device }] }
  *   POST /admin/api/customer-sessions/revoke { phone }   → logs the customer out on every device (change log)
  */
@@ -28,7 +28,14 @@ function mount(app, deps) {
         console.log('[email-login] admin turned the email login ' + (on ? 'ON' : 'OFF (emergency: phone-only login)'));
         audit.record(req, { action: 'store.emaillogin', entity: 'settings', id: 'store', summary: on ? '🔐 Email login required turned ON (customers confirm with an email code)' : '⚠️ Email login required turned OFF — EMERGENCY phone-only login (anyone with a number can open that account)' });
       }
-      const rest = r.changed.filter((k) => k !== 'helpBubble' && k !== 'emailLogin');
+      if (r.changed.includes('sassyGreeting')) audit.record(req, { action: 'store.greeting', entity: 'settings', id: 'store', summary: 'Sassy greeting on My plans turned ' + (r.settings.sassyGreeting === false ? 'OFF' : 'ON') });
+      const rr = r.changed.filter((k) => /^renewPopup/.test(k));
+      if (rr.length) {
+        const s = r.settings;
+        const what = rr.includes('renewPopup') ? '⏳ Renewal reminder pop-up turned ' + (s.renewPopup === false ? 'OFF' : 'ON') : '⏳ Renewal reminder pop-up days changed';
+        audit.record(req, { action: 'store.renewpopup', entity: 'settings', id: 'store', summary: what + ' · ' + s.renewPopupBefore + ' days before / ' + s.renewPopupAfter + ' after expiry' });
+      }
+      const rest = r.changed.filter((k) => k !== 'helpBubble' && k !== 'emailLogin' && k !== 'sassyGreeting' && !/^renewPopup/.test(k));
       if (rest.length) {
         const what = rest.includes('paused') ? (r.settings.paused ? 'PAUSED new orders (maintenance on)' : 'RESUMED new orders (maintenance off)') : 'Updated maintenance message';
         audit.record(req, { action: 'store.' + (r.settings.paused ? 'pause' : 'resume'), entity: 'settings', id: 'store', summary: what + (r.settings.paused && r.settings.backText ? ' · back ' + r.settings.backText : '') });

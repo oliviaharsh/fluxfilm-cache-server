@@ -53,6 +53,14 @@ function renewableRow(r) {
   if (st && st !== 'ACTIVE' && st !== 'EXPIRED') return false;
   return !['REFUNDED', 'CANCELLED', 'FAILED', 'NO_STOCK'].includes(fs);
 }
+/** 'REFUNDED' / 'CANCELLED' when the plan was stopped (refund or cancel), else ''. Undelivered FAILED rows are not "stopped". */
+function stoppedRow(r) {
+  const st = String(r.status || '').trim().toUpperCase();
+  const fs = String(r.fulfillment_status || '').trim().toUpperCase();
+  if (st === 'REFUNDED' || fs === 'REFUNDED') return 'REFUNDED';
+  if (st === 'CANCELLED' || st === 'CANCELED') return 'CANCELLED';
+  return '';
+}
 function expiryMood(daysLeft) {
   if (daysLeft == null) return { emoji: '❓', text: 'Expiry unknown' };
   if (daysLeft > 10) return { emoji: '😄', text: 'Safe' };
@@ -132,6 +140,37 @@ async function getMySubscriptions(phone) {
     const elig = renewEligibility(daysLeft);
     const mood = expiryMood(daysLeft);
     const devices = groupsOn ? devicesOf(r) : null;
+    // Refunded / cancelled: the plan has ended even when its expiry date is still ahead → History, no renew.
+    const stopped = stoppedRow(r);
+    if (stopped) return Object.assign({
+      subId: String(r.sub_id || '').trim(),
+      orderId: String(r.order_id || '').trim(),
+      service: svc,
+      plan: plan,
+      maskedEmail: maskEmailFirst4(r.email),
+      logoUrl: pInfo.logoUrl,
+      startDate: isoOrRaw(r.start_date),
+      expiryDate: isoOrRaw(r.expiry_date),
+      durationDays: asNum(pInfo.durationDays),
+      earlyRenewDiscountEligible: 0,
+      earlyRenewDiscountTier: '',
+      earlyDiscount8Plus: 0,
+      earlyDiscount7to2: 0,
+      profileNumber: '',
+      profileName: '',
+      profilePIN: '',
+      daysLeft: daysLeft,
+      moodEmoji: '↩️',
+      moodText: stopped === 'CANCELLED' ? 'Cancelled' : 'Refunded',
+      renewEligibility: stopped,
+      uiTone: 'faded_grey',
+      showRenewButton: false,
+      refunded: true,
+      endedReason: stopped,
+      inventoryRef: '',
+      status: String(r.status || '').trim().toUpperCase(),
+      fulfillmentStatus: String(r.fulfillment_status || '').trim().toUpperCase(),
+    });
     return Object.assign({
       subId: String(r.sub_id || '').trim(),
       orderId: String(r.order_id || '').trim(),
@@ -157,11 +196,15 @@ async function getMySubscriptions(phone) {
       // Refunded / cancelled / not-yet-delivered rows cannot be renewed (order.js renewQuote refuses them too).
       showRenewButton: elig !== 'TOO_LATE' && renewableRow(r),
       inventoryRef: String(r.inventory_ref || '').trim(),
+      // ⏳ Renewal reminder pop-up skips refunded / cancelled plans (admin refund sets CANCELLED + REFUNDED).
+      status: String(r.status || '').trim().toUpperCase(),
+      fulfillmentStatus: String(r.fulfillment_status || '').trim().toUpperCase(),
     }, devices && devices.deviceCount > 1 ? { deviceCount: devices.deviceCount, sameLogin: devices.sameLogin, devices: devices.list } : {});
   });
 
-  const actionable = all.filter((x) => x.renewEligibility !== 'TOO_LATE');
-  const tooLate = all.filter((x) => x.renewEligibility === 'TOO_LATE');
+  const actionable = all.filter((x) => !x.refunded && x.renewEligibility !== 'TOO_LATE');
+  const tooLate = all.filter((x) => !x.refunded && x.renewEligibility === 'TOO_LATE');
+  const stoppedList = all.filter((x) => x.refunded);
   const t = (x) => { const d = parseDbDate(x.expiryDate); return d ? d.getTime() : null; };
   actionable.sort((a, b) => (t(a) == null ? 9e15 : t(a)) - (t(b) == null ? 9e15 : t(b)));
   tooLate.sort((a, b) => (t(b) == null ? 0 : t(b)) - (t(a) == null ? 0 : t(a)));
@@ -170,7 +213,9 @@ async function getMySubscriptions(phone) {
   // (default 60, at most 10) — previously only the 3 most recent were shown.
   const visibleDays = Number(process.env.RENEW_VISIBLE_DAYS || 60);
   const recent = tooLate.filter((x) => x.daysLeft != null && x.daysLeft >= -visibleDays);
-  const history = (recent.length > 3 ? recent : tooLate.slice(0, 3)).slice(0, 10);
+  // Refunded / cancelled plans from the last RENEW_VISIBLE_DAYS show first in History (clearly marked, no renew).
+  const stoppedRecent = stoppedList.filter((x) => x.daysLeft == null || x.daysLeft >= -visibleDays).slice(0, 5);
+  const history = stoppedRecent.concat((recent.length > 3 ? recent : tooLate.slice(0, 3)).slice(0, 10 - stoppedRecent.length));
   return { ok: true, phone: ph, infoBanner, actionable, history };
 }
 
@@ -314,4 +359,4 @@ async function getWalletByPhone(phone) {
 function clearPlansCache() { _plans = null; _plansAt = 0; }
 
 module.exports = { clearPlansCache, getMySubscriptions, getCustomerOrders, getCustomerProfile, getActiveCouponsForCustomer, getWalletByPhone,
-  _internal: { normPhone, calcEarlyDiscount, renewEligibility, expiryMood, maskEmailFirst4, parseDbDate } };
+  _internal: { normPhone, calcEarlyDiscount, renewEligibility, expiryMood, stoppedRow, maskEmailFirst4, parseDbDate } };

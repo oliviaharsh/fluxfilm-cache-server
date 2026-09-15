@@ -5,8 +5,10 @@
  * their profile, recover access and use Get OTP — but no NEW order or renewal can be created.
  * Orders that already exist can still be paid, verified and delivered (someone may be mid-payment).
  *
- *   getStatus()          → { ok, paused, message, backText, since, helpBubble } (public, storefront polls it)
+ *   getStatus()          → { ok, paused, message, backText, since, helpBubble, sassy } (public, storefront polls it)
  *   helpBubble (default ON): the small floating 💬 Help bubble on Home / My plans / Account; OFF = only the top Help button.
+ *   renewPopup (default ON) + renewPopupBefore (7, 1–14) / renewPopupAfter (3, 0–5): the ⏳ renewal reminder pop-up.
+ *   sassyGreeting (default ON): the fun rotating greeting on My plans; OFF = plain "Welcome back, Name".
  *   guard()              → null, or { ok:false, paused:true, message }         (createOrder / createRenewOrder)
  *   saveSettings(input)  → { ok, settings, changed }                            (admin)
  */
@@ -25,7 +27,15 @@ const DEFAULTS = Object.freeze({
   // 🔐 Email login required (customerauth.js). ON = private actions need a signed session from an email code.
   // OFF = emergency switch back to the old phone-only login (every change is in the admin change log).
   emailLogin: true,
+  // ⏳ Renewal reminder pop-up (storefront): on app open when a plan ends within `renewPopupBefore` days
+  // or ended at most `renewPopupAfter` days ago (India calendar days).
+  renewPopup: true,
+  renewPopupBefore: 7,
+  renewPopupAfter: 3,
+  sassyGreeting: true,
 });
+const RENEW_POPUP_MAX_BEFORE = 14;
+const RENEW_POPUP_MAX_AFTER = 5; // renew is allowed until 5 days after expiry (reads.js renewEligibility)
 
 function validateSettings(input, prev) {
   const inb = input || {}; const errors = [];
@@ -38,6 +48,18 @@ function validateSettings(input, prev) {
   }
   if (inb.helpBubble !== undefined) out.helpBubble = !(inb.helpBubble === false || inb.helpBubble === 0 || /^(false|0|off)$/i.test(s(inb.helpBubble)));
   if (inb.emailLogin !== undefined) out.emailLogin = !(inb.emailLogin === false || inb.emailLogin === 0 || /^(false|0|off)$/i.test(s(inb.emailLogin)));
+  if (inb.renewPopup !== undefined) out.renewPopup = !(inb.renewPopup === false || inb.renewPopup === 0 || /^(false|0|off)$/i.test(s(inb.renewPopup)));
+  const whole = (v, lo, hi, label) => {
+    const n = Number(s(v));
+    if (s(v) === '' || !Number.isInteger(n) || n < lo || n > hi) { errors.push(label + ' must be a whole number from ' + lo + ' to ' + hi + '.'); return null; }
+    return n;
+  };
+  if (inb.renewPopupBefore !== undefined) { const n = whole(inb.renewPopupBefore, 1, RENEW_POPUP_MAX_BEFORE, 'Days before expiry'); if (n != null) out.renewPopupBefore = n; }
+  if (inb.renewPopupAfter !== undefined) { const n = whole(inb.renewPopupAfter, 0, RENEW_POPUP_MAX_AFTER, 'Days after expiry'); if (n != null) out.renewPopupAfter = n; }
+  // Saved values from an older build (or edited by hand) are clamped, never trusted.
+  if (!Number.isInteger(out.renewPopupBefore) || out.renewPopupBefore < 1 || out.renewPopupBefore > RENEW_POPUP_MAX_BEFORE) out.renewPopupBefore = DEFAULTS.renewPopupBefore;
+  if (!Number.isInteger(out.renewPopupAfter) || out.renewPopupAfter < 0 || out.renewPopupAfter > RENEW_POPUP_MAX_AFTER) out.renewPopupAfter = DEFAULTS.renewPopupAfter;
+  if (inb.sassyGreeting !== undefined) out.sassyGreeting = !(inb.sassyGreeting === false || inb.sassyGreeting === 0 || /^(false|0|off)$/i.test(s(inb.sassyGreeting)));
   if (inb.backText !== undefined) {
     const b = s(inb.backText).replace(/[<>]/g, '');
     if (b.length > 60) errors.push('"Back by" must be 60 characters or less (example: in 30 minutes).');
@@ -68,13 +90,14 @@ async function saveSettings(input) {
   if (!next.paused) next.since = '';
   await db.query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [KEY, JSON.stringify(next)]);
   cache = null;
-  const changed = ['paused', 'message', 'backText', 'helpBubble', 'emailLogin'].filter((k) => String(before[k]) !== String(next[k]));
+  const changed = ['paused', 'message', 'backText', 'helpBubble', 'emailLogin', 'sassyGreeting', 'renewPopup', 'renewPopupBefore', 'renewPopupAfter'].filter((k) => String(before[k]) !== String(next[k]));
   return { ok: true, settings: next, before, changed };
 }
 
 async function getStatus() {
   const c = await getSettings();
-  return { ok: true, paused: !!c.paused, message: c.paused ? c.message : '', backText: c.paused ? c.backText : '', since: c.paused ? c.since : '', helpBubble: c.helpBubble !== false, emailLogin: c.emailLogin !== false };
+  return { ok: true, paused: !!c.paused, message: c.paused ? c.message : '', backText: c.paused ? c.backText : '', since: c.paused ? c.since : '', helpBubble: c.helpBubble !== false, emailLogin: c.emailLogin !== false, sassy: c.sassyGreeting !== false,
+    renewPopup: c.renewPopup !== false, renewPopupBefore: c.renewPopupBefore, renewPopupAfter: c.renewPopupAfter };
 }
 
 /** 🔐 Is the email login switched on? Fails CLOSED (on) when the setting can't be read. */

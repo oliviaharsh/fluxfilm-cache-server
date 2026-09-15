@@ -41,8 +41,8 @@ const COOLDOWN_DAYS = Number(process.env.REUSE_COOLDOWN_DAYS || 10);
 class Refused extends Error { constructor(status, message, extra) { super(message); this.status = status; this.extra = extra || {}; } }
 const refundsMod = require('./refunds');
 
-/** A subscription row that really gave the customer something (a login, or marked delivered). */
-function isDeliveredSub(x) { return up(x.fulfillment_status) === 'FULFILLED' || !!s(x.login_id); }
+/** A subscription row that really gave the customer something — shared rule in delivered.js (login, profile, invite, old-site import…). */
+const { isDeliveredSub, DELIVERY_COLS } = require('./delivered');
 
 /**
  * Which actions fit this order. Pure: used by the actions endpoint (buttons) AND as the guard of every write,
@@ -91,7 +91,21 @@ function decide(o, subs) {
   const ri = refunded ? refundsMod.refundInfo(o) : null;
   const upiDone = ri && ri.kind === 'UPI_PENDING' ? { allowed: true, state: ri.state } : no(refunded ? 'No UPI refund is waiting.' : 'Not refunded.');
 
-  return { status: st, fulfillmentStatus: fs, legacy, renew, delivered, manualPending, refunded, failed, fulfil, manual, refund, erase, upiDone };
+  // Refunds v3: a DELIVERED plan gets a refund OFFER the customer accepts in the app (refunds.js createOffer).
+  let offer;
+  if (refunded) offer = no('Already refunded.');
+  else if (st !== 'PAID') offer = no('Only paid orders can be refunded.');
+  else if (!delivered) offer = no('Not delivered — use 💸 Refund.');
+  else offer = { allowed: true };
+
+  // ⚡ Refund now (adminrefundnow.js): the owner already agreed it with the customer — delivered or not, one step.
+  let refundNow;
+  if (refunded) refundNow = no('Already refunded.');
+  else if (st !== 'PAID') refundNow = no('Only paid orders can be refunded.');
+  else if (!(asNum(o.final_amount) >= 1)) refundNow = no('This order cost ₹0 — use 💸 Refund.');
+  else refundNow = { allowed: true };
+
+  return { status: st, fulfillmentStatus: fs, legacy, renew, delivered, manualPending, refunded, failed, fulfil, manual, refund, erase, upiDone, offer, refundNow };
 }
 
 function mount(app, deps) {
@@ -164,7 +178,7 @@ function mount(app, deps) {
     try {
       const o = (await db.query('SELECT order_id, service, plan, final_amount, status, fulfillment_status, order_type, renew_sub_id, source, phone_norm, raw_json FROM orders WHERE order_id = ? LIMIT 1', [id]))[0];
       if (!o) return res.status(404).json({ ok: false, message: 'No order ' + id });
-      const subs = await db.query('SELECT sub_id, status, fulfillment_status, login_id FROM subscriptions WHERE order_id = ?', [id]);
+      const subs = await db.query('SELECT sub_id, ' + DELIVERY_COLS + ' FROM subscriptions WHERE order_id = ?', [id]);
       const raw = rawOf(o.raw_json);
       const d = decide(o, subs);
       const out = {
@@ -175,7 +189,7 @@ function mount(app, deps) {
       };
       if (d.refunded) {
         const ri = refundsMod.refundInfo(o);
-        out.refund = { amount: ri.amount, method: ri.method, kind: ri.kind, state: ri.state, reference: ri.reference, note: s(raw.RefundNote), at: ri.at, coins: asNum(raw.RefundCoins), credit: ri.credit, bonus: ri.bonus, coupon: ri.coupon, couponExpiry: ri.couponExpiry, upi: ri.upi, todoId: ri.todoId, upiSentAt: s(raw.RefundUpiSentAt) };
+        out.refund = { amount: ri.amount, method: ri.method, kind: ri.kind, state: ri.state, reference: ri.reference, note: s(raw.RefundNote), at: ri.at, coins: asNum(raw.RefundCoins), credit: ri.credit, bonus: ri.bonus, coupon: ri.coupon, couponExpiry: ri.couponExpiry, upi: ri.upi, todoId: ri.todoId, upiSentAt: s(raw.RefundUpiSentAt), delivered: ri.delivered, offerId: ri.offerId, charge: ri.charge, paid: ri.paid, reason: s(raw.RefundReason), byAdmin: ri.byAdmin };
       }
       if (d.fulfil.allowed || d.failed) out.stock = await stockFor(o.service, o.plan);
       res.json(out);
@@ -190,7 +204,7 @@ function mount(app, deps) {
     try {
       const o = (await db.query('SELECT order_id, service, plan, final_amount, status, fulfillment_status, order_type, renew_sub_id, source FROM orders WHERE order_id = ? LIMIT 1', [id]))[0];
       if (!o) throw new Refused(404, 'Order not found.');
-      const subs = await db.query('SELECT sub_id, status, fulfillment_status, login_id FROM subscriptions WHERE order_id = ?', [id]);
+      const subs = await db.query('SELECT sub_id, ' + DELIVERY_COLS + ' FROM subscriptions WHERE order_id = ?', [id]);
       const d = decide(o, subs);
       if (d.delivered) return res.json({ ok: true, already: true, orderId: id, message: '✅ Already delivered — nothing to do.' });
       if (!d.fulfil.allowed) throw new Refused(409, d.fulfil.reason);
@@ -300,8 +314,16 @@ function mount(app, deps) {
   }
 
   // ---------------------------------------------------------------- refund
-  app.post('/admin/api/order/refund', async (req, res) => {
-    if (!auth(req, res)) return;
+  app.post('/admin/api/order/refund', (req, res) => handleRefund(req, res, false));
+  // Internal use by admin 📨 Refund requests → "Approve full refund" (adminrefunds.js, which checked the admin key):
+  // the very same checks, allocation lock, holds release and customer notices as the button. → { status, body }.
+  app.locals.ffOrderRefund = (req, body) => new Promise((resolve) => {
+    const fakeReq = { body: body || {}, query: {}, ip: req && req.ip, socket: req && req.socket, headers: (req && req.headers) || {} };
+    const out = { code: 200, status(c) { this.code = c; return this; }, json(o) { resolve({ status: this.code, body: o }); return this; } };
+    handleRefund(fakeReq, out, true).catch((e) => resolve({ status: 500, body: { ok: false, message: String((e && e.message) || e) } }));
+  });
+  async function handleRefund(req, res, trusted) {
+    if (!trusted && !auth(req, res)) return;
     const b = req.body || {};
     const id = orderIdOf(req);
     if (!id) return res.status(400).json({ ok: false, message: 'Order id required.' });
@@ -358,10 +380,12 @@ function mount(app, deps) {
         summary: 'Refunded ₹' + done.amount + ' by ' + done.methodLabel + (done.coupon ? ' ' + done.coupon.code : '') + (reference ? ' (' + reference + ')' : '') + (note ? ' · ' + note : '') + ' · was ' + (up(o.fulfillment_status) || 'PENDING'),
         details: { amount: done.amount, method: done.methodLabel, reference, note, refundCredit: done.credit, coupon: done.coupon, coins: h.coins, referral: h.referral, couponsReleased: h.couponsReleased },
       });
+      // Coins / coupon chosen by the customer get the admin bonus % (💸 Refunds → settings); the owner's direct Coins / Coupon do not.
+      const bonusPct = done.how === 'UPI_ASK' ? (await R.getSettings().catch(() => ({ bonusPercent: refundsMod.BONUS_PERCENT }))).bonusPercent : refundsMod.BONUS_PERCENT;
       if (b.notify !== false) {
         if (done.how === 'COINS') R.notify(o, 'CREDIT', { amount: done.amount, credit: done.credit });
         else if (done.how === 'COUPON') R.notify(o, 'COUPON', { amount: done.amount, coupon: done.coupon.code, expiry: done.coupon.expiry });
-        else if (done.how === 'UPI_ASK') R.notify(o, 'ASK', { amount: done.amount, credit: refundsMod.bonusCredit(done.amount) });
+        else if (done.how === 'UPI_ASK') R.notify(o, 'ASK', { amount: done.amount, credit: refundsMod.bonusCredit(done.amount, bonusPct), bonusPercent: bonusPct });
         else R.notify(o, 'RECORDED', { amount: done.amount, how: done.how === 'UPI' ? 'to your UPI' : '' });
       }
       const notes = [];
@@ -371,7 +395,7 @@ function mount(app, deps) {
       if (h.coins && h.coins.reverseShort) notes.push(h.coins.reverseShort + ' earned coins were already spent and could not be taken back.');
       if (done.credit) notes.push('₹' + done.credit + ' refund credit added — the customer can use it on any plan (up to the full price).');
       if (done.coupon) notes.push('Coupon ' + done.coupon.code + ' (₹' + done.coupon.value + ' off, single use, this phone only, until ' + done.coupon.expiry.slice(0, 10) + ') created.');
-      if (done.how === 'UPI_ASK') notes.push('The customer is asked on their home screen: ' + refundsMod.bonusCredit(done.amount) + ' coins of refund credit (+' + refundsMod.BONUS_PERCENT + '%) or a UPI refund. If they choose UPI you get a Today to-do with their UPI ID.');
+      if (done.how === 'UPI_ASK') notes.push('The customer chooses on their home screen: ' + refundsMod.bonusCredit(done.amount, bonusPct) + ' coins or a ₹' + refundsMod.bonusCredit(done.amount, bonusPct) + ' coupon (+' + bonusPct + '%), or exactly ₹' + done.amount + ' to their UPI. If they choose UPI it appears in 💸 Refunds to send (and a Today to-do).');
       if (done.how === 'OTHER' && method !== 'OTHER') notes.push('This order cost ₹0, so nothing new was credited — what paid for it was given back.');
       if (h.referral && h.referral.cancelled) notes.push(h.referral.cancelled + ' unpaid referral reward(s) cancelled.');
       if (paidRewards.length) notes.push('Referral reward already paid: ' + paidRewards.map((x) => x.coins + ' coins to ' + x.to).join(', ') + ' — remove them in 🪙 Coins if you want.');
@@ -379,7 +403,11 @@ function mount(app, deps) {
       const label = { COINS: 'refund credit', COUPON: 'coupon ' + (done.coupon ? done.coupon.code : ''), UPI_ASK: 'waiting for the customer to choose', UPI: 'UPI', OTHER: 'Other' }[done.how];
       res.json({ ok: true, orderId: id, status: 'REFUNDED', amount: done.amount, method: done.methodLabel, refundCredit: done.credit, coinsCredited: done.credit, coupon: done.coupon, holds: h, notes, message: '💸 Refund recorded (₹' + done.amount + ', ' + label + ').' });
     } catch (e) { send(res, e); }
-  });
+  }
+
+  // ---------------------------------------------------------------- ⚡ Refund now (adminrefundnow.js)
+  // Same allocation lock, holds release and refund helpers as the refund above.
+  require('./adminrefundnow').mount(app, { db, auth, audit, now, coins: M.coins, R, withLockedTx, releaseHolds, decide, rowsOf, send, Refused });
 
   // ---------------------------------------------------------------- the customer's UPI refund was sent
   app.post('/admin/api/order/refund-upi-done', async (req, res) => {

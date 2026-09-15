@@ -458,6 +458,8 @@ async function renewQuote(subId, planOverride) {
     'SELECT sub_id, service, plan, phone, email, expiry_date, source, status, fulfillment_status FROM subscriptions WHERE sub_id = ? LIMIT 1', [sid]);
   const sub = subs[0];
   if (!sub) return { ok: false, message: 'Subscription not found.' };  // MySQL is master; no Sheet fallback
+  // Refunds v3: a refunded plan (refund offer accepted) can’t be renewed — the customer buys a new plan instead.
+  if (String(sub.status || '').trim().toUpperCase() === 'REFUNDED') return { ok: false, renewBlocked: true, refunded: true, message: 'This plan was refunded, so it can’t be renewed. Please buy a new plan instead.' };
   // A refunded / cancelled row used to renew "in place" and come out FULFILLED again (no login, no owner task).
   if (!renewableStatus(sub)) return { ok: false, renewBlocked: true, message: 'This plan cannot be renewed online. Please contact WhatsApp support.' };
   const plan = String(planOverride || '').trim() || String(sub.plan || '').trim();
