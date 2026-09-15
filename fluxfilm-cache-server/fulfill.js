@@ -89,7 +89,10 @@ async function withLock(name, ttl, fn) {
   const pool = db.getPool();
   const conn = await pool.getConnection();
   try {
-    await conn.query('SELECT GET_LOCK(?, ?) AS l', [name, ttl]);
+    const [lk] = await conn.query('SELECT GET_LOCK(?, ?) AS l', [name, ttl]);
+    // GET_LOCK returns 0 after the timeout (or NULL on error). Carrying on without the lock let two buyers take
+    // the same last slot; fail instead — the checkout keeps polling and retries.
+    if (Array.isArray(lk) && lk[0] && 'l' in lk[0] && Number(lk[0].l) !== 1) throw new Error('Busy — please try again in a moment.');
     return await fn(conn);
   } finally {
     try { await conn.query('SELECT RELEASE_LOCK(?)', [name]); } catch (_) {}
@@ -1109,4 +1112,4 @@ async function fulfillAndGetAccess(orderId, proof) {
 /** Admin endpoint only (key-protected): full result including credentials. opts.allowLegacy: old-site order. */
 async function fulfillForAdmin(orderId, opts) { return _fulfillSafe(orderId, opts && opts.allowLegacy ? { allowLegacy: true } : undefined); }
 
-module.exports = { fulfillAndGetAccess, fulfillForAdmin, planRenewal, checkDeviceLogins, pickDeviceLogins, allocatePrimeSeparate, allocateProfileSeparate, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { genSubId, freeSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE, _deliveredRowsGuard } };
+module.exports = { fulfillAndGetAccess, fulfillForAdmin, planRenewal, checkDeviceLogins, pickDeviceLogins, allocatePrimeSeparate, allocateProfileSeparate, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { withLock, genSubId, freeSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE, _deliveredRowsGuard } };

@@ -3364,11 +3364,13 @@ function SubCard({
     subId
   } = sub;
   const dl = Number(daysLeft || 0);
-  const tone = dl <= 0 ? 'bad' : dl <= 7 ? 'warn' : 'ok';
+  // daysLeft = calendar days (India) from the expiry date: 0 = expires today (still active), below 0 = ended.
+  const ended = daysLeft == null || daysLeft === '' || dl < 0;
+  const tone = ended ? 'bad' : dl <= 7 ? 'warn' : 'ok';
   const dur = Number(durationDays || 30);
   const pct = dur > 0 ? Math.min(100, Math.max(0, Math.round(dl / dur * 100))) : 0;
-  const barColor = dl <= 0 ? '#ef4444' : dl <= 7 ? '#f59e0b' : '#22c55e';
-  const accentBd = dl <= 0 ? 'rgba(239,68,68,.20)' : dl <= 7 ? 'rgba(245,158,11,.22)' : C.border;
+  const barColor = ended ? '#ef4444' : dl <= 7 ? '#f59e0b' : '#22c55e';
+  const accentBd = ended ? 'rgba(239,68,68,.20)' : dl <= 7 ? 'rgba(245,158,11,.22)' : C.border;
   function fmtDate(d) {
     try {
       if (!d) return '-';
@@ -3473,7 +3475,7 @@ function SubCard({
     }
   }, "Sub: ", subId))), React.createElement(Badge, {
     tone: tone
-  }, dl <= 0 ? '🔴 Expired' : dl <= 7 ? '⚠️ Expiring' : '🟢 Active')), dl > 0 && React.createElement("div", {
+  }, ended ? '🔴 Expired' : dl === 0 ? '⚠️ Expires today' : dl <= 7 ? '⚠️ Expiring' : '🟢 Active')), !ended && React.createElement("div", {
     style: {
       marginBottom: 12
     }
@@ -3497,7 +3499,7 @@ function SubCard({
       fontWeight: 800,
       color: dl <= 7 ? C.amber : C.green
     }
-  }, dl, " days")), React.createElement("div", {
+  }, dl === 0 ? 'Ends today' : dl + ' days')), React.createElement("div", {
     style: {
       height: 5,
       borderRadius: 999,
@@ -3553,7 +3555,7 @@ function SubCard({
     variant: "primary",
     full: true,
     onClick: () => onRenew(sub)
-  }, dl <= 0 ? '🔄 Reactivate' : '⚡ Renew'), React.createElement(Btn, {
+  }, ended ? '🔄 Reactivate' : '⚡ Renew'), React.createElement(Btn, {
     variant: "purple",
     onClick: () => onRecover(sub),
     style: {
@@ -3691,14 +3693,15 @@ function DashboardScreen({
   const actionable = dashData?.actionable || [];
   const history = dashData?.history || [];
   const allSubs = [...actionable, ...history];
-  const isLiveSub = s => Number(s.daysLeft) > 0;
+  // daysLeft 0 = expires today: still active.
+  const isLiveSub = s => s.daysLeft != null && s.daysLeft !== '' && Number(s.daysLeft) >= 0;
   const liveSubs = allSubs.filter(isLiveSub);
   const expiredSubs = allSubs.filter(s => !isLiveSub(s));
   const filteredSubs = subFilter === 'active' ? liveSubs : subFilter === 'expired' ? expiredSubs : null;
   const active = actionable.filter(s => Number(s.daysLeft || 0) > 7).length;
   const expiring = actionable.filter(s => {
     const d = Number(s.daysLeft || 0);
-    return d > 0 && d <= 7;
+    return s.daysLeft != null && d >= 0 && d <= 7;
   }).length;
   const name = profile?.name || '';
   const first = name ? name.split(' ')[0] : 'User';
@@ -7174,6 +7177,27 @@ function VerifyScreen({
     onClick: manualRetry
   }, "🔁 Check Again"))))));
 }
+// Renewal plan rules — a copy of renewrules.js (planVariant / planDevices / renewPlanChoices); test/final-check checks they match.
+function renewPlanVariant_(plan) {
+  return String(plan || '').toLowerCase().replace(/(\d+)\s*devices?\b/g, '$1 devices').replace(/\b\d+\s*-?\s*(?:m|mo|mos|mon|mth|mths|month|months|d|day|days|w|wk|wks|week|weeks|y|yr|yrs|year|years)\b/g, ' ').replace(/\b(?:half[\s-]*yearly|monthly|yearly|annual|annually|quarterly|weekly|daily)\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function renewPlanDevices_(plan) {
+  return Number((String(plan || '').match(/(\d+)\s*device/i) || [])[1]) || 1;
+}
+function renewPlanChoices_(subPlan, planNames) {
+  const names = [];
+  for (const p of planNames || []) {
+    const n = String(p == null ? '' : p).trim();
+    if (n && !names.includes(n)) names.push(n);
+  }
+  const v = renewPlanVariant_(subPlan);
+  const same = names.filter(n => renewPlanVariant_(n) === v);
+  if (same.length) return same;
+  const dev = renewPlanDevices_(subPlan);
+  const byDevices = names.filter(n => renewPlanDevices_(n) === dev);
+  if (byDevices.length) return byDevices;
+  return names;
+}
 function RenewStartScreen({
   nav,
   sub,
@@ -7240,13 +7264,20 @@ function RenewStartScreen({
   const currentPlan = String(sub.plan || '');
   const subId = String(sub.subId || '');
   const dl = Number(sub.daysLeft || 0);
-  const servicePlans = (boot?.plans || []).filter(p => p.service === service);
+  // A renewal keeps the same account and devices, so only the duration can change. Same list as the server
+  // (renewrules.js renewPlanChoices): old plan names of unknown kind get same-device plans, else all — never none.
+  const allServicePlans = (boot?.plans || []).filter(p => p.service === service);
+  const renewAllowed_ = renewPlanChoices_(currentPlan, allServicePlans.map(p => p.plan));
+  const servicePlans = allServicePlans.filter(p => renewAllowed_.includes(p.plan));
   const defaultPlanObj = servicePlans.find(p => p.plan === currentPlan) || servicePlans[0] || null;
   const [selectedPlan, setSelectedPlan] = useState(defaultPlanObj?.plan || currentPlan);
   const chosenPlanObj = servicePlans.find(p => p.plan === selectedPlan) || defaultPlanObj;
   const isSamePlan = selectedPlan === currentPlan;
-  const isExpired = dl <= 0;
-  const earlyDisc = !isExpired && isSamePlan ? Number(sub.earlyRenewDiscountEligible || 0) || Math.max(Number(sub.earlyDiscount8Plus || 0), Number(sub.earlyDiscount7to2 || 0)) || 0 : 0;
+  // daysLeft = calendar days (India) from the expiry date: 0 = expires today (still active), below 0 = ended.
+  const isExpired = dl < 0;
+  // Only the discount the server will really give (reads.js earlyRenewDiscountEligible) — the old fallback to the
+  // plan's biggest tier showed ₹ off that the pay screen then did not take.
+  const earlyDisc = !isExpired && isSamePlan ? Number(sub.earlyRenewDiscountEligible || 0) || 0 : 0;
   const tier = !isExpired && isSamePlan ? sub.earlyRenewDiscountTier === '8PLUS' ? '8+ days early' : sub.earlyRenewDiscountTier === '7TO2' ? '2–7 days early' : '' : '';
   const basePrice = Number(chosenPlanObj?.price || 0);
   const finalPrice = Math.max(0, basePrice - earlyDisc - (couponState.applied ? couponState.discount : 0));
@@ -7413,7 +7444,7 @@ function RenewStartScreen({
     value: subId || '-'
   }), React.createElement(KV, {
     label: "Days Left",
-    value: isExpired ? `Expired (${dl} days)` : String(dl)
+    value: isExpired ? `Expired (${dl} days)` : dl === 0 ? 'Expires today' : String(dl)
   })), servicePlans.length > 1 && React.createElement(Card, {
     style: {
       marginTop: 10
@@ -8539,7 +8570,7 @@ function RecoverScreen({
   }, subs.map((s, i) => {
     const oid = String(s.orderId || s.subId || '');
     const sel = selectedOid === oid;
-    const ended = s.daysLeft != null && s.daysLeft <= 0;
+    const ended = s.daysLeft != null && s.daysLeft < 0;
     return React.createElement("div", {
       key: oid || i,
       role: "button",
@@ -8595,7 +8626,7 @@ function RecoverScreen({
         fontWeight: 700,
         marginTop: 3
       }
-    }, s.refunded ? 'Refunded' : ended ? `Ended${s.expiryText ? ' ' + s.expiryText : ''}` : `${s.daysLeft} day${s.daysLeft === 1 ? '' : 's'} left${s.expiryText ? ' · till ' + s.expiryText : ''}`)), React.createElement(Badge, {
+    }, s.refunded ? 'Refunded' : ended ? `Ended${s.expiryText ? ' ' + s.expiryText : ''}` : s.daysLeft === 0 ? `Expires today${s.expiryText ? ' · ' + s.expiryText : ''}` : `${s.daysLeft} day${s.daysLeft === 1 ? '' : 's'} left${s.expiryText ? ' · till ' + s.expiryText : ''}`)), React.createElement(Badge, {
       tone: sel ? 'ok' : 'plain'
     }, sel ? '✅ Selected' : 'Select'));
   })), selectedOid && React.createElement(Btn, {
@@ -9009,9 +9040,9 @@ function AccountScreen({
   const active = allSubs.filter(s => Number(s.daysLeft || 0) > 7).length;
   const expiring = allSubs.filter(s => {
     const d = Number(s.daysLeft || 0);
-    return d > 0 && d <= 7;
+    return s.daysLeft != null && d >= 0 && d <= 7;
   }).length;
-  const expired = allSubs.filter(s => Number(s.daysLeft || 0) <= 0).length;
+  const expired = allSubs.filter(s => s.daysLeft == null || Number(s.daysLeft) < 0).length;
   const [profile, setProfile] = useState(passedProfile || null);
   const [profLoading, setProfLoading] = useState(!passedProfile);
   const [coupons, setCoupons] = useState([]);
@@ -13610,7 +13641,7 @@ function OtpPickerModal({
     }
   }, "Supported: JioHotstar, Zee5, SonyLIV")), otpSubs.map((sub, i) => {
     const dl = Number(sub.daysLeft || 0);
-    const isActive = dl > 0;
+    const isActive = sub.daysLeft != null && dl >= 0; // 0 = expires today, still active
     return React.createElement("button", {
       key: sub.subId || i,
       onClick: isActive ? () => onSelect(sub) : undefined,
