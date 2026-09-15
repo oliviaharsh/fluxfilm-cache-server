@@ -2398,6 +2398,11 @@ function loadAudit() {
 
 /* ================= password change (F5) ================= */
 var PW = { q: '', accounts: null, pick: null, impact: null, result: null, showAll: {} };
+// 🔑 "2 Sep 2026 (14 days ago)" / "unknown" — d = passwordChangedAt from the server (passwordage.js), short = "2 Sep".
+function pwAgeText(d, short) {
+  if (!d || !d.at) return 'unknown';
+  return esc(short ? d.short : prettyDate(d.at)) + ' (' + esc(d.ago) + ')';
+}
 function passwordView() {
   $('#view').innerHTML = '<div class="ph"><div><h1>🔑 Password change</h1><p>Change an account\'s password: expired customers are ticked as removed and active customers get the new password saved</p></div></div><div id="pwbody"></div>';
   renderPassword();
@@ -2426,7 +2431,8 @@ function renderPassword() {
   el.innerHTML = '<div class="qgrid"><div>' +
     '<div class="card qsec"><div class="row" style="justify-content:space-between"><h3 style="margin:0">' + svcIcon(im.account.service) + ' ' + esc(im.account.accountId) + ' <span class="muted" style="font-weight:400">· ' + esc(im.account.service) + '</span></h3><button class="btn ghost sm" data-back="1">Change</button></div>' +
     '<div class="creds" style="margin-top:10px"><div class="cr"><span>Login</span><code>' + esc(im.account.login) + '</code><button class="copy" data-copy="' + esc(im.account.login) + '">Copy</button></div>' +
-    '<div class="cr"><span>Current</span><code id="pwcur" data-p="' + esc(im.account.password) + '">••••••••</code><button class="copy" id="pwreveal">Show</button></div></div>' +
+    '<div class="cr"><span>Current</span><code id="pwcur" data-p="' + esc(im.account.password) + '">••••••••</code><button class="copy" id="pwreveal">Show</button></div>' +
+    '<div class="cr" id="pwage"><span>Last changed</span><span' + (im.account.passwordChangedAt ? '' : ' class="muted"') + '>' + pwAgeText(im.account.passwordChangedAt) + '</span></div></div>' +
     (im.sameLogin.length > 1 ? '<div class="qnote">This login is listed on ' + im.sameLogin.length + ' account rows (' + im.sameLogin.map(function (r) { return esc(r.account_id); }).join(', ') + ') — all of them get the new password.</div>' : '') + '</div>' +
     '<div class="card qsec"><h3>🟢 Active customers (' + im.active.length + ') <span class="muted" style="font-weight:400;font-size:.8rem">— new password saved for them</span></h3>' + peopleList('active', im.active) + '</div>' +
     '<div class="card qsec"><h3>🚪 Expired, not removed (' + im.expired.length + ') <span class="muted" style="font-weight:400;font-size:.8rem">— will be ticked removed</span></h3>' + peopleList('expired', im.expired, 'bad') + '</div>' +
@@ -2447,7 +2453,7 @@ function renderPassword() {
     $('#pwgo').disabled = true; $('#pwmsg').textContent = mail ? 'Saving and sending emails…' : 'Saving…';
     post('/admin/api/accounts/password-change', { service: im.account.service, accountId: im.account.accountId, password: pw, tickExpired: tick, emailActive: mail }).then(function (r) {
       if (!r.ok) { $('#pwgo').disabled = false; $('#pwmsg').textContent = '⚠️ ' + (r.message || 'failed'); return; }
-      PW.result = Object.assign({ password: pw, account: im.account }, r); renderPassword();
+      PW.result = Object.assign({ password: pw, account: im.account }, r); RU.data = null; renderPassword();
     });
   };
 }
@@ -2470,6 +2476,7 @@ function renderPwResult() {
   var lines = ['Password changed for ' + a.service + ' ' + a.accountId + ' (login ' + a.login + ')', 'New password: ' + r.password, '', 'Send the new login to these active customers (' + r.active.length + '):'].concat(r.active.map(function (x) { return (x.name || '—') + ' - ' + x.phone + ' - ' + x.service + ' ' + x.plan + ' - ends ' + prettyDate(x.expiry); }));
   var m = r.email;
   $('#pwbody').innerHTML = '<div class="card qresult good"><h2 style="margin:0 0 6px">✅ Password changed</h2><div class="muted">' + esc(r.summary) + '</div>' +
+    '<div class="muted" id="pwagedone" style="margin-top:4px">🔑 Last changed: <b>' + (r.passwordChangedAt ? esc(r.passwordChangedAt.ago) : 'today') + '</b></div>' +
     '<div class="qnote warn">Remember to change it on ' + esc(a.service) + ' itself if you haven\'t yet.</div>' +
     (m ? '<div class="qnote' + (m.failed.length ? ' bad' : '') + '">✉️ ' + m.sent + ' emailed · ' + m.noEmail + ' without email' + (m.failed.length ? ' · ' + m.failed.length + ' failed' : '') + '</div>' : '') +
     '<div class="fld" style="margin-top:14px"><label>For your AI agent (WhatsApp)</label><textarea class="inp" id="pwcopy" rows="10" style="width:100%;font-family:inherit">' + esc(lines.join('\n')) + '</textarea></div>' +
@@ -4271,6 +4278,11 @@ function ruNextLine(g) {
   if (!g.activeCount || !n) return 'Next expiry: <b>nobody active</b>';
   return 'Next expiry: <b>' + esc(n.label) + '</b> (' + esc(n.when) + ') — ' + (n.count > 1 ? n.count + ' customers' : esc(n.name || '1 customer'));
 }
+// "🔑 Last password change: 2 Sep (14 days ago)" — amber when older than 30 days while inactive customers wait.
+function ruPwLine(g) {
+  var d = g.passwordChangedAt, old = !!(d && d.stale && g.count > 0);
+  return '<div class="ru-pwage' + (old ? ' old' : '') + '" style="font-size:.76rem;' + (old ? 'color:#b45309;font-weight:600' : 'color:var(--mut)') + '">🔑 Last password change: ' + pwAgeText(d, true) + '</div>';
+}
 function ruAdvice(g) {
   var a = g.advice || {}, r = ruRules(), p = a.plan, n = a.nextExpiry, k = ruKind(g);
   if (k === 'NOW' && !g.activeCount) return { pill: '<span class="pill p-ok">🔑 Change password now (nobody active)</span>', note: '✅ Safe to reset: nobody active uses this login, so a new password disturbs no one.' };
@@ -4283,7 +4295,7 @@ function ruGroup(g, m) {
   var head = '<div class="ru-head"><div><b style="font-family:Consolas,monospace">' + svcIcon(g.services[0] || g.family) + ' ' + esc(ids.join(' / ')) + '</b>' +
     '<div class="muted" style="font-size:.74rem;word-break:break-all">' + esc(g.loginLabel || g.login || '(no login)') + '</div>' +
     '<div class="ru-counts"><b class="ru-active">' + ruPlural(g.activeCount, 'active customer') + '</b> · ' + g.count + ' inactive, not removed</div>' +
-    '<div class="muted" style="font-size:.76rem">' + ruNextLine(g) + '</div></div>' + adv.pill + '</div>' +
+    '<div class="muted" style="font-size:.76rem">' + ruNextLine(g) + '</div>' + ruPwLine(g) + '</div>' + adv.pill + '</div>' +
     (adv.note ? '<div class="ru-note">' + adv.note + '</div>' : '');
   var people = (m.people.length < g.people.length ? '<div class="muted" style="font-size:.72rem;margin-top:4px">Showing ' + m.people.length + ' of ' + g.count + ' (search)</div>' : '') +
     '<div>' + m.people.map(function (p) { return ruPerson(p, g); }).join('') + '</div>';
@@ -4415,7 +4427,7 @@ function ruClick(e) {
 // GET /admin/api/otp-devices (otpdevices.js). Device name + type → raw_json DeviceName + device_type (kept in step).
 // 🚪 Remove = the existing POST /admin/api/sub-removed (same write + change log as "Removed from account").
 // 📥 Copy from the old Sheet: preview first (reads only), then ✅ Save. The Sheet is never written.
-var OD = { data: null, svc: store('ff_od_svc') || '', q: '', removed: false, imp: null, overwrite: false, open: {} };
+var OD = { data: null, svc: store('ff_od_svc') || '', q: '', removed: false, imp: null, overwrite: false, open: {}, picks: {}, pickClash: 0 };
 function otpDevicesView() {
   $('#view').innerHTML = '<div id="odwrap"><div class="ph"><div><h1>📱 OTP devices</h1><p>Who is on each OTP login, which device they use, and who to remove</p></div><button class="btn ghost" id="odref">⟳ Refresh</button></div>' +
     '<div id="odtop"><p class="muted">Loading…</p></div>' +
@@ -4434,7 +4446,7 @@ function otpDevicesView() {
   var body = $('#odwrap'); // listeners live on this screen's own element (gone when another screen opens)
   body.onclick = odClick;
   body.addEventListener('focusout', function (e) { var inp = e.target.closest && e.target.closest('[data-odname]'); if (inp) odSave(inp.closest('[data-odrow]')); });
-  body.addEventListener('change', function (e) { var sel = e.target.closest && e.target.closest('[data-odtype]'); if (sel) odSave(sel.closest('[data-odrow]')); var ow = e.target.id === 'odow'; if (ow) { OD.overwrite = e.target.checked; odImpRender(); } });
+  body.addEventListener('change', function (e) { var sel = e.target.closest && e.target.closest('[data-odtype]'); if (sel) odSave(sel.closest('[data-odrow]')); var ow = e.target.id === 'odow'; if (ow) { OD.overwrite = e.target.checked; odImpRender(); } var pk = e.target.getAttribute && e.target.getAttribute('data-odpick'); if (pk) { OD.picks[pk] = e.target.value; odImpRender(); } });
   body.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.closest && e.target.closest('[data-odname]')) e.target.blur(); });
   odImpRender();
   if (OD.data) renderOtpDevices(); else odLoad();
@@ -4472,24 +4484,30 @@ function odCard(a) {
     a.removedRecent.map(function (r) { return '<div class="ru-person"><div class="grow"><b>' + esc(r.name) + '</b> <span class="muted">· ' + esc(r.phoneMasked) + '</span><div class="muted" style="font-size:.74rem">' + (r.deviceType === 'TV' ? '📺' : '📱') + ' <b>' + esc(r.deviceName || 'no device name') + '</b> · removed ' + prettyDate(r.removedAt, true) + ' · ' + esc(r.plan) + '</div></div></div>'; }).join('') + '</details>' : '';
   return '<div class="card od-acc' + (a.expired ? ' has-exp' : '') + '">' + head + rows + recent + '</div>';
 }
+// A multi-device plan comes as one row per device (r.device of r.devices, key "SUB#2"); 🚪 Remove sits on device 1 only.
 function odRow(r, a) {
-  var id = esc(r.subId), bad = r.status !== 'ACTIVE';
+  var id = esc(r.key || r.subId), bad = r.status !== 'ACTIVE';
+  var devTxt = r.devices ? '<b>Device ' + esc(r.device) + ' of ' + esc(r.devices) + '</b>' : (r.deviceCount > 1 ? r.deviceCount + ' devices' : '1 device');
   var pill = r.status === 'ACTIVE' ? 'p-ok' : r.status === 'REFUNDED' ? 'p-blue' : 'p-bad';
   var icon = r.deviceType === 'TV' ? '📺' : r.deviceType === 'PHONE' ? '📱' : '❔';
   var opt = function (v, t) { return '<option value="' + v + '"' + ((r.deviceType || '') === v ? ' selected' : '') + '>' + t + '</option>'; };
   return '<div class="od-row' + (bad && !r.removed ? ' bad' : '') + (r.removed ? ' gone' : '') + '" data-odrow="' + id + '">' +
     '<div class="od-who"><b>' + esc(r.name) + '</b> <span class="muted">· ' + esc(r.phoneMasked) + '</span>' + (r.phone ? ' <a href="#" data-odcust="' + esc(r.phone) + '">360 ›</a>' : '') +
-    '<div class="muted od-meta">' + esc(r.plan) + ' · ' + icon + ' ' + (r.deviceCount > 1 ? r.deviceCount + ' devices' : '1 device') + ' · expiry <b>' + prettyDate(r.expiry) + '</b>' + (r.orderId ? ' · <a href="#" data-odorder="' + esc(r.orderId) + '">' + esc(r.orderId) + '</a>' : '') + '</div></div>' +
+    '<div class="muted od-meta">' + esc(r.plan) + ' · ' + icon + ' ' + devTxt + ' · expiry <b>' + prettyDate(r.expiry) + '</b>' + (r.orderId ? ' · <a href="#" data-odorder="' + esc(r.orderId) + '">' + esc(r.orderId) + '</a>' : '') + '</div></div>' +
     '<span class="pill ' + pill + '">' + esc(r.label) + '</span>' +
     '<div class="od-dev"><select class="inp" data-odtype="' + id + '" aria-label="Device type">' + opt('', 'Type…') + opt('PHONE', '📱 Phone') + opt('TV', '📺 TV') + '</select>' +
     '<input class="inp" maxlength="60" data-odname="' + id + '" value="' + esc(r.deviceName) + '" placeholder="' + esc(r.deviceNameHint ? 'was: ' + r.deviceNameHint : 'Device name, e.g. LG TV') + '" aria-label="Device name"/>' +
     '<button class="btn ghost sm" data-odsave="' + id + '">💾 Save</button><span class="od-ok"></span></div>' +
-    (r.canRemove ? '<button class="btn dark sm od-rm" data-odrm="' + id + '">🚪 Remove</button>' : r.removed ? '<span class="muted" style="font-size:.74rem">🚪 removed ' + prettyDate(r.removedAt, true) + '</span>' : '') + '</div>';
+    (r.canRemove && (r.device || 1) === 1 ? '<button class="btn dark sm od-rm" data-odrm="' + esc(r.subId) + '">🚪 Remove' + (r.devices ? ' plan (' + esc(r.devices) + ' devices)' : '') + '</button>' : r.canRemove ? '<span class="muted" style="font-size:.74rem">🚪 Remove is on Device 1</span>' : r.removed ? '<span class="muted" style="font-size:.74rem">🚪 removed ' + prettyDate(r.removedAt, true) + '</span>' : '') + '</div>';
 }
-function odFind(subId) {
+function odFind(key) {
   var accs = (OD.data && OD.data.accounts) || [];
-  for (var i = 0; i < accs.length; i++) for (var j = 0; j < accs[i].rows.length; j++) if (accs[i].rows[j].subId === subId) return { a: accs[i], r: accs[i].rows[j], i: j };
+  for (var i = 0; i < accs.length; i++) for (var j = 0; j < accs[i].rows.length; j++) { var x = accs[i].rows[j]; if ((x.key || x.subId) === key || (x.subId === key && (x.device || 1) === 1)) return { a: accs[i], r: x, i: j }; }
   return null;
+}
+/** "Device 1: LG TV, Device 2: Mi TV" (multi-device plan) or the one device name. */
+function odAllNames(r) {
+  return r.allNames ? r.allNames.map(function (n, i) { return 'Device ' + (i + 1) + ': ' + (n || 'no name'); }).join(', ') : (r.deviceName || '');
 }
 function odSave(rowEl) {
   if (!rowEl || rowEl._saving) return;
@@ -4499,10 +4517,11 @@ function odSave(rowEl) {
   if (name === (f.r.deviceName || '') && type === (f.r.deviceType || '')) return;
   if (name.length > 60) { ok.textContent = '⚠️ max 60'; return; }
   rowEl._saving = true; ok.textContent = 'Saving…';
-  post('/admin/api/otp-devices/device', { subId: id, deviceName: name, deviceType: type }).then(function (x) {
+  post('/admin/api/otp-devices/device', { subId: f.r.subId, device: f.r.device || 1, deviceName: name, deviceType: type }).then(function (x) {
     rowEl._saving = false;
     if (!x.ok) { ok.textContent = '⚠️ ' + (x.message || 'failed'); return; }
     f.r.deviceName = x.deviceName; f.r.deviceType = x.deviceType || '';
+    if (f.r.allNames) f.a.rows.forEach(function (o) { if (o.subId === f.r.subId && o.allNames) o.allNames[(f.r.device || 1) - 1] = x.deviceName; });
     inp.value = x.deviceName; sel.value = x.deviceType || '';
     ok.textContent = '✓ saved';
     // Typed again while saving: save the newer text too.
@@ -4520,13 +4539,15 @@ function odClick(e) {
   if (rm) {
     var f = odFind(rm.getAttribute('data-odrm')); if (!f) return;
     var login = f.a.loginLabel || f.a.accountIds.join(' / ') || 'this account';
-    if (!confirm('Remove ' + f.r.name + (f.r.deviceName ? ' (' + f.r.deviceName + ')' : '') + ' from ' + login + '?\n\nLog this device out in ' + f.a.service + ' first.')) return;
+    var names = odAllNames(f.r);
+    if (!confirm('Remove ' + f.r.name + (names ? ' (' + names + ')' : '') + ' from ' + login + '?\n\nLog ' + (f.r.devices ? 'all ' + f.r.devices + ' devices' : 'this device') + ' out in ' + f.a.service + ' first.')) return;
     rm.disabled = true;
     post('/admin/api/sub-removed', { sub_id: f.r.subId, removed: true, removed_at: '' }).then(function (x) {
       if (!x.ok) { rm.disabled = false; toast('⚠️ ' + (x.message || 'failed')); return; }
-      f.r.removed = true; f.r.canRemove = false; f.r.removedAt = (x.sub && x.sub.removed_at) || '';
-      if (!OD.removed) f.a.rows.splice(f.i, 1);
-      f.a.removedRecent = [f.r].concat(f.a.removedRecent || []);
+      var at = (x.sub && x.sub.removed_at) || '';
+      f.a.rows.forEach(function (o) { if (o.subId === f.r.subId) { o.removed = true; o.canRemove = false; o.removedAt = at; } });
+      if (!OD.removed) f.a.rows = f.a.rows.filter(function (o) { return o.subId !== f.r.subId; });
+      f.a.removedRecent = [Object.assign({}, f.r, { deviceName: names })].concat(f.a.removedRecent || []);
       f.a.expired = Math.max(0, f.a.expired - 1);
       if (OD.data.counts) OD.data.counts.expiredWaiting = Math.max(0, OD.data.counts.expiredWaiting - 1);
       (OD.data.services || []).forEach(function (s) { if (s.label === f.a.service && s.expired) s.expired--; });
@@ -4540,33 +4561,60 @@ function odPreview(kind, btn) {
   var body = kind === 'paste' ? { source: 'paste', text: $('#odpaste').value } : { source: 'sheet', tab: $('#odtab').value.trim() };
   if (kind === 'sheet') { if (!body.tab) { toast('Type the Sheet tab name'); return; } store('ff_od_tab', body.tab); }
   btn.disabled = true; $('#odimpres').innerHTML = '<p class="muted">Reading…</p>';
-  post('/admin/api/otp-devices/import/preview', body).then(function (r) { btn.disabled = false; OD.imp = r; odImpRender(); });
+  post('/admin/api/otp-devices/import/preview', body).then(function (r) { btn.disabled = false; OD.imp = r; OD.picks = {}; odImpRender(); });
 }
 function odTbl(head, rows) {
   if (!rows.length) return '<p class="muted" style="font-size:.78rem;margin:2px 0 8px">None.</p>';
   return '<div class="od-tbl"><table><thead><tr>' + head.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
     rows.map(function (r) { return '<tr>' + r.map(function (v) { return '<td>' + esc(v) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
 }
+// Ambiguous / not-found rows: a dropdown of the subscriptions on that login (one entry per device). Picks are saved too.
+function odPickTbl(head, list, kind, cells) {
+  if (!list.length) return '<p class="muted" style="font-size:.78rem;margin:2px 0 8px">None.</p>';
+  return '<div class="od-tbl"><table><thead><tr>' + head.concat(['Pick subscription']).map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+    list.map(function (x) {
+      var k = kind + ':' + x.line, cur = OD.picks[k] || '', opts = x.options || [];
+      var sel = opts.length ? '<select class="inp" data-odpick="' + esc(k) + '" style="max-width:360px;font-size:.78rem"><option value="">— not saved —</option>' +
+        opts.map(function (o) { return '<option value="' + esc(o.value) + '"' + (cur === o.value ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select>' : '<span class="muted">nothing on this login</span>';
+      return '<tr>' + cells(x).map(function (v) { return '<td>' + esc(v) + '</td>'; }).join('') + '<td>' + sel + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+}
 function odImpItems() {
   var p = OD.imp; if (!p || !p.ok) return [];
-  return p.matched.concat(OD.overwrite ? p.alreadyNamed : []).map(function (x) { return { subId: x.subId, deviceName: x.deviceName, deviceType: x.deviceType }; });
+  var items = p.matched.concat(OD.overwrite ? p.alreadyNamed : []).map(function (x) { return { subId: x.subId, device: x.device || 1, deviceName: x.deviceName, deviceType: x.deviceType }; });
+  var taken = {}; items.forEach(function (it) { taken[it.subId + '|' + it.device] = 1; });
+  OD.pickClash = 0;
+  ['ambiguous', 'unmatched'].forEach(function (kind) {
+    (p[kind] || []).forEach(function (x) {
+      var v = OD.picks[kind + ':' + x.line]; if (!v) return;
+      var o = (x.options || []).filter(function (y) { return y.value === v; })[0]; if (!o) return;
+      if (taken[o.subId + '|' + o.device]) { OD.pickClash++; return; }
+      taken[o.subId + '|' + o.device] = 1;
+      items.push({ subId: o.subId, device: o.device, setDevices: o.setDevices || undefined, deviceName: x.deviceName, deviceType: x.deviceType, manual: true });
+    });
+  });
+  return items;
 }
+function odDevOf(x) { return x.devices > 1 ? 'Device ' + x.device + ' of ' + x.devices : x.groupSize > 1 ? 'Login ' + x.groupIndex + ' of ' + x.groupSize : ''; }
 function odImpRender() {
   var box = $('#odimpres'), p = OD.imp; if (!box) return;
   if (!p) { box.innerHTML = ''; return; }
   if (!p.ok) { box.innerHTML = '<div class="qnote warn" style="margin-top:8px">⚠️ ' + esc(p.message || 'failed') + (p.help ? '<br>' + esc(p.help) : '') + '</div>'; return; }
   var c = p.counts, n = odImpItems().length, ty = function (t) { return t === 'TV' ? '📺 TV' : t === 'PHONE' ? '📱 Phone' : ''; };
   box.innerHTML = '<div style="margin-top:10px;font-size:.84rem">Read <b>' + p.rowsRead + '</b> customer row' + (p.rowsRead === 1 ? '' : 's') + (p.tab ? ' from <b>' + esc(p.tab) + '</b>' : '') + ': <b>' + c.matched + '</b> to save · ' + c.alreadyNamed + ' already have a device name · ' + c.same + ' already the same · ' + c.ambiguous + ' ambiguous · ' + c.unmatched + ' not found' + (p.skipped && p.skipped.length ? ' · ' + p.skipped.length + ' lines skipped' : '') + '</div>' +
-    '<h4 style="margin:10px 0 2px">✅ Matched (' + c.matched + ')</h4>' + odTbl(['Sub ID', 'Customer', 'Sheet name', 'Device name', 'Type', 'Expiry'], p.matched.map(function (x) { return [x.subId, x.name, x.sheetName, x.deviceName, ty(x.deviceType), x.expiry]; })) +
-    '<h4 style="margin:10px 0 2px">✏️ Already has a device name (' + c.alreadyNamed + ') — skipped unless ticked</h4>' + odTbl(['Sub ID', 'Customer', 'Now', 'Sheet'], p.alreadyNamed.map(function (x) { return [x.subId, x.name, x.currentDeviceName, x.deviceName]; })) +
-    '<h4 style="margin:10px 0 2px">❓ Ambiguous (' + c.ambiguous + ') — not saved</h4>' + odTbl(['Line', 'Sheet name', 'Device', 'Account', 'Expiry', 'Why'], p.ambiguous.map(function (x) { return [x.line, x.sheetName, x.deviceName, x.account, x.expiry, x.reason + ': ' + x.candidates.map(function (k) { return k.subId; }).join(', ')]; })) +
-    '<h4 style="margin:10px 0 2px">🔍 Not found (' + c.unmatched + ') — not saved</h4>' + odTbl(['Line', 'Sheet name', 'Device', 'Account', 'Expiry'], p.unmatched.map(function (x) { return [x.line, x.sheetName, x.deviceName, x.account, x.expiry]; })) +
+    '<h4 style="margin:10px 0 2px">✅ Matched (' + c.matched + ')</h4>' + odTbl(['Sub ID', 'Customer', 'Sheet name', 'Device', 'Device name', 'Type', 'Expiry'], p.matched.map(function (x) { return [x.subId, x.name, x.sheetName, odDevOf(x), x.deviceName, ty(x.deviceType), x.expiry]; })) +
+    '<h4 style="margin:10px 0 2px">✏️ Already has a device name (' + c.alreadyNamed + ') — skipped unless ticked</h4>' + odTbl(['Sub ID', 'Customer', 'Device', 'Now', 'Sheet'], p.alreadyNamed.map(function (x) { return [x.subId, x.name, odDevOf(x), x.currentDeviceName, x.deviceName]; })) +
+    '<h4 style="margin:10px 0 2px">❓ Ambiguous (' + c.ambiguous + ') — pick the subscription to save it</h4>' + odPickTbl(['Line', 'Sheet name', 'Device', 'Account', 'Expiry', 'Why'], p.ambiguous, 'ambiguous', function (x) { return [x.line, x.sheetName, x.deviceName, x.account, x.expiry, x.reason]; }) +
+    '<h4 style="margin:10px 0 2px">🔍 Not found (' + c.unmatched + ') — pick the subscription to save it</h4>' + odPickTbl(['Line', 'Sheet name', 'Device', 'Account', 'Expiry'], p.unmatched, 'unmatched', function (x) { return [x.line, x.sheetName, x.deviceName, x.account, x.expiry]; }) +
+    (OD.pickClash ? '<div class="qnote warn" style="margin-top:6px">⚠️ ' + OD.pickClash + ' pick(s) chose a device that another row already fills — those are not saved.</div>' : '') +
     '<label class="row" style="gap:6px;cursor:pointer;font-size:.84rem;margin:8px 0"><input type="checkbox" id="odow"' + (OD.overwrite ? ' checked' : '') + '/> Overwrite device names I already typed (' + c.alreadyNamed + ')</label>' +
     '<button class="btn" data-odimpsave="1"' + (n ? '' : ' disabled') + '>✅ Save ' + n + ' device name' + (n === 1 ? '' : 's') + '</button>';
 }
 function odImpSave(btn) {
   var items = odImpItems(); if (!items.length) return;
-  if (!confirm('Save ' + items.length + ' device name' + (items.length === 1 ? '' : 's') + ' from the old Sheet?\n\nOnly the device name and type change (status, expiry and removed stay as they are).')) return;
+  var grow = {}; items.forEach(function (it) { if (it.setDevices) grow[it.subId] = it.setDevices; });
+  var growN = Object.keys(grow).length;
+  if (!confirm('Save ' + items.length + ' device name' + (items.length === 1 ? '' : 's') + ' from the old Sheet?\n\nOnly the device name and type change (status, expiry and removed stay as they are).' + (growN ? '\n\n' + growN + ' plan(s) you picked will be set to more devices (same login).' : ''))) return;
   btn.disabled = true;
   post('/admin/api/otp-devices/import/save', { items: items, overwrite: OD.overwrite }).then(function (r) {
     if (!r.ok) { btn.disabled = false; toast('⚠️ ' + (r.message || 'failed')); return; }

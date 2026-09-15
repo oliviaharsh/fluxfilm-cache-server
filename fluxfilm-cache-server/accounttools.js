@@ -12,6 +12,7 @@
  * subscription on any of them.
  */
 const s = (v) => String(v == null ? '' : v).trim();
+const passwordAge = require('./passwordage');
 const loginKey = (v) => s(v).toLowerCase();
 // "Netflix (Group Offer)" -> "netflix", "Prime Video" -> "prime": the same email can be the login of two
 // different services with different passwords, so a change never crosses service families.
@@ -82,7 +83,10 @@ function mount(app, deps) {
     try {
       const im = await impact(s(req.query.service), s(req.query.account_id));
       if (!im.ok) return res.status(im.status || 400).json(im);
-      res.json({ ok: true, account: { service: im.account.service, accountId: im.account.account_id, login: im.login, password: s(im.account.password), isActive: s(im.account.is_active).toUpperCase() === 'TRUE' },
+      // 🔑 Last changed: newest over every account ID on this login (passwordage.js; separate single-table reads).
+      const ages = await passwordAge.forAccounts((sql, p) => db.query(sql, p), im.ids.length ? im.ids : [im.account.account_id]);
+      const passwordChangedAt = Object.values(ages).reduce((best, d) => (d && (!best || d.at > best.at) ? d : best), null);
+      res.json({ ok: true, account: { service: im.account.service, accountId: im.account.account_id, login: im.login, password: s(im.account.password), isActive: s(im.account.is_active).toUpperCase() === 'TRUE', passwordChangedAt },
         sameLogin: im.sameLogin, active: im.active.map(brief), expired: im.expired.map(brief) });
     } catch (e) { fail(res, e); }
   });
@@ -101,6 +105,14 @@ function mount(app, deps) {
 
       // 1) every account row with this login
       const rAcc = await db.query("UPDATE inventory_accounts SET password = ?, raw_json = IF(raw_json IS NULL, NULL, JSON_SET(raw_json, '$.Password', ?)) WHERE LOWER(TRIM(login_id)) = ? AND LOWER(service) LIKE ?", [password, password, im.key, '%' + im.fam + '%']);
+      // 1b) 🔑 when: raw_json.PasswordChangedAt (IST) + PasswordHistory (last 10 dates, never a password) on the same rows.
+      //     No typed column exists for it; rows without a readable raw_json keep the change-log entry below as their date.
+      const changedAt = passwordAge.istStamp(Date.now());
+      const stampRows = await db.query('SELECT service, account_id, raw_json FROM inventory_accounts WHERE LOWER(TRIM(login_id)) = ? AND LOWER(service) LIKE ?', [im.key, '%' + im.fam + '%']);
+      for (const row of Array.isArray(stampRows) ? stampRows : []) {
+        if (!row.raw_json || !Object.keys(passwordAge.rawOf(row.raw_json)).length) continue;
+        await db.query('UPDATE inventory_accounts SET raw_json = ? WHERE service = ? AND account_id = ?', [JSON.stringify(passwordAge.stampRaw(row.raw_json, changedAt)), row.service, row.account_id]);
+      }
       // 2) active customers keep watching: their stored password (account page, recover, emails) is updated
       if (im.active.length) {
         const ids = im.active.map((x) => x.sub_id);
@@ -126,7 +138,7 @@ function mount(app, deps) {
       }
       const summary = im.account.account_id + ' (' + im.login + '): ' + ((rAcc && rAcc.affectedRows) || 0) + ' account row(s), ' + im.active.length + ' active updated, ' + ticked + ' expired ticked removed' + (b.emailActive ? ', ' + mail.sent + ' emailed' : '');
       audit.record(req, { action: 'account.passwordChange', entity: 'account', id: im.account.account_id, summary, details: { accounts: im.ids, activeSubs: im.active.map((x) => x.sub_id), tickedSubs: tickExpired ? im.expired.map((x) => x.sub_id) : [], emailed: mail.sent } });
-      res.json({ ok: true, accountRows: (rAcc && rAcc.affectedRows) || 0, activeUpdated: im.active.length, expiredTicked: ticked, email: b.emailActive ? mail : null, active: im.active.map(brief), summary });
+      res.json({ ok: true, passwordChangedAt: passwordAge.describe(passwordAge.toMs(changedAt), 'account'), accountRows: (rAcc && rAcc.affectedRows) || 0, activeUpdated: im.active.length, expiredTicked: ticked, email: b.emailActive ? mail : null, active: im.active.map(brief), summary });
     } catch (e) { fail(res, e); }
   });
 

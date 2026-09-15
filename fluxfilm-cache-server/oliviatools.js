@@ -54,6 +54,9 @@ function make(deps) {
     netflixAccounts: (phone) => require('./oliviahousehold').netflixAccounts(phone),
     /** The Netflix travel / "Watch temporarily" code for one of those accounts. Read-only; never presses Update. */
     householdCode: (acc) => require('./oliviahousehold').travelCode(acc),
+    /** Make this TV the permanent Netflix household (state-changing; off unless OLIVIA_HH_UPDATE=on). */
+    householdUpdate: (acc) => require('./oliviahousehold').updateHousehold(acc),
+    householdUpdateEnabled: () => require('./oliviahousehold').updateEnabled(),
     /** Price, early-renew discount, new expiry and account check for a renewal — creates nothing. */
     renewQuote: (subId, plan) => order().renewQuote(subId, plan),
     async createRenewOrder(subId, planOverride, couponCode) {

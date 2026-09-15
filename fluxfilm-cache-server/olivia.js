@@ -616,7 +616,12 @@ async function supportReplies(c, ctx, kind, service, opts) {
       try { const na = await tools().netflixAccounts(c.phone); if (na && na.ok) { const usable = (na.accounts || []).filter((x) => x.email && x.kind); if (usable.length === 1) acc = usable[0]; } } catch (_) { acc = null; }
       ctx.meta.push({ tool: 'netflixAccounts', canCode: !!acc });
     }
-    if (acc) { st.hhSub = acc.subId; return reply({ intent: 'HH_OFFER_CODE', facts: { bothHelpers }, buttons: [btn('hhcode', lang)].concat(helperBtns(), [wa]) }); }
+    if (acc) {
+      st.hhSub = acc.subId;
+      let canUpdate = false; try { canUpdate = !!tools().householdUpdateEnabled(); } catch (_) { canUpdate = false; }
+      const extra = canUpdate ? [btn('hhupdate', lang)] : [];
+      return reply({ intent: 'HH_OFFER_CODE', facts: { bothHelpers, canUpdate }, buttons: [btn('hhcode', lang)].concat(extra, helperBtns(), [wa]) });
+    }
     delete st.hhSub;
     return reply({ intent: 'HOUSEHOLD_HELPER', facts: { bothHelpers }, buttons: helperBtns().concat([wa]) });
   }
@@ -1090,6 +1095,19 @@ async function turn(c, input, ctx) {
     return [{ intent: 'HANDOFF_TO_HUMAN', buttons: withBackToPay(st, lang, [btn('whatsapp', lang), btn('menu', lang)]) }];
   }
   // After-sale help: login / password, household / TV code, "band ho gaya", OTP, paid but no login (menu: "Login / account problem").
+  if (action === 'hhupdate') {
+    // Permanent household update (state-changing) - only reachable when OLIVIA_HH_UPDATE=on; nothing is pressed until confirmed.
+    const na = await tools().netflixAccounts(c.phone).catch(() => null);
+    const acc = na && na.ok ? (na.accounts || []).find((x) => x.subId === st.hhSub && x.email && x.kind) : null;
+    if (!acc) return supportReplies(c, ctx, 'household', '', { noAuto: true });
+    const res = await tools().householdUpdate(acc).catch(() => ({ ok: false, manual: true }));
+    ctx.meta.push({ tool: 'householdUpdate', ok: !!(res && res.ok) });
+    if (res && res.ok && res.updated) {
+      if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
+      return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }];
+    }
+    return supportReplies(c, ctx, 'household', '', { noAuto: true });
+  }
   if (action === 'hhcode') {
     // Netflix household auto-fix: fetch the "Watch temporarily" travel code for the customer's own active Netflix account.
     const na = await tools().netflixAccounts(c.phone).catch(() => null);
