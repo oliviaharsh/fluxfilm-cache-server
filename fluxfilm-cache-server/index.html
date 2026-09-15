@@ -18053,6 +18053,30 @@ function App() {
   window.ffGoBuy = service => service ? nav('buy2', {
     service
   }) : nav('buy1', {});
+  // Olivia's "Open Recover" button: same as the Recover tab.
+  window.ffGoRecover = () => recoverFromTop();
+  // Olivia's "Open Get OTP" button: same as the Get OTP tile (My plans with the plan picker open).
+  window.ffGoOtp = () => {
+    if (screen === 'dashboard') {
+      setOtpSubs([...(screenData.manageResp?.actionable || []), ...(screenData.manageResp?.history || [])]);
+      setShowOtpModal(true);
+      return;
+    }
+    const ph = normPhone_(screenData.phone || getFFSession().phone || localStorage.getItem('ff_phone') || '');
+    if (!ph) {
+      navReset('home', {});
+      return;
+    }
+    navReset('dashboard', {
+      ...screenData,
+      phone: ph,
+      manageResp: screenData.manageResp || {
+        actionable: [],
+        history: []
+      },
+      _openOtp: true
+    });
+  };
   function recoverFromCard(sub) {
     navReset('recover', {
       preSelectedSub: sub

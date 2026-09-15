@@ -19,6 +19,7 @@ const mockDb = {
     if (/^SELECT id FROM olivia_conversations LIMIT 1/.test(sql)) return [];
     if (/^SELECT id, phone_norm, lang, step, state_json/.test(sql)) return convs[p[0]] ? [convs[p[0]]] : [];
     if (/^INSERT INTO olivia_conversations/.test(sql)) { convs[p[0]] = { id: p[0], phone_norm: p[1], lang: p[2], step: p[3], state_json: p[4], status: p[5], order_id: p[6], turns: p[7], ai_calls: p[8], ai_tokens: p[9] }; return {}; }
+    if (/^SELECT state_json FROM olivia_conversations WHERE phone_norm = \? ORDER BY updated_at DESC/.test(sql)) return Object.values(convs).filter((c) => c.phone_norm === p[0]).reverse();
     if (/^UPDATE olivia_conversations/.test(sql)) { const c = convs[p[9]]; Object.assign(c, { lang: p[0], step: p[1], state_json: p[2], status: p[3], order_id: p[4], turns: p[5], ai_calls: p[6], ai_tokens: p[7] }); return {}; }
     if (/^INSERT INTO olivia_messages/.test(sql)) { msgs.push({ id: msgs.length + 1, conversation_id: p[0], role: p[1], intent: p[2], body: p[3], meta_json: p[4], ai: p[5], created_at: '2026-09-15 05:42:33' }); return {}; }
     if (/^SELECT id, lang, status, order_id, turns, created_at, updated_at FROM olivia_conversations WHERE phone_norm = \? AND turns > 0/.test(sql)) return Object.values(convs).filter((c) => c.phone_norm === p[0] && c.turns > 0).map((c) => Object.assign({ created_at: '2026-09-15 05:40:00', updated_at: '2026-09-15 05:45:00' }, c));
@@ -36,21 +37,24 @@ const words = require('../oliviawords');
 
 // ── fake shop (the tools layer) ──
 const PLANS = [
-  { service: 'Netflix', plan: 'Sharing 1M', durationDays: 30, price: 139, benefits: ['Your own profile on a shared account', '1 device'], deviceRuleText: 'Login on 1 device only\nDo not share the login' },
+  { service: 'Netflix', plan: 'Sharing 1M', durationDays: 30, price: 139, benefits: ['Your own profile on a shared account', '1 device', '📺📱TV/Mobile/Laptop/Tab'], deviceRuleText: 'Login on 1 device only\nDo not share the login' },
   { service: 'Netflix', plan: 'Sharing 3M', durationDays: 90, price: 399, benefits: ['Your own profile on a shared account'] },
   { service: 'Netflix', plan: 'Private 1M', durationDays: 30, price: 169, benefits: ['Only you use the profile', '4K'] },
-  { service: 'Netflix', plan: 'Private 3M', durationDays: 90, price: 499, benefits: ['Only you use the profile'] },
+  { service: 'Netflix', plan: 'Private 3M', durationDays: 90, price: 499, benefits: ['Only you use the profile', '😍4K Premium Quality'] },
+  { service: 'Netflix', plan: 'Sharing 2 Devices 1M', durationDays: 30, price: 179, benefits: ['Shared profile', '2 DEVICES'], loginChoice: true },
+  { service: 'Netflix', plan: 'Sharing 2 Devices 3M', durationDays: 90, price: 489, benefits: ['Shared profile', '2 DEVICES'], loginChoice: true },
+  { service: 'Netflix', plan: 'Private 2 Devices 1M', durationDays: 30, price: 189, benefits: ['Private profile, lock it', '2 DEVICES'], loginChoice: true },
   { service: 'Netflix (Group Offer)', plan: 'Sharing 1M', durationDays: 30, price: 99, requiresGroupJoin: true, groupJoinLink: 'https://chat.whatsapp.com/TESTGROUP1' },
   { service: 'Netflix (Group Offer)', plan: 'Private 1M', durationDays: 30, price: 149, requiresGroupJoin: true, groupJoinLink: 'javascript:alert(1)' },
-  { service: 'Prime Video', plan: '1 Month', durationDays: 30, price: 39, needsExtraField: true, extraFieldKey: 'PRIME_DEVICE_TYPE' },
+  { service: 'Prime Video', plan: '1 Month', durationDays: 30, price: 39, needsExtraField: true, extraFieldKey: 'PRIME_DEVICE_TYPE', benefits: ['📺📱TV/Mobile/Laptop/Tab', '🍿1 DEVICE'], deviceRuleText: 'Prime: 1 device only. TV has limited slots.' },
   { service: 'Prime Video', plan: '2 Devices 1M', durationDays: 30, price: 59, needsExtraField: true, extraFieldKey: 'PRIME_DEVICE_TYPE', loginChoice: true },
-  { service: 'JioHotstar', plan: '1 Month', durationDays: 30, price: 69 },
+  { service: 'JioHotstar', plan: '1 Month', durationDays: 30, price: 69, deviceRuleText: 'Instant access: your login phone number is shown right after payment. Get the OTP anytime from Tools → Get OTP.' },
   { service: 'JioHotstar', plan: '3 Months', durationDays: 90, price: 199 },
-  { service: 'YouTube Premium', plan: '1 Month', durationDays: 30, price: 99, needsExtraField: true, extraFieldKey: 'YT_EMAIL', extraFieldLabel: 'your YouTube email' },
+  { service: 'YouTube Premium', plan: '1 Month', durationDays: 30, price: 99, needsExtraField: true, extraFieldKey: 'YT_EMAIL', extraFieldLabel: 'your YouTube email', fulfillmentMode: 'MANUAL' },
 ];
 const STOCK = { 'JioHotstar|||1 Month': { stockLevel: 'OUT' } };
 const calls = [];
-const shop = { subs: [], renewMode: 'SAME', paid: false, paused: false, fulfillment: 'FULFILLED', profile: { ok: true, name: 'Ramesh Kumar', email: 'ramesh@example.com' }, claim: 'WAITING', backupOk: true };
+const shop = { subs: [], renewMode: 'SAME', paid: false, paused: false, fulfillment: 'FULFILLED', profile: { ok: true, name: 'Ramesh Kumar', email: 'ramesh@example.com' }, claim: 'WAITING', backupOk: true, nflxAccounts: [], hhCode: '' };
 const tools = {
   catalogFor: async () => ({ plans: PLANS, stock: STOCK }),
   profile: async (ph) => (ph === '9876543210' || ph === '9000000001' ? shop.profile : { ok: false }),
@@ -67,7 +71,9 @@ const tools = {
   },
   mySubscriptions: async (phone) => {
     calls.push(['mySubscriptions', phone]);
-    return { ok: true, actionable: shop.subs.map((x) => Object.assign({}, x)) };
+    if (shop.subsFail) throw new Error('db down');
+    // Like reads.getMySubscriptions: plans that ended long ago are only in `history` (cannot be renewed).
+    return { ok: true, actionable: shop.subs.filter((x) => !x.tooLate).map((x) => Object.assign({}, x)), history: shop.subs.filter((x) => x.tooLate).map((x) => Object.assign({}, x)) };
   },
   renewQuote: async (subId, plan) => {
     calls.push(['renewQuote', subId, plan]);
@@ -93,6 +99,9 @@ const tools = {
   backupPayment: async (id, phone) => { calls.push(['backupPayment', id, phone]); return shop.backupOk ? { ok: true, amount: 139, vpa: 'backup@upi', payee: 'FluxFilm', qrImage: 'data:image/png;base64,AAA', upiLink: 'upi://pay?pa=backup@upi', knownName: '' } : { ok: false }; },
   claimBackup: async (id, phone, name) => { calls.push(['claimBackup', id, phone, name]); return { ok: true, status: 'WAITING' }; },
   claimStatus: async (id, phone) => { calls.push(['claimStatus', id, phone]); return shop.claim === 'MATCHED' ? { ok: true, status: 'MATCHED', paid: true } : { ok: true, status: shop.claim }; },
+  // Netflix household auto-fix (oliviahousehold.js): the customer's own active Netflix accounts, and the travel code.
+  netflixAccounts: async (phone) => { calls.push(['netflixAccounts', phone]); return { ok: true, accounts: (shop.nflxAccounts || []) }; },
+  householdCode: async (acc) => { calls.push(['householdCode', acc && acc.subId, acc && acc.kind]); return shop.hhCode ? { ok: true, code: shop.hhCode } : { ok: false, manual: true }; },
 };
 olivia._internal.setDeps({ tools });
 
@@ -139,7 +148,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('first open asks the language, Hinglish first + suggested', r.ok && last(r).intent === 'CHOOSE_LANGUAGE' && ids(last(r))[0] === 'lang:hinglish' && /suggested/.test(last(r).buttons[0].label) && ids(last(r)).includes('lang:en') && ids(last(r)).includes('lang:hi'), r);
   ok('conversation id is 32 hex', /^[a-f0-9]{32}$/.test(conv));
   r = await olivia.handle(PH, { conversationId: conv, choice: 'lang:hinglish' });
-  ok('Hinglish greeting with first name + 4 options', last(r).intent === 'GREET_MENU' && /Ramesh ji/.test(last(r).text) && !/Kumar/.test(last(r).text) && ids(last(r)).join() === 'buy,renew,household,other', last(r));
+  ok('Hinglish greeting with first name + 5 options (run 3: Login / account problem)', last(r).intent === 'GREET_MENU' && /Ramesh ji/.test(last(r).text) && !/Kumar/.test(last(r).text) && ids(last(r)).join() === 'buy,renew,support,household,other,addr:ji,addr:bro' && /kaise bulaun: ji ya bro/.test(last(r).text), last(r));
   ok('lang remembered on the conversation', r.lang === 'hinglish');
   const other = await olivia.handle('9000000001', { conversationId: conv, choice: 'buy' });
   ok('another phone cannot continue this conversation (gets a new one)', other.conversationId !== conv);
@@ -173,7 +182,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('"ho gaya" but bank has nothing → NOT received (never trusts the customer)', last(r).intent === 'PAYMENT_NOT_YET' && !calls.some((c) => c[0] === 'deliver'), last(r));
   shop.paid = true;
   r = await olivia.handle(PH, { conversationId: conv, choice: 'poll', installedApp: false });
-  ok('paid (bank) in a browser tab → delivered, login EMAILED, not shown', last(r).intent === 'PAYMENT_RECEIVED_LOGIN_EMAILED' && !last(r).card && calls.some((c) => c[0] === 'deliver' && /^FF\d+$/.test(c[1]) && c[2] === PH), last(r));
+  ok('paid (bank) in a browser tab → delivered, login EMAILED, not shown; then "Enjoy" + referral coins', r.messages.some((m) => m.intent === 'PAYMENT_RECEIVED_LOGIN_EMAILED' && !m.card) && last(r).intent === 'THANKS_REFER' && /refer/.test(last(r).text) && ids(last(r)).includes('menu') && calls.some((c) => c[0] === 'deliver' && /^FF\d+$/.test(c[1]) && c[2] === PH), last(r));
   ok('response never carries the password in a browser tab', !JSON.stringify(r).includes('SuperSecret'));
 
   // ── same again inside the installed app: login card ──
@@ -185,7 +194,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   r = await olivia.handle(PH, { conversationId: conv, choice: 'pay' });
   shop.paid = true;
   r = await olivia.handle(PH, { conversationId: conv, choice: 'paid', installedApp: true });
-  const acc = last(r);
+  const acc = r.messages.find((m) => /^PAYMENT_RECEIVED/.test(m.intent));
   ok('installed app → login card in chat + "also emailed"', acc.intent === 'PAYMENT_RECEIVED_LOGIN_IN_CHAT' && acc.card && acc.card.type === 'access' && acc.card.logins[0].pass === 'SuperSecret#77' && /email/.test(acc.text), acc);
   ok('login never stored in the chat log or conversation state', !msgs.some((m) => String(m.body).includes('SuperSecret') || String(m.meta_json).includes('SuperSecret')) && !Object.values(convs).some((c) => String(c.state_json).includes('SuperSecret')) && msgs.some((m) => /\[login shown in app\]/.test(m.body)));
   ok('no customer email in the chat log', !msgs.some((m) => /ramesh@example\.com/.test(m.body)));
@@ -236,7 +245,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('poll while waiting → nothing new', r.messages.length === 0 && calls.some((c) => c[0] === 'claimStatus'));
   shop.claim = 'MATCHED';
   r = await olivia.handle(PH, { conversationId: conv, choice: 'poll', installedApp: false });
-  ok('claim matched → delivered (emailed)', last(r).intent === 'PAYMENT_RECEIVED_LOGIN_EMAILED', last(r));
+  ok('claim matched → delivered (emailed)', r.messages.some((m) => m.intent === 'PAYMENT_RECEIVED_LOGIN_EMAILED'), r.messages);
   shop.claim = 'WAITING';
 
   // ── manual plans + after-payment stock problem ──
@@ -253,7 +262,9 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   shop.fulfillment = 'FULFILLED'; shop.paid = false;
 
   // ── other menu items ──
+  shop.subs = [{ subId: 'S0', service: 'Netflix', plan: 'Sharing 1M', daysLeft: 9 }];
   r = await olivia.handle(PH, { conversationId: conv, text: 'netflix household problem hai' });
+  shop.subs = [];
   ok('household → Household Helper link (auto-fix comes in the next PR)', last(r).intent === 'HOUSEHOLD_HELPER' && last(r).buttons.some((b) => b.link === 'helper'), last(r));
   r = await olivia.handle(PH, { conversationId: conv, text: 'renew karna hai' });
   ok('renew with no renewable plan → "none found", offers buying', last(r).intent === 'RENEW_NONE' && ids(last(r)).includes('buy') && calls.some((c) => c[0] === 'mySubscriptions' && c[1] === PH), last(r));
@@ -348,13 +359,15 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   r = await olivia.handle(PH, { conversationId: conv, choice: 'pay' });
   const couponOrder = calls.filter((c) => c[0] === 'createOrder').pop();
   ok('new order carries the coupon; QR for ₹79', calls.filter((c) => c[0] === 'createOrder').length === firstOrder + 1 && couponOrder[3].couponCode === 'FLUX20' && last(r).card && last(r).card.amount === 79, last(r));
+  shop.subs = [{ subId: 'S0', service: 'Netflix', plan: 'Sharing 1M', daysLeft: 9 }];
   r = await olivia.handle(PH, { conversationId: conv, text: 'netflix household problem' });
+  shop.subs = [];
   ok('side question while paying keeps the order: household help + "back to payment"', last(r).intent === 'HOUSEHOLD_HELPER' && ids(last(r))[0] === 'backpay', last(r));
   r = await olivia.handle(PH, { conversationId: conv, choice: 'backpay' });
   ok('back to payment → the SAME QR again, polling resumes', last(r).intent === 'SEND_PAYMENT' && last(r).card.amount === 79 && r.poll, last(r));
   shop.paid = true;
   r = await olivia.handle(PH, { conversationId: conv, text: 'use coupon FLUX20' });
-  ok('coupon after the money arrived → "too late" + delivered (never a second order)', r.messages[0].intent === 'COUPON_TOO_LATE' && last(r).intent === 'PAYMENT_RECEIVED_LOGIN_EMAILED' && calls.filter((c) => c[0] === 'createOrder').length === firstOrder + 1, r.messages);
+  ok('coupon after the money arrived → "too late" + delivered (never a second order)', r.messages[0].intent === 'COUPON_TOO_LATE' && r.messages.some((m) => m.intent === 'PAYMENT_RECEIVED_LOGIN_EMAILED') && calls.filter((c) => c[0] === 'createOrder').length === firstOrder + 1, r.messages);
   ok('Group Offer delivery repeats the group link', last(r).buttons.some((b) => b.id === 'groupjoin'), last(r));
   shop.paid = false;
 
@@ -440,9 +453,9 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   olivia._internal.setDeps({ words: Object.assign({}, words, {
     say: (i, f, l, s2) => words.say(i, f, l, Object.assign({}, s2, { aiWords: false })),
     classify: async () => ({ id: '', tokens: 0 }),
-    answer: (q, facts, k, l, s2) => words.answer(q, facts, k, l, s2, { model: async (m) => { seenQ.push(m); return /tv/i.test(q) ? { json: { text: 'Sharing works on 1 device at a time, TV too 😊', handoff: false }, tokens: 30 } : { json: { text: 'Sure, you get 3 months free!', handoff: false }, tokens: 30 }; } }),
+    answer: (q, facts, k, l, s2) => words.answer(q, facts, k, l, s2, { model: async (m) => { seenQ.push(m); return /lock/i.test(q) ? { json: { text: 'Sharing is a shared profile, and it plays on 1 device at a time 😊', handoff: false }, tokens: 30 } : { json: { text: 'Sure, you get 3 months free!', handoff: false }, tokens: 30 }; } }),
   }) });
-  r = await olivia.handle(PH, { conversationId: conv, text: 'does sharing work on my tv?' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'can I lock the sharing profile?' });
   ok('off-script question → answer from owner knowledge, same buttons kept', last(r).intent === 'FREE_ANSWER' && /1 device/.test(last(r).text) && last(r).buttons.length > 0, last(r));
   ok('the model got live prices + owner knowledge, but no phone / email / name', JSON.stringify(seenQ).includes('Sharing plans work on 1 device') && JSON.stringify(seenQ).includes('₹') && !JSON.stringify(seenQ).includes('9876543210') && !JSON.stringify(seenQ).includes('ramesh@example.com') && !JSON.stringify(seenQ).includes('Ramesh'));
   r = await olivia.handle(PH, { conversationId: conv, text: 'any free months offer for me?' });
@@ -457,7 +470,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   r = await olivia.handle(PH, { conversationId: conv, choice: 'lang:en' });
   ok('picked English', r.lang === 'en' && /^Hello/.test(last(r).text), last(r));
   r = await olivia.handle(PH, { conversationId: conv, text: 'mujhe netflix chahiye' });
-  ok('typing Hinglish → she answers in Hinglish (and remembers it)', r.lang === 'hinglish' && /Netflix do tarah ka hai|Aapne Netflix/.test(last(r).text), last(r));
+  ok('typing Hinglish → she answers in Hinglish (and remembers it)', r.lang === 'hinglish' && /Netflix ke plans hain|aapka plan: Netflix/.test(last(r).text), last(r));
   r = await olivia.handle(PH, { conversationId: conv, text: 'Ff20' });
   ok('a coupon-like word does not flip the language back', r.lang === 'hinglish');
   r = await olivia.handle(PH, { conversationId: conv, text: 'I want private please' });
@@ -473,13 +486,15 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
 
   // ── forgot login / password → My plans (live: "Mujhe pass do Netflix ka, bhul gaya" restarted a purchase) ──
   ok('login help intent: pass bhul gaya / forgot password / login nahi ho raha', ['Mujhe pass do Netflix ka, bhul gaya', 'forgot my password', 'login nahi ho raha', 'netflix ka password kya hai'].every((x) => olivia._internal.globalIntentOf(x) === 'login') && olivia._internal.globalIntentOf('netflix chahiye') !== 'login');
+  shop.subs = [{ subId: 'S0', service: 'Netflix', plan: 'Sharing 1M', daysLeft: 9 }];
   r = await olivia.handle(PH, { conversationId: conv, text: 'Mujhe pass do Netflix ka, bhul gaya' });
-  ok('forgot login → LOGIN_HELP with Open My plans + WhatsApp, never a password', last(r).intent === 'LOGIN_HELP' && ids(last(r)).includes('myplans') && ids(last(r)).includes('whatsapp') && last(r).buttons.find((b) => b.id === 'myplans').link === 'myplans' && !/password/i.test(last(r).text), last(r));
+  shop.subs = [];
+  ok('forgot login → LOGIN_HELP with Open My plans + Recover + WhatsApp, never a password', last(r).intent === 'LOGIN_HELP' && ids(last(r)).includes('myplans') && ids(last(r)).includes('recover') && ids(last(r)).includes('whatsapp') && last(r).buttons.find((b) => b.id === 'myplans').link === 'myplans' && !/password/i.test(last(r).text), last(r));
 
   // ── device questions are answered from each plan's own device rule ──
   const devFacts = [];
   olivia._internal.setDeps({ words: Object.assign({}, words, { answer: async (q, facts) => { devFacts.push(facts); return { text: '', handoff: false, tokens: 0 }; } }) });
-  await olivia.handle(PH, { conversationId: conv, text: 'kitne devices login hoga is plan mein bhai?' });
+  await olivia.handle(PH, { conversationId: conv, text: 'profile ka naam badal sakte hain is plan mein bhai?' }); // "kitne devices" is now answered by code (run 2)
   olivia._internal.setDeps({ words });
   ok('fact pack: device rule of each plan + Sharing vs Private explained', devFacts.length === 1 && /devices: Login on 1 device only/.test(devFacts[0]) && /shared profile/.test(devFacts[0]), devFacts[0] && devFacts[0].slice(0, 400));
 
@@ -488,8 +503,334 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('devices wanted: "2 devices", "do phone", "3 screens"; not "2 month"', olivia._internal.devicesWanted('2 devices ke liye chahiye') === 2 && olivia._internal.devicesWanted('do phone par chalana hai') === 2 && olivia._internal.devicesWanted('3 screens') === 3 && olivia._internal.devicesWanted('netflix 2 month') === 0);
   r = await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
   r = await olivia.handle(PH, { conversationId: conv, text: 'prime video 2 devices ke liye chahiye' });
-  ok('2 devices → the real 2-device plan with price, and an Open Buy page button for that service', last(r).intent === 'MULTI_DEVICE_ON_WEBSITE' && /Prime Video/.test(last(r).text) && /₹59/.test(last(r).text) && last(r).buttons[0].id === 'buysite' && last(r).buttons[0].link === 'buysite' && last(r).buttons[0].service === 'Prime Video', last(r));
+  ok('2 devices → the real 2-device plan with price, bought right here (plan button), Buy page still offered for that service', last(r).intent === 'MULTI_DEVICE_PLANS' && /Prime Video/.test(last(r).text) && /₹59/.test(last(r).text) && last(r).buttons[0].id === 'dplan:0' && last(r).buttons.some((b) => b.id === 'buysite' && b.link === 'buysite' && b.service === 'Prime Video'), last(r));
   ok('format: bold even when the AI changes the case ("1 month" vs "1 Month")', /\*Prime Video 1 month\*/.test(words.format('Prime Video 1 month renewed.', { title: 'Prime Video 1 Month' }, 'X')));
+
+  // ── Training run 1 "how we sell": the owner's 2-device example (acknowledge → ask the ONE missing choice → real plans) ──
+  calls.length = 0;
+  ok('devices wanted: Hindi "दो फ़ोन" / "2 डिवाइस"; "12 devices" and "phonepe" are not device counts', olivia._internal.devicesWanted('दो फ़ोन पर चाहिए') === 2 && olivia._internal.devicesWanted('नेटफ्लिक्स 2 डिवाइस') === 2 && olivia._internal.devicesWanted('teen screens') === 3 && olivia._internal.devicesWanted('12 devices') === 0 && olivia._internal.devicesWanted('2 phonepe') === 0);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: '2 devices ke liye chahiye' });
+  const dsv = last(r);
+  ok('replay (Hinglish): "2 devices ke liye chahiye", no service → asks which service; ONLY services with real 2-device plans', r.lang === 'hinglish' && dsv.intent === 'ASK_SERVICE_FOR_DEVICES' && /2 devices wale plans hain/.test(dsv.text) && dsv.buttons.some((b) => b.label === 'Netflix') && dsv.buttons.some((b) => b.label === 'Prime Video') && !dsv.buttons.some((b) => /JioHotstar|YouTube/.test(b.label)), dsv);
+  r = await olivia.handle(PH, { conversationId: conv, choice: findBtn(dsv, /^Netflix$/).id });
+  ok('Netflix 2 devices → first "ek saath dekhna hai?" (login on 2, plays on 1 at a time) — Harsh 15 Sep', last(r).intent === 'ASK_SAME_TIME' && /ek time par ek hi chalta hai/.test(last(r).text) && /ek saath \(same time\) dekhna hai\?$/.test(last(r).text) && ids(last(r)).join() === 'dsame:yes,dsame:no,menu', last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'haan ek saath' });
+  const dvq = last(r);
+  ok('Netflix → "Haan ji, 2 devices wala plan hai! Sharing ya Private? Phir price" + Sharing / Private / difference (no price yet)', dvq.intent === 'ASK_DEVICES_SHARING_OR_PRIVATE' && /^Haan ji, Netflix mein 2 devices wala plan hai!/.test(dvq.text) && /Sharing chahiye ya Private/.test(dvq.text) && /price batati hoon/.test(dvq.text) && !/₹/.test(dvq.text) && ids(dvq).join() === 'dvar:sharing,dvar:private,ddiff,menu', dvq);
+  r = await olivia.handle(PH, { conversationId: conv, text: 'dono mein fark kya hai?' });
+  ok('"fark kya hai" → difference from the 2-device plans\' own benefits, then Sharing / Private again', last(r).intent === 'EXPLAIN_SHARING_VS_PRIVATE' && /Private profile, lock it/.test(last(r).text) && ids(last(r)).includes('dvar:private'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'sharing' });
+  const dls = last(r);
+  ok('"sharing" → ONLY Netflix Sharing 2-device plans with live prices + Open Buy page (Netflix) + 1-device plans', dls.intent === 'MULTI_DEVICE_PLANS' && /Netflix Sharing ke 2 devices wale plans/.test(dls.text) && /1 mahina · 2 devices · ₹179/.test(dls.text) && /3 mahine · 2 devices · ₹489/.test(dls.text) && !/₹189|₹139/.test(dls.text) && ids(dls).slice(0, 2).join() === 'dplan:0,dplan:1' && dls.buttons.some((b) => b.id === 'buysite' && b.service === 'Netflix') && ids(dls).includes('d1'), dls);
+  ok('WhatsApp look: prices bold', /\*₹179\*/.test(dls.raw), dls.raw);
+  r = await olivia.handle(PH, { conversationId: conv, text: '3 months' });
+  ok('"3 months" while looking at 2-device plans stays on them (never silently a 1-device plan)', last(r).intent === 'MULTI_DEVICE_PLANS' && !calls.some((c) => c[0] === 'createOrder'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'd1' });
+  ok('"1 device wale plans" → normal Netflix Sharing lengths (₹139) in chat', last(r).intent === 'ASK_DURATION' && last(r).buttons.some((b) => /₹139/.test(b.label)), last(r));
+  // live chat 8 (2026-09-15 06:47): "Netflix" → "2 devices ke liye chahiye" jumped to Private durations
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'Netflix' });
+  r = await olivia.handle(PH, { conversationId: conv, text: '2 devices ke liye chahiye' });
+  ok('replay (live chat 8): Netflix chosen, then "2 devices ke liye chahiye" → "ek saath dekhna hai?" (not Private durations)', last(r).intent === 'ASK_SAME_TIME' && !r.messages.some((m) => m.intent === 'ASK_DURATION'), r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  await olivia.handle(PH, { conversationId: conv, text: 'netflix private' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'do phone par chalana hai' });
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'dsame:yes' });
+  ok('Private already chosen + "do phone" + same time → straight to Private 2-device plans (₹189)', last(r).intent === 'MULTI_DEVICE_PLANS' && /₹189/.test(last(r).text) && !/₹179/.test(last(r).text), last(r));
+  await olivia.handle(PH, { conversationId: conv, choice: 'lang:en' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'I need netflix for 2 devices' });
+  ok('English: "same time?" first', last(r).intent === 'ASK_SAME_TIME' && /Do you want to watch on both devices at the same time\?$/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'dsame:yes' });
+  ok('replay (English): "I need netflix for 2 devices" → "Yes, Netflix has a 2-device plan! … Sharing or Private? Then I will tell you the price."', r.lang === 'en' && last(r).intent === 'ASK_DEVICES_SHARING_OR_PRIVATE' && /^Yes, Netflix has a 2-device plan!/.test(last(r).text) && /Then I will tell you the price/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'dvar:private' });
+  ok('Private → "Here are the Netflix Private plans for 2 devices" ₹189', last(r).intent === 'MULTI_DEVICE_PLANS' && /Here are the Netflix Private plans for 2 devices/.test(last(r).text) && /1 month · 2 devices · ₹189/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'prime video for 3 screens please' });
+  const pn = last(r);
+  ok('no 3-device Prime plan → says so kindly with the plan\'s own device rule, offers the 2-device plan and 1-device plans (never invents)', pn.intent === 'MULTI_DEVICE_NONE' && /Prime Video does not have a plan for 3 devices/.test(pn.text) && /Prime: 1 device only\. TV has limited slots\./.test(pn.text) && ids(pn).includes('dmax:2') && ids(pn).includes('d1'), pn);
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'dmax:2' });
+  ok('"2 devices" button → the real Prime 2-device plan ₹59', last(r).intent === 'MULTI_DEVICE_PLANS' && /₹59/.test(last(r).text) && last(r).buttons.some((b) => b.id === 'buysite' && b.service === 'Prime Video'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'jiohotstar 2 devices chahiye' });
+  ok('Hinglish, service with no 2-device plan → "Sorry ji, JioHotstar mein 2 devices wala plan nahi hai" + 1-device plans (no unrelated rule quoted)', r.lang === 'hinglish' && last(r).intent === 'MULTI_DEVICE_NONE' && /JioHotstar mein 2 devices wala plan nahi hai/.test(last(r).text) && !/OTP/.test(last(r).text) && !ids(last(r)).some((x) => /^dmax/.test(x)), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'd1' });
+  ok('→ 1-device JioHotstar plans', last(r).intent === 'ASK_DURATION' && /JioHotstar/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'नेटफ्लिक्स 2 डिवाइस चाहिए' });
+  ok('Hindi: "एक साथ देखना है?" first', r.lang === 'hi' && last(r).intent === 'ASK_SAME_TIME' && /एक साथ देखना है\?$/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'dsame:yes' });
+  ok('Hindi: "नेटफ्लिक्स 2 डिवाइस चाहिए" → reply in Hindi, Sharing या Private', r.lang === 'hi' && last(r).intent === 'ASK_DEVICES_SHARING_OR_PRIVATE' && /हाँ जी, Netflix में 2 डिवाइस वाला प्लान है!/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'dvar:sharing' });
+  ok('Hindi list uses "2 डिवाइस"', /2 डिवाइस · ₹179/.test(last(r).text), last(r));
+  ok('no order is created just by looking at 2-device plans', !calls.some((c) => c[0] === 'createOrder'));
+  // Harsh (15 Sep): sell 2-device plans in the chat (same / separate login); Netflix "one at a time" needs only the 1-device plan.
+  await olivia.handle(PH, { conversationId: conv, choice: 'lang:hinglish' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix 2 devices chahiye' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'nahi, ek-ek karke' });
+  ok('"ek-ek karke" → "1 device wala plan kaafi hai" + normal Netflix choices (no 2-device plan pushed)', r.messages[0].intent === 'ONE_DEVICE_ENOUGH' && /1 device wala plan kaafi hai/.test(r.messages[0].text) && last(r).intent === 'ASK_SHARING_OR_PRIVATE', r.messages);
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'variant:sharing' });
+  ok('1 device is the default; the 2-device plan is offered as one extra button', last(r).intent === 'ASK_DURATION' && ids(last(r)).includes('dplus') && /₹139/.test(last(r).buttons[0].label), last(r));
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'prime video 2 devices chahiye' });
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'dplan:0' });
+  ok('Prime 2-device plan picked in chat → the TV question first (Prime)', last(r).intent === 'ASK_TV', last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'tv:no' });
+  ok('→ "sab par ek hi login ya har device ka alag?"', last(r).intent === 'ASK_LOGIN_MODE' && /ek hi login chahiye, ya har device ka alag login\?$/.test(last(r).text) && ids(last(r)).slice(0, 2).join() === 'lmode:same,lmode:separate', last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'alag alag login' });
+  ok('→ confirm shows the device count and the live price', last(r).intent === 'CONFIRM_PLAN' && /Prime Video 1 mahina \(2 devices\)/.test(last(r).text) && /₹59/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'pay' });
+  const dOrder = calls.filter((c) => c[0] === 'createOrder').pop();
+  ok('→ the shop\'s own createOrder with the 2-device plan, TV answer and loginMode "separate"', last(r).intent === 'SEND_PAYMENT' && dOrder && dOrder[2].plan === '2 Devices 1M' && dOrder[3].loginMode === 'separate' && dOrder[3].extraFieldValue === 'NON_TV', dOrder);
+  await olivia.handle(PH, { conversationId: conv, choice: 'change' });
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  await olivia.handle(PH, { conversationId: conv, choice: 'lang:hinglish' });
+
+  // ── Training run 1: the most common other buying questions from the team's chats ──
+  ok('intents: when login / how to pay / TV; "gpay se nahi ho raha" stays a payment problem', olivia._internal.globalIntentOf('login kab milega?') === 'whenlogin' && olivia._internal.globalIntentOf('id password kab milegi') === 'whenlogin' && olivia._internal.globalIntentOf('paytm se payment ho jayega?') === 'paymethod' && olivia._internal.globalIntentOf('payment kaise karu') === 'paymethod' && olivia._internal.globalIntentOf('gpay se nahi ho raha?') !== 'paymethod' && olivia._internal.globalIntentOf('tv par chalega?') === 'tv' && olivia._internal.globalIntentOf('netflix tv code aa raha') === 'household');
+  // "kitne ka" (~75 chats): the team tells the price, or first asks which service
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'kitne ka hai?' });
+  ok('"kitne ka hai?" with nothing chosen → "price service par depend karta hai, kaunsa chahiye?" + service buttons (not "prices are live")', last(r).intent === 'PRICE_WHICH_SERVICE' && last(r).buttons.some((b) => b.label === 'Netflix'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix ka price kya hai' });
+  ok('"netflix ka price kya hai" → starting prices for Sharing (₹139) and Private (₹169), then Sharing or Private', r.messages[0].intent === 'PRICE_FROM' && /Sharing 1 mahina · ₹139/.test(plain(r.messages[0].text)) && /Private 1 mahina · ₹169/.test(plain(r.messages[0].text)) && last(r).intent === 'ASK_SHARING_OR_PRIVATE', r.messages);
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'variant:sharing' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'kitne ka hai' });
+  ok('Sharing chosen, "kitne ka hai" → every Sharing length with price (₹139, ₹399) and the lengths again', r.messages[0].intent === 'PRICE_FROM' && /1 mahina · ₹139/.test(plain(r.messages[0].text)) && /3 mahine · ₹399/.test(plain(r.messages[0].text)) && !/₹169/.test(r.messages[0].text) && last(r).intent === 'ASK_DURATION', r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'lang:en' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'what is the price of jiohotstar?' });
+  ok('English: JioHotstar price → in-stock lengths only (3 months ₹199; 1 month sold out)', r.lang === 'en' && r.messages[0].intent === 'PRICE_FROM' && /3 months · ₹199/.test(plain(r.messages[0].text)) && !/₹69/.test(r.messages[0].text), r.messages);
+  // TV (~32 chats)
+  await olivia.handle(PH, { conversationId: conv, choice: 'lang:hinglish' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix tv par chalega?' });
+  ok('"netflix tv par chalega?" → "Haan ji, TV, mobile, laptop aur tab" from the plan benefits, then keeps selling (Sharing or Private)', r.messages[0].intent === 'TV_ANSWER_SERVICE' && /^Haan ji, Netflix TV, mobile, laptop aur tab/.test(plain(r.messages[0].text)) && last(r).intent === 'ASK_SHARING_OR_PRIVATE', r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'prime video tv pe chalega kya' });
+  ok('Prime on TV → yes + the plan\'s own rule "TV has limited slots"', r.messages[0].intent === 'TV_ANSWER_SERVICE' && /TV has limited slots/.test(r.messages[0].text), r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'hotstar tv par chalega?' });
+  ok('a plan that does not list TV → no guess, confirm with the team (WhatsApp button)', r.messages[0].intent === 'TV_UNSURE', r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'kya TV par chalta hai?' });
+  ok('TV question without a service → the services whose plans list TV, then which one', r.messages[0].intent === 'TV_ANSWER' && /Netflix, Prime Video/.test(r.messages[0].text) && !/JioHotstar/.test(r.messages[0].text) && last(r).intent === 'ASK_SERVICE', r.messages);
+  r = await olivia.handle(PH, { conversationId: conv, text: 'amazon prime 1 month' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'haan tv par dekhenge' });
+  ok('Prime "watch on TV?" step: "haan tv par dekhenge" is still the answer (not a TV question)', last(r).intent === 'CONFIRM_PLAN', last(r));
+  // when does the login come / how to pay
+  r = await olivia.handle(PH, { conversationId: conv, text: 'login kab milega?' });
+  ok('"login kab milega?" while confirming → right after payment, shown + emailed + My plans; confirm buttons kept', last(r).intent === 'WHEN_LOGIN' && /payment aate hi login mil jata hai/i.test(last(r).text) && ids(last(r)).includes('pay'), last(r));
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'youtube ka login kab milega' });
+  ok('YouTube (manual) → "team activate karti hai, turant nahi"', r.messages[0].intent === 'WHEN_LOGIN_MANUAL' && /turant nahi/.test(r.messages[0].text), r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'hotstar id password kab milegi' });
+  ok('JioHotstar → instant + its own login rule (phone number + OTP from Tools)', r.messages[0].intent === 'WHEN_LOGIN' && /Get the OTP anytime from Tools/.test(r.messages[0].text), r.messages);
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix sharing 1 month' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'paytm se payment ho jayega?' });
+  ok('"paytm se payment ho jayega?" → UPI, any app, QR after picking; confirm buttons kept', last(r).intent === 'PAYMENT_METHOD' && /UPI se hota hai/.test(last(r).text) && ids(last(r)).includes('pay'), last(r));
+  await olivia.handle(PH, { conversationId: conv, choice: 'pay' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'gpay chalega?' });
+  ok('while paying: "gpay chalega?" → "QR upar hai", payment buttons kept, no order cancelled', last(r).intent === 'PAYMENT_METHOD' && /QR upar hai/.test(last(r).text) && ids(last(r)).includes('paid') && !r.messages.some((m) => m.intent === 'OLD_QR_CANCELLED'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'credit card se ho jayega?' });
+  ok('card asked → UPI + ask the team on WhatsApp (never promises card payment)', last(r).intent === 'PAYMENT_METHOD' && /WhatsApp/.test(last(r).text) && ids(last(r)).includes('whatsapp'), last(r));
+  await olivia.handle(PH, { conversationId: conv, choice: 'change' });
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  const mdFacts = [];
+  olivia._internal.setDeps({ words: Object.assign({}, words, { answer: async (q, facts) => { mdFacts.push(facts); return { text: '', handoff: false, tokens: 0 }; } }) });
+  await olivia.handle(PH, { conversationId: conv, text: 'aapke plans ke baare mein thoda batao na yaar' });
+  olivia._internal.setDeps({ words });
+  ok('fact pack now includes the 2-device plans with prices (sold in chat or on the Buy page) + Harsh\'s answers', mdFacts.length === 1 && /Netflix Sharing 1 month \(2 devices\): ₹179 \(can be bought in this chat/.test(mdFacts[0]) && /RuPay credit card/.test(mdFacts[0]) && /never create, delete or rename profiles/.test(mdFacts[0]), mdFacts[0] && mdFacts[0].slice(0, 300));
+
+  // ── Training run 2: talk like the team + the off-script questions from the chats ──
+  const G = olivia._internal.globalIntentOf;
+  ok('run 2 intents: band ho gaya / refund / validity / 4K / how many devices / safe; payment + login + household keep their own flows',
+    G('netflix band ho gaya') === 'stopped' && G('prime nahi chal raha') === 'stopped' && G('pehle chal raha tha ab band ho gaya') === 'stopped' && G('my netflix stopped working') === 'stopped'
+    && G('gpay nahi chal raha') !== 'stopped' && G('password not working') === 'login' && G('netflix tv code aa raha') === 'household'
+    && G('refund chahiye') === 'refund' && G('mere paise wapas karo') === 'refund' && G('kitne din chalega?') === 'validity' && G('4k milega?') === 'quality'
+    && G('kitne devices mein chalega') === 'devicecount' && G('safe hai kya?') === 'trust' && G('netflix chahiye') === '');
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  shop.subs = [{ subId: 'S0', service: 'Netflix', plan: 'Sharing 1M', daysLeft: 9, inventoryRef: 'NFLX-H01' }, { subId: 'S9', service: 'Prime Video', plan: '1 Month', daysLeft: 20 }];
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix band ho gaya' });
+  ok('"netflix band ho gaya" → sorry first, latest login in My plans → Recover + Household Helper + WhatsApp; never promises a new account / refund / free days', last(r).intent === 'STOPPED_WORKING' && /^Sorry ji/.test(last(r).text) && ids(last(r)).join() === 'myplans,recover,helper,whatsapp,menu' && !/refund|replace|free|naya account|new account|extra/i.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'prime video nahi chal raha' });
+  ok('Prime stopped → My plans + WhatsApp, no Netflix household helper', last(r).intent === 'STOPPED_WORKING' && !ids(last(r)).includes('helper') && !/household/i.test(last(r).text), last(r));
+  shop.subs = [];
+  r = await olivia.handle(PH, { conversationId: conv, text: 'mujhe refund chahiye' });
+  ok('refund → the team decides on WhatsApp (no promise, nothing cancelled)', last(r).intent === 'REFUND_TO_TEAM' && /faisla hamari team karti hai/.test(last(r).text) && ids(last(r)).includes('whatsapp') && !/milega|kar dungi|ho jayega/.test(last(r).text), last(r));
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix kitne din chalega?' });
+  ok('"netflix kitne din chalega?" → days from the plans (1 mahina · 30 din, 3 mahine · 90 din) + end date in My plans, then keeps selling', r.messages[0].intent === 'VALIDITY' && /1 mahina · 30 din/.test(r.messages[0].text) && /3 mahine · 90 din/.test(r.messages[0].text) && /My plans/.test(r.messages[0].text) && last(r).intent === 'ASK_SHARING_OR_PRIVATE', r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix private 4k milega?' });
+  ok('"netflix private 4k milega?" → yes only because every Private plan lists 4K; then the Private lengths', r.messages[0].intent === 'QUALITY_ANSWER' && /4K Premium Quality/.test(r.messages[0].text) && last(r).intent === 'ASK_DURATION', r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'prime video 4k hai kya?' });
+  ok('a plan without 4K in its benefits → no guess (team confirms)', r.messages[0].intent === 'QUALITY_UNSURE' && !/Haan/.test(r.messages[0].text), r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix kitne devices mein chalega?' });
+  ok('"netflix kitne devices mein chalega?" → the plan\'s own device rule + "2 devices wala plan bhi hai"', r.messages[0].intent === 'DEVICES_ANSWER' && /Login on 1 device only/.test(r.messages[0].text) && /2 devices wala plan bhi hai/.test(r.messages[0].text), r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'kitne devices mein chala sakte hain?' });
+  ok('no service → each service\'s device rule (Prime: 1 device only…), then which service', r.messages[0].intent === 'DEVICES_ANSWER' && /Prime: 1 device only/.test(r.messages[0].text) && /Netflix: Login on 1 device only/.test(r.messages[0].text) && last(r).intent === 'ASK_SERVICE', r.messages);
+  r = await olivia.handle(PH, { conversationId: conv, text: 'ye safe hai kya?' });
+  ok('"safe hai kya?" → Harsh\'s line: 4 saal, 30 Sep anniversary; no "legal" claim; buttons kept + WhatsApp', last(r).intent === 'TRUST_ANSWER' && /4 saal se/.test(last(r).text) && /30 Sep/.test(last(r).text) && !/legal|100%|guarantee/i.test(last(r).text) && ids(last(r)).includes('whatsapp') && ids(last(r)).some((x) => /^service:/.test(x)), last(r));
+  // Team style, checked on every template: no * (code adds bold), passes check() against itself, a closing question sits on its own paragraph,
+  // and never "tum".
+  const FX = { service: 'Netflix', title: 'Netflix Sharing 1 mahina', price: 139, amount: 139, items: ['1 mahina · ₹139'], sharing: ['a'], private: ['b'], titles: ['Netflix Sharing 1 mahina'], n: 2, code: 'FF10', discount: 10, final: 129, days: '5 din baaki', label: 'email', services: ['Netflix'], rule: 'Login on 1 device only', newExpiry: '20 Oct 2026', name: 'X' };
+  const styleBad = [];
+  for (const i of words.INTENTS) for (const l of words.LANGS) {
+    const t = words.template(i, FX, l);
+    const lastLine = t.split('\n').pop();
+    if (/\*/.test(t) || (!['BAD_EMAIL', 'OTP_HELP'].includes(i) && !words.check(t, t)) || (/\?$/.test(lastLine) && !t.includes('\n\n' + lastLine)) || /\btum\b/i.test(t)) styleBad.push(i + '/' + l);
+  }
+  ok('run 2 style: every template — no *, passes check(), closing question on its own line, no "tum"', styleBad.length === 0, styleBad);
+  ok('run 2 style: the new team wording (Hinglish)', words.template('ASK_SHARING_OR_PRIVATE', FX, 'hinglish') === 'Ji, Netflix ke plans hain.\n\nAapko Sharing chahiye ya Private?' && words.template('CONFIRM_PLAN', FX, 'hinglish') === 'Ji, aapka plan: Netflix Sharing 1 mahina · ₹139\n\nPayment QR bhej doon?' && /^Payment mil gaya ji ✅\n/.test(words.template('PAYMENT_RECEIVED_LOGIN_IN_CHAT', FX, 'hinglish')));
+
+  // ── Training run 3: after-sale help, the way the team's procedures say (brain/procedures/*.md) ──
+  ok('run 3 intents (en / Hinglish / Hindi): login, household / TV code, OTP, paid but no login, band ho gaya',
+    ['login nahi ho raha', 'password galat hai', 'incorrect password', 'can\'t login to netflix', 'पासवर्ड गलत है', 'लॉगिन नहीं हो रहा'].every((x) => G(x) === 'login')
+    && ['household error aa raha', 'tv code maang raha hai', 'TV pe code aa raha hai', 'not part of your household', 'नेटफ्लिक्स हाउसहोल्ड एरर'].every((x) => G(x) === 'household')
+    && ['otp chahiye', 'hotstar ka otp nahi aa raha', 'otp code nahi aaya hai', 'ओटीपी चाहिए'].every((x) => G(x) === 'otp')
+    && ['payment kar diya but login nahi mila', 'paid but not received', 'paise kat gaye', 'पेमेंट कर दिया लॉगिन नहीं मिला', '₹99 pay kiya login nahi aaya'].every((x) => G(x) === 'paidnotgot')
+    && ['account band ho gaya', 'अकाउंट बंद हो गया'].every((x) => G(x) === 'stopped')
+    && G('payment ho gaya') !== 'paidnotgot' && G('pay karna hai qr nahi aaya') !== 'paidnotgot' && G('coupon code hai FLUX20') === 'coupon',
+    ['login nahi ho raha', 'tv code maang raha hai', 'otp code nahi aaya hai', 'paise kat gaye', 'payment ho gaya', 'pay karna hai qr nahi aaya'].map((x) => x + '=' + G(x)));
+  const callsBefore = calls.length;
+  const seenTexts = [];
+  const say = async (input) => { const x = await olivia.handle(PH, Object.assign({ conversationId: conv }, input)); x.messages.forEach((m) => seenTexts.push(m.text + JSON.stringify(m.buttons))); return x; };
+  await say({ choice: 'lang:hinglish' });
+  // "Login / account problem" from the menu, customer has two plans → the team's one question: which plan?
+  shop.subs = [{ subId: 'S1', service: 'Netflix', plan: 'Sharing 1M', daysLeft: 12, inventoryRef: 'NFLX-H03' }, { subId: 'S2', service: 'JioHotstar', plan: '1 Month', daysLeft: 20 }];
+  r = await say({ choice: 'support' });
+  ok('menu "Login / account problem" with 2 plans → "Kaunse plan mein problem hai?" + one button per plan', last(r).intent === 'HELP_WHICH_PLAN' && /Kaunse plan mein problem hai\?$/.test(last(r).text) && last(r).buttons.map((b) => b.label).slice(0, 2).join() === 'Netflix,JioHotstar' && ids(last(r)).includes('whatsapp'), last(r));
+  r = await say({ choice: 'help:1' });
+  ok('JioHotstar (number + OTP login) → the shop\'s own Get OTP tool, steps in order; button opens Get OTP', last(r).intent === 'OTP_HELP' && /JioHotstar app mein apna login number/.test(last(r).text) && /Get OTP kholiye/.test(last(r).text) && last(r).buttons.find((b) => b.id === 'getotp').link === 'otp', last(r));
+  await say({ choice: 'menu' });
+  await say({ choice: 'support' });
+  r = await say({ choice: 'help:0' });
+  ok('Netflix login → My plans → Recover (code on your own email) + Household Helper + WhatsApp; nothing about the account shown', last(r).intent === 'LOGIN_HELP' && /Netflix ka login kabhi-kabhi badalta hai/.test(last(r).text) && /Recover dabaiye/.test(last(r).text) && ids(last(r)).join() === 'myplans,recover,helper,whatsapp,menu' && last(r).buttons.find((b) => b.id === 'recover').link === 'recover', last(r));
+  // Owner rule (Harsh, 5 Sep): the plan is checked silently first; an expired one is told it expired and offered renewal.
+  shop.subs = [{ subId: 'S1', service: 'Netflix', plan: 'Sharing 1M', daysLeft: -3 }, { subId: 'S2', service: 'JioHotstar', plan: '1 Month', daysLeft: 20 }];
+  r = await say({ text: 'netflix login nahi ho raha' });
+  ok('"netflix login nahi ho raha" + Netflix ended 3 days ago → "3 din pehle khatam ho gaya hai, isliye nahi chal raha" + Renew (no Recover / Helper walk-through)', last(r).intent === 'PLAN_EXPIRED' && /Netflix plan 3 din pehle khatam ho gaya hai/.test(last(r).text) && /Renew kar dein\?$/.test(last(r).text) && ids(last(r)).join() === 'renew,whatsapp,menu', last(r));
+  r = await say({ choice: 'renew' });
+  ok('→ Renew goes straight to that Netflix plan\'s lengths', last(r).intent === 'RENEW_DURATION' && /Netflix/.test(last(r).text), last(r));
+  await say({ choice: 'menu' });
+  shop.subs = [{ subId: 'S3', service: 'Prime Video', plan: '1 Month', daysLeft: -20, tooLate: true }];
+  r = await say({ text: 'prime video password galat bata raha hai' });
+  ok('ended long ago (cannot be renewed) → "Naya plan lena chahenge?" + Buy', last(r).intent === 'PLAN_EXPIRED' && /20 din pehle/.test(last(r).text) && /Naya plan lena chahenge\?$/.test(last(r).text) && ids(last(r))[0] === 'buy', last(r));
+  shop.subs = [{ subId: 'S1', service: 'Netflix', plan: 'Sharing 1M', daysLeft: 5 }];
+  r = await say({ text: 'hotstar ka otp chahiye' });
+  ok('a plan this number does not have → "is number par JioHotstar ka koi plan nahi dikh raha, kisi aur number se liya tha?" (says nothing else)', last(r).intent === 'NO_PLAN_ON_NUMBER' && /is number par JioHotstar ka koi plan nahi dikh raha/.test(last(r).text) && !/Netflix/.test(last(r).text) && ids(last(r)).includes('whatsapp'), last(r));
+  r = await say({ text: 'netflix otp chahiye' });
+  ok('Netflix "OTP" → Netflix logs in with ID + password: login help + Household Helper, never an OTP', last(r).intent === 'LOGIN_HELP' && ids(last(r)).includes('helper1') && ids(last(r)).includes('helper2') && !ids(last(r)).includes('getotp'), last(r));
+  ok('plan without an account reference → both Household Helper links (Link 1 / Link 2)', last(r).buttons.find((b) => b.id === 'helper1').link === 'helper' && last(r).buttons.find((b) => b.id === 'helper2').link === 'helper2', last(r).buttons);
+  shop.subs = [{ subId: 'S2', service: 'JioHotstar', plan: '1 Month', daysLeft: 20 }];
+  r = await say({ text: 'otp chahiye' });
+  ok('"otp chahiye" with only a JioHotstar plan → Get OTP for JioHotstar', last(r).intent === 'OTP_HELP' && /JioHotstar/.test(last(r).text), last(r));
+  shop.subs = [{ subId: 'S1', service: 'Netflix (Group Offer)', plan: 'Sharing 1M', daysLeft: 5, inventoryRef: 'NFLX-D11' }];
+  r = await say({ text: 'tv code maang raha hai' });
+  const hh = last(r).text;
+  ok('"tv code maang raha hai" → household steps IN ORDER (Update household on the TV first, then the Helper), not a coupon; Group Offer counts as Netflix', last(r).intent === 'HOUSEHOLD_HELPER' && hh.indexOf('Update household') > 0 && hh.indexOf('Update household') < hh.indexOf('Household Helper kholiye') && /Pehle Helper kholenge to code nahi milega/.test(hh) && /random maang leta hai/.test(hh) && ids(last(r))[0] === 'helper2' && last(r).buttons[0].link === 'helper2' && !/Link 1|Link 2/.test(JSON.stringify(last(r).buttons)) && !r.messages.some((m) => /COUPON/.test(m.intent)), r.messages);
+  r = await say({ text: 'नेटफ्लिक्स हाउसहोल्ड एरर आ रहा है' });
+  ok('Hindi household → Hindi steps', r.lang === 'hi' && last(r).intent === 'HOUSEHOLD_HELPER' && /इसी क्रम में कीजिए/.test(last(r).text), last(r));
+  r = await say({ text: 'account band ho gaya' });
+  ok('Hindi chat, "account band ho gaya" (one Netflix plan) → Recover + Household Helper', last(r).intent === 'STOPPED_WORKING' && ids(last(r)).join() === 'myplans,recover,helper2,whatsapp,menu', last(r));
+  // ── household auto-fix: fetch the Netflix "Watch temporarily" travel code and show it in chat (Harsh, 15 Sep 2026) ──
+  await say({ choice: 'lang:hinglish' });
+  shop.nflxAccounts = [{ subId: 'S1', service: 'Netflix', ref: 'NFLX-D11', email: 'jess@example.com', kind: 'D' }];
+  shop.hhCode = '4162';
+  r = await say({ text: 'tv par household code maang raha hai' });
+  ok('household + one active Netflix account → offers "Get my code now" (auto-fix) beside the Helper', last(r).intent === 'HH_OFFER_CODE' && ids(last(r))[0] === 'hhcode' && ids(last(r)).includes('helper2') && ids(last(r)).includes('whatsapp'), last(r));
+  r = await say({ choice: 'hhcode' });
+  ok('tap Get my code → the code comes back in a card only (never in the words), with a "15 minutes" note', last(r).intent === 'HH_CODE_READY' && last(r).card && last(r).card.type === 'code' && last(r).card.code === '4162' && !/4162/.test(last(r).text) && /15 min/i.test(last(r).text) && calls.some((c) => c[0] === 'householdCode' && c[1] === 'S1' && c[2] === 'D'), last(r));
+  ok('the code card is logged only as a marker, never the digits', !msgs.some((m) => /4162/.test(m.body)) && msgs.some((m) => /\[code card\]/.test(m.body)));
+  shop.hhCode = ''; // the fetch could not get a fresh code this time
+  await say({ choice: 'menu' });
+  r = await say({ text: 'household error phir aa gaya' });
+  r = await say({ choice: 'hhcode' });
+  ok('when the code cannot be fetched → falls back to the manual Household Helper steps, no code card, nothing invented', last(r).intent === 'HOUSEHOLD_HELPER' && !r.messages.some((m) => m.card) && ids(last(r)).includes('helper2'), r.messages);
+  shop.nflxAccounts = []; shop.hhCode = '';
+  await say({ choice: 'menu' });
+  r = await say({ text: 'netflix household problem' });
+  ok('household with NO resolvable Netflix account → the manual Helper only, no auto-fix button', last(r).intent === 'HOUSEHOLD_HELPER' && !ids(last(r)).includes('hhcode'), last(r));
+  // oliviahousehold: kind, the travel-code parser (spaced digits), and a blocked sign-in / reCAPTCHA page
+  const hhmod = require('../oliviahousehold.js')._internal;
+  ok('household module: NFLX-H = ours, NFLX-D = darkflix, other = unknown', hhmod.kindOfRef('NFLX-H01#2') === 'H' && hhmod.kindOfRef('nflx-d11') === 'D' && hhmod.kindOfRef('PRIME-1') === '');
+  ok('travel-code parser reads spaced digits, and refuses a sign-in / reCAPTCHA / expired page', hhmod.readTravelPage('<h1>Enter this code on the requesting device for temporary access</h1><b>4 1 6 2</b><p>expires after 15 minutes</p>').code === '4162' && hhmod.readTravelPage('<form><input type="password" id="id_password"></form>recaptcha').blocked === true && !hhmod.readTravelPage('<p>hello</p>').code);
+  await say({ choice: 'lang:hinglish' });
+  // Paid but no login (payment-without-order-id.md): never "payment verified" from a chat.
+  const subCalls = calls.filter((c) => c[0] === 'mySubscriptions').length;
+  r = await say({ text: 'payment kar diya lekin login nahi mila' });
+  ok('"payment kar diya lekin login nahi mila" (no QR open here) → My plans, then Recover, then the team with the screenshot; nothing marked paid', last(r).intent === 'PAID_NOT_RECEIVED' && /screenshot/.test(last(r).text) && ids(last(r)).join() === 'myplans,recover,whatsapp,menu' && !/mil gaya|received|confirm/i.test(last(r).text) && calls.filter((c) => c[0] === 'mySubscriptions').length === subCalls, last(r));
+  r = await say({ text: 'I paid but did not receive the login' });
+  ok('English: paid but not received → same steps in English', r.lang === 'en' && last(r).intent === 'PAID_NOT_RECEIVED' && /^Sorry for the trouble/.test(last(r).text), last(r));
+  await say({ choice: 'lang:hinglish' });
+  await say({ text: 'netflix sharing 1 month' });
+  await say({ choice: 'pay' });
+  const checks = calls.filter((c) => c[0] === 'checkPayment').length;
+  r = await say({ text: 'paise kat gaye login nahi mila' });
+  ok('same words while THIS chat\'s QR is open → a real payment check (not paid yet → "abhi tak nahi aaya"), order kept', last(r).intent === 'PAYMENT_NOT_YET' && calls.filter((c) => c[0] === 'checkPayment').length === checks + 1 && !r.messages.some((m) => m.intent === 'OLD_QR_CANCELLED'), r.messages);
+  shop.paid = true;
+  r = await say({ text: 'paise kat gaye login nahi mila' });
+  ok('… and once the bank shows it → delivered as usual', r.messages.some((m) => /^PAYMENT_RECEIVED/.test(m.intent)), r.messages);
+  shop.paid = false;
+  // Live replay (15 Sep 06:04): "Mujhe pass do Netflix ka, bhul gaya" in the middle of choosing the ₹99 Group Offer restarted the purchase.
+  shop.subs = [{ subId: 'S1', service: 'Netflix', plan: 'Sharing 1M', daysLeft: 12 }];
+  await say({ choice: 'menu' });
+  await say({ text: 'Netflix chahiye' });
+  r = await say({ text: '99 wala de dk' });
+  ok('live replay: "99 wala de dk" → Group Offer join step', last(r).intent === 'GROUP_JOIN', last(r));
+  r = await say({ text: 'Mujhe pass do Netflix ka, bhul gaya' });
+  ok('live replay: "Mujhe pass do Netflix ka, bhul gaya" → login help (was: Sharing or Private?)', last(r).intent === 'LOGIN_HELP' && ids(last(r)).includes('recover'), r.messages);
+  // Pay later / extra days (payment-deferral.md): always the team, never a yes, a no, a date or a number of days.
+  ok('pay-later intent: salary / baad mein / extra days; "payment nahi ho raha" stays a payment problem', ['salary aane par 139 pay karunga', 'baad me payment kar dunga', '4 din extra days de do', 'सैलरी आने पर पे करूँगा'].every((x) => G(x) === 'paylater') && G('payment nahi ho raha') !== 'paylater' && G('I want to extend my netflix, renew karna hai') === 'renew', ['salary aane par 139 pay karunga', '4 din extra days de do', 'payment nahi ho raha'].map((x) => x + '=' + G(x)));
+  r = await say({ text: 'salary aane par 139 pay karunga, tab tak chalu rakho' });
+  ok('"salary aane par pay karunga" → the team decides on WhatsApp; no promise, no refusal, no date, not read as the ₹139 plan', last(r).intent === 'PAY_LATER_TO_TEAM' && ids(last(r)).includes('whatsapp') && !/no problem|koi baat nahi|zaroor|sure|din|days?|₹/i.test(last(r).text), last(r));
+  // A shop read that fails never blocks help.
+  shop.subsFail = true;
+  r = await say({ text: 'login nahi ho raha' });
+  ok('plan list cannot be read → the normal login help (no guess about expiry)', last(r).intent === 'LOGIN_HELP', last(r));
+  shop.subsFail = false; shop.subs = [];
+
+  // ── Harsh's answers to the training questions (15 Sep 2026) ──
+  const H = async (input) => olivia.handle(PH, Object.assign({ conversationId: conv }, input));
+  await H({ choice: 'lang:hinglish' });
+  r = await H({ text: 'netflix mein kaunsa best rahega?' });
+  ok('Q5 "kaunsa best hai" → privacy + own watchlist → Private, else Sharing (Private first)', last(r).intent === 'BEST_PRIVACY' && /apni privacy aur apni alag watchlist/.test(last(r).text) && ids(last(r)).slice(0, 2).join() === 'variant:private,variant:sharing', last(r));
+  r = await H({ choice: 'variant:sharing' });
+  ok('… then how much a longer plan saves per month, from live prices (3 mahine ₹399 = ₹133/mahina, bachat ₹18), then the lengths', r.messages[0].intent === 'BEST_LONG_TERM' && /3 mahine · ₹399 \(₹133\/mahina, bachat ₹18\)/.test(plain(r.messages[0].text)) && last(r).intent === 'ASK_DURATION', r.messages);
+  await H({ choice: 'menu' });
+  shop.subs = [{ subId: 'S5', service: 'Netflix', plan: 'Sharing 1M', daysLeft: 6, earlyRenewDiscountEligible: 15 }];
+  r = await H({ text: 'koi discount milega kya?' });
+  ok('Q3 discount → the customer\'s own early-renew discount (₹15) + Renew; no invented discount', last(r).intent === 'EARLY_RENEW_DISCOUNT' && /₹15 ki early-renew chhoot/.test(last(r).text) && ids(last(r))[0] === 'renew' && !/10%/.test(last(r).text), last(r));
+  shop.subs = [];
+  r = await H({ text: 'thoda kam kar do na' });
+  ok('… no early-renew discount → "wahi best price hai" + coupon (never 10% / Group Offer discount)', last(r).intent === 'NO_EXTRA_DISCOUNT' && /best price/.test(last(r).text) && ids(last(r)).includes('coupon') && !/%/.test(last(r).text), last(r));
+  r = await H({ text: 'mere email par milega kya?' });
+  ok('Q4 "mere email par milega?" → FluxFilm\'s own account; YouTube on own email only because it is listed', last(r).intent === 'OWN_ACCOUNT' && /FluxFilm account par milte hain/.test(last(r).text) && /YouTube Premium aapke apne email/.test(last(r).text) && !/password/i.test(last(r).text), last(r));
+  r = await H({ text: 'credit card se payment ho sakta hai?' });
+  ok('Q7 card → UPI + RuPay credit card through the team on WhatsApp (then she keeps selling)', r.messages[0].intent === 'PAYMENT_METHOD' && /RuPay credit card/.test(plain(r.messages[0].text)), r.messages);
+  shop.subs = [{ subId: 'S1', service: 'Netflix', plan: 'Sharing 1M', daysLeft: 12, inventoryRef: 'NFLX-H03' }];
+  r = await H({ text: 'kisi ne netflix ka password badal diya' });
+  ok('Q22 "kisi ne password badal diya" → maybe we changed it: Recover shows the new login first, then the team', last(r).intent === 'LOGIN_HELP' && /Ho sakta hai humne hi badla ho/.test(last(r).text) && ids(last(r)).slice(0, 2).join() === 'myplans,recover', last(r));
+  // Q9 ji / bro: asked once, remembered for this phone (also in a new chat), "bro" typed switches by itself
+  r = await olivia.handle(PH, { choice: 'start', lang: 'hinglish' });
+  const conv2 = r.conversationId;
+  ok('Q9 greeting asks once "ji ya bro?" with two buttons', ids(last(r)).includes('addr:ji') && ids(last(r)).includes('addr:bro'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv2, choice: 'addr:bro' });
+  ok('"Bro chalega" → "Done bro 😎" + the menu (no more asking)', last(r).intent === 'ADDRESS_SET' && /Done bro/.test(last(r).text) && ids(last(r)).includes('buy') && !ids(last(r)).includes('addr:bro'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv2, text: 'netflix band ho gaya' });
+  ok('… and she talks that way ("Sorry bro"), facts unchanged', /^Sorry bro/.test(last(r).text) && !/\bji\b/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { choice: 'start', lang: 'hinglish' });
+  ok('a NEW chat on the same phone remembers "bro" and does not ask again', !ids(last(r)).includes('addr:ji') && /^Hey/.test(last(r).text), last(r));
+  ok('format: "bro" replaces ji only when chosen', words.format('Haan ji, ho gaya', {}, 'X', { address: 'bro' }) === 'Haan bro, ho gaya' && words.format('Haan ji, ho gaya', {}, 'X', { address: 'ji' }) === 'Haan ji, ho gaya');
+  shop.subs = [];
+  ok('"bro" typed by the customer switches by itself; "bhai" does not (older customers say it too)', (() => { const x = {}; return /\b(bro|bruh|dude)\b/i.test('ok bro') && !/\b(bro|bruh|dude)\b/i.test('99 wala de do bhai') && x; })());
+  ok('run 3 safety: support replies never contain a login / password / PIN, never deliver, create or check anything except the plan list and this chat\'s own payment', !seenTexts.some((x) => /SuperSecret|acc1@|4321/.test(x)) && !calls.slice(callsBefore).some((c) => ['createRenewOrder', 'backupPayment', 'claimBackup'].includes(c[0])) && calls.slice(callsBefore).filter((c) => c[0] === 'deliver').length === 1);
+  let ow = await words.say('OTP_HELP', { service: 'JioHotstar' }, 'hinglish', { aiWords: true }, { model: async () => ({ json: { text: 'Ji, OTP ke liye 1234 daaliye' }, tokens: 5 }) });
+  ok('OTP_HELP is always the fixed template (an AI rewrite that mentions OTP is never used)', ow.ai === false && /Get OTP kholiye/.test(ow.text), ow);
+  ok('run 3 words: English "ended 3 days ago", LOGIN_HELP never says password', /ended 3 days ago/.test(words.template('PLAN_EXPIRED', { service: 'Netflix', days: 3, renew: true }, 'en')) && words.LANGS.every((l) => !/password|पासवर्ड/i.test(words.template('LOGIN_HELP', { service: 'Netflix', household: true }, l))));
+  const widget3 = fs.readFileSync(path.join(__dirname, '..', 'oliviawidget.js'), 'utf8');
+  const html3 = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  ok('widget: Recover and Get OTP buttons close the chat and open the shop\'s own screens; shop exposes ffGoRecover + ffGoOtp', widget3.includes("kind === 'recover'") && widget3.includes('window.ffGoRecover()') && widget3.includes("kind === 'otp'") && widget3.includes('window.ffGoOtp()') && html3.includes('window.ffGoRecover = () => recoverFromTop();') && html3.includes('window.ffGoOtp = () => {') && /window\.ffGoOtp = \(\) => \{[\s\S]{0,700}_openOtp: true/.test(html3));
 
   // ── Past chats (customer menu) ──
   const hist = await olivia.history(PH);

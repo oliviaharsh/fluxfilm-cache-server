@@ -42,6 +42,7 @@ function make(deps) {
         service: p.service, plan: p.plan, phone, name: extra.name, email: extra.email,
         extraFieldKey: extra.extraFieldKey || '', extraFieldValue: extra.extraFieldValue || '',
         couponCode: extra.couponCode || '',
+        loginMode: extra.loginMode || '',
         notes: 'Ordered in Olivia chat',
       });
     },
@@ -49,6 +50,10 @@ function make(deps) {
     validateCoupon: (phone, code, p, scope) => order().validateCoupon(code, { phone, amount: p.price, service: p.service, plan: p.plan, scope: scope === 'RENEW' ? 'RENEW' : 'NEW' }),
     /** My plans: only this phone's own subscriptions (actionable = can still be renewed). */
     mySubscriptions: (phone) => reads().getMySubscriptions(phone),
+    /** Netflix accounts this phone actively owns (login email + H/D kind) — for the household auto-fix. */
+    netflixAccounts: (phone) => require('./oliviahousehold').netflixAccounts(phone),
+    /** The Netflix travel / "Watch temporarily" code for one of those accounts. Read-only; never presses Update. */
+    householdCode: (acc) => require('./oliviahousehold').travelCode(acc),
     /** Price, early-renew discount, new expiry and account check for a renewal — creates nothing. */
     renewQuote: (subId, plan) => order().renewQuote(subId, plan),
     async createRenewOrder(subId, planOverride, couponCode) {

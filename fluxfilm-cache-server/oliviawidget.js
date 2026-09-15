@@ -44,7 +44,7 @@
   }
   function save() {
     try {
-      var safe = st.messages.map(function (m) { return m.card && m.card.type === 'access' ? Object.assign({}, m, { card: { type: 'access-hidden' } }) : m; });
+      var safe = st.messages.map(function (m) { return m.card && (m.card.type === 'access' || m.card.type === 'code') ? Object.assign({}, m, { card: { type: m.card.type === 'code' ? 'code-hidden' : 'access-hidden' } }) : m; });
       sessionStorage.setItem('ff_olivia', JSON.stringify({ phone: st.phone, convId: st.convId, messages: safe.slice(-60) }));
       if (st.lang) localStorage.setItem('ff_olivia_lang', st.lang);
     } catch (e) {}
@@ -139,6 +139,8 @@
     '.ffo-card{align-self:flex-start;position:relative;background:#fff;border-radius:8px;padding:10px 12px;box-shadow:0 1px .5px rgba(11,20,26,.13);max-width:84%;margin-top:3px}' +
     '.ffo-card img{display:block;width:220px;max-width:100%;height:auto;margin:6px auto;border-radius:6px;border:1px solid #e9edef}' +
     '.ffo-amt{text-align:center;font-size:26px;font-weight:800;color:#111b21}' +
+    '.ffo-code-label{text-align:center;font-size:12.5px;font-weight:700;color:#667781;text-transform:uppercase;letter-spacing:.08em}' +
+    '.ffo-code{text-align:center;font-size:40px;font-weight:800;letter-spacing:6px;color:#111b21;margin:6px 0 10px;font-family:ui-monospace,Consolas,monospace}' +
     '.ffo-upi{display:block;text-align:center;margin-top:8px;background:#00a884;color:#fff;border-radius:20px;padding:11px;font-weight:700;text-decoration:none}' +
     '.ffo-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #f0f2f5;font-size:14.5px}' +
     '.ffo-row span{color:#667781;font-weight:600;flex:none}.ffo-row code{font-family:ui-monospace,monospace;font-weight:700;color:#111b21;word-break:break-all;text-align:right}' +
@@ -227,7 +229,11 @@
   function openLink(kind, btn) {
     if (kind === 'buysite') { closeChat(); if (typeof window.ffGoBuy === 'function') { try { window.ffGoBuy((btn && btn.service) || ''); } catch (e) {} } return; }
     if (kind === 'myplans') { closeChat(); if (typeof window.ffGoMyPlans === 'function') { try { window.ffGoMyPlans(); } catch (e) {} } return; }
-    var url = kind === 'helper' ? (typeof NETFLIX_HOUSEHOLD_LINK !== 'undefined' ? NETFLIX_HOUSEHOLD_LINK : '') : st.wa; // eslint-disable-line no-undef
+    // After-sale help (training run 3): the shop's own Recover screen and Get OTP tool (the customer verifies there, not in the chat).
+    if (kind === 'recover') { closeChat(); if (typeof window.ffGoRecover === 'function') { try { window.ffGoRecover(); } catch (e) {} } return; }
+    if (kind === 'otp') { closeChat(); if (typeof window.ffGoOtp === 'function') { try { window.ffGoOtp(); } catch (e) {} } return; }
+    // Household Helper Link 1 (FluxFilm's own Netflix accounts) or Link 2 (the rest): the shop page defines both links.
+    var url = kind === 'helper' ? (typeof NETFLIX_HOUSEHOLD_LINK !== 'undefined' ? NETFLIX_HOUSEHOLD_LINK : '') : kind === 'helper2' ? (typeof NETFLIX_HOUSEHOLD_LINK_2 !== 'undefined' ? NETFLIX_HOUSEHOLD_LINK_2 : '') : st.wa; // eslint-disable-line no-undef
     if (!url) url = st.wa;
     try { var w = window.open(url, '_blank'); if (w) w.opener = null; else location.href = url; } catch (e) { location.href = url; }
   }
@@ -516,8 +522,13 @@
         if (l.profilePin) c.appendChild(row('PIN', l.profilePin));
       });
       c.appendChild(h('div', 'ffo-note', 'Please do not change the password or profile. Your login is also in your email and in My plans.'));
-    } else if (card.type === 'access-hidden') {
-      c.appendChild(h('div', null, '\uD83D\uDD12 Login hidden for safety \u2014 see your email or My plans.'));
+    } else if (card.type === 'code') {
+      c.appendChild(h('div', 'ffo-code-label', 'Netflix code'));
+      var big = h('div', 'ffo-code', String(card.code || '').split('').join(' '));
+      c.appendChild(big);
+      c.appendChild(copyBtn(String(card.code || '')));
+    } else if (card.type === 'access-hidden' || card.type === 'code-hidden') {
+      c.appendChild(h('div', null, '\uD83D\uDD12 ' + (card.type === 'code-hidden' ? 'Code shown earlier \u2014 tap Get my code again if you need it.' : 'Login hidden for safety \u2014 see your email or My plans.')));
     }
     return c;
   }
