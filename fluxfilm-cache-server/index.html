@@ -243,7 +243,6 @@ html.ff-lite .ff-slide { animation-duration: .2s; }
 @keyframes softPulse { 0%,100%{transform:scale(1);box-shadow:0 8px 24px rgba(22,163,74,.22)} 50%{transform:scale(1.04);box-shadow:0 14px 34px rgba(22,163,74,.34)} }
 @keyframes fadeSlide { from{transform:translateY(8px);opacity:0} to{transform:translateY(0);opacity:1} }
 button { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; }
-button:active { transform: scale(.98) !important; }
 input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; }
 
 /* ── Tools tiles (home + My plans) ── */
@@ -706,6 +705,66 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-upd { position: fixed; left: 50%; top: calc(66px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 80; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px); background: #04140e; color: #fff; border-radius: 999px; padding: 6px 6px 6px 16px; font-size: 14px; font-weight: 600; box-shadow: 0 10px 30px rgba(4,20,14,.35); width: max-content; white-space: nowrap; }
 .ff-upd-btn { border: 0; border-radius: 999px; background: #34d399; color: #04140e; font: inherit; font-weight: 800; padding: 9px 16px; cursor: pointer; white-space: nowrap; }
 .ff-upd-x { border: 0; background: none; color: #a7f3d0; font-size: 16px; padding: 6px 8px; cursor: pointer; }
+
+/* ── 📱 App feel (customer feedback run 2): brand glow, greeting card, section headers, bottom menu, presses ──
+   Speed rules: no backdrop blur, no will-change; only the small greeting card moves (transform/opacity, 4 slow loops
+   then it rests, paused while the tab is hidden, still on html.ff-lite and reduced motion). The page glow is a static
+   background painted once — it scrolls with the page, so it costs nothing while scrolling. */
+html { background: radial-gradient(120% 460px at 0% -90px, rgba(52,211,153,.20), rgba(52,211,153,0) 70%) no-repeat, radial-gradient(90% 380px at 100% -70px, rgba(20,184,166,.13), rgba(20,184,166,0) 70%) no-repeat, #f3f6f9; }
+body { background: transparent; }
+/* Greeting card on My plans (lines: FF_GREETING_LINES in <head>). The stats cards below are unchanged. */
+.ff-hello { position: relative; isolation: isolate; overflow: hidden; display: flex; align-items: center; gap: 14px; margin: 16px 0 14px; padding: 18px 16px 16px 18px; border-radius: 22px; color: #ecfdf5; background: linear-gradient(140deg, #04140e 0%, #0b2a1f 55%, #11573a 100%); box-shadow: 0 10px 28px rgba(4,20,14,.22), inset 0 1px 0 rgba(255,255,255,.07); }
+.ff-hello-orb { position: absolute; z-index: -1; border-radius: 50%; pointer-events: none; }
+.ff-hello-orb.a { width: 190px; height: 190px; right: -64px; top: -86px; background: radial-gradient(closest-side, rgba(52,211,153,.42), rgba(52,211,153,0)); animation: ffHelloFloat 9s ease-in-out 4 alternate; }
+.ff-hello-orb.b { width: 160px; height: 160px; left: -56px; bottom: -96px; background: radial-gradient(closest-side, rgba(45,212,191,.26), rgba(45,212,191,0)); animation: ffHelloFloat 11s ease-in-out 4 alternate-reverse; }
+.ff-hello-txt { flex: 1; min-width: 0; }
+.ff-hello-kick { font-size: 11.5px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: #6ee7b7; animation: ffHelloIn .32s ease-out backwards; }
+.ff-hello-line { display: block; width: 100%; min-height: 2.44em; margin: 4px 0 0; padding: 0; border: 0; background: none; text-align: left; font: inherit; font-size: 20px; font-weight: 800; line-height: 1.22; letter-spacing: -.2px; color: #fff; cursor: pointer; }
+.ff-hello-end { white-space: nowrap; }
+.ff-hello-w { display: inline-block;animation: ffHelloWord .34s cubic-bezier(.2,.8,.3,1.2) backwards; }
+.ff-hello-emo { display: inline-block; transform-origin: 70% 80%; animation: ffHelloWave .6s ease-in-out .25s backwards; }
+.ff-hello-sub { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; font-weight: 600; color: #a7f3d0; }
+.ff-hello-refresh { display: inline-grid; place-items: center; flex-shrink: 0; width: 30px; height: 30px; padding: 0; border-radius: 10px; border: 1px solid rgba(167,243,208,.28); background: rgba(255,255,255,.08); font-size: 13px; cursor: pointer; }
+.ff-hello-refresh:disabled { opacity: .6; cursor: not-allowed; }
+.ff-hello-av { flex-shrink: 0; width: 56px; height: 56px; border-radius: 999px; display: grid; place-items: center; overflow: hidden; cursor: pointer; font-size: 21px; font-weight: 800; color: #04140e; background: linear-gradient(135deg,#a7f3d0,#34d399); box-shadow: 0 0 0 3px rgba(52,211,153,.28), 0 6px 18px rgba(0,0,0,.25); transition: transform .1s ease; }
+.ff-hello-av img { width: 100%; height: 100%; object-fit: cover; }
+@keyframes ffHelloFloat { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(-24px,18px,0) scale(1.15); } }
+@keyframes ffHelloIn { from { opacity: 0; transform: translate3d(0,4px,0); } to { opacity: 1; transform: none; } }
+@keyframes ffHelloWord { from { opacity: 0; transform: translate3d(0,.45em,0) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes ffHelloWave { 0% { opacity: 0; transform: scale(.4) rotate(-20deg); } 40% { opacity: 1; transform: scale(1.2) rotate(14deg); } 65% { transform: rotate(-10deg); } 85% { transform: rotate(6deg); } 100% { opacity: 1; transform: none; } }
+html.ff-hidden .ff-hello-orb { animation-play-state: paused; }
+html.ff-lite .ff-hello-orb, html.ff-lite .ff-hello-kick, html.ff-lite .ff-hello-w, html.ff-lite .ff-hello-emo { animation: none; }
+@media (max-width: 350px) { .ff-hello { gap: 10px; padding: 16px 12px 14px 14px; } .ff-hello-line { font-size: 18px; } .ff-hello-av { width: 46px; height: 46px; font-size: 18px; } }
+@media (min-width: 900px) { .ff-hello { padding: 24px 24px 22px 26px; } .ff-hello-line { font-size: 24px; } }
+/* Section headers: small brand bar */
+.ff-sechead h2 { display: flex; align-items: center; gap: 8px; }
+.ff-sechead h2::before { content: ''; flex: none; width: 4px; height: 16px; border-radius: 4px; background: linear-gradient(#34d399,#16a34a); }
+/* Bottom menu: the active pill grows in, the icon pops */
+.ff-bnav-btn { position: relative; isolation: isolate; transition: color .18s ease, transform .1s ease; }
+.ff-bnav-btn.on { background: none; }
+.ff-bnav-btn::before { content: ''; position: absolute; inset: 0 4px; z-index: -1; border-radius: 14px; background: rgba(22,163,74,.11); opacity: 0; transform: scale(.7); transition: opacity .18s ease, transform .24s cubic-bezier(.2,.9,.3,1.25); }
+.ff-bnav-btn.on::before { opacity: 1; transform: none; }
+.ff-bnav-btn.on .ff-bnav-ic { display: inline-block; animation: ffNavPop .34s cubic-bezier(.2,.8,.3,1.3) backwards; }
+@keyframes ffNavPop { from { transform: translate3d(0,3px,0) scale(.8); } to { transform: none; } }
+/* Presses feel like an app: no blue tap flash / focus box for touch + mouse (keyboard still gets a clear ring),
+   no accidental text selection on buttons (codes, logins and passwords stay selectable), quick press-in. */
+html { -webkit-tap-highlight-color: transparent; }
+a, button, input, select, textarea, label, summary, [role="button"], [role="tab"] { -webkit-tap-highlight-color: transparent; }
+:focus:not(:focus-visible) { outline: none; }
+a:focus-visible, button:focus-visible, summary:focus-visible, [role="button"]:focus-visible, [role="tab"]:focus-visible { outline: 3px solid rgba(22,163,74,.55); outline-offset: 2px; }
+button, [role="button"], [role="tab"], .ff-bnav-btn, .ff-tool, .ff-acard, .ff-arow, .ff-coin, .ff-feed-tile, .ff-tab { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+button { transition: transform .1s ease, filter .1s ease; }
+button:active { transform: scale(.96) !important; }
+button:active:where(:not(:disabled)) { filter: brightness(.94); }
+.ff-arow:active, .ff-feed-cta:active, .ff-hello-line:active, .ff-feed-play:active { transform: scale(.985) !important; }
+.ff-feed-play:active, .ff-hello-line:active, .ff-hello-refresh:active { filter: none; }
+.ff-feed-find button:active { transform: translateY(-50%) scale(.9) !important; }
+.ff-bnav-btn:active { transform: scale(.92) !important; filter: none; }
+.ff-acard:active, .ff-feed-tile:active, .ff-hello-av:active { transform: scale(.96); }
+@media (prefers-reduced-motion: reduce) {
+  .ff-hello-orb, .ff-hello-kick, .ff-hello-w, .ff-hello-emo, .ff-bnav-btn.on .ff-bnav-ic { animation: none !important; }
+  .ff-bnav-btn, .ff-bnav-btn::before, button { transition: none; }
+}
 </style>
 <script>
 // Low-end phone (≤2 CPU cores or ≤2 GB RAM): html.ff-lite trims the extra 3D flourishes (stagger, shine, rings).
@@ -802,6 +861,139 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
   window.ffSound = play;
   window.ffSoundOnce = once;
   window.ffSoundPrefs = { get: pref, set: setPref };
+})();
+</script>
+<script>
+// 😏 Greeting on My plans (customer feedback run 2). OWNER: edit the lines below freely.
+// Each line = [text, emoji] or [text, emoji, 'live']. {name} = first name, {service} = plan name, {days} = number of days.
+// 'live' = only shown when the customer has at least one active plan (for lines like "Plans are all good").
+// Dates and hours always use India time (Asia/Kolkata), not the phone clock.
+// Admin → 🚧 Maintenance → "Sassy greeting" OFF shows the plain "Welcome back, Name 👋" instead.
+window.FF_GREETING_LINES = {
+  first: [['Welcome to the club, {name}! Popcorn ready?', '🍿'], ['{name}, your binge era starts now', '✨'], ['Hi {name}! Shows are waiting, no pressure', '😌']],
+  ending: [["Your {service} ends in {days} days — don't leave me on read", '👀'], ['{name}, {service} is packing its bags in {days} days', '🧳'], ['{days} days of {service} left. Cliffhanger ka risk mat lo', '😬']],
+  ending1: [["Your {service} ends tomorrow — don't leave me on read", '👀'], ['{service} ends tomorrow, {name}. Renew before the cliffhanger', '😬']],
+  ending0: [["Your {service} ends today — don't leave me on read", '👀'], ['{service} ends today, {name}. Renew before the cliffhanger', '😬']],
+  renewed: [['Fresh plan, fresh binge. Sorted, {name}!', '😎'], ["All set, {name}! Shows won't watch themselves", '🎬'], ['Plan ready, {name}. Main character energy', '✨']],
+  away: [['Missed me?? Here we go again!!', '😏'], ['{days} days without me, {name}? I counted', '👀'], ['{name}! Kahan the aap? Shows missed you', '🥺']],
+  expired: [['Your plans are taking a little break, {name}. Renew anytime', '🍿'], ['Shows miss you, {name}! Renew when you are ready', '🎬']],
+  lateNight: [["Binge o'clock, {name}. One more episode?", '🌙'], ['Still awake, {name}? Same', '🦉'], ["Three episodes later… who's counting?", '🌙']],
+  morning: [['Rise and stream, {name}', '☀️'], ['Chai + one episode = perfect morning', '☕'], ['Good morning, {name}! Plans are all good', '🌤️', 'live']],
+  afternoon: [["Lunch break binge, {name}? We won't tell", '🤫'], ['Hey {name}! Quick episode break?', '🍿']],
+  evening: [['Sofa, snacks, shows. Ready, {name}?', '🛋️'], ['Shaam ho gayi, {name}. Binge time!', '🌆'], ['So {name}, what are we watching tonight?', '🎬']],
+  night: [['Remote in hand, {name}? Night shift begins', '📺'], ['Just one episode, {name}. Pakka?', '😴']],
+  weekend: [['Weekend = binge mode ON, {name}', '🛋️'], ['Weekend vibes, {name}. Full season marathon?', '🍿']],
+  plain: [['Welcome back, {name}', '👋']],
+  // Festivals: 'MM-DD' every year, or 'YYYY-MM-DD' for moving dates (add next year's Diwali / Holi here).
+  festivals: {
+    '01-01': ['Happy New Year, {name}! New year, new shows', '🎉'], '01-26': ['Happy Republic Day, {name}!', '🇮🇳'],
+    '08-15': ['Happy Independence Day, {name}!', '🇮🇳'], '10-31': ['Happy Halloween, {name}! Horror marathon?', '🎃'],
+    '12-25': ['Merry Christmas, {name}! Cosy movie night?', '🎄'], '2026-11-08': ['Happy Diwali, {name}! Lights, snacks, shows', '🪔'],
+    '2027-03-22': ['Happy Holi, {name}! Colours outside, shows inside', '🎨']
+  }
+};
+window.FF_GREETING_KICK = { first: 'Welcome', ending: 'Heads up', ending1: 'Heads up', ending0: 'Heads up', expired: 'Welcome back', renewed: 'Nice one', away: 'Welcome back', lateNight: "Binge o'clock", morning: 'Good morning', afternoon: 'Good afternoon', evening: 'Good evening', night: 'Late show', weekend: 'Weekend mode', festival: 'Festive mode', plain: 'My plans' };
+(function () {
+  var DAY = 86400000;
+  function firstName(n) {
+    var f = String(n || '').trim().split(/\s+/)[0] || '';
+    f = f.replace(/[<>{}]/g, '').slice(0, 14);
+    if (!f || /^user$/i.test(f)) return 'friend';
+    return f.charAt(0).toUpperCase() + f.slice(1);
+  }
+  function hash(s) { var h = 7; s = String(s); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function bucketOfHour(h) { return h < 5 ? 'lateNight' : h < 12 ? 'morning' : h < 17 ? 'afternoon' : h < 22 ? 'evening' : 'night'; }
+  // India time (no daylight saving, so +5:30 is an exact fallback when Intl is missing).
+  var IST_OFF = 330 * 60000, istFmt = null;
+  function ist(ms) {
+    try {
+      if (istFmt === null) istFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
+      var o = {}; istFmt.formatToParts(new Date(ms)).forEach(function (p) { o[p.type] = p.value; });
+      var y = Number(o.year), m = Number(o.month), d = Number(o.day), h = Number(o.hour) % 24;
+      if (y && m && d && !isNaN(h)) return { y: y, m: m, d: d, h: h };
+    } catch (e) { istFmt = false; }
+    var z = new Date(ms + IST_OFF);
+    return { y: z.getUTCFullYear(), m: z.getUTCMonth() + 1, d: z.getUTCDate(), h: z.getUTCHours() };
+  }
+  function dayNo(p) { return Math.round(Date.UTC(p.y, p.m - 1, p.d) / DAY); }
+  // Safari-safe date reader (no Date.parse on "YYYY-MM-DD HH:mm:ss"). No zone = India wall time.
+  // → { ms, y, m, d } (y/m/d = India calendar date) or null.
+  function readTs(v) {
+    var m = String(v == null ? '' : v).trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i);
+    if (!m) return null;
+    var y = +m[1], mo = +m[2], d = +m[3], dateOnly = m[4] == null;
+    var off = IST_OFF;
+    if (m[7]) off = /^z$/i.test(m[7]) ? 0 : (m[7].charAt(0) === '-' ? -1 : 1) * (Number(m[7].substr(1, 2)) * 60 + Number(m[7].replace(':', '').substr(3, 2))) * 60000;
+    var ms = dateOnly ? Date.UTC(y, mo - 1, d + 1) - IST_OFF : Date.UTC(y, mo - 1, d, +m[4], +m[5], +(m[6] || 0)) - off;
+    if (isNaN(ms)) return null;
+    if (m[7] && !dateOnly) { var p = ist(ms); return { ms: ms, y: p.y, m: p.m, d: p.d }; }
+    return { ms: ms, y: y, m: mo, d: d };
+  }
+  // Calendar days left in India (0 = ends today) + whether the plan is still running.
+  function planDays(s, t, todayNo) {
+    var e = readTs(s.expiryDate || s.expiry_date || s.expiry);
+    if (e) return { days: dayNo(e) - todayNo, live: e.ms > t };
+    var n = Number(s.daysLeft);
+    if (s.daysLeft == null || s.daysLeft === '' || !isFinite(n)) return null;
+    return { days: Math.round(n), live: n > 0 };
+  }
+  // ctx: { name, subs:[{service, expiryDate, daysLeft, startDate}], lastSeen (ms or null), isNew (never bought anything),
+  //        now (Date), sassy (default true), seed, skip }
+  // → { key, kick, text, emoji }. Same inputs → same line (no flicker on re-render); skip = taps on the greeting.
+  function pick(ctx) {
+    ctx = ctx || {};
+    var L = window.FF_GREETING_LINES, K = window.FF_GREETING_KICK;
+    var now = ctx.now instanceof Date && !isNaN(ctx.now) ? ctx.now : new Date();
+    var t = now.getTime(), name = firstName(ctx.name), subs = Array.isArray(ctx.subs) ? ctx.subs : [];
+    var today = ist(t), todayNo = dayNo(today);
+    var vars = { name: name, service: '', days: '' }, key = 'plain', pool = L.plain, hasLive = false;
+    if (ctx.sassy !== false) {
+      var live = [];
+      subs.forEach(function (s) { var p = s && planDays(s, t, todayNo); if (p && p.live) live.push({ s: s, days: Math.max(0, p.days) }); });
+      hasLive = live.length > 0;
+      var ending = live.filter(function (x) { return x.days <= 3; }).sort(function (a, b) { return a.days - b.days; })[0];
+      var renewed = live.some(function (x) { var st = readTs(x.s.startDate); return st && t - st.ms >= -DAY && t - st.ms <= 2 * DAY; });
+      var away = ctx.lastSeen ? Math.floor((t - Number(ctx.lastSeen)) / DAY) : 0;
+      var md = pad(today.m) + '-' + pad(today.d);
+      var fest = L.festivals && (L.festivals[today.y + '-' + md] || L.festivals[md]);
+      var wd = new Date(Date.UTC(today.y, today.m - 1, today.d)).getUTCDay();
+      var hour = bucketOfHour(today.h), wkend = wd === 0 || wd === 6;
+      if (ending) { key = ending.days === 0 ? 'ending0' : ending.days === 1 ? 'ending1' : 'ending'; vars.service = String(ending.s.service || 'plan').trim().slice(0, 24) || 'plan'; vars.days = String(ending.days); }
+      else if (renewed) key = 'renewed';
+      else if (fest) { key = 'festival'; pool = [fest]; }
+      else if (ctx.isNew === true) key = 'first';
+      else if (ctx.lastSeen != null && away >= 3) { key = 'away'; vars.days = String(away); }
+      else if (!hasLive && subs.length) key = 'expired';
+      else if (wkend && hash(ctx.seed + '|' + md) % 2 === 0 && hour !== 'lateNight') key = 'weekend';
+      else key = hour;
+      if (key !== 'festival') {
+        pool = (L[key] || []).filter(function (l) { return l && (hasLive || l[2] !== 'live'); });
+        if (!pool.length) pool = L.plain;
+      }
+    }
+    var day = today.y + '-' + today.m + '-' + today.d;
+    var line = pool[(hash((ctx.seed || '') + '|' + day + '|' + key) + (Number(ctx.skip) || 0)) % pool.length] || L.plain[0];
+    var text = String(line[0]).replace(/\{(name|service|days)\}/g, function (_, k) { return vars[k]; });
+    return { key: key, kick: K[key] || '', text: text, emoji: String(line[1] || '') };
+  }
+  // Last visit on this phone: read once per browser session, then remember "now" for next time.
+  function visit(now) {
+    var t = now || Date.now(), prev = null;
+    try {
+      var s = sessionStorage.getItem('ff_hello_prev');
+      if (s == null) { s = localStorage.getItem('ff_last_seen') || 'none'; sessionStorage.setItem('ff_hello_prev', s); }
+      prev = s === 'none' ? null : (Number(s) || null);
+      localStorage.setItem('ff_last_seen', String(t));
+    } catch (e) { prev = t; }
+    return { lastSeen: prev };
+  }
+  window.ffGreeting = function (ctx) { try { return pick(ctx); } catch (e) { return { key: 'plain', kick: '', text: 'Welcome back, ' + firstName(ctx && ctx.name), emoji: '👋' }; } };
+  window.ffGreetingVisit = visit;
+  // App feel: iOS only shows :active press states when the page listens to touches (passive: never blocks scrolling).
+  // Hidden tab → pause the greeting card's floating shapes.
+  try { document.addEventListener('touchstart', function () {}, { passive: true }); } catch (e) {}
+  try { document.addEventListener('visibilitychange', function () { document.documentElement.classList.toggle('ff-hidden', document.hidden); }); } catch (e) {}
 })();
 </script>
 </head>
@@ -1455,6 +1647,7 @@ function SectionHead({
   right
 }) {
   return React.createElement("div", {
+    className: "ff-sechead",
     style: {
       display: 'flex',
       alignItems: 'center',
@@ -3577,7 +3770,8 @@ function DashboardScreen({
   onRecoverCard,
   onOtpClick,
   boot,
-  autoOpenOtp
+  autoOpenOtp,
+  sassy = true
 }) {
   const [dashData, setDashData] = useState(data || {});
   const [tab, setTab] = useState('subs');
@@ -3705,6 +3899,28 @@ function DashboardScreen({
   }).length;
   const name = profile?.name || '';
   const first = name ? name.split(' ')[0] : 'User';
+  // 😏 Greeting (lines + rules: FF_GREETING_LINES in <head>). Last visit read once per session; tap = next line.
+  const [helloVisit] = useState(() => window.ffGreetingVisit ? window.ffGreetingVisit() : {
+    lastSeen: null
+  });
+  const [helloTap, setHelloTap] = useState(0);
+  // "New customer" comes from their data (no plans and no orders ever), never from this phone's storage.
+  const helloPhone = normPhone_(phone || '');
+  const helloIsNew = !!dashData?._checked && allSubs.length === 0 && !!helloPhone && ordersPhone === helloPhone && !ordersLoading && orders.length === 0;
+  const hello = window.ffGreeting ? window.ffGreeting({
+    name,
+    subs: allSubs,
+    lastSeen: helloVisit.lastSeen,
+    isNew: helloIsNew,
+    sassy,
+    seed: normPhone_(phone || ''),
+    skip: helloTap
+  }) : {
+    key: 'plain',
+    kick: '',
+    text: 'Welcome back, ' + first,
+    emoji: '👋'
+  };
   const quickActions = [{
     icon: '🛒',
     label: 'Buy',
@@ -3734,95 +3950,79 @@ function DashboardScreen({
       paddingBottom: 90
     }
   }, React.createElement("div", {
-    style: {
-      padding: '20px 0 18px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 12
-    }
-  }, React.createElement("div", null, React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 23,
-      fontWeight: 800,
-      color: C.text,
-      lineHeight: 1.1
-    }
-  }, "Welcome back,", React.createElement("br", null), first, " 👋"), React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      marginTop: 6
-    }
+    className: "ff-hello",
+    "data-greet": hello.key
+  }, React.createElement("i", {
+    className: "ff-hello-orb a",
+    "aria-hidden": "true"
+  }), React.createElement("i", {
+    className: "ff-hello-orb b",
+    "aria-hidden": "true"
+  }), React.createElement("div", {
+    className: "ff-hello-txt"
   }, React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 13,
-      color: C.muted,
-      fontWeight: 500
-    }
-  }, "Manage your subscriptions."), React.createElement("button", {
+    className: "ff-hello-kick"
+  }, hello.kick), React.createElement("button", {
+    type: "button",
+    className: "ff-hello-line",
+    "aria-live": "polite",
+    title: sassy ? 'Tap for another line' : undefined,
+    onClick: () => sassy && setHelloTap(n => n + 1)
+  }, React.createElement("span", {
+    key: helloTap + '|' + hello.text,
+    className: "ff-hello-words"
+  }, (() => {
+    // Words rise in one by one (≤ 0.8 s in total); the last word + emoji never wrap apart.
+    const words = hello.text.split(' ');
+    const word = (w, i) => React.createElement("span", {
+      key: 'w' + i,
+      className: "ff-hello-w",
+      style: {
+        animationDelay: Math.min(i * 45, 450) + 'ms'
+      }
+    }, w);
+    return words.slice(0, -1).map((w, i) => [word(w, i), ' ']).concat([React.createElement("span", {
+      key: 'end',
+      className: "ff-hello-end"
+    }, word(words[words.length - 1], words.length - 1), ' ', React.createElement("span", {
+      className: "ff-hello-emo",
+      "aria-hidden": "true"
+    }, hello.emoji))]);
+  })())), React.createElement("div", {
+    className: "ff-hello-sub"
+  }, React.createElement("span", null, "Manage your subscriptions."), React.createElement("button", {
+    type: "button",
+    className: "ff-hello-refresh",
     onClick: handleRefresh,
     disabled: refreshing,
     title: "Refresh subscriptions & orders",
-    style: {
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      width: 28,
-      height: 28,
-      borderRadius: 8,
-      border: `1px solid ${C.border}`,
-      background: refreshing ? 'rgba(37,99,235,.08)' : '#f8fafc',
-      cursor: refreshing ? 'not-allowed' : 'pointer',
-      padding: 0,
-      flexShrink: 0,
-      transition: 'background .15s, border-color .15s',
-      boxShadow: '0 1px 3px rgba(15,23,42,.06)'
-    },
-    onMouseEnter: e => {
-      if (!refreshing) {
-        e.currentTarget.style.background = 'rgba(37,99,235,.08)';
-        e.currentTarget.style.borderColor = 'rgba(37,99,235,.22)';
-      }
-    },
-    onMouseLeave: e => {
-      if (!refreshing) {
-        e.currentTarget.style.background = '#f8fafc';
-        e.currentTarget.style.borderColor = C.border;
-      }
-    }
+    "aria-label": "Refresh subscriptions & orders"
   }, React.createElement("span", {
     style: {
-      fontSize: 13,
       display: 'inline-block',
       animation: refreshing ? 'spin .7s linear infinite' : 'none',
       lineHeight: 1
     }
   }, "🔄")))), React.createElement("div", {
+    className: "ff-hello-av",
+    role: "button",
+    tabIndex: 0,
+    "aria-label": "Open my account",
     onClick: () => nav('account', {
       subs: allSubs,
       phone,
       manageResp: dashData,
       profile
     }),
-    style: {
-      width: 52,
-      height: 52,
-      borderRadius: 999,
-      background: 'linear-gradient(135deg,#34d399,#16a34a)',
-      display: 'grid',
-      placeItems: 'center',
-      fontFamily: PJS,
-      fontSize: 20,
-      fontWeight: 800,
-      color: '#fff',
-      flexShrink: 0,
-      boxShadow: '0 4px 14px rgba(22,163,74,.22)',
-      overflow: 'hidden',
-      cursor: 'pointer'
+    onKeyDown: e => {
+      if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+      e.preventDefault();
+      nav('account', {
+        subs: allSubs,
+        phone,
+        manageResp: dashData,
+        profile
+      });
     }
   }, profile?.profilePicUrl ? React.createElement("img", {
     // ✨ creator avatars wink for 3 days after a plan starts or is renewed
@@ -15120,6 +15320,7 @@ function App() {
     onNeedAccount: openAccountModal
   }), screen === 'dashboard' && React.createElement(DashboardScreen, {
     nav: nav,
+    sassy: !(storeStatus && storeStatus.sassy === false),
     data: d.manageResp,
     phone: d.phone,
     profile: d.profile,
