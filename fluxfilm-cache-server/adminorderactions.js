@@ -307,8 +307,16 @@ function mount(app, deps) {
   }
 
   // ---------------------------------------------------------------- refund
-  app.post('/admin/api/order/refund', async (req, res) => {
-    if (!auth(req, res)) return;
+  app.post('/admin/api/order/refund', (req, res) => handleRefund(req, res, false));
+  // Internal use by admin 📨 Refund requests → "Approve full refund" (adminrefunds.js, which checked the admin key):
+  // the very same checks, allocation lock, holds release and customer notices as the button. → { status, body }.
+  app.locals.ffOrderRefund = (req, body) => new Promise((resolve) => {
+    const fakeReq = { body: body || {}, query: {}, ip: req && req.ip, socket: req && req.socket, headers: (req && req.headers) || {} };
+    const out = { code: 200, status(c) { this.code = c; return this; }, json(o) { resolve({ status: this.code, body: o }); return this; } };
+    handleRefund(fakeReq, out, true).catch((e) => resolve({ status: 500, body: { ok: false, message: String((e && e.message) || e) } }));
+  });
+  async function handleRefund(req, res, trusted) {
+    if (!trusted && !auth(req, res)) return;
     const b = req.body || {};
     const id = orderIdOf(req);
     if (!id) return res.status(400).json({ ok: false, message: 'Order id required.' });
@@ -388,7 +396,7 @@ function mount(app, deps) {
       const label = { COINS: 'refund credit', COUPON: 'coupon ' + (done.coupon ? done.coupon.code : ''), UPI_ASK: 'waiting for the customer to choose', UPI: 'UPI', OTHER: 'Other' }[done.how];
       res.json({ ok: true, orderId: id, status: 'REFUNDED', amount: done.amount, method: done.methodLabel, refundCredit: done.credit, coinsCredited: done.credit, coupon: done.coupon, holds: h, notes, message: '💸 Refund recorded (₹' + done.amount + ', ' + label + ').' });
     } catch (e) { send(res, e); }
-  });
+  }
 
   // ---------------------------------------------------------------- the customer's UPI refund was sent
   app.post('/admin/api/order/refund-upi-done', async (req, res) => {

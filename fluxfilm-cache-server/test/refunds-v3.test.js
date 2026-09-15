@@ -1,6 +1,7 @@
 /* 💸 Refunds v3 (owner decisions 15 Sep 2026): the customer chooses coins / coupon (+bonus%) or exact UPI; refund
    offers on DELIVERED plans (no replacement / mid-period charge); UPI queue → ✅ Done → email + one-time pop-up;
-   access ends (Recover / Get OTP / renew / Remove users). In-memory MySQL, mocked mailer + push: no real email. Run: npm test */
+   access ends (Recover / Get OTP / renew / Remove users); customer "Request refund" (48 h from payment, approve / reject).
+   In-memory MySQL, mocked mailer + push: no real email. Run: npm test */
 process.env.TZ = 'Asia/Kolkata';
 process.env.NODE_ENV = 'test';
 const Module = require('module');
@@ -21,8 +22,8 @@ const days = (n) => new Date(NOW.getTime() + n * 86400e3);
 
 // ---------------------------------------------------------------- in-memory MySQL (strict: unknown SQL throws)
 let S;
-const TABLES = ['orders', 'subs', 'offers', 'coupons', 'todos', 'ledger', 'settings'];
-function fresh() { S = { orders: [], subs: [], offers: [], coupons: [], todos: [], ledger: [], settings: {}, noOffersTable: false, sql: [] }; }
+const TABLES = ['orders', 'subs', 'offers', 'coupons', 'todos', 'ledger', 'settings', 'requests'];
+function fresh() { S = { orders: [], subs: [], offers: [], coupons: [], todos: [], ledger: [], settings: {}, requests: [], noOffersTable: false, noRequestsTable: false, sql: [] }; }
 fresh();
 const snap = () => clone(TABLES.reduce((o, k) => { o[k] = S[k]; return o; }, {}));
 const restore = (x) => { for (const k of TABLES) S[k] = x[k]; };
@@ -85,6 +86,36 @@ function run(sql, p) {
   if (/^UPDATE refund_offers SET email_sent = 1 WHERE offer_id = \? LIMIT 1$/.test(sql)) { offer(p[0]).email_sent = 1; return { affectedRows: 1 }; }
   if (/^UPDATE refund_offers SET status = 'CANCELLED', live_order = NULL, cancelled_at = \?, cancel_reason = \? WHERE offer_id = \? AND status = 'OFFERED' LIMIT 1$/.test(sql)) { const r = offer(p[2]); if (!r || r.status !== 'OFFERED') return { affectedRows: 0 }; Object.assign(r, { status: 'CANCELLED', live_order: null, cancelled_at: p[0], cancel_reason: p[1] }); return { affectedRows: 1 }; }
   if (/^SELECT phone_norm, name FROM customers WHERE phone_norm IN/.test(sql)) return [];
+  // refund_requests (refundrequests.js)
+  if (/refund_requests/.test(sql) && S.noRequestsTable) noTable('refund_requests');
+  if (/^UPDATE refund_requests SET status = 'OFFERED', open_key = NULL, offer_id = \?, decided_at = \? WHERE order_id = \? AND status = 'OPEN'$/.test(sql)) { let n = 0; for (const r of S.requests) if (r.order_id === p[2] && r.status === 'OPEN') { Object.assign(r, { status: 'OFFERED', open_key: null, offer_id: p[0], decided_at: p[1] }); n++; } return { affectedRows: n }; }
+  if (/^SELECT \* FROM subscriptions WHERE phone_norm = \? ORDER BY expiry_date DESC LIMIT 60$/.test(sql)) return S.subs.filter((x) => x.phone_norm === p[0]).map(clone);
+  if (/^SELECT order_id, service, plan, final_amount, status, fulfillment_status, order_type, renew_sub_id, source, duration_days, verified_at, created_at_sheet, email, name FROM orders WHERE phone_norm = \? ORDER BY created_at_sheet DESC LIMIT 60$/.test(sql)) return S.orders.filter((o) => o.phone_norm === p[0]).map(clone);
+  if (/^SELECT \* FROM refund_requests WHERE phone_norm = \? ORDER BY created_at DESC LIMIT 30$/.test(sql)) return S.requests.filter((r) => r.phone_norm === p[0]).slice().reverse().map(clone);
+  if (/^SELECT order_id, status FROM refund_offers WHERE phone_norm = \? AND status IN \('OFFERED', 'UPI_REQUESTED'\)$/.test(sql)) return S.offers.filter((r) => r.phone_norm === p[0] && ['OFFERED', 'UPI_REQUESTED'].includes(r.status)).map((r) => ({ order_id: r.order_id, status: r.status }));
+  if (/^SELECT request_id FROM refund_requests WHERE request_id = \? LIMIT 1$/.test(sql)) return S.requests.filter((r) => r.request_id === p[0]).map((r) => ({ request_id: r.request_id }));
+  if (/^INSERT INTO refund_requests \(request_id, order_id, sub_id, open_key, phone_norm, service, plan, kind, delivery_state, reason, reason_text, paid_amount, estimated_charge, paid_at, status, created_at\)/.test(sql)) {
+    if (S.requests.some((r) => r.open_key && r.open_key === p[3])) { const e = new Error("Duplicate entry '" + p[3] + "' for key 'uq_rq_open'"); e.code = 'ER_DUP_ENTRY'; throw e; }
+    const k = ['request_id', 'order_id', 'sub_id', 'open_key', 'phone_norm', 'service', 'plan', 'kind', 'delivery_state', 'reason', 'reason_text', 'paid_amount', 'estimated_charge', 'paid_at'];
+    const row = {}; k.forEach((c, i) => { row[c] = p[i]; }); Object.assign(row, { status: 'OPEN', created_at: p[14], admin_message: null, offer_id: null });
+    S.requests.push(row); return { affectedRows: 1 };
+  }
+  if (/^SELECT \* FROM refund_requests ORDER BY \(status = 'OPEN'\) DESC, created_at DESC LIMIT 100$/.test(sql)) return S.requests.slice().sort((a, b) => (b.status === 'OPEN') - (a.status === 'OPEN')).map(clone);
+  if (/^SELECT order_id, name, status, fulfillment_status, verified_at, created_at_sheet FROM orders WHERE order_id IN/.test(sql)) return S.orders.filter((o) => p.includes(o.order_id)).map(clone);
+  if (/^SELECT order_id, sub_id, status, fulfillment_status, login_id, expiry_date FROM subscriptions WHERE order_id IN/.test(sql)) return S.subs.filter((x) => p.includes(x.order_id)).map(clone);
+  if (/^SELECT \* FROM refund_requests WHERE request_id = \? LIMIT 1( FOR UPDATE)?$/.test(sql)) return S.requests.filter((r) => r.request_id === p[0]).map(clone);
+  if (/^UPDATE refund_requests SET status = \?, open_key = NULL, admin_message = \?, offer_id = \?, decided_at = \? WHERE request_id = \? AND status = 'OPEN' LIMIT 1$/.test(sql)) { const r = S.requests.find((x) => x.request_id === p[4]); if (!r || r.status !== 'OPEN') return { affectedRows: 0 }; Object.assign(r, { status: p[0], open_key: null, admin_message: p[1], offer_id: p[2], decided_at: p[3] }); return { affectedRows: 1 }; }
+  if (/^SELECT order_id, name, email, service, plan FROM orders WHERE order_id = \? LIMIT 1$/.test(sql)) return S.orders.filter((o) => o.order_id === p[0]).map(clone);
+  if (/^SELECT order_id, status, fulfillment_status FROM orders WHERE order_id = \? LIMIT 1$/.test(sql)) return S.orders.filter((o) => o.order_id === p[0]).map(clone);
+  if (/^SELECT sub_id, status, fulfillment_status, login_id FROM subscriptions WHERE order_id = \?$/.test(sql)) return S.subs.filter((x) => x.order_id === p[0]).map(clone);
+  // admin order refund (adminorderactions.js handleRefund, used by "Approve full refund")
+  if (/^SELECT GET_LOCK/.test(sql)) return [{ l: 1 }];
+  if (/^SELECT RELEASE_LOCK/.test(sql)) return [{ l: 1 }];
+  if (/^SELECT \* FROM subscriptions WHERE order_id = \? FOR UPDATE$/.test(sql)) return S.subs.filter((x) => x.order_id === p[0]).map(clone);
+  if (/^UPDATE coupon_usage SET action = 'RELEASED'/.test(sql)) return { affectedRows: 0 };
+  if (/^UPDATE subscriptions SET status = 'CANCELLED', fulfillment_status = 'REFUNDED'/.test(sql)) { const x = sub(p[p.length - 1]); if (x) Object.assign(x, { status: 'CANCELLED', fulfillment_status: 'REFUNDED' }); return { affectedRows: x ? 1 : 0 }; }
+  let mm;
+  if ((mm = sql.match(/^UPDATE orders SET (`\w+` = \?(?:, `\w+` = \?)*), raw_json = \? WHERE order_id = \? LIMIT 1$/))) { const o = order(p[p.length - 1]); mm[1].split(', ').forEach((part, i) => { o[part.match(/`(\w+)`/)[1]] = p[i]; }); o.raw_json = p[p.length - 2]; return { affectedRows: 1 }; }
   // coupons / to-dos
   if (/^SELECT code FROM coupons WHERE code = \? LIMIT 1$/.test(sql)) return S.coupons.filter((c) => c.code === p[0]).map(clone);
   if (/^INSERT INTO coupons \(code, description, scope, type, value/.test(sql)) { S.coupons.push({ code: p[0], value: p[4], expiry: p[7], allowed_phones: p[12], raw_json: p[14] }); return { affectedRows: 1 }; }
@@ -309,8 +340,9 @@ async function makeOffer(body) {
   const app = express(); app.use(express.json());
   const auth = (req, res) => { if (req.get('X-Admin-Key') === 'k') return true; res.status(403).json({ ok: false }); return false; };
   const audit = { record: (req, e) => audits.push(e) };
-  require('../adminrefunds').mount(app, { db: mockDb, auth, audit, refunds: R });
-  require('../adminorderactions').mount(app, { db: mockDb, auth, audit, refunds: R });
+  const RQ = require('../refundrequests').create({ db: mockDb, mailer: fakeMailer, push: fakePush, now: () => NOW });
+  require('../adminrefunds').mount(app, { db: mockDb, auth, audit, refunds: R, refundRequests: RQ });
+  require('../adminorderactions').mount(app, { db: mockDb, auth, audit, refunds: R, coins: Object.assign({ undoOrderCoinsOn: async () => ({}) }, fakeCoins), referrals: { cancelForOrderOn: async () => ({}) } });
   const server = app.listen(0); await new Promise((r) => server.once('listening', r));
   const base = 'http://127.0.0.1:' + server.address().port;
   const H = { 'X-Admin-Key': 'k', 'Content-Type': 'application/json' };
@@ -377,6 +409,107 @@ async function makeOffer(body) {
   const pendNo = await R.getPendingRefunds(PH);
   ok('before schema-v26: offer says run the SQL; the storefront still works (no offers)', noSchema.ok === false && /schema-v26/.test(noSchema.message) && pendNo.ok && pendNo.offers.length === 0, { noSchema, pendNo });
   S.noOffersTable = false;
+
+  section('📨 Request refund: what can be asked (48 h from payment, India time)');
+  fresh(); mails.length = 0; pushes.length = 0; audits.length = 0;
+  const T0 = new Date(NOW.getTime());
+  const paidAgo = (h) => dt(new Date(T0.getTime() - h * 3600e3));
+  S.orders.push(
+    deliveredOrder({ order_id: 'FF7001', service: 'YouTube Premium', plan: '1 Month', final_amount: '129.00', fulfillment_status: 'MANUAL_PENDING', verified_at: paidAgo(10), created_at_sheet: paidAgo(10), raw_json: '{}' }),
+    deliveredOrder({ order_id: 'FF7002', service: 'Zee5', plan: '1 Month', final_amount: '99.00', fulfillment_status: 'FAILED', verified_at: paidAgo(50), created_at_sheet: paidAgo(51), raw_json: '{}' }),
+    deliveredOrder({ order_id: 'FF7003', service: 'SonyLiv', plan: '1 Month', final_amount: '89.00', fulfillment_status: 'FAILED', verified_at: paidAgo(47), created_at_sheet: paidAgo(47), raw_json: '{}' }),
+    deliveredOrder({ order_id: 'FF7004', verified_at: paidAgo(240), created_at_sheet: paidAgo(240) }),
+    deliveredOrder({ order_id: 'FF7005', status: 'REFUNDED', fulfillment_status: 'REFUNDED', verified_at: paidAgo(300) }),
+    deliveredOrder({ order_id: 'FF7006', verified_at: paidAgo(900), created_at_sheet: paidAgo(900) }),
+    deliveredOrder({ order_id: 'FF7007', phone: OTHER, phone_norm: OTHER, fulfillment_status: 'FAILED', verified_at: paidAgo(60) }),
+  );
+  S.subs.push(
+    deliveredSub({ sub_id: 'SUB-M1', order_id: 'FF7001', service: 'YouTube Premium', login_id: '', fulfillment_status: 'MANUAL_PENDING', inventory_ref: null }),
+    deliveredSub({ sub_id: 'SUB-D1', order_id: 'FF7004' }),
+    deliveredSub({ sub_id: 'SUB-E1', order_id: 'FF7006', expiry_date: dt(days(-3)), start_date: dt(days(-33)) }),
+  );
+  let li = await RQ.listItems(PH);
+  const itemOf = (k) => (li.items || []).find((i) => i.key === k) || {};
+  const m1 = itemOf('order:FF7001'), f1 = itemOf('order:FF7002'), f2 = itemOf('order:FF7003'), d1 = itemOf('sub:SUB-D1');
+  ok('manual plan 10 h after payment: not yet, "being activated … after 17 Sep, 02:00", countdown data', li.ok && m1.canRequest === false && m1.waiting === true && m1.state === 'MANUAL_PENDING' && /being activated by our team\. It can take up to 48 hours from payment\. You can request a refund after 17 Sep, 02:00/.test(m1.disabledReason) && m1.waitUntilMs === T0.getTime() + 38 * 3600e3, m1);
+  ok('failed / no stock 47 h after payment: "arranging a replacement … wait until 15 Sep, 13:00"', f2.canRequest === false && f2.waiting === true && /We’re arranging a replacement account for you\. Please wait until 15 Sep, 13:00/.test(f2.disabledReason), f2);
+  ok('failed 50 h after payment: can request, full refund ₹99 no charge', f1.canRequest === true && f1.kind === 'UNDELIVERED' && f1.estimate.charge === 0 && f1.estimate.refund === 99, f1);
+  ok('delivered active plan: can request, estimate 10/30 days → charge ₹66, refund ₹133', d1.canRequest === true && d1.kind === 'DELIVERED' && d1.estimate.charge === 66 && d1.estimate.refund === 133, d1);
+  ok('refunded / ended items shown disabled with a reason; the manual placeholder row is not a separate item; another phone\'s order not listed',
+    itemOf('order:FF7005').canRequest === false && /Already refunded/.test(itemOf('order:FF7005').disabledReason) && itemOf('sub:SUB-E1').canRequest === false && /ended/.test(itemOf('sub:SUB-E1').disabledReason) && !itemOf('sub:SUB-M1').key && !itemOf('order:FF7007').key, li.items.map((i) => i.key));
+  let cr = await RQ.createRequest(PH, { orderId: 'FF7001', reason: 'NOT_RECEIVED' });
+  ok('create before 48 h (manual) → refused with the wait time, nothing saved', cr.ok === false && cr.waiting === true && cr.waitUntilLabel === '17 Sep, 02:00' && !S.requests.length, cr);
+  cr = await RQ.createRequest(PH, { orderId: 'FF7003', reason: 'NOT_RECEIVED' });
+  ok('create before 48 h (failed) → refused', cr.ok === false && cr.waiting === true && !S.requests.length, cr);
+  cr = await RQ.createRequest(OTHER, { orderId: 'FF7002', reason: 'NOT_RECEIVED' });
+  ok('another phone cannot request for this order', cr.ok === false && !S.requests.length, cr);
+  cr = await RQ.createRequest(PH, { subId: 'SUB-D1', reason: 'OTHER', text: ' ' });
+  ok('Other needs a few words', cr.ok === false && cr.field === 'text');
+  cr = await RQ.createRequest(PH, { orderId: 'FF7002', reason: 'NOT_RECEIVED', kind: 'DELIVERED', amount: 5, canRequest: true, paid_amount: 9999 });
+  const rq1 = S.requests[0] || {};
+  ok('after 48 h (failed): UNDELIVERED request saved with server values (client kind / amount ignored), full refund message', cr.ok && rq1.kind === 'UNDELIVERED' && rq1.paid_amount === 99 && rq1.estimated_charge === 0 && rq1.open_key === 'FF7002' && rq1.paid_at === paidAgo(50) && /full refund of ₹99 with no charge/.test(cr.message), { cr, rq1 });
+  cr = await RQ.createRequest(PH, { orderId: 'FF7002', reason: 'NOT_WORKING' });
+  ok('duplicate request for the same order refused', cr.ok === false && /already requested/.test(cr.message) && S.requests.length === 1, cr);
+  cr = await RQ.createRequest(PH, { subId: 'SUB-D1', reason: 'NOT_WORKING' });
+  const rq2 = S.requests[1] || {};
+  ok('delivered mid-period: DELIVERED request, estimate ₹66 stored, "we\'ll first try a replacement"', cr.ok && rq2.kind === 'DELIVERED' && rq2.order_id === 'FF7004' && rq2.sub_id === 'SUB-D1' && rq2.estimated_charge === 66 && /first try to give you a replacement account/.test(cr.message), { cr, rq2 });
+  li = await RQ.listItems(PH);
+  ok('requested items now disabled: "Refund already requested — we’ll update you"', /Refund already requested — we’ll update you/.test(itemOf('order:FF7002').disabledReason) && itemOf('order:FF7002').canRequest === false && itemOf('sub:SUB-D1').canRequest === false, li.items);
+  await tick();
+  ok('owner pushed about the request', pushes.some((p) => p.admin && /Refund request/.test(p.msg.title)));
+  NOW = new Date(T0.getTime() + 39 * 3600e3);
+  li = await RQ.listItems(PH);
+  ok('manual plan 49 h after payment → can request now', itemOf('order:FF7001').canRequest === true, itemOf('order:FF7001'));
+  cr = await RQ.createRequest(PH, { orderId: 'FF7001', reason: 'NOT_RECEIVED' });
+  ok('…and the request is saved', cr.ok && S.requests.length === 3, cr);
+  NOW = new Date(T0.getTime() + 2 * 3600e3); // FF7003 is now 49 h after payment (eligible)
+  S.requests.push(...[1, 2, 3].map((n) => ({ request_id: 'RQOLD000' + n, order_id: 'FFX' + n, phone_norm: PH, status: 'REJECTED', open_key: null, created_at: paidAgo(n) })));
+  cr = await RQ.createRequest(PH, { orderId: 'FF7003', reason: 'OTHER', text: 'test limit' });
+  ok('at most 5 requests a day per phone', cr.ok === false && cr.rateLimited === true && !S.requests.some((x) => x.order_id === 'FF7003'), cr);
+  S.requests = S.requests.filter((r) => !/^RQOLD/.test(r.request_id));
+  NOW = new Date(T0.getTime());
+
+  section('📨 admin: list, approve (re-checks delivery), reject, offer answers the request');
+  r = await get('/admin/api/refunds');
+  const openList = (r.body.requests || []).filter((x) => x.status === 'OPEN');
+  const lf1 = openList.find((x) => x.orderId === 'FF7002') || {};
+  ok('Refunds screen lists open requests with reason, time since payment and live delivery state', r.body.ok && openList.length === 3 && lf1.reasonLabel === 'Didn’t receive' && lf1.hoursSincePayment === 50 && lf1.live && lf1.live.delivered === false && lf1.kind === 'UNDELIVERED', openList);
+  r = await post('/admin/api/refund-requests/approve', { requestId: rq1.request_id }, { 'Content-Type': 'application/json' });
+  ok('approve needs the admin key', r.status === 403 && order('FF7002').status === 'PAID');
+  r = await post('/admin/api/refund-requests/approve', { requestId: rq2.request_id });
+  ok('approve on a delivered plan → use Offer refund', r.status === 400 && S.requests.find((x) => x.request_id === rq2.request_id).status === 'OPEN', r.body);
+  // Delivered meanwhile: warn, refund nothing.
+  order('FF7002').fulfillment_status = 'FULFILLED'; S.subs.push(deliveredSub({ sub_id: 'SUB-F1', order_id: 'FF7002', login_id: 'z5@x.com' }));
+  r = await post('/admin/api/refund-requests/approve', { requestId: rq1.request_id });
+  ok('delivered since the customer asked → warning, nothing refunded, request still open', r.status === 409 && r.body.delivered === true && /delivered after the customer asked/.test(r.body.message) && order('FF7002').status === 'PAID' && S.requests.find((x) => x.request_id === rq1.request_id).status === 'OPEN', r.body);
+  order('FF7002').fulfillment_status = 'FAILED'; S.subs = S.subs.filter((x) => x.sub_id !== 'SUB-F1');
+  mails.length = 0;
+  r = await post('/admin/api/refund-requests/approve', { requestId: rq1.request_id });
+  ok('approve: order REFUNDED, customer chooses (UPI_PENDING / ASK_CUSTOMER), request APPROVED, change log', r.body.ok && order('FF7002').status === 'REFUNDED' && rawOrder('FF7002').RefundMethod === 'UPI_PENDING' && rawOrder('FF7002').RefundState === 'ASK_CUSTOMER' && rawOrder('FF7002').RefundAmount === 99 && S.requests.find((x) => x.request_id === rq1.request_id).status === 'APPROVED' && audits.some((a) => a.action === 'refund.requestApprove') && audits.some((a) => a.action === 'order.refund'), { body: r.body, raw: rawOrder('FF7002') });
+  await tick();
+  pend = await R.getPendingRefunds(PH);
+  ok('customer emailed to choose and sees the choice (₹99 → 109 coins / coupon, or UPI)', mails.some((m) => m.to === 'buyer@x.com' && /refunded/.test(m.subj) && /109 coins/.test(m.html)) && pend.items.some((x) => x.orderId === 'FF7002' && x.credit === 109), { subj: mails.map((m) => m.subj), pend });
+  r = await post('/admin/api/refund-requests/approve', { requestId: rq1.request_id });
+  ok('approve twice → already handled', r.status === 409 && r.body.already === true);
+  const rqM = S.requests.find((x) => x.order_id === 'FF7001');
+  mails.length = 0;
+  r = await post('/admin/api/refund-requests/reject', { requestId: rqM.request_id, message: 'x' });
+  ok('reject needs a message', r.status === 400 && rqM.status === 'OPEN');
+  r = await post('/admin/api/refund-requests/reject', { requestId: rqM.request_id, message: 'Your YouTube plan is active now — please check your email.' });
+  await tick();
+  ok('reject: REJECTED + message, customer emailed with the message, change log', r.body.ok && S.requests.find((x) => x.request_id === rqM.request_id).status === 'REJECTED' && mails.some((m) => m.to === 'buyer@x.com' && /About your refund request/.test(m.subj) && /YouTube plan is active now/.test(m.html)) && audits.some((a) => a.action === 'refund.requestReject'), { body: r.body, mails: mails.map((m) => m.subj) });
+  li = await RQ.listItems(PH);
+  ok('customer sees the rejection message on the Request refund screen', (li.requests || []).some((x) => x.status === 'REJECTED' && /YouTube plan is active now/.test(x.adminMessage)), li.requests);
+  const offD = await R.createOffer({ orderId: 'FF7004', reason: 'NO_REPLACEMENT', notify: false });
+  const rqD = S.requests.find((x) => x.request_id === rq2.request_id);
+  ok('Offer refund on the order answers its open request (OFFERED + offer id)', offD.ok && rqD.status === 'OFFERED' && rqD.offer_id === offD.offer.offerId && rqD.open_key === null, rqD);
+  li = await RQ.listItems(PH);
+  ok('…and the customer sees "Refund offered — choose … from the banner"', /Refund offered/.test(itemOf('sub:SUB-D1').disabledReason), itemOf('sub:SUB-D1'));
+  S.noRequestsTable = true;
+  li = await RQ.listItems(PH);
+  cr = await RQ.createRequest(PH, { orderId: 'FF7003', reason: 'NOT_RECEIVED' });
+  ok('before schema-v26: list still works, nothing can be requested, Help message', li.ok && li.items.every((i) => !i.canRequest) && cr.ok === false && /being set up/.test(cr.message), cr);
+  S.noRequestsTable = false;
   server.close();
 
   section('wiring: server actions, storefront, admin, schema, scripts parse');
@@ -386,8 +519,11 @@ async function makeOffer(body) {
   ok('storefront: banner text, three choices, ✕ close, sent pop-up, API wrappers send only [phone, id, method]', /is ready — choose how you want it/.test(idx) && /🎟️ Coupon — ₹\$\{item\.amount\} \+ \$\{pct\}% = ₹\$\{item\.couponValue \|\| item\.credit\} coupon, valid \$\{item\.couponDays \|\| 180\} days, one use/.test(idx) && /className: "ff-refund-x"/.test(idx) && /"Refund sent"/.test(idx) && /apiCall_\('chooseRefund', \[phone, id, method\]/.test(idx) && /apiCall_\('refundSentSeen', \[phone, orderId\]/.test(idx) && /\[\?&\]refund=1/.test(idx));
   const adminHtml = fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8');
   ok('admin: 💸 Offer refund (order actions + subscription card), Refunds view with ✅ Done + UTR + settings', /data-oa="offer"/.test(adminHtml) && /offerRefundDialog\(\\'' \+ id \+ '\\'\)/.test(adminHtml) && /'\/admin\/api\/refund-offers'/.test(adminHtml) && /data-rfdone=/.test(adminHtml) && /refunds: refundsView/.test(adminHtml) && /'\/admin\/api\/refunds\/settings'/.test(adminHtml));
+  ok('server: Request refund actions (only orderId / subId / reason / text passed) with IP + phone limits', /getRefundRequestItems: \(a\) => refundRequestsMod\.listItems\(a\[0\]\)/.test(server2) && /createRefundRequest: \(a\) => refundRequestsMod\.createRequest\(a\[0\], a\[1\] && typeof a\[1\] === 'object' \? \{ orderId: a\[1\]\.orderId, subId: a\[1\]\.subId, reason: a\[1\]\.reason, text: a\[1\]\.text \} : \{\}\)/.test(server2) && /PHONE_LIMITS, \{ createRefundRequest: security\.rateLimiter\(10, 24 \* 60 \* 60e3\) \}/.test(server2));
+  ok('storefront: Account → 💸 Request refund (list → reason → answer), estimate labelled "team decides", Help, countdown', /!section && React\.createElement\(RefundRequestButton, \{/.test(idx) && /"💸 Request refund"/.test(idx) && /Usage charge \(estimate — team decides\)/.test(idx) && /FF_RQ_REASONS_ = \[\['NOT_WORKING', '🔧 Not working'\], \['NOT_RECEIVED', '📭 Didn’t receive'\], \['NOT_NEEDED', '🙅 Don’t need anymore'\], \['QUALITY', '📉 Quality changed'\], \['OTHER', '✏️ Other'\]\]/.test(idx) && /ffRqLeft_\(left\)/.test(idx) && /apiCall_\('createRefundRequest', \[phone, req\]/.test(idx));
+  ok('admin: 📨 Refund requests with Approve → offer full refund / Offer refund / Reject, Today card', /data-rqapprove=/.test(adminHtml) && /data-rqoffer=/.test(adminHtml) && /data-rqreject=/.test(adminHtml) && /'\/admin\/api\/refund-requests\/approve'/.test(adminHtml) && /key: 'refundrequests'/.test(fs.readFileSync(path.join(__dirname, '..', 'adminhome.js'), 'utf8')));
   const schema = fs.readFileSync(path.join(__dirname, '..', 'db', 'schema-v26.sql'), 'utf8');
-  ok('schema-v26: plain CREATE TABLE IF NOT EXISTS refund_offers, unique live_order, no information_schema / PREPARE', /CREATE TABLE IF NOT EXISTS refund_offers/.test(schema) && /UNIQUE KEY uq_ro_live_order \(live_order\)/.test(schema) && !/information_schema|PREPARE/i.test(schema.replace(/^--.*$/gm, '')));
+  ok('schema-v26: plain CREATE TABLE IF NOT EXISTS refund_offers + refund_requests, unique live_order / open_key, no information_schema / PREPARE', /CREATE TABLE IF NOT EXISTS refund_offers/.test(schema) && /CREATE TABLE IF NOT EXISTS refund_requests/.test(schema) && /UNIQUE KEY uq_rq_open \(open_key\)/.test(schema) && /UNIQUE KEY uq_ro_live_order \(live_order\)/.test(schema) && !/information_schema|PREPARE/i.test(schema.replace(/^--.*$/gm, '')));
   const pkg = require('../package.json');
   ok('package.json runs this test', /node test\/refunds-v3\.test\.js/.test(pkg.scripts.test));
   let bad2 = 0; let n = 0;

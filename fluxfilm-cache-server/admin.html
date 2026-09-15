@@ -1851,8 +1851,9 @@ function offerRefundDialog(subId) {
   modal('💸 Offer refund', '<div id="orf_box"></div>', '', '');
   offerRefundForm($('#orf_box'), { subId: subId }, function (x) { closeModal(); toast('💸 Refund offered'); if ($('#c360') && S.cust && $('#cp')) lookup(true); });
 }
-function offerRefundForm(box, target, after) {
+function offerRefundForm(box, target, after, prefill) {
   if (!box) return;
+  prefill = prefill || {};
   box.innerHTML = '<p class="muted" style="font-size:.8rem">Loading…</p>';
   api('/admin/api/refund-offers/quote', target).then(function (q) {
     if (!box.isConnected) return;
@@ -1883,6 +1884,8 @@ function offerRefundForm(box, target, after) {
       $('#orf_total').innerHTML = 'Refund <b>' + money(r) + '</b>' + (c ? ' = paid ' + money(q.paid) + ' − charge ' + money(c) : ' (no charge)') + ' · customer can take ' + money(r + Math.round(r * q.bonusPercent / 100)) + ' as coins / coupon, or ' + money(r) + ' by UPI';
       return { mid: mid, c: c, r: r };
     };
+    if (prefill.reason) $('#orf_reason').value = prefill.reason;
+    if (prefill.note) $('#orf_note').value = prefill.note;
     $('#orf_reason').onchange = calc; $('#orf_charge').oninput = calc; calc();
     $('#orf_go').onclick = function () {
       var v = calc();
@@ -1922,11 +1925,22 @@ function renderRefundsView() {
     return '<div class="li"><span style="font-size:1.1rem">' + svcIcon(x.service) + '</span><div class="grow"><b>' + money(x.amount) + '</b> <span class="muted">· ' + esc(x.name || '—') + ' · ' + esc(x.phone) + '</span><div class="muted" style="font-size:.75rem"><a href="#" data-rfo="' + esc(x.orderId) + '">' + esc(x.orderId) + '</a> · ' + esc(x.service) + ' ' + esc(x.plan) + (x.kind === 'offer' ? ' · offer ' + esc(x.offerId) + ' (delivered plan) · open until ' + prettyDate(x.expiresAt) : ' · not delivered') + '</div></div>' +
       (x.kind === 'offer' ? '<button class="btn ghost sm" data-rfcancel="' + esc(x.offerId) + '">🚫 Cancel</button>' : '') + '</div>';
   }).join('');
+  var rqPill = function (st) { return '<span class="pill ' + ({ OPEN: 'p-bad', OFFERED: 'p-ok', APPROVED: 'p-ok', REJECTED: 'p-grey' }[st] || 'p-grey') + '">' + esc({ OPEN: 'waiting for you', OFFERED: 'offer sent', APPROVED: 'full refund approved', REJECTED: 'rejected' }[st] || st) + '</span>'; };
+  var reqs = (d.requests || []).filter(function (x, i) { return x.status === 'OPEN' || i < 30; }).map(function (x, i) {
+    var live = x.live || null, open = x.status === 'OPEN';
+    var state = x.kind === 'UNDELIVERED' ? (live && live.delivered ? '<span class="pill p-warn">delivered since they asked</span>' : '<span class="pill p-bad">not delivered</span>') : '<span class="pill p-blue">delivered plan</span>';
+    return '<div class="li" style="align-items:flex-start;' + (open ? '' : 'opacity:.7') + '"><span style="font-size:1.1rem">' + svcIcon(x.service) + '</span><div class="grow"><b>' + esc(x.service) + ' · ' + esc(x.plan) + '</b> · ' + money(x.paid) + ' ' + rqPill(x.status) + ' ' + (open ? state : '') +
+      '<div class="muted" style="font-size:.75rem">' + esc(x.name || '—') + ' · ' + esc(x.phone) + ' · <a href="#" data-rfo="' + esc(x.orderId) + '">' + esc(x.orderId) + '</a>' + (x.subId ? ' · ' + esc(x.subId) : '') + ' · asked ' + prettyDate(x.createdAt, true) + (x.hoursSincePayment != null ? ' · paid ' + (x.hoursSincePayment >= 48 ? Math.floor(x.hoursSincePayment / 24) + ' days' : x.hoursSincePayment + ' h') + ' ago' : '') + '</div>' +
+      '<div style="font-size:.85rem;margin-top:4px">Reason: <b>' + esc(x.reasonLabel || x.reason) + '</b>' + (x.text ? ' — “' + esc(x.text) + '”' : '') + (x.kind === 'DELIVERED' ? ' <span class="muted">(estimate shown: charge ' + money(x.estimatedCharge) + ')</span>' : ' <span class="muted">(full refund, no charge)</span>') + '</div>' +
+      (x.adminMessage && !open ? '<div class="muted" style="font-size:.75rem">Message: ' + esc(x.adminMessage) + '</div>' : '') +
+      (open ? '<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">' + (x.kind === 'UNDELIVERED' ? '<button class="btn green sm" data-rqapprove="' + i + '">✅ Approve → offer full refund</button>' : '<button class="btn purple sm" data-rqoffer="' + i + '">💸 Offer refund</button>') + '<button class="btn ghost sm" data-rqreject="' + i + '">❌ Reject</button></div>' : '') + '</div></div>';
+  }).join('');
   var recent = (d.offers || []).filter(function (f) { return f.status !== 'OFFERED'; }).slice(0, 40).map(function (f) {
     return '<div class="li"><span style="font-size:1.1rem">' + svcIcon(f.service) + '</span><div class="grow">' + rfOfferLine(f) + '<div class="muted" style="font-size:.72rem">' + esc(f.name || '') + ' ' + esc(f.phone) + ' · <a href="#" data-rfo="' + esc(f.orderId) + '">' + esc(f.orderId) + '</a> · ' + esc(f.service) + ' ' + esc(f.plan) + ' · offered ' + prettyDate(f.createdAt, true) + '</div></div></div>';
   }).join('');
   $('#rfbody').innerHTML =
     (d.ready ? '' : '<div class="qnote warn">Run <b>db/schema-v26.sql</b> in phpMyAdmin to switch on 💸 Offer refund for delivered plans. Not-delivered refunds and the UPI list below already work.</div>') +
+    '<div class="subhead"><h3>📨 Refund requests (' + (d.requests || []).filter(function (x) { return x.status === 'OPEN'; }).length + ' waiting)</h3></div><div class="card list" style="padding:6px 16px">' + (reqs || '<p class="muted">No requests from customers.</p>') + '<p class="muted" style="font-size:.72rem">Customers ask from Account → Request refund. Orders that were not delivered can only ask 48 hours after payment. Offer refund / Approve / Reject all email the customer.</p></div>' +
     '<div class="subhead"><h3>💸 Refunds to send (' + (d.toSend || []).length + ')</h3></div><div class="card list" style="padding:6px 16px">' + (send || '<p class="muted">Nothing to send. 🎉</p>') + '<p class="muted" style="font-size:.72rem">Send the exact amount to the UPI ID (check the UPI name looks like the customer), then tap ✅ Done. The customer gets an email and a pop-up next time they open the website.</p></div>' +
     '<div class="subhead"><h3>⏳ Customer still choosing (' + (d.choosing || []).length + ')</h3></div><div class="card list" style="padding:6px 16px">' + (choosing || '<p class="muted">None.</p>') + '</div>' +
     '<div class="subhead"><h3>⚙️ Refund settings</h3></div><div class="card"><div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-end">' +
@@ -1940,6 +1954,25 @@ function renderRefundsView() {
   };
   $('#rfbody').onclick = function (e) {
     var o = e.target.closest('[data-rfo]'); if (o) { e.preventDefault(); openOrder(o.getAttribute('data-rfo')); return; }
+    var rq = e.target.closest('[data-rqoffer],[data-rqapprove],[data-rqreject]');
+    if (rq) {
+      var one = d.requests[+(rq.getAttribute('data-rqoffer') || rq.getAttribute('data-rqapprove') || rq.getAttribute('data-rqreject'))]; if (!one) return;
+      if (rq.hasAttribute('data-rqoffer')) {
+        modal('💸 Offer refund · request ' + esc(one.requestId), '<div id="orf_box"></div>', '', '');
+        offerRefundForm($('#orf_box'), { orderId: one.orderId }, function () { closeModal(); toast('💸 Refund offered'); loadRefundsView(); }, { reason: one.reason === 'NOT_WORKING' || one.kind === 'UNDELIVERED' ? 'NO_REPLACEMENT' : 'MID_PERIOD' });
+        return;
+      }
+      if (rq.hasAttribute('data-rqapprove')) {
+        if (!confirm('Approve a FULL refund of ' + money(one.paid) + ' for ' + one.orderId + '?\n\nDelivery is checked again first. The customer is emailed and chooses UPI (exact) or coins / coupon with extra.')) return;
+        rq.disabled = true;
+        post('/admin/api/refund-requests/approve', { requestId: one.requestId }).then(function (x) { rq.disabled = false; if (!x.ok) { alert(x.message || 'failed'); if (x.delivered) loadRefundsView(); return; } toast('✅ Full refund approved'); loadRefundsView(); });
+        return;
+      }
+      var m = prompt('Reject refund request for ' + one.service + ' ' + one.plan + '?\nMessage for the customer (they get it by email and in the app):', ''); if (m == null) return;
+      rq.disabled = true;
+      post('/admin/api/refund-requests/reject', { requestId: one.requestId, message: m }).then(function (x) { rq.disabled = false; if (!x.ok) { alert(x.message || 'failed'); return; } toast('❌ Request rejected'); loadRefundsView(); });
+      return;
+    }
     var c = e.target.closest('[data-rfcancel]');
     if (c) {
       var why = prompt('Cancel refund offer ' + c.getAttribute('data-rfcancel') + '? Why? (optional)', ''); if (why == null) return;

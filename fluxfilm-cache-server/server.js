@@ -301,6 +301,19 @@ if (refundsMod) {
     convertRefundToCredit: security.rateLimiter(10, TEN_MIN), chooseRefund: security.rateLimiter(10, TEN_MIN), refundSendCode: security.rateLimiter(4, 60 * 60e3), requestUpiRefund: security.rateLimiter(10, TEN_MIN),
   });
 }
+// 💸 Request refund (refundrequests.js): Account → Request refund. a = [phone] / [phone, { orderId | subId, reason, text }].
+// The server decides what can be requested (48 h from payment for undelivered orders, India time); max 5 a day per phone.
+let refundRequestsMod = null; try { refundRequestsMod = require('./refundrequests'); } catch (e) { console.log('[refund requests] not loaded:', e.message); }
+if (refundRequestsMod) {
+  Object.assign(DB_STOREFRONT, {
+    getRefundRequestItems: (a) => refundRequestsMod.listItems(a[0]),
+    createRefundRequest: (a) => refundRequestsMod.createRequest(a[0], a[1] && typeof a[1] === 'object' ? { orderId: a[1].orderId, subId: a[1].subId, reason: a[1].reason, text: a[1].text } : {}),
+  });
+  ['getRefundRequestItems', 'createRefundRequest'].forEach((x) => DB_STOREFRONT_ACTIONS.add(x));
+  Object.assign(LIMITS, { getRefundRequestItems: security.rateLimiter(60, TEN_MIN), createRefundRequest: security.rateLimiter(20, TEN_MIN) });
+  // Tries per phone (memory); refundrequests.js also allows at most 5 saved requests a day per phone (database).
+  Object.assign(PHONE_LIMITS, { createRefundRequest: security.rateLimiter(10, 24 * 60 * 60e3) });
+}
 // ₹0 checkout (order.js confirmFreeOrder): a = [orderId, { token, phone }]. The server re-checks the total and the holds.
 if (order) {
   DB_WRITES.confirmFreeOrder = (a) => order.confirmFreeOrder(a[0], a[1]);

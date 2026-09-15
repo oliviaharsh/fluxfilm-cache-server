@@ -627,9 +627,10 @@ function create(deps) {
     else if (sid) {
       const sub = (await q('SELECT * FROM subscriptions WHERE sub_id = ? LIMIT 1', [sid]))[0];
       if (!sub) throw new Refused('Subscription not found.', { status: 404 });
-      // The latest paid order for this subscription: a renewal of it, else the order that created it.
+      // The order that paid for the current period: fulfilment moves subscriptions.order_id to each delivered renewal,
+      // so prefer that order; a renewal that failed to deliver never counts here.
       const cands = await q("SELECT * FROM orders WHERE (order_id = ? OR renew_sub_id = ?) AND UPPER(status) IN ('PAID', 'REFUNDED') ORDER BY created_at_sheet DESC LIMIT 5", [s(sub.order_id), s(sub.sub_id)]);
-      o = cands[0] || null;
+      o = (cands || []).find((x) => s(x.order_id) === s(sub.order_id)) || (cands || []).find((x) => up(x.fulfillment_status) === 'FULFILLED') || null;
     } else throw new Refused('Order or subscription id required.', { status: 400 });
     if (!o) throw new Refused('No paid order found for this.', { status: 404 });
     const renew = up(o.order_type) === 'RENEW' && s(o.renew_sub_id);
@@ -734,6 +735,9 @@ function create(deps) {
           if (e && (e.code === 'ER_DUP_ENTRY' || /Duplicate entry/i.test(e.message))) throw new Refused('This order already has a refund offer — cancel it first.', { status: 409 });
           throw e;
         }
+        // The customer's open "Request refund" for this order is answered by this offer (refundrequests.js).
+        try { await conn.query("UPDATE refund_requests SET status = 'OFFERED', open_key = NULL, offer_id = ?, decided_at = ? WHERE order_id = ? AND status = 'OPEN'", [id, fmtDt(created), s(o.order_id)]); }
+        catch (e) { if (!missingTable(e)) throw e; }
         return { id, o, a, sc, reason, note, expiresAt: fmtDt(exp), subIds: endIds };
       });
       const offer = { offerId: done.id, orderId: s(done.o.order_id), subIds: done.subIds, reason: done.reason, paid: done.a.paid, charge: done.a.charge, suggestedCharge: done.sc.suggested, refund: done.a.refund, daysUsed: done.sc.daysUsed, totalDays: done.sc.totalDays, bonusPercent: cfg.bonusPercent, credit: bonusCredit(done.a.refund, cfg.bonusPercent), note: done.note, expiresAt: done.expiresAt };

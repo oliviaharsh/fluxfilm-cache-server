@@ -1,4 +1,5 @@
--- FluxFilm schema v26: 💸 refund offers for DELIVERED plans (refunds.js / adminrefunds.js). Safe to run more than once.
+-- FluxFilm schema v26: 💸 refund offers for DELIVERED plans + customer refund requests (refunds.js, refundrequests.js,
+-- adminrefunds.js). Two tables: refund_offers, refund_requests. Safe to run more than once.
 -- Run ONCE in phpMyAdmin on u339830006_fluxfilm (plain CREATE TABLE, no information_schema / PREPARE —
 -- Hostinger's phpMyAdmin refuses those with #1044).
 --
@@ -53,4 +54,41 @@ CREATE TABLE IF NOT EXISTS refund_offers (
   KEY idx_ro_phone (phone_norm, status),
   KEY idx_ro_status (status, created_at),
   KEY idx_ro_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Customer "💸 Request refund" (Account → Request refund, refundrequests.js). A request refunds nothing by itself: the
+-- owner answers it in admin → Refunds → 📨 Refund requests with Offer refund / Approve full refund / Reject.
+--   kind            DELIVERED (active plan, mid-period) | UNDELIVERED (paid, not delivered, 48 h after payment)
+--   delivery_state  what the server saw when the customer asked: ACTIVE | MANUAL_PENDING | NOT_DELIVERED
+--   reason          NOT_WORKING | NOT_RECEIVED | NOT_NEEDED | QUALITY | OTHER (reason_text = the customer's words)
+--   status          OPEN | OFFERED (a refund offer was sent) | APPROVED (full refund, customer chooses) | REJECTED
+--   open_key        = order_id while OPEN, NULL once answered → one open request per order
+--   estimated_charge the estimate shown to the customer (days used ÷ total days × paid); the team decides the real one
+CREATE TABLE IF NOT EXISTS refund_requests (
+  id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  request_id       VARCHAR(16)   NOT NULL,
+  order_id         VARCHAR(40)   NOT NULL,
+  sub_id           VARCHAR(40)   NULL,
+  open_key         VARCHAR(40)   NULL,
+  phone_norm       VARCHAR(10)   NOT NULL,
+  service          VARCHAR(120)  NULL,
+  plan             VARCHAR(120)  NULL,
+  kind             VARCHAR(20)   NOT NULL,
+  delivery_state   VARCHAR(30)   NULL,
+  reason           VARCHAR(20)   NOT NULL,
+  reason_text      VARCHAR(300)  NULL,
+  paid_amount      DECIMAL(10,2) NOT NULL DEFAULT 0,
+  estimated_charge DECIMAL(10,2) NOT NULL DEFAULT 0,
+  paid_at          DATETIME      NULL,
+  status           VARCHAR(20)   NOT NULL DEFAULT 'OPEN',
+  admin_message    VARCHAR(300)  NULL,
+  offer_id         VARCHAR(16)   NULL,
+  created_at       DATETIME      NOT NULL,
+  decided_at       DATETIME      NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_rq_request (request_id),
+  UNIQUE KEY uq_rq_open (open_key),
+  KEY idx_rq_phone (phone_norm, created_at),
+  KEY idx_rq_status (status, created_at),
+  KEY idx_rq_order (order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

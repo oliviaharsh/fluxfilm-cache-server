@@ -39,7 +39,7 @@ function mount(app, deps) {
   app.get('/admin/api/today', async (req, res) => {
     if (!auth(req, res)) return;
     try {
-      const [unpaid, undelivered, manual, ending, endingList, expiredOn, restock, unmatched, todos, stock, stuckList, upiRefunds, openOffers, manualLate] = await Promise.all([
+      const [unpaid, undelivered, manual, ending, endingList, expiredOn, restock, unmatched, todos, stock, stuckList, upiRefunds, openOffers, manualLate, refundRequests] = await Promise.all([
         // Checkouts started on the new site in the last 3 days but not paid: worth a nudge.
         one("SELECT COUNT(*) n FROM orders WHERE UPPER(status) = 'CREATED' AND source = 'node' AND created_at_sheet > NOW() - INTERVAL 3 DAY"),
         one('SELECT COUNT(*) n FROM orders o WHERE ' + UNDELIVERED),
@@ -61,6 +61,8 @@ function mount(app, deps) {
         many("SELECT offer_id, order_id, phone_norm, service, plan, refund_amount FROM refund_offers WHERE status = 'OFFERED' AND expires_at > NOW() ORDER BY created_at DESC LIMIT 50"),
         // 🛠 Manual plans: the 48 hours count from the PAYMENT (verified_at, else when the order was created).
         one("SELECT COUNT(*) n FROM subscriptions s JOIN orders o ON o.order_id = s.order_id WHERE UPPER(COALESCE(s.fulfillment_status, '')) = 'MANUAL_PENDING' AND UPPER(s.status) = 'ACTIVE' AND COALESCE(o.verified_at, o.created_at_sheet) < NOW() - INTERVAL 48 HOUR"),
+        // 📨 Customer "Request refund" waiting for an answer (refundrequests.js, db/schema-v26; [] before it is run).
+        many("SELECT request_id, order_id, phone_norm, service, plan, paid_amount, kind FROM refund_requests WHERE status = 'OPEN' ORDER BY created_at LIMIT 50"),
       ]);
       const openRefunds = (Array.isArray(upiRefunds) ? upiRefunds : []).map((o) => { const r = require("./refunds").refundInfo(o); return { order_id: o.order_id, name: o.name, phone_norm: o.phone_norm, service: o.service, plan: o.plan, final_amount: r.amount, fulfillment_status: r.state === 'UPI_REQUESTED' ? 'UPI_REFUND_REQUESTED' : 'CUSTOMER_CHOOSING', state: r.state }; });
       const toSend = openRefunds.filter((x) => x.state === 'UPI_REQUESTED');
@@ -75,6 +77,7 @@ function mount(app, deps) {
         ok: true,
         items: [
           { key: 'undelivered', icon: '⚠️', title: 'Paid but not delivered', count: +undelivered.n || 0, tone: 'bad', go: { view: 'orders', orders: 'undelivered' }, orders: Array.isArray(stuckList) ? stuckList : [] },
+          { key: 'refundrequests', icon: '📨', title: 'Refund requests from customers', count: Array.isArray(refundRequests) ? refundRequests.length : 0, tone: 'bad', go: { view: 'refunds' }, orders: (Array.isArray(refundRequests) ? refundRequests : []).slice(0, 5).map((x) => ({ order_id: x.order_id, name: '', phone_norm: x.phone_norm, service: x.service, plan: x.plan, final_amount: Number(x.paid_amount) || 0, fulfillment_status: String(x.kind || '') === 'UNDELIVERED' ? 'NOT_DELIVERED' : 'DELIVERED' })) },
           { key: 'upirefunds', icon: '💸', title: 'Refunds to send (UPI)', count: toSend.length, tone: 'bad', go: { view: 'refunds' }, orders: toSend.slice(0, 5) },
           { key: 'refundchoice', icon: '⏳', title: 'Refunds: customer still choosing (coins / coupon or UPI)', count: choosing.length, tone: 'info', go: { view: 'refunds' }, orders: choosing.slice(0, 5) },
           { key: 'manual', icon: '🛠', title: 'Manual plans to activate', count: +manual.n || 0, tone: lateManual ? 'bad' : 'warn', sub: lateManual ? lateManual + ' waiting over 48 h since payment' : '', late: lateManual, go: { view: 'orders', orders: 'manual' } },
