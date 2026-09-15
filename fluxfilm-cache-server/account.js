@@ -13,6 +13,7 @@
  */
 const db = require('./db');
 const reads = require('./reads');
+const emaillock = require('./emaillock');
 
 function s(v) { return String(v == null ? '' : v).trim(); }
 function up(v) { return s(v).toUpperCase(); }
@@ -37,39 +38,60 @@ async function createOrUpdateCustomerProfile(payload) {
   const p = payload || {};
   const name = s(p.name);
   const phone = normPhone(p.phone);
-  const email = s(p.email).toLowerCase();
+  const email = emaillock.normEmail(p.email);
 
   if (!name) return { ok: false, message: 'Name is required.' };
   if (!phone) return { ok: false, message: 'Phone number is required.' };
   if (!email || email.indexOf('@') === -1) return { ok: false, message: 'Valid email is required.' };
 
   const now = nowSheet();
-  const existing = await db.query('SELECT phone, raw_json FROM customers WHERE phone_norm = ? LIMIT 1', [phone]);
+  const existing = await db.query('SELECT phone, raw_json, email FROM customers WHERE phone_norm = ? LIMIT 1', [phone]);
 
   if (existing.length) {
+    // 🔒 Email lock (emaillock.js): changing an email already on file needs a code to the NEW address
+    // (+ a code to an old address when a plan is active). Never trusts the client.
+    const curStored = existing[0].email == null ? null : String(existing[0].email);
+    const cur = emaillock.normEmail(curStored);
     const raw = rawOf(existing[0].raw_json);
+    let changed = false;
+    const at = new Date().toISOString();
+    if (cur && email !== cur) {
+      const auth = await emaillock.authorizeChange(phone, cur, email, p.emailToken, p.oldEmailToken);
+      if (!auth.ok) return { ok: false, emailLocked: true, needOld: !!auth.needOld, message: emaillock.GENERIC_CHANGE };
+      Object.assign(raw, emaillock.verifiedFields(email, 'code'), { EmailChangedAt: at, PreviousEmail: cur });
+      changed = true;
+    } else if (!cur) {
+      // First email on a row that had none: allowed without a code, but NOT verified (checkout confirms it).
+      const proved = emaillock._internal.tokenOk(p.emailToken, 'new', phone, email);
+      Object.assign(raw, proved ? emaillock.verifiedFields(email, 'code') : { EmailVerified: false }, { EmailChangedAt: at });
+    }
     raw.Name = name;
-    raw.Email = email;
+    raw.Email = cur === email ? (curStored || email) : email;
     raw.UpdatedAt = now;
     raw.lastActivity = now;
     if (!s(raw.Status)) raw.Status = 'ACTIVE';
     if (!s(raw.Phone)) raw.Phone = s(p.phone) || phone;
 
-    await db.query(
-      "UPDATE customers SET name = ?, email = ?, updated_at = NOW(), status = COALESCE(NULLIF(status, ''), 'ACTIVE'), raw_json = ? WHERE phone_norm = ? LIMIT 1",
-      [name, email, JSON.stringify(raw), phone]);
+    // "email <=> old value": if the email changed in between (another request), nothing is written.
+    const res = await db.query(
+      "UPDATE customers SET name = ?, email = ?, updated_at = NOW(), status = COALESCE(NULLIF(status, ''), 'ACTIVE'), raw_json = ? WHERE phone_norm = ? AND email <=> ? LIMIT 1",
+      [name, raw.Email, JSON.stringify(raw), phone, curStored]);
+    if (res && res.affectedRows != null && Number(res.affectedRows) === 0) return { ok: false, emailLocked: true, message: emaillock.GENERIC_CHANGE };
+    if (changed) notifyOld(cur, email, name);
 
-    return { ok: true, message: 'Account updated', profile: await _profile(phone) };
+    return { ok: true, message: changed ? 'Email changed ✅' : 'Account updated', emailChanged: changed, profile: await _profile(phone) };
   }
 
-  // New customer
+  // New customer: the email is saved WITHOUT a code but marked not verified (checkout confirms it when needed).
   const customerId = 'CUS-' + String(Date.now()).slice(-8);
   const raw = {
     CustomerID: customerId, MemberSince: now, UpdatedAt: now,
     Name: name, Phone: s(p.phone) || phone, Email: email,
     LastOrderID: '', TotalOrders: 0, TotalSpent: 0,
     lastActivity: now, Notes: '', Status: 'ACTIVE', ProfilePicUrl: '',
+    EmailVerified: false,
   };
+  if (emaillock._internal.tokenOk(p.emailToken, 'new', phone, email)) Object.assign(raw, emaillock.verifiedFields(email, 'code'));
   await db.query(
     "INSERT INTO customers (phone, phone_norm, name, email, profile_pic_url, member_since, updated_at, status, customer_id, raw_json)" +
     " VALUES (?, ?, ?, ?, '', NOW(), NOW(), 'ACTIVE', ?, ?)",
@@ -84,6 +106,26 @@ async function createOrUpdateCustomerProfile(payload) {
   }
 
   return { ok: true, message: 'Account created', profile: await _profile(phone) };
+}
+
+/** The old address gets "Your FluxFilm email was changed" (never blocks the save). */
+function notifyOld(oldEmail, newEmail, name) {
+  Promise.resolve()
+    .then(() => emaillock.notifyChanged(oldEmail, newEmail, name))
+    .catch((e) => console.log('[email-lock] change notice failed:', e.message));
+}
+
+/**
+ * Account → Profile → Change email, and checkout "Change": only the email changes, the name is kept.
+ * payload: { phone, email, emailToken, oldEmailToken }
+ */
+async function changeProfileEmail(payload) {
+  const p = payload || {};
+  const phone = normPhone(p.phone);
+  if (!phone) return { ok: false, message: 'Phone number is required.' };
+  const rows = await db.query('SELECT name FROM customers WHERE phone_norm = ? LIMIT 1', [phone]);
+  if (!rows.length) return { ok: false, emailLocked: true, message: emaillock.GENERIC_CHANGE };
+  return createOrUpdateCustomerProfile({ name: s(rows[0].name) || 'Customer', phone, email: p.email, emailToken: p.emailToken, oldEmailToken: p.oldEmailToken });
 }
 
 /** The profile object the frontend expects (same fields, minus the `ok` flag). */
@@ -233,6 +275,7 @@ function notifyTelegram(info) {
 
 module.exports = {
   createOrUpdateCustomerProfile,
+  changeProfileEmail,
   createCustomerProfile: createOrUpdateCustomerProfile, // Apps Script alias
   updateCustomerProfilePic,
   getOrderStatus,
