@@ -2564,6 +2564,132 @@ function AccountCreateModal({
     onClick: submit
   }, loading ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), " Creating…") : '✅ Create Account'))));
 }
+// 🔒 Profile email lock (emaillock.js). mode 'confirm' = code to the email on file (checkout, when needed);
+// mode 'change' = [code from an old email when a plan is active] → code to the new email → save.
+// The server re-checks everything; this sheet only guides the customer.
+function EmailLockSheet({
+  open,
+  phone,
+  mode,
+  onClose,
+  onDone
+}) {
+  const E = React.createElement;
+  const [st, setSt] = useState(null);
+  const [step, setStep] = useState('load');
+  const [newEmail, setNewEmail] = useState('');
+  const [target, setTarget] = useState('');
+  const [code, setCode] = useState('');
+  const [sent, setSent] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [resendAt, setResendAt] = useState(0);
+  const [, setTick] = useState(0);
+  const oldToken = useRef('');
+  const ph = normPhone_(phone || '');
+  const changeStart = r => r && r.activePlan ? r.oldOptions && r.oldOptions.length ? 'old' : 'help' : 'new';
+  useEffect(() => {
+    if (!open) return;
+    setSt(null); setStep('load'); setNewEmail(''); setCode(''); setSent(''); setMsg(''); setResendAt(0); setBusy(false);
+    oldToken.current = '';
+    API.emailLockStatus(ph, '', r => {
+      if (!r || !r.ok) { setMsg(r?.message || 'Could not load. Please try again.'); setStep('error'); return; }
+      setSt(r);
+      if (r.oldOptions && r.oldOptions[0]) setTarget(r.oldOptions[0].id);
+      setStep(mode === 'confirm' && r.hasEmail ? 'confirm' : changeStart(r));
+    }, () => { setMsg('No internet? Please try again.'); setStep('error'); });
+  }, [open, ph, mode]);
+  const left = Math.max(0, Math.ceil((resendAt - Date.now()) / 1000));
+  useEffect(() => {
+    if (!left) return;
+    const t = setInterval(() => setTick(x => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [resendAt, left > 0]);
+  if (!open) return null;
+  const purpose = step === 'confirm' ? 'confirm' : step === 'old' ? 'old' : 'new';
+  const goStep = s => { setStep(s); setCode(''); setSent(''); setMsg(''); setResendAt(0); };
+  function send() {
+    if (busy || left > 0) return;
+    if (purpose === 'new' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail.trim())) return setMsg('Please type a full email, like name@gmail.com.');
+    setBusy(true); setMsg('');
+    API.emailSendCode(ph, purpose, newEmail.trim(), target, r => {
+      setBusy(false);
+      if (!r || !r.ok) { setMsg(r?.message || 'Could not send the code. Please try again.'); return; }
+      setSent(r.maskedEmail || 'your email');
+      setResendAt(Date.now() + Number(r.waitSeconds || 30) * 1000);
+      setMsg(r.message || '');
+    }, () => { setBusy(false); setMsg('No internet? Please try again.'); });
+  }
+  function verify() {
+    const c = code.replace(/\D/g, '');
+    if (busy) return;
+    if (c.length !== 6) return setMsg('Enter the 6-digit code from the email.');
+    setBusy(true); setMsg('');
+    API.emailVerifyCode(ph, purpose, c, newEmail.trim(), target, r => {
+      if (!r || !r.ok) {
+        setBusy(false); setMsg(r?.message || 'That code did not work.');
+        if (r && r.expired) { setSent(''); setCode(''); setResendAt(0); }
+        return;
+      }
+      if (purpose === 'confirm') { setBusy(false); onDone && onDone({ verified: true }); return; }
+      if (purpose === 'old') { setBusy(false); oldToken.current = r.token || ''; goStep('new'); return; }
+      API.changeProfileEmail({ phone: ph, email: newEmail.trim(), emailToken: r.token || '', oldEmailToken: oldToken.current }, s => {
+        setBusy(false);
+        if (!s || !s.ok) { setMsg(s?.message || 'Could not change the email. Please try again, or tap Help.'); return; }
+        onDone && onDone({ changed: true, email: newEmail.trim().toLowerCase(), profile: s.profile || null });
+      }, () => { setBusy(false); setMsg('No internet? Please try again.'); });
+    }, () => { setBusy(false); setMsg('No internet? Please try again.'); });
+  }
+  const txt = (t, extra) => E("div", { style: Object.assign({ fontFamily: PJS, fontSize: 14.5, fontWeight: 600, color: C.muted, lineHeight: 1.55, marginBottom: 12 }, extra || {}) }, t);
+  const link = (label, fn) => E("button", { type: "button", onClick: fn, style: { background: 'none', border: 0, padding: '8px 2px', color: '#2563eb', fontFamily: PJS, fontSize: 14, fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' } }, label);
+  const helpBtn = E(Btn, { variant: "ghost", full: true, onClick: () => API.openWhatsApp() }, "💬 Help");
+  const codeBox = E(React.Fragment, null, E("label", { htmlFor: "ff-email-code", style: { display: 'block', fontFamily: PJS, fontSize: 13, fontWeight: 800, color: C.text, marginBottom: 6 } }, "6-digit code sent to ", sent),
+    E("input", { id: "ff-email-code", type: "text", inputMode: "numeric", autoComplete: "one-time-code", pattern: "[0-9]*", maxLength: 6, autoFocus: true, value: code, placeholder: "••••••",
+      onChange: e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6)), onKeyDown: e => { if (e.key === 'Enter') verify(); },
+      style: { width: '100%', boxSizing: 'border-box', padding: '14px 10px', fontFamily: PJS, fontSize: 24, fontWeight: 800, letterSpacing: 8, textAlign: 'center', color: C.text, background: '#fafafa', border: `1.5px solid ${C.border}`, borderRadius: 14, outline: 'none' } }),
+    E("div", { style: { marginTop: 12 } }, E(Btn, { variant: "primary", full: true, disabled: busy || code.length !== 6, onClick: verify }, busy ? E(React.Fragment, null, E(Spinner, null), " Checking…") : '✅ Confirm code')),
+    E("div", { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 4, marginTop: 6 } },
+      left > 0 ? E("span", { style: { fontFamily: PJS, fontSize: 13.5, fontWeight: 700, color: C.muted, padding: '8px 2px' } }, "Send a new code in ", left, " s") : link('Send a new code', send),
+      purpose === 'new' ? link('Wrong email? Change', () => goStep('new')) : purpose === 'confirm' ? link('Wrong email? Change', () => goStep(changeStart(st))) : null));
+  const sendBtn = label => E(Btn, { variant: "primary", full: true, disabled: busy, onClick: send }, busy ? E(React.Fragment, null, E(Spinner, null), " Sending…") : label);
+  let title = '', body = null;
+  if (step === 'load') { title = '🔒 Your email'; body = txt(E(React.Fragment, null, E(Spinner, null), " Loading…")); }
+  else if (step === 'error') { title = '🔒 Your email'; body = helpBtn; }
+  else if (step === 'confirm') {
+    title = '🔒 Confirm your email';
+    body = E(React.Fragment, null, txt(E(React.Fragment, null, "Login details will be sent to ", E("b", { style: { color: C.text } }, st && st.maskedEmail), ". For your safety, we'll email a 6-digit code to check it's yours.")),
+      sent ? codeBox : E(React.Fragment, null, sendBtn('📧 Send code'), E("div", { style: { marginTop: 6 } }, link('Wrong email? Change', () => goStep(changeStart(st))))));
+  } else if (step === 'old') {
+    const opts = st && st.oldOptions || [];
+    title = '🔒 First, confirm it’s you';
+    body = E(React.Fragment, null, txt('Your plan is active, so we need a code from an email you already use with FluxFilm.'),
+      !sent && E("div", { role: "radiogroup", style: { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 } }, opts.map(o => E("button", { key: o.id, type: "button", role: "radio", "aria-checked": target === o.id, onClick: () => setTarget(o.id),
+        style: { textAlign: 'left', padding: '13px 14px', borderRadius: 14, border: `2px solid ${target === o.id ? '#16a34a' : C.border}`, background: target === o.id ? 'rgba(22,163,74,.06)' : '#fff', fontFamily: PJS, fontSize: 15, fontWeight: 800, color: C.text, cursor: 'pointer', overflowWrap: 'anywhere' } }, (target === o.id ? '🔘 ' : '⚪ ') + o.maskedEmail))),
+      sent ? codeBox : sendBtn('📧 Send code'),
+      txt('Can’t open these emails any more? Tap Help and our team will change it for you.', { marginTop: 14, marginBottom: 8, fontSize: 13 }), helpBtn);
+  } else if (step === 'new') {
+    title = '✉️ Your new email';
+    body = E(React.Fragment, null, txt('We’ll send a 6-digit code to the new email to check it’s yours.'),
+      sent ? codeBox : E(React.Fragment, null, E("input", { type: "email", inputMode: "email", autoComplete: "email", autoFocus: true, value: newEmail, placeholder: "name@gmail.com", "aria-label": "New email",
+        onChange: e => setNewEmail(e.target.value), onKeyDown: e => { if (e.key === 'Enter') send(); },
+        style: { width: '100%', boxSizing: 'border-box', padding: '14px', fontFamily: PJS, fontSize: 16, fontWeight: 700, color: C.text, background: '#fafafa', border: `1.5px solid ${C.border}`, borderRadius: 14, outline: 'none', marginBottom: 12 } }), sendBtn('📧 Send code')));
+  } else if (step === 'help') {
+    title = '🔒 Change email';
+    body = E(React.Fragment, null, txt('For your safety, this email can’t be changed here right now. Tap Help and our team will change it for you.'), helpBtn);
+  }
+  return ReactDOM.createPortal(E("div", {
+    onClick: busy ? undefined : onClose,
+    style: { position: 'fixed', inset: 0, zIndex: 95, background: 'rgba(15,23,42,.50)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0 10px 10px' }
+  }, E("div", {
+    role: "dialog", "aria-modal": true, "aria-label": title,
+    onClick: e => e.stopPropagation(),
+    style: { width: 'min(520px,100%)', boxSizing: 'border-box', background: '#fff', borderRadius: '24px 24px 18px 18px', padding: '16px 16px 18px', boxShadow: '0 -8px 46px rgba(15,23,42,.25)', maxHeight: 'calc(100dvh - 20px)', overflowY: 'auto', animation: 'slideUp .22s ease' }
+  }, E("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 } },
+    E("div", { style: { fontFamily: PJS, fontSize: 18, fontWeight: 900, color: C.text, minWidth: 0 } }, title),
+    E("button", { type: "button", onClick: onClose, disabled: busy, "aria-label": "Close", style: { flexShrink: 0, width: 40, height: 40, borderRadius: 999, border: `1px solid ${C.border}`, background: '#f1f5f9', fontSize: 16, fontWeight: 800, color: C.muted, cursor: 'pointer' } }, "✕")),
+    body,
+    msg && E("div", { role: "status", style: { marginTop: 12, padding: '11px 13px', borderRadius: 14, background: '#f8fafc', border: `1px solid ${C.border}`, color: C.text, fontFamily: PJS, fontSize: 13.5, fontWeight: 700, lineHeight: 1.5 } }, msg))), document.body);
+}
 function RecoverPickerModal({
   subs,
   onSelect,
@@ -4903,6 +5029,14 @@ function DetailsScreen({
       phone: normPhone_(phone || profile?.phone || f.phone || '')
     }));
   }, [phone, profile?.name, profile?.email, profile?.phone]);
+  // 🔒 Email lock: where the login goes, and whether it needs a code first (checked early so Pay stays one tap).
+  const [emailLock, setEmailLock] = useState(null);
+  const [emailSheet, setEmailSheet] = useState('');
+  const emailOk = useRef(false);
+  useEffect(() => {
+    if (!locked || !form.phone) return;
+    API.emailLockStatus(form.phone, '', r => setEmailLock(r && r.ok ? r : null), () => {});
+  }, [locked, form.phone]);
   function applyCoupon() {
     if (!form.phone.trim()) return alert('Enter phone first.');
     if (!form.coupon.trim()) return alert('Enter coupon code.');
@@ -4963,6 +5097,21 @@ function DetailsScreen({
       if (!isPrimeDev && !form.extraVal.trim()) return alert('Please fill: ' + (planObj.extraFieldLabel || 'Required field'));
     }
     if (planObj?.loginChoice && !form.loginMode) return alert('Please choose: the same login on all devices, or a separate login for each device.');
+    // 🔒 Email lock: verified / unchanged email → straight on. Unverified + recently changed (or not the last paid
+    // order's email) → a 6-digit code first. The server refuses the order without it anyway.
+    if (locked && !emailOk.current) {
+      const decide = r => {
+        if (r && r.ok && r.needsCode) {
+          setEmailLock(r);
+          setEmailSheet('confirm');
+          return;
+        }
+        emailOk.current = true;
+        proceed();
+      };
+      if (emailLock) return decide(emailLock);
+      return API.emailLockStatus(form.phone, '', decide, () => decide(null));
+    }
     if (form.coupon.trim() && !couponState.applied) {
       if (!confirm('You entered a coupon but did not apply it.\nContinue without applying?')) return;
     }
@@ -5086,11 +5235,53 @@ function DetailsScreen({
       color: C.muted,
       gridColumn: '1 / -1'
     }
-  }, "Email", React.createElement("br", null), React.createElement("b", {
+  }, "📧 Login details will be sent to", React.createElement("br", null), React.createElement("span", {
     style: {
-      color: C.text
+      display: 'inline-flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      columnGap: 6
     }
-  }, maskEmail_(form.email))))), React.createElement(Card, null, React.createElement("div", {
+  }, React.createElement("b", {
+    style: {
+      color: C.text,
+      overflowWrap: 'anywhere'
+    }
+  }, maskEmail_(form.email)), React.createElement("span", null, "—"), React.createElement("button", {
+    type: "button",
+    className: "ff-email-change",
+    onClick: () => setEmailSheet('change'),
+    style: {
+      background: 'none',
+      border: 0,
+      padding: '6px 2px',
+      color: '#2563eb',
+      fontFamily: PJS,
+      fontSize: 14,
+      fontWeight: 800,
+      textDecoration: 'underline',
+      cursor: 'pointer'
+    }
+  }, "Change")))), React.createElement(EmailLockSheet, {
+    open: !!emailSheet,
+    phone: form.phone,
+    mode: emailSheet,
+    onClose: () => setEmailSheet(''),
+    onDone: r => {
+      const wasConfirm = emailSheet === 'confirm' && r && r.verified;
+      setEmailSheet('');
+      if (r && r.changed) {
+        setForm(f => ({ ...f, email: r.email }));
+        emailOk.current = false;
+        API.emailLockStatus(form.phone, '', s => setEmailLock(s && s.ok ? s : null), () => setEmailLock(null));
+      }
+      if (wasConfirm) {
+        setEmailLock(s => s ? { ...s, needsCode: false, verified: true } : s);
+        emailOk.current = true;
+        setTimeout(proceed, 0);
+      }
+    }
+  })), React.createElement(Card, null, React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 17,
@@ -7004,6 +7195,17 @@ function RenewStartScreen({
     loading: false,
     msg: ''
   });
+  // 🔒 Email lock: renewals never need a code — the server sends the login to the trusted profile email, or else to
+  // this plan's own email. Show where, with "Change".
+  const [renewLock, setRenewLock] = useState(null);
+  const [renewEmailSheet, setRenewEmailSheet] = useState(false);
+  const lockPhone = normPhone_(phone || sub?.phone || '');
+  const lockSubId = String(sub?.subId || '');
+  const loadRenewLock = () => {
+    if (!lockPhone || !lockSubId) return;
+    API.emailLockStatus(lockPhone, lockSubId, r => setRenewLock(r && r.ok ? r : null), () => {});
+  };
+  useEffect(loadRenewLock, [lockPhone, lockSubId]);
   if (!sub) return React.createElement(Slide, null, React.createElement("div", {
     style: {
       paddingBottom: 90
@@ -7695,7 +7897,49 @@ function RenewStartScreen({
     tone: "plain"
   }, "ℹ️ Your subscription has expired. Renewing will start a fresh period.") : !isSamePlan ? React.createElement(Hint, {
     tone: "blue"
-  }, "ℹ️ You are switching to a different plan. Early discount applies only on same-plan renewal.") : React.createElement(Hint, null, "ℹ️ No early renewal discount available right now."), React.createElement("div", {
+  }, "ℹ️ You are switching to a different plan. Early discount applies only on same-plan renewal.") : React.createElement(Hint, null, "ℹ️ No early renewal discount available right now."), renewLock && renewLock.renewMaskedEmail && React.createElement("div", {
+    className: "ff-renew-email",
+    style: {
+      marginTop: 12,
+      padding: '11px 14px',
+      borderRadius: 14,
+      background: '#f8fafc',
+      border: `1px solid ${C.border}`,
+      fontFamily: PJS,
+      fontSize: 13.5,
+      fontWeight: 650,
+      color: C.muted,
+      lineHeight: 1.5,
+      overflowWrap: 'anywhere'
+    }
+  }, "📧 Login details will be sent to ", React.createElement("b", {
+    style: {
+      color: C.text
+    }
+  }, renewLock.renewMaskedEmail), " — ", React.createElement("button", {
+    type: "button",
+    onClick: () => setRenewEmailSheet(true),
+    style: {
+      background: 'none',
+      border: 0,
+      padding: '4px 2px',
+      color: '#2563eb',
+      fontFamily: PJS,
+      fontSize: 14,
+      fontWeight: 800,
+      textDecoration: 'underline',
+      cursor: 'pointer'
+    }
+  }, "Change")), React.createElement(EmailLockSheet, {
+    open: renewEmailSheet,
+    phone: lockPhone,
+    mode: "change",
+    onClose: () => setRenewEmailSheet(false),
+    onDone: () => {
+      setRenewEmailSheet(false);
+      loadRenewLock();
+    }
+  }), React.createElement("div", {
     style: {
       display: 'flex',
       gap: 10,
@@ -8778,6 +9022,9 @@ function AccountScreen({
   const [pendingPhoto, setPendingPhoto] = useState('');
   const [photoMsg, setPhotoMsg] = useState(null);
   const [showCreator, setShowCreator] = useState(false);
+  // 🔒 Account → Profile → Change email (codes; see EmailLockSheet / emaillock.js).
+  const [emailSheetOpen, setEmailSheetOpen] = useState(false);
+  const [emailMsg, setEmailMsg] = useState('');
   // Account → Notifications row (renewal reminders on this device).
   const [pushSt, setPushSt] = useState('off');
   useEffect(() => {
@@ -9203,6 +9450,43 @@ function AccountScreen({
   }), React.createElement(KV, {
     label: "Email",
     value: profile?.email ? maskEmail_(profile.email) : '-'
+  }), profile?.email && React.createElement("div", {
+    style: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+      padding: '6px 0 10px'
+    }
+  }, React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12.5,
+      fontWeight: 650,
+      color: C.muted,
+      flex: '1 1 160px'
+    }
+  }, emailMsg || 'Your login details are sent to this email.'), React.createElement(Btn, {
+    variant: "ghost",
+    size: "sm",
+    onClick: () => setEmailSheetOpen(true)
+  }, "✏️ Change email")), React.createElement(EmailLockSheet, {
+    open: emailSheetOpen,
+    phone: phone,
+    mode: "change",
+    onClose: () => setEmailSheetOpen(false),
+    onDone: r => {
+      setEmailSheetOpen(false);
+      if (r && r.changed) {
+        setProfile(p => ({
+          ...(p || {}),
+          ...(r.profile || {}),
+          email: r.profile?.email || r.email
+        }));
+        setEmailMsg('✅ Email changed. We told your old email too.');
+      }
+    }
   }), React.createElement(KV, {
     label: "Member Since",
     value: profile?.memberSince ? fmtDate(profile.memberSince) : '-'
@@ -15071,6 +15355,19 @@ const API = {
   },
   createOrUpdateCustomerProfile(payload, onSuccess, onFailure) {
     apiCall_('createOrUpdateCustomerProfile', [payload], onSuccess, onFailure);
+  },
+  // 🔒 Profile email lock (emaillock.js). purpose = 'new' | 'old' | 'confirm'; target = an oldOptions id.
+  emailLockStatus(phone, subId, onSuccess, onFailure) {
+    apiCall_('emailLockStatus', [phone, subId || ''], onSuccess, onFailure);
+  },
+  emailSendCode(phone, purpose, email, target, onSuccess, onFailure) {
+    apiCall_('emailSendCode', [phone, purpose, email || '', target || ''], onSuccess, onFailure);
+  },
+  emailVerifyCode(phone, purpose, code, email, target, onSuccess, onFailure) {
+    apiCall_('emailVerifyCode', [phone, purpose, code, email || '', target || ''], onSuccess, onFailure);
+  },
+  changeProfileEmail(payload, onSuccess, onFailure) {
+    apiCall_('changeProfileEmail', [payload], onSuccess, onFailure);
   },
   updateCustomerProfilePic(phone, url, onSuccess, onFailure) {
     apiCall_('updateCustomerProfilePic', [phone, url], onSuccess, onFailure);

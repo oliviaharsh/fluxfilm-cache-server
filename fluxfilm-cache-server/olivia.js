@@ -893,6 +893,8 @@ async function turn(c, input, ctx) {
     ctx.meta.push({ tool: 'createOrder', ok: !!(r && r.ok), orderId: r && r.orderId, paused: !!(r && r.paused), outOfStock: !!(r && r.outOfStock), coupon: !!st.coupon });
     if (!r || !r.ok) {
       if (r && r.paused) { st.step = 'menu'; return [{ intent: 'SHOP_PAUSED', buttons: [btn('menu', lang), btn('whatsapp', lang)] }]; }
+      // 🔒 Email lock: the email needs a code first (the Buy page shows the code step). Nothing was created.
+      if (r && (r.emailCheck || r.emailChangeRequired)) { st.step = 'confirm'; return [{ intent: 'CONFIRM_EMAIL_FIRST', buttons: [Object.assign(btn('buysite', lang), { service: p.service }), btn('whatsapp', lang), btn('menu', lang)] }]; }
       if (r && r.outOfStock) { st.plan = null; st.days = 0; return [{ intent: 'OUT_OF_STOCK', facts: { title: titleOf(p, lang) } }].concat(advance(st, ctx.cat, lang, ctx.profile)); }
       if (st.coupon && /coupon/i.test(s(r && r.message))) {
         const bad = st.coupon.code; delete st.coupon; st.awaitCoupon = true;
