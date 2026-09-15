@@ -53,10 +53,11 @@ function displayName(name) {
   const initial = /^\p{L}/u.test(last) ? last.charAt(0).toUpperCase() + '.' : '';
   return (first + (initial ? ' ' + initial : '')).slice(0, 30);
 }
-/** Only the shop's own profile-photo links or plain https avatar pictures. */
+/** Only the shop's own profile-photo / creator-avatar links or plain https avatar pictures. */
 function safeAvatar(u) {
   const v = s(u);
   if (/^\/profile-photo\/[a-f0-9]{24}(\?v=[a-z0-9]{1,20})?$/.test(v)) return v;
+  if (/^\/avatar\/1[0-9a-z]{15}\.svg$/.test(v)) return v; // ✨ creator avatar (drawn by the server)
   return /^https:\/\/[A-Za-z0-9.-]+\/[^\s"'<>\\]{1,250}$/.test(v) ? v : '';
 }
 const ipHash = (ip) => crypto.createHash('sha256').update('ffcomment|' + s(ip)).digest('hex').slice(0, 24);
