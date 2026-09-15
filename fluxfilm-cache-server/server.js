@@ -165,7 +165,8 @@ const LIMITS = {
 const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setAvatar', 'removeProfilePhoto', 'submitRestockRequest']);
 // Per-phone limits (independent of IP) for actions that email or reveal codes.
 const PHONE_LIMITS = {
-  recoverSendOtp: security.rateLimiter(3, 15 * 60e3),
+  // 6 (was 3): a wrong-email try also counts, and recover.js already waits 30 s between real code emails.
+  recoverSendOtp: security.rateLimiter(6, 15 * 60e3),
   getLatestOtp: security.rateLimiter(15, TEN_MIN),
   otpSendCode: security.rateLimiter(4, 60 * 60e3),
   otpVerifyCode: security.rateLimiter(12, 15 * 60e3),
@@ -384,7 +385,7 @@ app.post('/api', async (req, res) => {
   const limited = rateLimited(req, action, a);
   if (limited) {
     res.set('Retry-After', String(limited.retryAfterSec));
-    return res.status(429).json({ ok: false, rateLimited: true, message: 'Too many requests — please wait ' + Math.ceil(limited.retryAfterSec / 60) + ' min and try again.' });
+    return res.status(429).json({ ok: false, rateLimited: true, message: (action === 'recoverSendOtp' ? 'Too many tries for this number — please wait ' + Math.ceil(limited.retryAfterSec / 60) + ' min. A code we already emailed still works for 10 minutes.' : 'Too many requests — please wait ' + Math.ceil(limited.retryAfterSec / 60) + ' min and try again.') });
   }
   const dbUnavailable = () => res.status(503).json({ ok: false, message: 'The FluxFilm database is temporarily unavailable. No order or update was sent to the old system.' });
   const dbError = (label, e) => {
