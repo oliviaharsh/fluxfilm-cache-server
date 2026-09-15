@@ -45,11 +45,15 @@ async function sendAccessEmail(payload) {
         row('Device', escHtml(x.deviceType === 'TV' ? 'TV' : x.deviceType === 'NON_TV' ? 'Mobile / laptop' : x.deviceType))).join('') +
         '<tr><td colspan="2" style="padding:10px 12px;color:#475569;font-size:13px">Each device has its own login — use Device 1\'s details on your first device, Device 2\'s on the second.</td></tr>';
     }
-    subject = '🎬 Your FluxFilm ' + (p.service || '') + ' access — ' + (p.orderId || '');
+    // p.switched: 🔁 the owner moved this plan to another account (adminswitch.js) — same details block, new wording.
+    subject = p.switched ? '🔁 Your FluxFilm ' + (p.service || '') + ' login was updated' : '🎬 Your FluxFilm ' + (p.service || '') + ' access — ' + (p.orderId || '');
     html =
       '<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:520px;margin:auto">' +
-      '<h2 style="color:#16a34a;margin-bottom:4px">🎬 Your FluxFilm access is ready!</h2>' +
-      '<p style="color:#475569;margin-top:0">Hi ' + (p.name || 'there') + ', thanks for your order.</p>' +
+      (p.switched
+        ? '<h2 style="color:#1d4ed8;margin-bottom:4px">🔁 Your ' + escHtml(p.service || 'FluxFilm') + ' login was updated</h2>' +
+          '<p style="color:#475569;margin-top:0">Hi ' + escHtml(p.name || 'there') + ', here are your new login details.</p>'
+        : '<h2 style="color:#16a34a;margin-bottom:4px">🎬 Your FluxFilm access is ready!</h2>' +
+          '<p style="color:#475569;margin-top:0">Hi ' + (p.name || 'there') + ', thanks for your order.</p>') +
       '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:8px 4px;margin:14px 0">' +
       '<table style="width:100%;border-collapse:collapse">' +
       row('Service', p.service) + row('Plan', p.plan) + row('Order ID', p.orderId) + row('Valid till', p.expiry) + rows +

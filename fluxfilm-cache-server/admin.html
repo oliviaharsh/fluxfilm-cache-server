@@ -923,7 +923,7 @@ function subCard(s) {
     (stopped ? '<div class="qnote warn" style="margin:8px 0">This plan was refunded — it has ended. Can\'t be renewed or extended. Tick <b>Removed from account</b> once you change the password.</div>' : '<div class="bar' + (d != null && d <= 0 ? ' b' : d != null && d <= 7 ? ' w' : '') + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>') +
     (creds ? '<div class="creds">' + creds + '</div>' : '') + rmUi +
     '<div class="row" style="justify-content:space-between"><div class="meta"><span class="pill p-grey">' + id + '</span>' + (s.inventory_ref ? '<span class="pill p-blue">' + esc(s.inventory_ref) + '</span>' : '') + statusPill(s.status) + (s.source ? '<span class="pill p-grey">' + esc(s.source) + '</span>' : '') + '</div>' +
-    '<span class="row" style="gap:6px">' + (stopped ? '' : (!/REFUNDED|CANCEL|REMOVED/i.test(s.status || '') ? '<button class="btn ghost sm" onclick="offerRefundDialog(\'' + id + '\')">💸 Offer refund</button><button class="btn ghost sm" onclick="refundNowDialog(\'' + id + '\')">⚡ Refund now</button>' : '') + '<button class="btn ghost sm" onclick="extendDialog(\'' + id + '\')">⏱ Extend</button><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a>') + '</span></div></div>';
+    '<span class="row" style="gap:6px">' + (stopped ? '' : (!/REFUNDED|CANCEL|REMOVED/i.test(s.status || '') ? '<button class="btn ghost sm" onclick="offerRefundDialog(\'' + id + '\')">💸 Offer refund</button><button class="btn ghost sm" onclick="refundNowDialog(\'' + id + '\')">⚡ Refund now</button>' : '') + (act ? '<button class="btn ghost sm" onclick="switchAccountDialog(\'' + id + '\')">🔁 Switch account</button>' : '') + '<button class="btn ghost sm" onclick="extendDialog(\'' + id + '\')">⏱ Extend</button><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a>') + '</span></div></div>';
 }
 function saveRemoved(id) {
   var cb = document.getElementById('rm_' + id), at = document.getElementById('rmat_' + id), msg = document.getElementById('rmmsg_' + id);
@@ -4227,6 +4227,8 @@ function ruMatch(g) {
 }
 function ruPerson(p, g) {
   var ago = p.daysAgo == null ? '' : p.daysAgo === 0 ? 'expired today' : 'expired ' + ruPlural(p.daysAgo, 'day') + ' ago';
+  // 🔁 Switched to another account: still running there, but may still be logged in on this old login.
+  if (p.switchedTo) ago = '🔁 switched to ' + esc(p.switchedTo) + ' ' + (p.daysAgo ? ruPlural(p.daysAgo, 'day') + ' ago' : 'today');
   return '<div class="ru-person"><div class="grow"><b>' + esc(p.name) + '</b> <span class="muted">· ' + (p.phone ? '…' + esc(String(p.phone).slice(-4)) : 'no phone') + '</span>' +
     '<div class="muted" style="font-size:.74rem">' + esc(p.plan || p.service) + (p.slot ? ' · ' + esc(p.slot) : '') + (p.deviceName ? ' · 📱 <b>' + esc(p.deviceName) + '</b>' : '') + ' · <b style="color:var(--bad)">' + ago + '</b> (' + prettyDate(p.expiry) + ')' + (p.orderId ? ' · <a href="#" data-ruorder="' + esc(p.orderId) + '">' + esc(p.orderId) + '</a>' : '') + '</div></div>' +
     '<button class="btn ghost sm" data-rurm="' + esc(p.subId) + '" data-runame="' + esc(p.name) + '">✅ Removed</button></div>';
@@ -4945,6 +4947,60 @@ function extendDialog(subId) {
       if (typeof lookup === 'function' && $('#cp')) lookup();
     });
   };
+}
+
+/* ================= 🔁 switch account (adminswitch.js) ================= */
+// Customer 360 card → pick another account of the same service (least used first), note, email the new login.
+function switchAccountDialog(subId) {
+  var rid = 'SW' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  modal('🔁 Switch account', '<div id="swa_box"><p class="muted" style="font-size:.8rem">Loading accounts…</p></div>', '', '');
+  api('/admin/api/subs/switch/options', { subId: subId }).then(function (q) {
+    var box = $('#swa_box'); if (!box) return;
+    if (!q.ok) { box.innerHTML = '<div class="qnote bad">⚠️ ' + esc(q.message || 'Could not load') + '</div>'; return; }
+    var sb = q.sub || {}, cur = q.current || {}, g = sb.group || {};
+    var head = '<div class="qnote">' + svcIcon(sb.service) + ' <b>' + esc(sb.service) + ' · ' + esc(sb.plan) + '</b> · ' + esc(sb.subId) + (sb.name ? ' · ' + esc(sb.name) : '') +
+      '<br>Ends <b>' + prettyDate(sb.expiry, true) + '</b>' + (sb.devices > 1 ? ' · ' + esc(sb.devices) + ' devices' + (sb.tvDevices ? ' (' + esc(sb.tvDevices) + ' TV)' : '') : '') + (sb.otp ? ' · login is a phone number (Get OTP)' : '') + '</div>' +
+      '<div class="qnote">Now on <b>' + esc(cur.label || cur.accountId || '—') + '</b>' + (cur.ref && cur.ref !== cur.accountId ? ' · ref ' + esc(cur.ref) : '') + (cur.login ? ' · login ' + esc(cur.login) : '') +
+      (cur.profileName || cur.profileNumber ? ' · profile ' + esc([cur.profileName, cur.profileNumber ? '#' + cur.profileNumber : ''].filter(Boolean).join(' ')) : '') + '</div>' +
+      (g.text ? '<div class="qnote warn">' + esc(g.text) + '</div>' : '');
+    if (!q.allowed) { box.innerHTML = '<div class="oaform" data-nodirty>' + head + '<div class="qnote warn">' + esc(q.reason || 'This plan can’t be switched.') + '</div></div>'; return; }
+    var kind = sb.policy === 'PROFILE' ? (sb.sharing ? 'sharing' : 'private profile') : sb.policy === 'CAPACITY' ? 'device' : sb.otp ? 'customer' : 'device';
+    var firstOk = (q.accounts || []).filter(function (a) { return a.fits; })[0];
+    var opts = (q.accounts || []).map(function (a) {
+      var txt = a.label + (a.login ? ' · ' + a.login : '') + (a.fits ? ' · ' + a.free + ' free' : ' — ' + (a.reason || 'full'));
+      return '<option value="' + esc(a.accountId) + '"' + (a.fits ? '' : ' disabled') + (firstOk && a.accountId === firstOk.accountId ? ' selected' : '') + '>' + (a.fits ? '' : '⛔ ') + esc(txt) + '</option>';
+    }).join('');
+    box.innerHTML = '<div class="oaform" data-nodirty>' + head +
+      '<label>Move to (least used first · free ' + esc(kind) + ' slots for this plan)<select class="inp" id="swa_acc"' + (firstOk ? '' : ' disabled') + '>' + (firstOk ? '' : '<option value="">No account has room</option>') + opts + '</select></label>' +
+      '<span class="muted" style="font-size:.72rem">Used / capacity are counted like new sales: running plans plus plans in their 10-day grace after expiry.' + (sb.policy === 'PROFILE' ? ' Sharing = seats on the shared profile; Private = private profiles taken.' : '') + '</span>' +
+      (q.warning ? '<div class="qnote warn">' + esc(q.warning) + '</div>' : '') +
+      '<label>Note (saved on the plan + change log)<input class="inp" id="swa_note" maxlength="200" autocomplete="off" value="' + esc(q.defaultNote || 'Account not working') + '"/></label>' +
+      '<div class="row" style="gap:6px;flex-wrap:wrap">' + ['Account not working', 'Password changed by owner', 'Too many users', 'Customer asked'].map(function (x) { return '<button class="chip" type="button" data-swnote="' + esc(x) + '">' + esc(x) + '</button>'; }).join('') + '</div>' +
+      '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="swa_mail"' + (sb.hasEmail ? ' checked' : ' disabled') + '/> Email the customer the new login' + (sb.hasEmail ? ' (' + esc(sb.email) + ')' : ' — no email on this plan') + '</label>' +
+      '<div id="swa_msg"></div><button class="btn dark" id="swa_review"' + (firstOk ? '' : ' disabled') + '>Review</button><div id="swa_confirm"></div></div>';
+    box.addEventListener('click', function (e) { var c = e.target.closest('[data-swnote]'); if (c) $('#swa_note').value = c.getAttribute('data-swnote'); });
+    var pick = function () { var id = $('#swa_acc').value; return (q.accounts || []).filter(function (a) { return a.accountId === id; })[0]; };
+    $('#swa_acc').onchange = function () { $('#swa_confirm').innerHTML = ''; };
+    $('#swa_review').onclick = function () {
+      var a = pick(), note = $('#swa_note').value.trim() || 'Account not working', mail = $('#swa_mail').checked;
+      if (!a || !a.fits) { $('#swa_msg').innerHTML = '<div class="qnote warn">Pick an account that has room.</div>'; return; }
+      $('#swa_msg').innerHTML = '';
+      $('#swa_confirm').innerHTML = '<div class="qnote"><b>Confirm</b><br>Move ' + esc(sb.name || sb.subId) + '’s ' + esc(sb.service) + ' from <b>' + esc(cur.ref || cur.accountId) + '</b> to <b>' + esc(a.accountId) + '</b> (' + esc(a.label) + ').' +
+        (sb.policy === 'PROFILE' ? '<br>A free ' + esc(sb.sharing ? 'sharing' : 'private') + ' profile on ' + esc(a.accountId) + ' is given.' : '') +
+        (g.kind === 'SAME' ? '<br>All ' + esc(g.devices) + ' devices move (one login).' : g.kind === 'SEPARATE' ? '<br>Only Device ' + esc(g.index) + ' moves.' : '') +
+        '<br>Expiry stays <b>' + prettyDate(sb.expiry) + '</b> · note “' + esc(note) + '” · ' + (mail ? 'email the new login' : '<b>no email</b>') + '.' +
+        '<br>The old account shows in 🚪 Remove users until you tick it.</div><button class="btn green" id="swa_go">🔁 Confirm switch</button>';
+      $('#swa_go').onclick = function () {
+        var btn = $('#swa_go'); btn.disabled = true; btn.textContent = 'Switching…';
+        post('/admin/api/subs/switch', { subId: sb.subId, accountId: a.accountId, note: note, email: mail, requestId: rid }).then(function (r) {
+          if (!r.ok) { btn.disabled = false; btn.textContent = '🔁 Confirm switch'; $('#swa_msg').innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'failed') + '</div>'; return; }
+          closeModal();
+          toast(r.message || ('🔁 Switched to ' + a.accountId));
+          if (typeof lookup === 'function' && $('#cp')) lookup(true);
+        });
+      };
+    };
+  });
 }
 
 /* ================= boot ================= */

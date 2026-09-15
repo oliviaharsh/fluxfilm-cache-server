@@ -142,6 +142,9 @@ function mountAdmin(app, deps) {
   require('./adminlookup').mount(app, Object.assign({ db, auth, audit }, deps.lookup || {}));
   // Stuck orders: fulfil / re-fulfil, deliver manually, refund, erase (adminorderactions.js).
   require('./adminorderactions').mount(app, Object.assign({ db, auth, audit }, deps.orderActions || {}));
+  // 🔁 Switch account on a live subscription (adminswitch.js). Mounted before adminexpired.js and the sub-removed
+  // route below: it answers 🚪 Remove users ticks for switched-away (ghost) ids and passes every other id on.
+  require('./adminswitch').mount(app, Object.assign({ db, auth, audit }, deps.switchAccount || {}));
   // 💸 Refunds v3: UPI refunds to send, refund offers on delivered plans, bonus % / offer days settings (adminrefunds.js).
   require('./adminrefunds').mount(app, Object.assign({ db, auth, audit }, deps.refundsAdmin || {}));
   // Today screen, to-dos, global search, change log viewer (adminhome.js).
