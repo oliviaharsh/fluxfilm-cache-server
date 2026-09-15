@@ -483,6 +483,14 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   olivia._internal.setDeps({ words });
   ok('fact pack: device rule of each plan + Sharing vs Private explained', devFacts.length === 1 && /devices: Login on 1 device only/.test(devFacts[0]) && /shared profile/.test(devFacts[0]), devFacts[0] && devFacts[0].slice(0, 400));
 
+  // ── live chat 7 (2026-09-15 06:42): renew said with "pehle" went to prices; 2 devices went to Private ──
+  ok('"meri subscription renew kardo Pehle" → renew (not a price question)', olivia._internal.globalIntentOf('Achcha meri subscription renew kardo Pehle') === 'renew');
+  ok('devices wanted: "2 devices", "do phone", "3 screens"; not "2 month"', olivia._internal.devicesWanted('2 devices ke liye chahiye') === 2 && olivia._internal.devicesWanted('do phone par chalana hai') === 2 && olivia._internal.devicesWanted('3 screens') === 3 && olivia._internal.devicesWanted('netflix 2 month') === 0);
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'prime video 2 devices ke liye chahiye' });
+  ok('2 devices → the real 2-device plan with price, and an Open Buy page button for that service', last(r).intent === 'MULTI_DEVICE_ON_WEBSITE' && /Prime Video/.test(last(r).text) && /₹59/.test(last(r).text) && last(r).buttons[0].id === 'buysite' && last(r).buttons[0].link === 'buysite' && last(r).buttons[0].service === 'Prime Video', last(r));
+  ok('format: bold even when the AI changes the case ("1 month" vs "1 Month")', /\*Prime Video 1 month\*/.test(words.format('Prime Video 1 month renewed.', { title: 'Prime Video 1 Month' }, 'X')));
+
   // ── Past chats (customer menu) ──
   const hist = await olivia.history(PH);
   ok('past chats: only this phone\'s chats, newest first, with a preview of what the customer wrote', hist.ok && hist.chats.length >= 1 && hist.chats.every((x) => /^[a-f0-9]{32}$/.test(x.id)) && hist.chats.some((x) => x.preview) && /\+05:30$/.test(hist.chats[0].updatedAt), hist);
@@ -538,7 +546,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   const widget = fs.readFileSync(path.join(root, 'oliviawidget.js'), 'utf8');
   ok('widget parses', (() => { try { new Function(widget); return true; } catch (e) { return false; } })());
   ok('widget: login card never saved to sessionStorage; sends installedApp; draws server buttons only', /access-hidden/.test(widget) && /installedApp: installed\(\)/.test(widget) && /display-mode: standalone/.test(widget) && /textContent = text/.test(widget) && !/innerHTML = [^'']/.test(widget.replace("list.innerHTML = ''", '')));
-  ok('widget: close button really hides the panel ([hidden] beats display:flex) + Esc closes', widget.includes(".ffo-panel[hidden],.ffo-bg[hidden]{display:none!important}") && widget.includes('x.onclick = closeChat') && widget.includes("e.key === 'Escape'"));
+  ok('widget: close button really hides the panel ([hidden] beats display:flex) + Esc closes', widget.includes(".ffo-panel[hidden],.ffo-bg[hidden]{display:none!important}") && widget.includes('x.onclick = closeChat') && widget.includes("e.key !== 'Escape'") && widget.includes('if (st.open) closeChat()'));
   ok('widget: WhatsApp look — typing dots for at least 0.5 s before each reply, ticks + times, send/receive sounds that follow the shop Sounds switch', widget.includes('MIN_TYPING_MS = 500') && widget.includes('ffo-typing') && widget.includes('ffo-tick') && widget.includes("sound('send')") && widget.includes("sound('receive')") && widget.includes("ffSoundPrefs.get('sound')") && widget.includes('#efeae2') && widget.includes('#d9fdd3'));
   ok('widget: Olivia photo in header + Help sheet, emoji fallback, AI tag always next to her name', widget.includes("var AVATAR = '/olivia-avatar.jpg?v=1'") && widget.includes('img.onload') && (widget.match(/aiTag()/g) || []).length >= 3 && widget.includes('Olivia is an AI assistant'));
   ok('server: /olivia-avatar.jpg served before the catch-all; file is a small JPEG', server.indexOf("app.get('/olivia-avatar.jpg'") > 0 && server.indexOf("app.get('/olivia-avatar.jpg'") < server.indexOf("app.get('*'") && (() => { const f = fs.readFileSync(path.join(root, 'olivia-avatar.jpg')); return f[0] === 0xff && f[1] === 0xd8 && f.length < 40000; })());
@@ -548,6 +556,11 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('widget: *bold* drawn with text nodes only (no innerHTML from messages)', widget.includes('function richText') && /createTextNode\(part\)/.test(widget) && !/innerHTML\s*=\s*m\.text/.test(widget));
   ok('widget: tap photo/name → WhatsApp-style profile (About, AI notice, languages, WhatsApp team)', widget.includes('function renderProfile') && widget.includes("openProfile") && widget.includes('I am an AI') && widget.includes('Chat language') && widget.includes('ffo-who'));
   ok('widget: My plans button closes the chat and opens My plans; shop exposes ffGoMyPlans', widget.includes("kind === 'myplans'") && widget.includes('ffGoMyPlans') && html.includes('window.ffGoMyPlans = goLoggedHome'));
+  ok('widget: FluxFilm store style is the default; WhatsApp style can be picked in the profile and is remembered', widget.includes("return THEMES[v] ? v : 'store'") && widget.includes('.ffo-panel.t-store') && widget.includes("'Chat style'") && widget.includes("localStorage.setItem('ff_olivia_theme'"));
+  ok('widget: store font (Plus Jakarta Sans) for the chat', /ffo-panel\{[^']*font-family:"Plus Jakarta Sans"/.test(widget));
+  ok('widget: tap the profile photo → full photo (900 px file), closes on tap / Esc', widget.includes('big.onclick = openPhoto') && widget.includes("'/olivia-photo.jpg?v=1'") && widget.includes('photoEl.onclick = closePhoto') && widget.includes('return closePhoto()'));
+  ok('server: /olivia-photo.jpg before the catch-all; file is a JPEG under 150 KB', server.indexOf("app.get('/olivia-photo.jpg'") > 0 && server.indexOf("app.get('/olivia-photo.jpg'") < server.indexOf("app.get('*'") && (() => { const f = fs.readFileSync(path.join(root, 'olivia-photo.jpg')); return f[0] === 0xff && f[1] === 0xd8 && f.length < 150000; })());
+  ok('widget: Open Buy page closes the chat and opens that service; shop exposes ffGoBuy', widget.includes("kind === 'buysite'") && html.includes("window.ffGoBuy = service => service ? nav('buy2'"));
   ok('widget: still pure ASCII', !/[^\x00-\x7F]/.test(widget));
   ok('widget: 2 choices — Chat with Olivia / WhatsApp our team', /Chat with Olivia/.test(widget) && /WhatsApp our team/.test(widget));
   const schemaSql = fs.readFileSync(path.join(root, 'db', 'schema-v21.sql'), 'utf8');

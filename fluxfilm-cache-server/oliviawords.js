@@ -291,6 +291,11 @@ const T = {
     hinglish: (f) => 'Aapka ' + rupees(f.amount) + ' ka payment' + (f.title ? ' (' + f.title + ')' : '') + ' abhi baaki hai. Kya uski jagah ' + f.service + ' chahiye? Tab woh QR cancel ho jayega.',
     hi: (f) => 'आपका ' + rupees(f.amount) + ' का पेमेंट' + (f.title ? ' (' + f.title + ')' : '') + ' अभी बाकी है। क्या उसकी जगह ' + f.service + ' चाहिए? तब वह QR रद्द हो जाएगा।',
   },
+  MULTI_DEVICE_ON_WEBSITE: {
+    en: (f) => 'For ' + f.n + ' devices we have:' + bullets(f.items) + '\n\nThese plans are bought on the Buy page of the website (they have a few extra choices). Tap below to open it, or pick a 1-device plan here.',
+    hinglish: (f) => f.n + ' devices ke liye yeh plans hain:' + bullets(f.items) + '\n\nYeh plans website ke Buy page se milte hain (wahan kuch extra options hain). Neeche button se kholiye, ya yahan 1 device wala plan chuniye.',
+    hi: (f) => f.n + ' डिवाइस के लिए ये प्लान हैं:' + bullets(f.items) + '\n\nये प्लान वेबसाइट के Buy पेज से मिलते हैं (वहाँ कुछ और विकल्प हैं)। नीचे बटन से खोलिए, या यहाँ 1 डिवाइस वाला प्लान चुनिए।',
+  },
   LOGIN_HELP: {
     en: () => 'Your login is always saved in "My plans" 🔐 Open My plans and tap your plan to see it. It is also in the email we sent after payment. If it still does not work, our team will help you on WhatsApp.',
     hinglish: () => 'Aapka login hamesha "My plans" mein saved rehta hai 🔐 My plans kholiye aur apne plan par tap kijiye, wahan dikh jayega. Payment ke baad bheje gaye email mein bhi hai. Phir bhi na chale to WhatsApp par team madad karegi.',
@@ -347,6 +352,7 @@ const B = {
   switch: { en: '🔁 Yes, change plan', hinglish: '🔁 Haan, plan badlo', hi: '🔁 हाँ, प्लान बदलो' },
   normal: { en: '➡️ Normal plan instead', hinglish: '➡️ Normal plan lo', hi: '➡️ सामान्य प्लान लो' },
   menu: { en: '🏠 Main menu', hinglish: '🏠 Main menu', hi: '🏠 मेन मेन्यू' },
+  buysite: { en: '🛒 Open Buy page', hinglish: '🛒 Buy page kholo', hi: '🛒 Buy पेज खोलो' },
   myplans: { en: '🎬 Open My plans', hinglish: '🎬 My plans kholo', hi: '🎬 My plans खोलो' },
   whatsapp: { en: '💬 WhatsApp our team', hinglish: '💬 WhatsApp par team', hi: '💬 WhatsApp पर टीम' },
   helper: { en: '🏠 Open Household Helper', hinglish: '🏠 Household Helper kholo', hi: '🏠 Household Helper खोलो' },
@@ -415,7 +421,7 @@ function format(text, facts, intent) {
   }
   const names = [f.title, f.code, f.newExpiry, f.knownName].concat(Array.isArray(f.titles) ? f.titles : [])
     .map(s).filter((x) => x.length >= 3 && x.length <= 60).sort((a, b) => b.length - a.length);
-  const re = new RegExp('"[^"\\n]{2,40}"|₹\\d+(?:\\/month)?' + (names.length ? '|' + names.map(escRe).join('|') : ''), 'g');
+  const re = new RegExp('"[^"\\n]{2,40}"|₹\\d+(?:\\/month)?' + (names.length ? '|' + names.map(escRe).join('|') : ''), 'gi');
   t = t.replace(re, (x) => (x[0] === '"' ? '*' + x.slice(1, -1) + '*' : '*' + x + '*'));
   if (LEAD_EMOJI[intent] && !EMOJI_RE.test(t)) t = LEAD_EMOJI[intent] + ' ' + t;
   return t;
