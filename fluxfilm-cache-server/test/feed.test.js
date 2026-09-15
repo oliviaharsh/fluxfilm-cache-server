@@ -9,10 +9,11 @@ const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + 
 const settings = {};
 let writes = 0;
 let plans = [
-  { service: 'Netflix', is_active: 'TRUE', raw_json: '{}' },
-  { service: 'Netflix (Group Offer)', is_active: null, raw_json: JSON.stringify({ IsActive: 'TRUE' }) },
-  { service: 'Crunchyroll', is_active: 'TRUE', raw_json: '{}' },
-  { service: 'Zee5 Premium', is_active: 'FALSE', raw_json: '{}' },
+  { service: 'Netflix', price: 199, logo_url: 'https://cdn.example/netflix.png', is_active: 'TRUE', raw_json: '{}' },
+  { service: 'Netflix', price: 139, logo_url: '', is_active: 'TRUE', raw_json: '{}' },
+  { service: 'Netflix (Group Offer)', price: null, logo_url: null, is_active: null, raw_json: JSON.stringify({ IsActive: 'TRUE', Price: 99 }) },
+  { service: 'Crunchyroll', price: 49, logo_url: 'javascript:alert(1)', is_active: 'TRUE', raw_json: '{}' },
+  { service: 'Zee5 Premium', price: 89, logo_url: '', is_active: 'FALSE', raw_json: '{}' },
 ];
 const mockDb = {
   ENABLED: true,
@@ -21,7 +22,7 @@ const mockDb = {
     if (/^SELECT value FROM app_settings WHERE setting_key = \?/.test(sql)) return settings[p[0]] != null ? [{ value: settings[p[0]] }] : [];
     if (/^INSERT INTO app_settings/.test(sql)) { writes++; settings[p[0]] = p[1]; return { affectedRows: 1 }; }
     if (/^DELETE FROM app_settings WHERE setting_key = \?/.test(sql)) { delete settings[p[0]]; return { affectedRows: 1 }; }
-    if (/^SELECT service, is_active, raw_json FROM plans$/.test(sql)) return plans;
+    if (/^SELECT service, price, logo_url, is_active, raw_json FROM plans$/.test(sql)) return plans;
     throw new Error('unexpected SQL ' + sql);
   },
 };
@@ -338,13 +339,14 @@ feed._internal.setFetch(fakeFetch);
   const bq = box.children[0];
   ok('tap → official blockquote (permalink, version 14) + Embeds.process()', bq && bq.tagName === 'BLOCKQUOTE' && bq.className === 'instagram-media' && bq.attrs['data-instgrm-permalink'] === 'https://www.instagram.com/reel/C9xYz_12-ab/' && bq.attrs['data-instgrm-version'] === '14' && bq.children[0].href === 'https://www.instagram.com/reel/C9xYz_12-ab/' && bq.children[0].rel === 'noopener noreferrer' && processed === 1);
   ok('bad link → nothing mounted', (() => { const b2 = doc.createElement('div'); vid.feedIgMount_(b2, 'https://instagram.com.evil/reel/C9xYz_12-ab/'); return b2.children.length === 0; })());
-  // Script blocked → /embed/captioned/ iframe.
+  ok('v3: embed without Instagram\'s own long caption (the post caption below has more / less)', !('data-instgrm-captioned' in bq.attrs) && !/embed\/captioned/.test(vidSrc));
+  // Script blocked → /embed/ iframe.
   win = { _timers: [] }; doc = fakeDoc(); vid = V(win, doc);
   const box2 = doc.createElement('div');
   vid.feedIgMount_(box2, 'https://www.instagram.com/p/DAbc123/', 520);
   doc.appended[0].onerror();
   const fr = box2.children[0];
-  ok('embed.js blocked → Instagram /embed/captioned/ iframe, lazy, sandboxed, encrypted-media + picture-in-picture', fr && fr.tagName === 'IFRAME' && fr.src === 'https://www.instagram.com/p/DAbc123/embed/captioned/' && fr.loading === 'lazy' && fr.attrs.allow === 'encrypted-media; picture-in-picture' && /allow-scripts/.test(fr.attrs.sandbox) && !/allow-top-navigation/.test(fr.attrs.sandbox) && fr.style.height === '680px' && doc.appended[0].removed);
+  ok('embed.js blocked → Instagram /embed/ iframe, lazy, sandboxed, encrypted-media + picture-in-picture', fr && fr.tagName === 'IFRAME' && fr.src === 'https://www.instagram.com/p/DAbc123/embed/' && fr.loading === 'lazy' && fr.attrs.allow === 'encrypted-media; picture-in-picture' && /allow-scripts/.test(fr.attrs.sandbox) && !/allow-top-navigation/.test(fr.attrs.sandbox) && fr.style.height === '680px' && doc.appended[0].removed);
   win = { _timers: [] }; doc = fakeDoc(); vid = V(win, doc);
   const box3 = doc.createElement('div');
   vid.feedIgMount_(box3, 'https://www.instagram.com/p/DAbc123/', 0);
@@ -355,7 +357,7 @@ feed._internal.setFetch(fakeFetch);
   box4.querySelector = () => rendered;
   vid.feedIgMount_(box4, 'https://www.instagram.com/p/DAbc123/', 0);
   win._timers[0]();
-  ok('embed.js made an iframe but it never got a height (stays blank) → fixed-height iframe instead', box4.children[0] && box4.children[0].tagName === 'IFRAME' && box4.children[0].src === 'https://www.instagram.com/p/DAbc123/embed/captioned/');
+  ok('embed.js made an iframe but it never got a height (stays blank) → fixed-height iframe instead', box4.children[0] && box4.children[0].tagName === 'IFRAME' && box4.children[0].src === 'https://www.instagram.com/p/DAbc123/embed/');
   win = { _timers: [] }; doc = fakeDoc(); vid = V(win, doc);
   const box5 = doc.createElement('div'); box5.querySelector = () => ({ offsetHeight: 640 });
   vid.feedIgMount_(box5, 'https://www.instagram.com/p/DAbc123/', 0);
@@ -400,12 +402,17 @@ feed._internal.setFetch(fakeFetch);
   tree = fm.draw();
   ok('tap → Instagram box (keeps the card height, no jump) + "Open in Instagram" fallback link', /ff-feed-media ig/.test(tree.props.className) && tree.props.style.minHeight === 400 && find(tree, (n) => n.type === 'a' && n.props.href === 'https://www.instagram.com/reel/C9xYz_12-ab/' && n.props.rel === 'noopener noreferrer').length === 1 && fm.events.join() === 'play:fp2');
   ok('post without a video: no play button', find(renderMedia({ id: 'fp3', title: 'X', image: '/a.jpg', trailerUrl: 'https://www.youtube.com/channel/UCx' }).draw(), (n) => n.type === 'button').length === 0);
-  ok('feed post uses FeedMedia; YouTube link stays as a small secondary link; strip tiles show ▶️ for videos', /React\.createElement\(FeedMedia, \{\s*p: p,/.test(html) && /feedYouTubeId_\(p\.trailerUrl\) \? 'YouTube ↗' : '▶ Trailer'/.test(html) && /className: "ff-feed-tile-v"/.test(html) && /\.ff-feed-yt \{[^}]*aspect-ratio: 16 \/ 9/.test(html));
+  fm = renderMedia({ id: 'fp4', title: 'Front of the Class', image: '/feed-img/fp0123456789t?v=1', instagramUrl: 'https://www.instagram.com/reel/C9xYz_12-ab/' });
+  tree = fm.draw();
+  const igBtn = find(tree, (n) => n.type === 'button' && /ff-feed-play ig/.test(n.props.className || ''))[0];
+  ok('v3 reel WITH a thumbnail: the picture + ▶️ + small "📸 Instagram" chip (no gradient, no big label), still nothing from Instagram loaded', find(tree, (n) => n.type === 'img' && n.props.src === '/feed-img/fp0123456789t?v=1' && n.props.loading === 'lazy').length === 1 && find(tree, (n) => /ff-feed-igchip/.test(n.props.className || '') && text(n) === '📸 Instagram').length === 1 && igBtn && /thumb/.test(igBtn.props.className) && text(igBtn) === '▶️' && /Watch on Instagram/.test(igBtn.props['aria-label']) && find(tree, (n) => /ff-feed-noimg/.test(n.props.className || '')).length === 0 && find(tree, (n) => n.type === 'blockquote' || n.type === 'iframe').length === 0);
+  ok('v3 reel without a picture keeps the chip too', find(renderMedia({ id: 'fp5', title: 'R', image: '', instagramUrl: 'https://www.instagram.com/reel/C9xYz_12-ab/' }).draw(), (n) => /ff-feed-igchip/.test(n.props.className || '')).length === 1);
+  ok('v3: YouTube link is a bordered "▶️ Watch on YouTube" button box (not plain text); strip tiles show ▶️ for videos', /React\.createElement\(FeedMedia, \{\s*p: p,/.test(html) && /className: "ff-feed-ytbtn",\s*onClick: \(\) => openExternal_\(p\.trailerUrl\)\s*\}, feedYouTubeId_\(p\.trailerUrl\) \? '▶️ Watch on YouTube'/.test(html) && /\.ff-feed-ytbtn \{[^}]*border: 1\.5px solid/.test(html) && !/'YouTube ↗'/.test(html) && /className: "ff-feed-tile-v"/.test(html) && /\.ff-feed-yt \{[^}]*aspect-ratio: 16 \/ 9/.test(html));
   const navBlock = (html.match(/const navItems = \[[\s\S]*?\}\];/) || [''])[0];
   ok('menu: 🍿 New entry opens the feed; bottom menu shows on the feed', /key: 'feed',\s*icon: '🍿',\s*label: 'New'/.test(navBlock) && /nav\('feed', \{\}\)/.test(navBlock) && /feed: 1,/.test(html) && /feed: \["What's new"/.test(html));
   ok('feed screen rendered for guests and customers (not blocked by maintenance); strip on Home and My plans', /screen === 'feed' && React\.createElement\(FeedScreen, \{/.test(html) && /screen === 'home' && React\.createElement\(FeedStrip,/.test(html) && /screen === 'dashboard' && React\.createElement\(FeedStrip,/.test(html) && !/storeBlocked && screen === 'feed'/.test(html));
   ok('post: lazy image in a fixed 4:5 box, like / share / trailer, caption "more", tags, CTA → plans or renew', /loading: "lazy",\s*decoding: "async"/.test(html) && /\.ff-feed-media \{[^}]*aspect-ratio: 4 \/ 5/.test(html) && /"aria-pressed": liked/.test(html) && /navigator\.share/.test(html) && /openExternal_\(p\.trailerUrl\)/.test(html) && /open \? 'less' : 'more'/.test(html) && /nav\('buy2', \{\s*service: info\.service\s*\}\)/.test(html) && /nav\('renewStart', \{\s*sub: renewSub\s*\}\)/.test(html));
-  ok('filter chips only for platforms that have posts; skeletons while loading; TMDB attribution', /const platforms = \[\.\.\.new Set\(posts\.map\(p => p\.service\)\.filter\(Boolean\)\)\];/.test(html) && /function FeedSkeleton\(/.test(html) && !/not endorsed or certified by TMDB/.test(html));
+  ok('filter chips only for platforms (brands) that have posts; skeletons while loading; TMDB attribution', /const platforms = feedBrands_\(posts\);/.test(html) && /const genreList = feedGenres_\(posts\);/.test(html) && /function FeedSkeleton\(/.test(html) && !/not endorsed or certified by TMDB/.test(html));
   ok('shared link opens the post after login restore; link removed from the address bar', /const feedLink = useRef\(feedPostFromUrl_\(window\.location\.search\)\);/.test(html) && /nav\('feed', \{\s*postId: id\s*\}\)/.test(html) && /searchParams\.delete\('post'\)/.test(html));
   ok('API: getFeed + feedEvent', /apiCall_\('getFeed', \[\]/.test(html) && /apiCall_\('feedEvent', \[id, kind, device\]/.test(html));
   ok('feed animations are transform/opacity only and stop for reduced motion', /@keyframes ffFeedBurst \{[^@]*\} \}/.test(html) && !/@keyframes ffFeedBurst \{[^@]*(width|height|top|left)\s*:/.test(html.match(/@keyframes ffFeedBurst \{[^\n]*/)[0]) && /prefers-reduced-motion: reduce\) \{ \.ff-feed-burst, \.ff-feed-skel \.ff-feed-media \{ animation: none; \} \}/.test(html));

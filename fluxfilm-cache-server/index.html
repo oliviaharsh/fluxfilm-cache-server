@@ -510,6 +510,44 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-feed-tile-t { margin-top: 6px; font-size: 12.5px; font-weight: 800; color: #0f172a; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .ff-feed-tile-s { display: block; font-size: 11px; font-weight: 600; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (prefers-reduced-motion: reduce) { .ff-feed-burst, .ff-feed-skel .ff-feed-media { animation: none; } }
+/* 🍿 Feed v3: brand logo, Instagram chip, genre chips, YouTube button, filters + search, comments */
+.ff-feed-av.logo img { object-fit: contain; padding: 3px; }
+.ff-feed-av .em { font-size: 17px; }
+.ff-feed-igchip { position: absolute; left: 10px; top: 10px; z-index: 1; padding: 4px 10px; border-radius: 999px; background: rgba(15,23,42,.72); color: #fff; font-size: 12px; font-weight: 800; pointer-events: none; }
+.ff-feed-play.ig.thumb { background: linear-gradient(180deg,rgba(15,23,42,0) 45%,rgba(15,23,42,.45)); }
+.ff-feed-tags button { min-height: 30px; padding: 3px 11px; border-radius: 999px; border: 1px solid rgba(15,23,42,.1); background: #f1f5f9; font: inherit; font-size: 12px; font-weight: 700; color: #334155; cursor: pointer; }
+.ff-feed-tags button.on { background: #0f172a; border-color: #0f172a; color: #fff; }
+.ff-feed-ytbtn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 46px; margin-top: 10px; padding: 8px 14px; border: 1.5px solid #fecaca; border-radius: 14px; background: #fff5f5; color: #b91c1c; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
+.ff-feed-ytbtn:active { background: #fee2e2; }
+.ff-feed-find { position: relative; margin: 0 0 8px; }
+.ff-feed-find input { width: 100%; box-sizing: border-box; min-height: 44px; padding: 0 40px 0 38px; border: 1.5px solid rgba(15,23,42,.12); border-radius: 14px; background: #fff; font: inherit; font-size: 15px; font-weight: 600; color: #0f172a; -webkit-appearance: none; appearance: none; }
+.ff-feed-find input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.ff-feed-find input:focus { outline: none; border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.15); }
+.ff-feed-find > span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 15px; pointer-events: none; }
+.ff-feed-find button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border: 0; border-radius: 50%; background: none; font-size: 16px; color: #64748b; cursor: pointer; }
+.ff-feed-chips.sm { padding-bottom: 8px; }
+.ff-feed-chips.sm button { min-height: 34px; padding: 0 12px; font-size: 12.5px; }
+.ff-feed-chips i { flex: none; width: 1px; margin: 6px 2px; background: rgba(15,23,42,.12); }
+.ff-feed-count { margin: 0 0 10px; font-size: 12.5px; font-weight: 700; color: #64748b; display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 20px; }
+.ff-feed-count button { border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 800; color: #15803d; cursor: pointer; padding: 0; }
+.ff-feed-cm { border-top: 1px solid rgba(15,23,42,.08); margin-top: 12px; padding-top: 10px; }
+.ff-feed-cm-form { display: flex; gap: 8px; align-items: flex-end; }
+.ff-feed-cm-form textarea { flex: 1; min-width: 0; min-height: 44px; max-height: 120px; padding: 10px 12px; border: 1.5px solid rgba(15,23,42,.12); border-radius: 14px; font: inherit; font-size: 14px; resize: vertical; box-sizing: border-box; }
+.ff-feed-cm-form button, .ff-feed-cm-login { flex: none; min-height: 44px; padding: 0 14px; border: 0; border-radius: 14px; background: #0f172a; color: #fff; font: inherit; font-size: 13.5px; font-weight: 800; cursor: pointer; }
+.ff-feed-cm-form button:disabled { opacity: .5; }
+.ff-feed-cm-login { width: 100%; background: #f1f5f9; color: #0f172a; }
+.ff-feed-cm-meta { display: flex; justify-content: space-between; margin-top: 4px; font-size: 11.5px; font-weight: 600; color: #94a3b8; }
+.ff-feed-cm-msg { margin-top: 6px; font-size: 12.5px; font-weight: 700; color: #15803d; }
+.ff-feed-cm-msg.bad { color: #b91c1c; }
+.ff-feed-cm-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+.ff-feed-cm-list li { display: flex; gap: 8px; align-items: flex-start; }
+.ff-feed-cm-av { width: 30px; height: 30px; border-radius: 50%; flex: none; overflow: hidden; background: #e2e8f0; display: grid; place-items: center; font-size: 13px; font-weight: 800; color: #334155; }
+.ff-feed-cm-av img { width: 100%; height: 100%; object-fit: cover; }
+.ff-feed-cm-b { min-width: 0; flex: 1; font-size: 13.5px; line-height: 1.45; color: #334155; overflow-wrap: anywhere; }
+.ff-feed-cm-b b { color: #0f172a; font-weight: 800; margin-right: 6px; }
+.ff-feed-cm-b small { display: block; font-size: 11px; font-weight: 600; color: #94a3b8; }
+.ff-feed-cm-more { margin-top: 8px; border: 0; background: none; padding: 6px 0; font: inherit; font-size: 13px; font-weight: 800; color: #64748b; cursor: pointer; }
+.ff-feed-cm-soon { font-size: 13px; font-weight: 600; color: #64748b; }
 /* ── Install app pop-up (fixed, outside any animated screen) ── */
 .ff-install-bg { position: fixed; inset: 0; z-index: 70; display: flex; align-items: flex-end; justify-content: center; background: rgba(15,23,42,.28); padding: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom)); animation: ffInstallFade .2s ease both; }
 .ff-install { width: 100%; max-width: 440px; background: #fff; border-radius: 22px; padding: 16px; box-shadow: 0 20px 50px rgba(15,23,42,.25); animation: ffInstallUp .28s cubic-bezier(.2,.9,.3,1.2) both; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
@@ -1648,13 +1686,34 @@ const shareText_ = {
   join(lines) {
     return lines.filter(l => l != null && l !== false).join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
   },
-  // 🍿 What's new post. info = feedServiceInfo_(post.service, plans) (fallback price); catalog = shareText_.data.
+  // In-stock cheapest price of exactly this catalog service ("Netflix (Group Offer)" → its own ₹99, not Netflix's).
+  offerExact(service, catalog) {
+    const plans = catalog && Array.isArray(catalog.plans) ? catalog.plans : [];
+    const levels = catalog && catalog.levels || {};
+    const name = shareText_.clean(service);
+    let best = 0;
+    for (const p of plans) {
+      if (!p || shareText_.clean(p.service) !== name) continue;
+      const lv = levels[p.service + '|||' + p.plan];
+      if (lv && String(lv.stockLevel).toUpperCase() === 'OUT') continue;
+      const price = Math.round(Number(p.price) || 0);
+      if (price > 0 && (!best || price < best)) best = price;
+    }
+    return best ? {
+      service: name,
+      price: best
+    } : null;
+  },
+  // 🍿 What's new post. info = feedServiceInfo_(post.ctaService, plans) (fallback price); catalog = shareText_.data.
+  // "Now streaming on *<brand>*" (Netflix) · the price is the plan the post sells (ctaService, e.g. Netflix (Group Offer)).
   post(p, info, now, catalog, url) {
     p = p || {};
     const title = shareText_.trim(p.title, 80) || 'Something new';
-    const service = shareText_.clean(p.service || info && info.service);
+    const plan = shareText_.clean(p.ctaService || p.service || info && info.service);
+    const service = shareText_.clean(p.brand) || plan;
     const s = shareText_.svc(service);
-    const offer = service ? shareText_.offerFor(service, catalog) : null;
+    const known = plan && catalog && Array.isArray(catalog.plans) && catalog.plans.some(x => x && shareText_.clean(x.service) === plan);
+    const offer = !plan ? null : known ? shareText_.offerExact(plan, catalog) : shareText_.offerFor(plan, catalog);
     const price = shareText_.rupees(offer ? offer.price : shareText_.offers(catalog) ? 0 : info && info.price);
     const t = /^\d{4}-\d{2}-\d{2}$/.test(p.releaseDate || '') ? Date.parse(p.releaseDate + 'T00:00:00+05:30') : 0;
     const soon = t > (now || Date.now());
@@ -1669,7 +1728,7 @@ const shareText_ = {
     // Post with an Instagram Reel: say so right above the link (the link opens the post, where the video plays).
     const video = p.instagramUrl ? '🎬 Watch the video 👇' : null;
     const head = [video, url ? '👉 ' + url : null, url || video ? '' : null];
-    const text = news ? shareText_.join([...head, `📣 *${title}*`, '', quote, '', '✨ Streaming plans for less on *FluxFilm*', '⚡ Instant login  •  💳 UPI']) : shareText_.join([...head, `🍿 *${title}*`, [soon ? `🗓️ Coming *${shareText_.date(t)}* on *${service}*` : `${s ? s.emoji : '🎬'} Now streaming on *${service}*`, kind, !soon && t ? '🗓️ ' + shareText_.date(t, true) : ''].filter(Boolean).join('  •  '), genres ? '🎭 ' + genres : null, '', quote, '', price ? `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${service} from *${price}*` : `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${service} at low prices`, '⚡ Instant login  •  💳 UPI']);
+    const text = news ? shareText_.join([...head, `📣 *${title}*`, '', quote, '', '✨ Streaming plans for less on *FluxFilm*', '⚡ Instant login  •  💳 UPI']) : shareText_.join([...head, `🍿 *${title}*`, [soon ? `🗓️ Coming *${shareText_.date(t)}* on *${service}*` : `${s ? s.emoji : '🎬'} Now streaming on *${service}*`, kind, !soon && t ? '🗓️ ' + shareText_.date(t, true) : ''].filter(Boolean).join('  •  '), genres ? '🎭 ' + genres : null, '', quote, '', price ? `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${plan || service} from *${price}*` : `✨ ${soon ? 'Get ready' : 'Watch it'} with *FluxFilm* — ${plan || service} at low prices`, '⚡ Instant login  •  💳 UPI']);
     return {
       title: news ? title : `${title} — on ${service}`,
       text
@@ -10734,6 +10793,56 @@ function feedServiceInfo_(service, plans) {
     logoUrl: list.map(p => p.logoUrl).find(Boolean) || ''
   };
 }
+// 🏷️ Brand shown in the post header (same rule as feed.js brandOf): "Netflix (Group Offer)" → Netflix.
+const FEED_BRANDS_ = [['Netflix', /netflix/i, '🔴'], ['Prime Video', /prime|amazon/i, '📦'], ['JioHotstar', /hotstar|jio ?cinema/i, '⭐'], ['SonyLIV', /sony/i, '🔵'], ['Zee5', /zee ?5|\bzee\b/i, '🟣'], ['Crunchyroll', /crunchyroll/i, '🎌'], ['YouTube', /youtube/i, '▶️'], ['Apple TV+', /apple/i, '🍎']];
+function feedBrandOf_(v) {
+  const t = String(v || '').trim();
+  if (!t) return '';
+  const b = FEED_BRANDS_.find(x => x[1].test(t));
+  return b ? b[0] : t;
+}
+// Logo = the catalog logo of the brand's main plan (the shortest service name of that brand); else an emoji / first letter.
+function feedBrandInfo_(brand, plans) {
+  const name = String(brand || '').trim();
+  const b = FEED_BRANDS_.find(x => x[0] === feedBrandOf_(name));
+  const list = (Array.isArray(plans) ? plans : []).filter(p => p && p.service && feedBrandOf_(p.service) === feedBrandOf_(name)).sort((a, c) => String(a.service).length - String(c.service).length);
+  const logo = (list.find(p => /^https:\/\/[^\s"'<>]+$/i.test(p.logoUrl || '')) || {}).logoUrl || '';
+  return {
+    name: name || 'FluxFilm',
+    logoUrl: logo,
+    emoji: b ? b[2] : ''
+  };
+}
+// 🔎 Filters on the loaded posts (the feed sends at most 60, so it all works offline). f = { q, genre, brand, date: 'all' | 'week' | 'month' }.
+function feedPostBrand_(p) {
+  return String(p && (p.brand || feedBrandOf_(p.service)) || '');
+}
+function feedFilter_(posts, f, now) {
+  const o = f || {};
+  const t = now || Date.now();
+  const words = String(o.q || '').toLowerCase().normalize('NFKD').replace(/\p{M}/gu, '').split(/\s+/).filter(Boolean);
+  const monthOf = ms => new Date(ms + 330 * 60000).toISOString().slice(0, 7);
+  return (Array.isArray(posts) ? posts : []).filter(p => {
+    if (o.brand && feedPostBrand_(p) !== o.brand) return false;
+    if (o.genre && !(p.genres || []).includes(o.genre)) return false;
+    const d = Date.parse(p.date || '') || 0;
+    if (o.date === 'week' && !(d && t - d <= 7 * 86400e3)) return false;
+    if (o.date === 'month' && !(d && monthOf(d) === monthOf(t))) return false;
+    if (!words.length) return true;
+    const hay = [p.title, feedPostBrand_(p), p.ctaService || p.service, (p.genres || []).join(' '), (p.languages || []).join(' '), p.caption].join(' ').toLowerCase().normalize('NFKD').replace(/\p{M}/gu, '');
+    return words.every(w => hay.includes(w));
+  });
+}
+function feedGenres_(posts) {
+  const n = {};
+  (posts || []).forEach(p => (p.genres || []).forEach(g => {
+    n[g] = (n[g] || 0) + 1;
+  }));
+  return Object.keys(n).sort((a, b) => n[b] - n[a] || a.localeCompare(b));
+}
+function feedBrands_(posts) {
+  return [...new Set((posts || []).map(feedPostBrand_).filter(Boolean))];
+}
 function feedWhen_(iso, now) {
   const t = Date.parse(iso || '');
   if (!t) return '';
@@ -10851,7 +10960,8 @@ function feedIgScript_(cb) {
   }
 }
 // Blockquote + embed.js; if the script is blocked, or after 8 s there is no embed with a real height (embed.js sizes it by
-// message; some in-app browsers never deliver it) → Instagram's /embed/captioned/ iframe with a fixed height.
+// message; some in-app browsers never deliver it) → Instagram's /embed/ iframe with a fixed height.
+// Without Instagram's own caption (v3): its full caption made the card very long; the post's own caption below has "more".
 function feedIgMount_(el, url, minH) {
   if (!el || !feedIgUrl_(url)) return () => {};
   let dead = false;
@@ -10859,7 +10969,7 @@ function feedIgMount_(el, url, minH) {
     if (dead) return;
     el.textContent = '';
     const f = document.createElement('iframe');
-    f.src = feedIgUrl_(url) + 'embed/captioned/';
+    f.src = feedIgUrl_(url) + 'embed/';
     f.title = 'Instagram video';
     f.loading = 'lazy';
     f.setAttribute('allow', 'encrypted-media; picture-in-picture');
@@ -10874,7 +10984,6 @@ function feedIgMount_(el, url, minH) {
   bq.className = 'instagram-media';
   bq.setAttribute('data-instgrm-permalink', feedIgUrl_(url));
   bq.setAttribute('data-instgrm-version', '14');
-  bq.setAttribute('data-instgrm-captioned', '');
   const a = document.createElement('a');
   a.href = feedIgUrl_(url);
   a.target = '_blank';
@@ -10983,13 +11092,17 @@ function FeedMedia({
   }, img || React.createElement("div", {
     className: ig ? 'ff-feed-noimg ig' : 'ff-feed-noimg',
     "aria-hidden": "true"
-  }, ig ? '' : '🍿'), ig ? React.createElement("button", {
+  }, ig ? '' : '🍿'), ig && React.createElement("span", {
+    className: "ff-feed-igchip",
+    "aria-hidden": "true"
+  }, "📸 Instagram"), ig ? React.createElement("button", {
     type: "button",
-    className: "ff-feed-play ig",
+    className: img ? 'ff-feed-play ig thumb' : 'ff-feed-play ig',
+    "aria-label": 'Watch on Instagram: ' + p.title,
     onClick: () => start('ig')
   }, React.createElement("b", {
     "aria-hidden": "true"
-  }, "▶️"), React.createElement("span", null, "📸 Watch on Instagram")) : yt ? React.createElement("button", {
+  }, "▶️"), !img && React.createElement("span", null, "📸 Watch on Instagram")) : yt ? React.createElement("button", {
     type: "button",
     className: "ff-feed-play",
     onClick: () => start('yt')
@@ -11064,7 +11177,144 @@ function FeedStrip({
     className: "ff-feed-tile-t"
   }, p.title), React.createElement("span", {
     className: "ff-feed-tile-s"
-  }, p.service || 'FluxFilm')))));
+  }, p.brand || p.service || 'FluxFilm')))));
+}
+// 💬 Comments under a post (feedcomments.js). Everyone reads; a logged-in customer writes; the server moderates first.
+function FeedComments({
+  p,
+  phone,
+  onLogin,
+  onCount
+}) {
+  const [items, setItems] = useState(null);
+  const [next, setNext] = useState(null);
+  const [ready, setReady] = useState(true);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  function load(cursor) {
+    setBusy(true);
+    try {
+      API.getFeedComments(p.id, cursor || 0, r => {
+        setBusy(false);
+        if (!r || r.ok === false) {
+          setItems(x => x || []);
+          setMsg({
+            bad: true,
+            text: r && r.message || 'Could not load comments.'
+          });
+          return;
+        }
+        setReady(r.ready !== false);
+        setItems(x => cursor ? (x || []).concat(r.comments || []) : r.comments || []);
+        setNext(r.next || null);
+      }, () => {
+        setBusy(false);
+        setItems(x => x || []);
+        setMsg({
+          bad: true,
+          text: 'Check your internet and try again.'
+        });
+      });
+    } catch (e) {
+      setBusy(false);
+    }
+  }
+  useEffect(() => {
+    load(0);
+  }, [p.id]);
+  function send() {
+    const t = text.trim();
+    if (!t || busy) return;
+    setBusy(true);
+    setMsg(null);
+    API.addFeedComment(phone, p.id, t, r => {
+      setBusy(false);
+      if (r && r.ok) {
+        setText('');
+        if (r.comment) {
+          setItems(x => [r.comment].concat(x || []));
+          onCount && onCount(1);
+        }
+        setMsg({
+          bad: false,
+          text: r.message || '💬 Comment posted'
+        });
+        return;
+      }
+      if (r && r.notReady) setReady(false);
+      setMsg({
+        bad: true,
+        text: r && r.message || 'Could not post — try again.'
+      });
+    }, () => {
+      setBusy(false);
+      setMsg({
+        bad: true,
+        text: 'Check your internet and try again.'
+      });
+    });
+  }
+  if (!ready) return React.createElement("div", {
+    className: "ff-feed-cm"
+  }, React.createElement("div", {
+    className: "ff-feed-cm-soon"
+  }, "💬 Comments coming soon"));
+  return React.createElement("div", {
+    className: "ff-feed-cm"
+  }, phone ? React.createElement("div", null, React.createElement("div", {
+    className: "ff-feed-cm-form"
+  }, React.createElement("textarea", {
+    rows: 1,
+    maxLength: 280,
+    value: text,
+    placeholder: "Add a comment…",
+    "aria-label": 'Comment on ' + p.title,
+    onChange: e => setText(e.target.value)
+  }), React.createElement("button", {
+    type: "button",
+    disabled: busy || !text.trim(),
+    onClick: send
+  }, "Post")), React.createElement("div", {
+    className: "ff-feed-cm-meta"
+  }, React.createElement("span", null, "Be kind · no numbers or links"), React.createElement("span", null, text.length, " / 280"))) : React.createElement("button", {
+    type: "button",
+    className: "ff-feed-cm-login",
+    onClick: onLogin
+  }, "🔐 Log in to comment"), msg && React.createElement("div", {
+    className: 'ff-feed-cm-msg' + (msg.bad ? ' bad' : ''),
+    role: "status"
+  }, msg.text), items === null ? React.createElement("div", {
+    className: "ff-feed-cm-soon",
+    style: {
+      marginTop: 10
+    }
+  }, "Loading comments…") : items.length ? React.createElement("ul", {
+    className: "ff-feed-cm-list"
+  }, items.map(c => React.createElement("li", {
+    key: c.id
+  }, React.createElement("span", {
+    className: "ff-feed-cm-av",
+    "aria-hidden": "true"
+  }, c.avatar ? React.createElement("img", {
+    src: c.avatar,
+    alt: "",
+    loading: "lazy",
+    width: 30,
+    height: 30
+  }) : String(c.name || '?').charAt(0).toUpperCase()), React.createElement("div", {
+    className: "ff-feed-cm-b"
+  }, React.createElement("b", null, c.name), c.text, React.createElement("small", null, feedWhen_(c.at)))))) : React.createElement("div", {
+    className: "ff-feed-cm-soon",
+    style: {
+      marginTop: 10
+    }
+  }, "No comments yet — be the first!"), next && React.createElement("button", {
+    type: "button",
+    className: "ff-feed-cm-more",
+    disabled: busy,
+    onClick: () => load(next)
+  }, busy ? 'Loading…' : 'Load more comments'));
 }
 function FeedPost({
   p,
@@ -11072,14 +11322,29 @@ function FeedPost({
   shareInfo,
   renewSub,
   highlight,
-  onCta
+  onCta,
+  brandInfo,
+  genre,
+  onGenre,
+  phone,
+  onLogin
 }) {
   const [liked, setLiked] = useState(() => feedLiked_().includes(p.id));
   const [likes, setLikes] = useState(Number(p.likes) || 0);
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
   const [burst, setBurst] = useState(0);
+  const [talk, setTalk] = useState(false);
+  const [ncomments, setNcomments] = useState(Number(p.comments) || 0);
+  const [overflow, setOverflow] = useState(false);
   const ref = useRef(null);
+  const capRef = useRef(null);
+  // Captions start at 3 lines; "more" shows when the text is really cut (measured), whatever its length.
+  useEffect(() => {
+    const el = capRef.current;
+    if (!el || open) return;
+    setOverflow(el.scrollHeight > el.clientHeight + 2);
+  }, [p.caption, open]);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -11108,15 +11373,21 @@ function FeedPost({
     feedEvent_(p.id, on ? 'like' : 'unlike');
   }
   const caption = String(p.caption || '');
-  const long = caption.length > 140 || caption.split('\n').length > 3;
+  const long = overflow || caption.length > 140 || caption.split('\n').length > 3;
   const rel = feedRelease_(p.releaseDate, p.type);
   const typeLabel = {
     movie: '🎬 Movie',
     series: '📺 Series',
     announcement: '📣 News'
   }[p.type] || '';
-  const name = info ? info.service : p.service || 'FluxFilm';
-  const tags = (p.languages || []).concat(p.genres || []);
+  // Header = the real brand ("Netflix" + Netflix logo), even when the button sells "Netflix (Group Offer)".
+  const bi = brandInfo || {
+    name: p.brand || p.service || 'FluxFilm',
+    logoUrl: info && info.logoUrl || '',
+    emoji: ''
+  };
+  const name = bi.name;
+  const genres = p.genres || [];
   return React.createElement("article", {
     ref: ref,
     className: "ff-feed-post" + (highlight ? ' hl' : ''),
@@ -11124,15 +11395,17 @@ function FeedPost({
   }, React.createElement("div", {
     className: "ff-feed-head"
   }, React.createElement("div", {
-    className: "ff-feed-av",
+    className: bi.logoUrl ? 'ff-feed-av logo' : 'ff-feed-av',
     "aria-hidden": "true"
-  }, info && info.logoUrl ? React.createElement("img", {
-    src: info.logoUrl,
+  }, bi.logoUrl ? React.createElement("img", {
+    src: bi.logoUrl,
     alt: "",
     loading: "lazy",
     width: 32,
     height: 32
-  }) : React.createElement("span", null, String(name).charAt(0).toUpperCase())), React.createElement("div", {
+  }) : React.createElement("span", {
+    className: bi.emoji ? 'em' : ''
+  }, bi.emoji || String(name).charAt(0).toUpperCase())), React.createElement("div", {
     className: "ff-feed-name"
   }, React.createElement("b", null, name), React.createElement("span", null, typeLabel, typeLabel && p.date ? ' · ' : '', feedWhen_(p.date))), p.pinned && React.createElement("span", {
     className: "ff-feed-pin"
@@ -11165,27 +11438,44 @@ function FeedPost({
     })
   }, React.createElement("span", {
     "aria-hidden": "true"
-  }, "📤"), "Share"), p.trailerUrl && React.createElement("button", {
+  }, "📤"), "Share"), React.createElement("button", {
     type: "button",
-    className: "ff-feed-trailer" + (feedYouTubeId_(p.trailerUrl) ? ' sm' : ''),
-    onClick: () => openExternal_(p.trailerUrl)
-  }, feedYouTubeId_(p.trailerUrl) ? 'YouTube ↗' : '▶ Trailer')), React.createElement("div", {
+    "aria-expanded": talk,
+    "aria-label": 'Comments' + (ncomments ? ' (' + ncomments + ')' : ''),
+    onClick: () => setTalk(o => !o)
+  }, React.createElement("span", {
+    "aria-hidden": "true"
+  }, "💬"), ncomments > 0 ? ncomments : '')), React.createElement("div", {
     className: "ff-feed-body"
   }, React.createElement("div", {
     className: "ff-feed-title"
-  }, p.title), rel && React.createElement("div", {
+  }, p.title), genres.length > 0 && React.createElement("div", {
+    className: "ff-feed-tags",
+    "aria-label": "Genres"
+  }, genres.map(g => React.createElement("button", {
+    key: g,
+    type: "button",
+    className: genre === g ? 'on' : '',
+    "aria-pressed": genre === g,
+    onClick: () => onGenre && onGenre(genre === g ? '' : g)
+  }, g))), rel && React.createElement("div", {
     className: "ff-feed-rel"
   }, rel), caption && React.createElement("div", {
-    className: "ff-feed-cap" + (long && !open ? ' clamp' : '')
+    ref: capRef,
+    className: "ff-feed-cap" + (open ? '' : ' clamp')
   }, caption), long && React.createElement("button", {
     type: "button",
     className: "ff-feed-more",
     onClick: () => setOpen(o => !o)
-  }, open ? 'less' : 'more'), tags.length > 0 && React.createElement("div", {
+  }, open ? 'less' : 'more'), (p.languages || []).length > 0 && React.createElement("div", {
     className: "ff-feed-tags"
-  }, tags.map(t => React.createElement("span", {
+  }, p.languages.map(t => React.createElement("span", {
     key: t
-  }, t))), note && React.createElement("div", {
+  }, t))), p.trailerUrl && React.createElement("button", {
+    type: "button",
+    className: "ff-feed-ytbtn",
+    onClick: () => openExternal_(p.trailerUrl)
+  }, feedYouTubeId_(p.trailerUrl) ? '▶️ Watch on YouTube' : '▶ Watch the trailer'), note && React.createElement("div", {
     className: "ff-feed-note",
     role: "status"
   }, note), p.cta === 'service' && info && React.createElement("button", {
@@ -11195,9 +11485,14 @@ function FeedPost({
       feedEvent_(p.id, 'click');
       onCta(p, info, renewSub);
     }
-  }, React.createElement("span", null, renewSub ? '🔁 Renew ' + info.service : 'Get ' + info.service + ' from ₹' + info.price, React.createElement("small", null, renewSub ? 'Keep watching — renew your plan' : 'Streaming on ' + info.service)), React.createElement("span", {
+  }, React.createElement("span", null, renewSub ? '🔁 Renew ' + info.service : 'Get ' + info.service + ' from ₹' + info.price, React.createElement("small", null, renewSub ? 'Keep watching — renew your plan' : 'Streaming on ' + name)), React.createElement("span", {
     "aria-hidden": "true"
-  }, "›"))));
+  }, "›")), talk && React.createElement(FeedComments, {
+    p: p,
+    phone: phone,
+    onLogin: onLogin,
+    onCount: n => setNcomments(c => c + n)
+  })));
 }
 function FeedSkeleton() {
   return React.createElement("div", {
@@ -11228,19 +11523,65 @@ function FeedScreen({
 }) {
   const [data, setData] = useState(feedStore_.data);
   const [filter, setFilter] = useState('all');
+  const [genre, setGenre] = useState('');
+  const [when, setWhen] = useState('all');
+  const [q, setQ] = useState('');
+  const [query, setQuery] = useState('');
+  const [pinId, setPinId] = useState(postId || '');
   const [shown, setShown] = useState(6);
   const moreRef = useRef(null);
+  const topRef = useRef(null);
   function load(force) {
     feedLoad_(r => setData(r), force);
   }
   useEffect(() => {
     load(false);
   }, []);
+  useEffect(() => {
+    if (postId) setPinId(postId);
+  }, [postId]);
+  // Search waits for a short typing pause (no re-render per key on slow phones).
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(q), 220);
+    return () => clearTimeout(t);
+  }, [q]);
   const posts = data && data.posts || [];
-  const platforms = [...new Set(posts.map(p => p.service).filter(Boolean))];
-  const list = filter === 'all' ? posts : posts.filter(p => p.service === filter);
-  const target = postId && list.find(p => p.id === postId);
+  const platforms = feedBrands_(posts);
+  const genreList = feedGenres_(posts);
+  const active = filter !== 'all' || !!genre || when !== 'all' || !!query.trim();
+  const list = feedFilter_(posts, {
+    q: query,
+    genre,
+    brand: filter === 'all' ? '' : filter,
+    date: when
+  });
+  // A shared link (?post=) shows that post first until the customer filters.
+  const target = pinId && posts.find(p => p.id === pinId);
   const ordered = target ? [target].concat(list.filter(p => p !== target)) : list;
+  function change(fn) {
+    fn();
+    setShown(6);
+    setPinId('');
+  }
+  function clearAll() {
+    change(() => {
+      setFilter('all');
+      setGenre('');
+      setWhen('all');
+      setQ('');
+      setQuery('');
+    });
+  }
+  function pickGenre(g) {
+    change(() => setGenre(g));
+    try {
+      topRef.current && topRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    } catch (e) {}
+  }
+  const phone = (getFFSession() || {}).phone || '';
   useEffect(() => {
     const el = moreRef.current;
     if (!el || typeof IntersectionObserver === 'undefined') return;
@@ -11297,41 +11638,108 @@ function FeedScreen({
       setData(null);
       load(true);
     }
-  }, "🔄 Try again"));else body = ordered.slice(0, shown).map(p => {
-    const info = p.cta === 'service' ? feedServiceInfo_(p.service, plans) : null;
+  }, "🔄 Try again"));else if (!ordered.length) body = React.createElement(Card, {
+    style: {
+      textAlign: 'center',
+      padding: '28px 20px'
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: 40,
+      marginBottom: 8
+    }
+  }, "🔎"), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 15,
+      fontWeight: 800,
+      color: C.text
+    }
+  }, "No posts match"), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13,
+      fontWeight: 600,
+      color: C.muted,
+      margin: '6px 0 14px'
+    }
+  }, "Try another word, genre or app."), React.createElement(Btn, {
+    variant: "ghost",
+    onClick: clearAll
+  }, "✖ Clear filters"));else body = ordered.slice(0, shown).map(p => {
+    const plan = p.ctaService || p.service;
+    const info = p.cta === 'service' ? feedServiceInfo_(plan, plans) : null;
     const renewSub = info ? subs.find(s => s && s.service === info.service && s.showRenewButton !== false) || null : null;
     return React.createElement(FeedPost, {
       key: p.id,
       p: p,
       info: info,
-      shareInfo: info || feedServiceInfo_(p.service, plans),
+      shareInfo: info || feedServiceInfo_(p.ctaService || p.service, plans),
       renewSub: renewSub,
       highlight: !!target && p === target,
-      onCta: onCta
+      onCta: onCta,
+      brandInfo: feedBrandInfo_(feedPostBrand_(p), plans),
+      genre: genre,
+      onGenre: pickGenre,
+      phone: phone,
+      onLogin: () => nav('home', {})
     });
   });
+  const chip = (key, label, on, onClick) => React.createElement("button", {
+    key: key,
+    type: "button",
+    "aria-pressed": on,
+    className: on ? 'on' : '',
+    onClick: onClick
+  }, label);
   return React.createElement(Slide, null, React.createElement("div", {
     className: "ff-feed",
+    ref: topRef,
     style: {
       paddingBottom: 90
     }
   }, React.createElement(SectionHead, null, "🍿 What's new"), React.createElement("p", {
     className: "ff-feed-sub"
-  }, "New movies & shows on the apps you can get from FluxFilm."), platforms.length > 1 && React.createElement("div", {
-    className: "ff-feed-chips",
-    role: "tablist",
-    "aria-label": "Filter by platform"
-  }, ['all'].concat(platforms).map(k => React.createElement("button", {
-    key: k,
-    type: "button",
-    role: "tab",
-    "aria-selected": filter === k,
-    className: filter === k ? 'on' : '',
-    onClick: () => {
-      setFilter(k);
+  }, "New movies & shows on the apps you can get from FluxFilm."), posts.length > 1 && React.createElement("div", {
+    className: "ff-feed-find"
+  }, React.createElement("span", {
+    "aria-hidden": "true"
+  }, "🔎"), React.createElement("input", {
+    type: "search",
+    value: q,
+    enterKeyHint: "search",
+    placeholder: "Search title, app, genre…",
+    "aria-label": "Search posts",
+    onChange: e => {
+      setQ(e.target.value);
       setShown(6);
+      setPinId('');
     }
-  }, k === 'all' ? 'All' : k))), body, data && ordered.length > shown && React.createElement("div", {
+  }), q && React.createElement("button", {
+    type: "button",
+    "aria-label": "Clear search",
+    onClick: () => change(() => {
+      setQ('');
+      setQuery('');
+    })
+  }, "✕")), platforms.length > 1 && React.createElement("div", {
+    className: "ff-feed-chips",
+    role: "group",
+    "aria-label": "Filter by app"
+  }, ['all'].concat(platforms).map(k => chip(k, k === 'all' ? 'All apps' : k, filter === k, () => change(() => setFilter(k))))), posts.length > 1 && React.createElement("div", {
+    className: "ff-feed-chips sm",
+    role: "group",
+    "aria-label": "Filter by date and genre"
+  }, [['all', 'All time'], ['week', '🆕 Latest'], ['month', '📅 This month']].map(([k, l]) => chip('d-' + k, l, when === k, () => change(() => setWhen(k)))), genreList.length > 0 && React.createElement("i", {
+    key: "sep",
+    "aria-hidden": "true"
+  }), genreList.map(g => chip('g-' + g, g, genre === g, () => change(() => setGenre(genre === g ? '' : g))))), data && posts.length > 1 && React.createElement("div", {
+    className: "ff-feed-count",
+    role: "status"
+  }, React.createElement("span", null, active ? list.length + ' of ' + posts.length + ' posts' : posts.length + ' posts'), active && React.createElement("button", {
+    type: "button",
+    onClick: clearAll
+  }, "✖ Clear filters")), body, data && ordered.length > shown && React.createElement("div", {
     ref: moreRef,
     style: {
       textAlign: 'center',
@@ -13335,6 +13743,12 @@ const API = {
   },
   feedEvent(id, kind, device, onSuccess, onFailure) {
     apiCall_('feedEvent', [id, kind, device], onSuccess, onFailure);
+  },
+  getFeedComments(postId, cursor, onSuccess, onFailure) {
+    apiCall_('getFeedComments', [postId, cursor], onSuccess, onFailure);
+  },
+  addFeedComment(phone, postId, text, onSuccess, onFailure) {
+    apiCall_('addFeedComment', [phone, postId, text], onSuccess, onFailure);
   },
   getMySubscriptions(phone, onSuccess, onFailure) {
     apiCall_('getMySubscriptions', [phone], onSuccess, onFailure);

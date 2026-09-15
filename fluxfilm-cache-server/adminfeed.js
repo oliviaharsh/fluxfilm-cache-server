@@ -11,28 +11,82 @@
  *   POST /admin/api/feed/tmdb/suggest      { services[], days }  drafts only
  *   POST /admin/api/feed/tmdb/providers    {}                    TMDB's current India provider ids
  *   POST /admin/api/feed/run               {}                    run the TMDB import now (daily cap still applies)
+ *   POST /admin/api/feed/thumb/refresh     { id }                📸 fetch the Instagram thumbnail + Reel caption again (server-side)
+ *   POST /admin/api/feed/thumb             { id, dataUrl }       the admin page's shrunk copy of a big thumbnail ('' removes it)
+ *   POST /admin/api/feed/ai-fill           { title, caption, sourceCaption, type }   ✨ suggestions only (nothing saved)
+ *   GET  /admin/api/feed/comments          ?status=pending|visible|hidden|all&post=<id>   💬 list + counts
+ *   POST /admin/api/feed/comments/action   { id, action: approve|hide|delete|block|unblock }
  */
 function mount(app, deps) {
   const { auth } = deps;
   const audit = deps.audit || { record: () => {} };
   const feed = deps.feed || require('./feed');
+  const comments = deps.comments || require('./feedcomments');
+  const ai = deps.ai || require('./feedai');
+  // ✨ AI fill costs AI tokens: 20 per 10 minutes for the whole admin.
+  let aiLimit = null; try { aiLimit = require('./security').rateLimiter(20, 10 * 60e3); } catch (_) {}
+  const THUMB_BUDGET_MS = deps.thumbBudgetMs || 12000;
   const fail = (res, e) => res.status(e && e.code === 'NOKEY' ? 400 : 500).json({ ok: false, message: String((e && e.message) || e) });
   const route = (p, fn) => app.post(p, async (req, res) => { if (!auth(req, res)) return; try { await fn(req, res, req.body || {}); } catch (e) { fail(res, e); } });
 
   app.get('/admin/api/feed', async (req, res) => {
     if (!auth(req, res)) return;
     try {
-      const [items, st, settings, services, job] = await Promise.all([feed.list(), feed.stats(), feed.getSettings(), feed.catalogServices(), feed.jobStatus().catch(() => null)]);
-      const posts = feed.sortPosts(items).map((p) => Object.assign({}, p, { status: feed.statusOf(p), views: (st[p.id] || {}).views || 0, likes: (st[p.id] || {}).likes || 0, clicks: (st[p.id] || {}).clicks || 0, shares: (st[p.id] || {}).shares || 0, plays: (st[p.id] || {}).plays || 0 }));
-      res.json({ ok: true, posts, services, settings: feed.publicSettings(settings), job, max: feed.MAX_POSTS, now: new Date().toISOString() });
+      const [items, st, settings, info, job, cm] = await Promise.all([feed.list(), feed.stats(), feed.getSettings(), feed.catalogServiceInfo(), feed.jobStatus().catch(() => null),
+        comments.adminList({ status: 'pending', limit: 1 }).catch(() => ({ ready: false, counts: {}, byPost: {} }))]);
+      const byPost = cm.byPost || {};
+      const posts = feed.sortPosts(items).map((p) => Object.assign({}, p, { status: feed.statusOf(p), views: (st[p.id] || {}).views || 0, likes: (st[p.id] || {}).likes || 0, clicks: (st[p.id] || {}).clicks || 0, shares: (st[p.id] || {}).shares || 0, plays: (st[p.id] || {}).plays || 0, comments: byPost[p.id] || { visible: 0, pending: 0, hidden: 0 } }));
+      res.json({ ok: true, posts, services: info.map((x) => x.service), serviceInfo: info, brands: feed.BRANDS.map((b) => ({ name: b.name, emoji: b.emoji })), settings: feed.publicSettings(settings), job, max: feed.MAX_POSTS, now: new Date().toISOString(), commentsReady: !!cm.ready, commentCounts: cm.counts || {} });
     } catch (e) { fail(res, e); }
   });
 
   route('/admin/api/feed/save', async (req, res, b) => {
     const r = await feed.save(b);
     if (!r.ok) return res.status(400).json(r);
-    audit.record(req, { action: r.created ? 'feed.create' : 'feed.update', entity: 'feed', id: r.post.id, summary: (r.created ? 'Created' : 'Updated') + ' feed post "' + r.post.title + '" (' + (r.post.service || r.post.type) + ', ' + (r.post.active ? 'on' : 'off') + (r.post.pinned ? ', pinned' : '') + ')' });
+    audit.record(req, { action: r.created ? 'feed.create' : 'feed.update', entity: 'feed', id: r.post.id, summary: (r.created ? 'Created' : 'Updated') + ' feed post "' + r.post.title + '" (' + (r.post.brand && r.post.brand !== r.post.service ? r.post.brand + ' → ' : '') + (r.post.service || r.post.type) + ', ' + (r.post.active ? 'on' : 'off') + (r.post.pinned ? ', pinned' : '') + ')' });
+    // New / changed Reel link: fetch its thumbnail + caption now (server-side, time-boxed; the post is already saved).
+    if (r.igChanged && r.post.instagramUrl && feed.refreshThumb) {
+      try { r.thumb = await feed.refreshThumb(r.post.id, { budgetMs: THUMB_BUDGET_MS }); if (r.thumb && r.thumb.post) { r.post = r.thumb.post; delete r.thumb.post; } }
+      catch (e) { r.thumb = { ok: false, message: '⚠️ Thumbnail not fetched: ' + String((e && e.message) || e).slice(0, 80) }; }
+    }
     res.json(Object.assign(r, { status: feed.statusOf(r.post) }));
+  });
+
+  route('/admin/api/feed/thumb/refresh', async (req, res, b) => {
+    const r = await feed.refreshThumb(String(b.id || ''), { budgetMs: THUMB_BUDGET_MS });
+    if (!r.ok) return res.status(400).json(r);
+    audit.record(req, { action: 'feed.thumb', entity: 'feed', id: r.post.id, summary: 'Refreshed Instagram thumbnail of "' + r.post.title + '": ' + (r.thumb ? 'saved (' + r.source + ')' : r.poster ? 'blocked, poster used' : 'not found (' + (r.reason || 'blocked') + ')') });
+    const post = r.post; delete r.post;
+    res.json(Object.assign(r, { post, status: feed.statusOf(post) }));
+  });
+
+  route('/admin/api/feed/thumb', async (req, res, b) => {
+    const r = await feed.setThumb(String(b.id || ''), b.dataUrl);
+    if (!r.ok) return res.status(400).json(r);
+    res.json({ ok: true, hasThumb: r.hasThumb, updatedAt: r.post.updatedAt, thumbAt: r.post.thumbAt });
+  });
+
+  route('/admin/api/feed/ai-fill', async (req, res, b) => {
+    if (aiLimit && !aiLimit.hit('admin').ok) return res.status(429).json({ ok: false, message: 'Too many ✨ AI fills — wait a few minutes.' });
+    const r = await ai.aiFill({ title: b.title, caption: b.caption, sourceCaption: b.sourceCaption, type: b.type });
+    if (r.ok && r.tokens) console.log('[feed] AI fill used ' + r.tokens + ' tokens');
+    res.status(r.ok ? 200 : 400).json(r);
+  });
+
+  app.get('/admin/api/feed/comments', async (req, res) => {
+    if (!auth(req, res)) return;
+    try { res.json(await comments.adminList({ status: String((req.query && req.query.status) || ''), postId: String((req.query && req.query.post) || ''), limit: 150 })); }
+    catch (e) { fail(res, e); }
+  });
+
+  route('/admin/api/feed/comments/action', async (req, res, b) => {
+    const action = String(b.action || '');
+    const r = await comments.adminAction(b.id, action);
+    if (!r.ok) return res.status(400).json(r);
+    const c = r.comment;
+    const words = { approve: 'Approved', hide: 'Hid', delete: 'Deleted', block: 'Blocked commenter …' + c.phone.slice(-4) + ' (all their comments hidden) for', unblock: 'Unblocked commenter …' + c.phone.slice(-4) + ' for' };
+    audit.record(req, { action: 'feed.comment.' + action, entity: 'feed', id: c.postId, summary: words[action] + ' comment #' + c.id + ' by ' + c.name + ' on post ' + c.postId });
+    res.json(r);
   });
 
   route('/admin/api/feed/delete', async (req, res, b) => {

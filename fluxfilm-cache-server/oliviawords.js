@@ -433,7 +433,8 @@ async function callModel(messages, opts) {
     const r = await fetch(base + '/chat/completions', {
       method: 'POST', signal: ctrl.signal,
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
-      body: JSON.stringify({ model: process.env.DEEPSEEK_MODEL || 'deepseek-chat', temperature: 0.4, max_tokens: 300, response_format: { type: 'json_object' }, messages }),
+      // opts.maxTokens / opts.temperature: 🍿 feed ✨ AI fill (feedai.js) reuses this adapter and key.
+      body: JSON.stringify({ model: process.env.DEEPSEEK_MODEL || 'deepseek-chat', temperature: (opts && opts.temperature) != null ? opts.temperature : 0.4, max_tokens: (opts && opts.maxTokens) || 300, response_format: { type: 'json_object' }, messages }),
     });
     if (!r.ok) { console.log('[olivia] model HTTP', r.status); return null; }
     const body = await r.json();
@@ -518,4 +519,4 @@ async function answer(question, facts, knowledge, lang, settings, deps) {
   return { text, handoff: res.json.handoff === true, tokens: res.tokens || 0 };
 }
 
-module.exports = { LANGS, normLang, template, say, classify, answer, check, format, daysLeftLabel, buttonLabel, durationLabel, rupees, INTENTS: Object.keys(T), _internal: { T, B, fill } };
+module.exports = { LANGS, normLang, template, say, classify, answer, check, format, daysLeftLabel, buttonLabel, durationLabel, rupees, callModel, INTENTS: Object.keys(T), _internal: { T, B, fill } };

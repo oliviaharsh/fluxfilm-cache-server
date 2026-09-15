@@ -1,5 +1,6 @@
 /**
- * FluxFilm - "Expired customers still on accounts" (admin Today, 📦 Stock, per account).
+ * FluxFilm - "Expired customers still on accounts" (admin Today, 🚪 Remove users, 📦 Stock per-account badge).
+ * One source of truth: GET /admin/api/remove-users (adminexpired.js) = load() + summarize().
  *
  * The owner trusts the old Sheet DASHBOARD, so this is its rule (checked 2026-09-15 against the Sheet: Netflix 15):
  *   - Grouped per real account LOGIN (a login listed under two account IDs is one account), per service family
@@ -56,6 +57,19 @@ const isRemoved = (x) => Number(x.removed) === 1 || x.removed === true || up(x.r
 const isActive = (x, now) => up(x.status) === 'ACTIVE' && toMs(x.expiry_date) > now;
 const isExpired = (x, now) => toMs(x.expiry_date) < now;
 
+/** "Profile 3" (from NFLX-D1#P3) / "2 devices · TV" (Prime, device-aware) / '' when unknown. */
+function slotOf(x) {
+  const m = s(x.inventory_ref).match(/#P(\d+)/i);
+  if (m) return 'Profile ' + m[1];
+  const n = Number(x.device_count) || 0;
+  const tv = Number(x.tv_count) || (up(x.device_type) === 'TV' ? n || 1 : 0);
+  const parts = [];
+  if (n) parts.push(n + ' device' + (n === 1 ? '' : 's'));
+  if (tv) parts.push(tv === n ? 'TV' : tv + ' TV');
+  else if (s(x.device_type)) parts.push(s(x.device_type).toLowerCase());
+  return parts.join(' · ');
+}
+
 function nameOf(x) {
   const n = s(x.name) || s(rawOf(x.raw_json).Name);
   return n || (s(x.phone_norm) ? '…' + s(x.phone_norm).slice(-4) : '?');
@@ -71,10 +85,11 @@ function compute(input) {
   const inp = input || {};
   const now = inp.now == null ? Date.now() : (inp.now instanceof Date ? inp.now.getTime() : Number(inp.now));
   const policyOf = inp.policyOf || {};
-  const accLogin = new Map();
+  const accLogin = new Map(), accLoginRaw = new Map(), accService = new Map();
   for (const a of inp.accounts || []) {
     const id = s(a.account_id); if (!id) continue;
-    if (!accLogin.has(id) || !accLogin.get(id)) accLogin.set(id, loginKey(a.login_id));
+    if (!accService.has(id) && s(a.service)) accService.set(id, s(a.service));
+    if (!accLogin.has(id) || !accLogin.get(id)) { accLogin.set(id, loginKey(a.login_id)); accLoginRaw.set(id, s(a.login_id)); }
   }
 
   const groups = new Map();
@@ -87,9 +102,10 @@ function compute(input) {
     const key = family + '|' + (login ? 'L:' + login : 'id:' + accId);
     let g = groups.get(key);
     if (!g) {
-      g = { key, family, section: sectionOf(x.service, policyOf[s(x.service).toLowerCase()]), login, accountIds: new Set(), services: new Set(), active: [], expired: [] };
+      g = { key, family, section: sectionOf(x.service, policyOf[s(x.service).toLowerCase()]), login, loginLabel: '', accountIds: new Set(), services: new Set(), active: [], expired: [] };
       groups.set(key, g);
     }
+    if (!g.loginLabel) g.loginLabel = s(x.login_id) || accLoginRaw.get(accId) || '';
     if (sectionOf(x.service, policyOf[s(x.service).toLowerCase()]) === 'main') g.section = 'main';
     if (accId) g.accountIds.add(accId);
     g.services.add(s(x.service));
@@ -112,7 +128,7 @@ function compute(input) {
     const sec = out[g.section];
     const hasActive = g.active.length > 0;
     pending.sort((a, b) => toMs(b.expiry_date) - toMs(a.expiry_date));
-    const people = pending.map((x) => ({ subId: s(x.sub_id), orderId: s(x.order_id), name: nameOf(x), phone: s(x.phone_norm), service: s(x.service), plan: s(x.plan), expiry: s(x.expiry_date instanceof Date ? x.expiry_date.toISOString() : x.expiry_date), accountRef: s(x.inventory_ref), accountId: accountOfRef(x.inventory_ref) || s(x.account_id) }));
+    const people = pending.map((x) => ({ subId: s(x.sub_id), orderId: s(x.order_id), name: nameOf(x), phone: s(x.phone_norm), service: s(x.service), plan: s(x.plan), expiry: s(x.expiry_date instanceof Date ? x.expiry_date.toISOString() : x.expiry_date), daysAgo: Math.max(0, Math.floor((now - toMs(x.expiry_date)) / 86400e3)), accountRef: s(x.inventory_ref), accountId: accountOfRef(x.inventory_ref) || s(x.account_id), slot: slotOf(x) }));
     for (const p of people) {
       const b = out.byAccount[p.accountId] || (out.byAccount[p.accountId] = { pending: 0, oldUsers: 0, hasActive: false });
       if (hasActive) b.pending++; else b.oldUsers++;
@@ -122,7 +138,7 @@ function compute(input) {
       if (hasActive) b.hasActive = true;
     }
     if (!pending.length) continue;
-    const row = { key: g.key, family: g.family, login: g.login, accountIds: [...g.accountIds].sort(), services: [...g.services].sort(), activeCount: g.active.length, count: pending.length, action: hasActive ? 'REMOVE' : 'SAFE', people };
+    const row = { key: g.key, family: g.family, login: g.login, loginLabel: g.loginLabel || g.login, accountIds: [...g.accountIds].sort(), accountServices: Object.fromEntries([...g.accountIds].map((id) => [id, accService.get(id) || [...g.services][0] || ''])), services: [...g.services].sort(), activeCount: g.active.length, count: pending.length, action: hasActive ? 'REMOVE' : 'SAFE', people };
     sec.groups.push(row);
     if (hasActive) {
       sec.pending += pending.length; sec.accountsToFix++;
@@ -140,9 +156,31 @@ function todayNames(result, max) {
     .map((g) => (g.accountIds.join('/') || g.login) + ' · remove ' + g.count + ': ' + g.people.map((p) => p.name).join(', '));
 }
 
+/**
+ * The numbers every admin screen shows (Today, 🚪 Remove users, 📦 Stock), with explicit units:
+ *   customers  = expired customers to log out, on logins that still have active customers (main list)
+ *   accounts   = how many account logins those customers are on (a login under two IDs counts once)
+ *   safeAccounts / safeUsers = logins nobody active uses (reset the password) and their old users (not counted)
+ *   other      = the same for whole-account / OTP services (Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube)
+ */
+function summarize(result) {
+  const r = result || {};
+  const part = (sec) => {
+    const x = sec || {}; const byFamily = {};
+    for (const g of x.groups || []) {
+      if (g.action !== 'REMOVE') continue;
+      const f = byFamily[g.family] || (byFamily[g.family] = { customers: 0, accounts: 0 });
+      f.customers += g.count; f.accounts++;
+    }
+    return { customers: Number(x.pending) || 0, accounts: Number(x.accountsToFix) || 0, safeAccounts: Number(x.safeAccounts) || 0, safeUsers: Number(x.safeOldUsers) || 0, byFamily };
+  };
+  const main = part(r.main);
+  return Object.assign({}, main, { other: part(r.other) });
+}
+
 // Only rows that can matter: active ones (to know who is still on a login) and expired rows not yet ticked removed.
 const SUBS_SQL =
-  "SELECT s.sub_id, s.order_id, s.phone_norm, s.service, s.plan, s.status, s.expiry_date, s.inventory_ref, s.account_id, s.login_id, COALESCE(s.removed, 0) AS removed, s.renew_sub_id, " +
+  "SELECT s.sub_id, s.order_id, s.phone_norm, s.service, s.plan, s.status, s.expiry_date, s.inventory_ref, s.account_id, s.login_id, COALESCE(s.removed, 0) AS removed, s.renew_sub_id, s.device_count, s.device_type, s.tv_count, " +
   '(SELECT c.name FROM customers c WHERE c.phone_norm = s.phone_norm LIMIT 1) AS name ' +
   "FROM subscriptions s WHERE (COALESCE(s.inventory_ref, '') <> '' OR COALESCE(s.login_id, '') <> '') " +
   "AND ((UPPER(s.status) = 'ACTIVE' AND s.expiry_date > NOW()) OR (s.expiry_date < NOW() AND COALESCE(s.removed, 0) = 0))";
@@ -163,4 +201,4 @@ async function load(q, opts) {
   return compute({ subs: Array.isArray(subs) ? subs : [], accounts: Array.isArray(accounts) ? accounts : [], policyOf, now: o.now });
 }
 
-module.exports = { compute, load, todayNames, familyOf, sectionOf, toMs, SUBS_SQL, OTHER_SERVICES };
+module.exports = { compute, load, summarize, todayNames, slotOf, familyOf, sectionOf, toMs, SUBS_SQL, OTHER_SERVICES };
