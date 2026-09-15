@@ -142,6 +142,8 @@ function mountAdmin(app, deps) {
   require('./credit').mount(app, Object.assign({ db, auth, audit }, deps.credit || {}));
   // Order lookup + stock levels (adminlookup.js).
   require('./adminlookup').mount(app, Object.assign({ db, auth, audit }, deps.lookup || {}));
+  // 📤 Exports: orders list + customer profiles to Excel (.xlsx) / CSV, with filters, limits and change log (adminexports.js).
+  require('./adminexports').mount(app, Object.assign({ db, auth, audit }, deps.exports || {}));
   // Stuck orders: fulfil / re-fulfil, deliver manually, refund, erase (adminorderactions.js).
   require('./adminorderactions').mount(app, Object.assign({ db, auth, audit }, deps.orderActions || {}));
   // 🔁 Switch account on a live subscription (adminswitch.js). Mounted before adminexpired.js and the sub-removed
