@@ -9,7 +9,8 @@
  *  - The SERVER decides every result: spin slice, right answers, keeper dives, ball plan. The browser only animates
  *    and sends its taps; the server scores them again. Timing games are also checked for "too fast / too high".
  *  - Prizes need a customer with a paid order (requirePaidOrder) on a device that confirmed the email code
- *    (requireVerify; same signed token as Get OTP). Others play in PRACTICE mode (no prize, no cost).
+ *    (requireVerify; same signed token as Get OTP, but its email must be on one of this phone's plans or PAID + FULFILLED
+ *    orders - never the profile email). Others play in PRACTICE mode (no prize, no cost).
  *    Spending coins on an extra play ALWAYS needs the verified device (a phone number alone can't spend coins).
  *  - Coins won are capped per day and per month; coupons per month. Coupons are normal `coupons` rows locked to
  *    the winner's phone (1 use, expiry), so they show in the shop account and work at checkout.
@@ -262,8 +263,14 @@ async function hasPaidOrder(ph) {
   const r = await db.query("SELECT 1 FROM orders WHERE phone_norm = ? AND UPPER(status) = 'PAID' LIMIT 1", [ph]);
   return r.length > 0;
 }
+// The device token counts only when its email belongs to THIS phone's paid customer (otpaccess.paidCustomerEmailOk):
+// an email on a non-refunded subscription, or on a PAID + FULFILLED order. Never the profile email (anyone can change it).
+async function deviceVerified(ph, token) {
+  const match = ph ? otpaccess.tokenMatcher(token, ph) : null;
+  return !!match && await otpaccess.paidCustomerEmailOk(ph, match);
+}
 async function eligibility(ph, token, cfg) {
-  const tokenOk = !!(ph && otpaccess.verifyToken(token, ph));
+  const tokenOk = await deviceVerified(ph, token);
   const verified = !cfg.requireVerify || tokenOk;
   const paidCustomer = cfg.requirePaidOrder ? await hasPaidOrder(ph) : true;
   return { verified, tokenOk, paidCustomer, canWin: verified && paidCustomer };
@@ -543,8 +550,6 @@ async function getHome(phone, token) {
     db.query("SELECT gp.coupon_code code, gp.coupon_value value, gp.game, DATE_FORMAT(c.expiry, '%Y-%m-%d') expiry, (SELECT COUNT(*) FROM coupon_usage u WHERE UPPER(u.coupon_code) = gp.coupon_code AND UPPER(u.action) = 'USED') used " +
       "FROM game_plays gp LEFT JOIN coupons c ON c.code = gp.coupon_code WHERE gp.phone_norm = ? AND gp.coupon_code IS NOT NULL ORDER BY gp.id DESC LIMIT 10", [ph]),
   ]);
-  let maskedEmail = '';
-  if (!elig.tokenOk) { try { maskedEmail = (await otpaccess.check(ph, '')).maskedEmail || ''; } catch (_) {} }
   base.games.forEach((g) => {
     const c = counts[g.key] || { FREE: 0, PAID: 0, PRACTICE: 0 };
     g.freeLeft = Math.max(0, g.freePerDay - c.FREE);
@@ -552,7 +557,7 @@ async function getHome(phone, token) {
   });
   return Object.assign(base, {
     loggedIn: true, today,
-    eligibility: { verified: elig.verified, tokenOk: elig.tokenOk, paidCustomer: elig.paidCustomer, canWin: elig.canWin, practice: !elig.canWin && cfg.practiceEnabled, maskedEmail, requireVerify: cfg.requireVerify },
+    eligibility: { verified: elig.verified, tokenOk: elig.tokenOk, paidCustomer: elig.paidCustomer, canWin: elig.canWin, practice: !elig.canWin && cfg.practiceEnabled, requireVerify: cfg.requireVerify },
     balance: Math.floor(asNum((wallet[0] || {}).coins_balance)),
     won: { today: so.day, month: so.month, couponsMonth: so.coupons },
     streak,
@@ -718,7 +723,7 @@ async function finish(phone, token, playId, input) {
     return { ok: false, expired: true, message: 'This game took too long and has ended. Start a new one!' };
   }
   // A prize needs the same checks as at the start (the device token may have been removed meanwhile).
-  if (row.kind !== 'PRACTICE' && cfg.requireVerify && !otpaccess.verifyToken(token, ph)) return { ok: false, needsVerify: true, message: 'Confirm it\'s you with the email code to collect your prize.' };
+  if (row.kind !== 'PRACTICE' && cfg.requireVerify && !(await deviceVerified(ph, token))) return { ok: false, needsVerify: true, message: 'Confirm it\'s you with the email code to collect your prize.' };
   const seed = JSON.parse(row.seed_json || '{}');
   let r;
   if (row.game === 'quiz' || row.game === 'emoji') r = scoreQuiz(seed);
@@ -731,19 +736,22 @@ async function finish(phone, token, playId, input) {
   return settle(row, cfg, r);
 }
 
-async function sendCode(phone) {
-  const cfg = await getSettings();
-  return otpaccess.sendCode(phone, {
-    tool: 'FluxFilm Games',
-    eligible: async (ph) => (cfg.requirePaidOrder ? hasPaidOrder(ph) : true),
-    notEligibleMessage: 'Games prizes are for FluxFilm customers — buy any plan first, then come back to play and win.',
-  });
+// Email code for prizes: the customer TYPES their email; it must be on one of this phone's plans / paid orders.
+// Games stay less strict than Get OTP on purpose: prizes only ever go to this phone's own wallet / coupons, and a
+// customer whose plan has ended may still play, so ended (not refunded) plans count too. One generic "no".
+const GAMES_NO = 'We could not confirm this number and email. Use the email you gave when you bought a plan. Need help? Tap Help.';
+const gamesEligible = (ph, match) => otpaccess.paidCustomerEmailOk(ph, match);
+function sendCode(phone, email) {
+  return otpaccess.sendEmailCode('games', phone, email, { tool: 'FluxFilm Games', eligible: gamesEligible, noMessage: GAMES_NO });
+}
+function verifyCode(phone, email, code) {
+  return otpaccess.verifyEmailCode('games', phone, email, code, { eligible: gamesEligible, noMessage: GAMES_NO });
 }
 
 module.exports = {
   GAMES, GAME_KEYS, GLOBAL_FIELDS, COMMON_FIELDS, GAME_FIELDS, DEFAULT_SLICES, PRESETS, LEVELS, levelOf,
   defaults, validateSettings, getSettings, saveSettings, schemaReady,
-  getStatus, getHome, start, step, finish, sendCode,
+  getStatus, getHome, start, step, finish, sendCode, verifyCode, GAMES_NO,
   // pure rules (tests + admin previews)
   cricketBall, scoreCricket, yorkerBall, scoreYorker, penaltyKick, scorePenalty, scoreQuiz, scorePopcorn, pickSlice, ballTimeMs, istDate, addDays,
   CRICKET_SWEET, YORKER_TARGET, PENALTY_CENTRE,

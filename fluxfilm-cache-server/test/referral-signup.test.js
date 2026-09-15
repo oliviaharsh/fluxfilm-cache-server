@@ -20,7 +20,7 @@ async function q(sql, p) {
   sql = sql.replace(/\s+/g, ' ').trim(); p = p || [];
   if (/app_settings|referral_codes|referrals/.test(sql) && !tablesExist) noTable();
   if (/^SELECT value FROM app_settings/.test(sql)) return T.settings[p[0]] ? [{ value: T.settings[p[0]] }] : [];
-  if (/^SELECT phone, raw_json FROM customers WHERE phone_norm = \?/.test(sql)) return T.customers.filter((x) => x.phone_norm === p[0]);
+  if (/^SELECT phone, raw_json(, email)? FROM customers WHERE phone_norm = \?/.test(sql)) return T.customers.filter((x) => x.phone_norm === p[0]);
   if (/^UPDATE customers SET name = \?/.test(sql)) return { affectedRows: 1 };
   if (/^INSERT INTO customers/.test(sql)) { T.customers.push({ phone: p[0], phone_norm: p[1], name: p[2], email: p[3] }); return { affectedRows: 1 }; }
   if (/^SELECT 1 FROM customers WHERE phone_norm = \?/.test(sql) || /^SELECT name FROM customers WHERE phone_norm = \?/.test(sql)) return T.customers.filter((x) => x.phone_norm === p[0]);

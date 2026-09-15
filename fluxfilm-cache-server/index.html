@@ -1422,7 +1422,10 @@ function Input({
   disabled = false,
   readOnly = false,
   style = {},
-  autoFocus = false
+  autoFocus = false,
+  inputMode,
+  autoComplete,
+  maxLength
 }) {
   const locked = disabled || readOnly;
   return React.createElement("div", {
@@ -1456,6 +1459,9 @@ function Input({
   }, prefix), React.createElement("input", {
     autoFocus: autoFocus,
     type: type,
+    inputMode: inputMode,
+    autoComplete: autoComplete,
+    maxLength: maxLength,
     placeholder: placeholder,
     value: value || '',
     onChange: onChange,
@@ -2751,6 +2757,132 @@ function AccountCreateModal({
     onClick: submit
   }, loading ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), " Creating…") : '✅ Create Account'))));
 }
+// 🔒 Profile email lock (emaillock.js). mode 'confirm' = code to the email on file (checkout, when needed);
+// mode 'change' = [code from an old email when a plan is active] → code to the new email → save.
+// The server re-checks everything; this sheet only guides the customer.
+function EmailLockSheet({
+  open,
+  phone,
+  mode,
+  onClose,
+  onDone
+}) {
+  const E = React.createElement;
+  const [st, setSt] = useState(null);
+  const [step, setStep] = useState('load');
+  const [newEmail, setNewEmail] = useState('');
+  const [target, setTarget] = useState('');
+  const [code, setCode] = useState('');
+  const [sent, setSent] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [resendAt, setResendAt] = useState(0);
+  const [, setTick] = useState(0);
+  const oldToken = useRef('');
+  const ph = normPhone_(phone || '');
+  const changeStart = r => r && r.activePlan ? r.oldOptions && r.oldOptions.length ? 'old' : 'help' : 'new';
+  useEffect(() => {
+    if (!open) return;
+    setSt(null); setStep('load'); setNewEmail(''); setCode(''); setSent(''); setMsg(''); setResendAt(0); setBusy(false);
+    oldToken.current = '';
+    API.emailLockStatus(ph, '', r => {
+      if (!r || !r.ok) { setMsg(r?.message || 'Could not load. Please try again.'); setStep('error'); return; }
+      setSt(r);
+      if (r.oldOptions && r.oldOptions[0]) setTarget(r.oldOptions[0].id);
+      setStep(mode === 'confirm' && r.hasEmail ? 'confirm' : changeStart(r));
+    }, () => { setMsg('No internet? Please try again.'); setStep('error'); });
+  }, [open, ph, mode]);
+  const left = Math.max(0, Math.ceil((resendAt - Date.now()) / 1000));
+  useEffect(() => {
+    if (!left) return;
+    const t = setInterval(() => setTick(x => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [resendAt, left > 0]);
+  if (!open) return null;
+  const purpose = step === 'confirm' ? 'confirm' : step === 'old' ? 'old' : 'new';
+  const goStep = s => { setStep(s); setCode(''); setSent(''); setMsg(''); setResendAt(0); };
+  function send() {
+    if (busy || left > 0) return;
+    if (purpose === 'new' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail.trim())) return setMsg('Please type a full email, like name@gmail.com.');
+    setBusy(true); setMsg('');
+    API.emailSendCode(ph, purpose, newEmail.trim(), target, r => {
+      setBusy(false);
+      if (!r || !r.ok) { setMsg(r?.message || 'Could not send the code. Please try again.'); return; }
+      setSent(r.maskedEmail || 'your email');
+      setResendAt(Date.now() + Number(r.waitSeconds || 30) * 1000);
+      setMsg(r.message || '');
+    }, () => { setBusy(false); setMsg('No internet? Please try again.'); });
+  }
+  function verify() {
+    const c = code.replace(/\D/g, '');
+    if (busy) return;
+    if (c.length !== 6) return setMsg('Enter the 6-digit code from the email.');
+    setBusy(true); setMsg('');
+    API.emailVerifyCode(ph, purpose, c, newEmail.trim(), target, r => {
+      if (!r || !r.ok) {
+        setBusy(false); setMsg(r?.message || 'That code did not work.');
+        if (r && r.expired) { setSent(''); setCode(''); setResendAt(0); }
+        return;
+      }
+      if (purpose === 'confirm') { setBusy(false); onDone && onDone({ verified: true }); return; }
+      if (purpose === 'old') { setBusy(false); oldToken.current = r.token || ''; goStep('new'); return; }
+      API.changeProfileEmail({ phone: ph, email: newEmail.trim(), emailToken: r.token || '', oldEmailToken: oldToken.current }, s => {
+        setBusy(false);
+        if (!s || !s.ok) { setMsg(s?.message || 'Could not change the email. Please try again, or tap Help.'); return; }
+        onDone && onDone({ changed: true, email: newEmail.trim().toLowerCase(), profile: s.profile || null });
+      }, () => { setBusy(false); setMsg('No internet? Please try again.'); });
+    }, () => { setBusy(false); setMsg('No internet? Please try again.'); });
+  }
+  const txt = (t, extra) => E("div", { style: Object.assign({ fontFamily: PJS, fontSize: 14.5, fontWeight: 600, color: C.muted, lineHeight: 1.55, marginBottom: 12 }, extra || {}) }, t);
+  const link = (label, fn) => E("button", { type: "button", onClick: fn, style: { background: 'none', border: 0, padding: '8px 2px', color: '#2563eb', fontFamily: PJS, fontSize: 14, fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' } }, label);
+  const helpBtn = E(Btn, { variant: "ghost", full: true, onClick: () => API.openWhatsApp() }, "💬 Help");
+  const codeBox = E(React.Fragment, null, E("label", { htmlFor: "ff-email-code", style: { display: 'block', fontFamily: PJS, fontSize: 13, fontWeight: 800, color: C.text, marginBottom: 6 } }, "6-digit code sent to ", sent),
+    E("input", { id: "ff-email-code", type: "text", inputMode: "numeric", autoComplete: "one-time-code", pattern: "[0-9]*", maxLength: 6, autoFocus: true, value: code, placeholder: "••••••",
+      onChange: e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6)), onKeyDown: e => { if (e.key === 'Enter') verify(); },
+      style: { width: '100%', boxSizing: 'border-box', padding: '14px 10px', fontFamily: PJS, fontSize: 24, fontWeight: 800, letterSpacing: 8, textAlign: 'center', color: C.text, background: '#fafafa', border: `1.5px solid ${C.border}`, borderRadius: 14, outline: 'none' } }),
+    E("div", { style: { marginTop: 12 } }, E(Btn, { variant: "primary", full: true, disabled: busy || code.length !== 6, onClick: verify }, busy ? E(React.Fragment, null, E(Spinner, null), " Checking…") : '✅ Confirm code')),
+    E("div", { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 4, marginTop: 6 } },
+      left > 0 ? E("span", { style: { fontFamily: PJS, fontSize: 13.5, fontWeight: 700, color: C.muted, padding: '8px 2px' } }, "Send a new code in ", left, " s") : link('Send a new code', send),
+      purpose === 'new' ? link('Wrong email? Change', () => goStep('new')) : purpose === 'confirm' ? link('Wrong email? Change', () => goStep(changeStart(st))) : null));
+  const sendBtn = label => E(Btn, { variant: "primary", full: true, disabled: busy, onClick: send }, busy ? E(React.Fragment, null, E(Spinner, null), " Sending…") : label);
+  let title = '', body = null;
+  if (step === 'load') { title = '🔒 Your email'; body = txt(E(React.Fragment, null, E(Spinner, null), " Loading…")); }
+  else if (step === 'error') { title = '🔒 Your email'; body = helpBtn; }
+  else if (step === 'confirm') {
+    title = '🔒 Confirm your email';
+    body = E(React.Fragment, null, txt(E(React.Fragment, null, "Login details will be sent to ", E("b", { style: { color: C.text } }, st && st.maskedEmail), ". For your safety, we'll email a 6-digit code to check it's yours.")),
+      sent ? codeBox : E(React.Fragment, null, sendBtn('📧 Send code'), E("div", { style: { marginTop: 6 } }, link('Wrong email? Change', () => goStep(changeStart(st))))));
+  } else if (step === 'old') {
+    const opts = st && st.oldOptions || [];
+    title = '🔒 First, confirm it’s you';
+    body = E(React.Fragment, null, txt('Your plan is active, so we need a code from an email you already use with FluxFilm.'),
+      !sent && E("div", { role: "radiogroup", style: { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 } }, opts.map(o => E("button", { key: o.id, type: "button", role: "radio", "aria-checked": target === o.id, onClick: () => setTarget(o.id),
+        style: { textAlign: 'left', padding: '13px 14px', borderRadius: 14, border: `2px solid ${target === o.id ? '#16a34a' : C.border}`, background: target === o.id ? 'rgba(22,163,74,.06)' : '#fff', fontFamily: PJS, fontSize: 15, fontWeight: 800, color: C.text, cursor: 'pointer', overflowWrap: 'anywhere' } }, (target === o.id ? '🔘 ' : '⚪ ') + o.maskedEmail))),
+      sent ? codeBox : sendBtn('📧 Send code'),
+      txt('Can’t open these emails any more? Tap Help and our team will change it for you.', { marginTop: 14, marginBottom: 8, fontSize: 13 }), helpBtn);
+  } else if (step === 'new') {
+    title = '✉️ Your new email';
+    body = E(React.Fragment, null, txt('We’ll send a 6-digit code to the new email to check it’s yours.'),
+      sent ? codeBox : E(React.Fragment, null, E("input", { type: "email", inputMode: "email", autoComplete: "email", autoFocus: true, value: newEmail, placeholder: "name@gmail.com", "aria-label": "New email",
+        onChange: e => setNewEmail(e.target.value), onKeyDown: e => { if (e.key === 'Enter') send(); },
+        style: { width: '100%', boxSizing: 'border-box', padding: '14px', fontFamily: PJS, fontSize: 16, fontWeight: 700, color: C.text, background: '#fafafa', border: `1.5px solid ${C.border}`, borderRadius: 14, outline: 'none', marginBottom: 12 } }), sendBtn('📧 Send code')));
+  } else if (step === 'help') {
+    title = '🔒 Change email';
+    body = E(React.Fragment, null, txt('For your safety, this email can’t be changed here right now. Tap Help and our team will change it for you.'), helpBtn);
+  }
+  return ReactDOM.createPortal(E("div", {
+    onClick: busy ? undefined : onClose,
+    style: { position: 'fixed', inset: 0, zIndex: 95, background: 'rgba(15,23,42,.50)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0 10px 10px' }
+  }, E("div", {
+    role: "dialog", "aria-modal": true, "aria-label": title,
+    onClick: e => e.stopPropagation(),
+    style: { width: 'min(520px,100%)', boxSizing: 'border-box', background: '#fff', borderRadius: '24px 24px 18px 18px', padding: '16px 16px 18px', boxShadow: '0 -8px 46px rgba(15,23,42,.25)', maxHeight: 'calc(100dvh - 20px)', overflowY: 'auto', animation: 'slideUp .22s ease' }
+  }, E("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 } },
+    E("div", { style: { fontFamily: PJS, fontSize: 18, fontWeight: 900, color: C.text, minWidth: 0 } }, title),
+    E("button", { type: "button", onClick: onClose, disabled: busy, "aria-label": "Close", style: { flexShrink: 0, width: 40, height: 40, borderRadius: 999, border: `1px solid ${C.border}`, background: '#f1f5f9', fontSize: 16, fontWeight: 800, color: C.muted, cursor: 'pointer' } }, "✕")),
+    body,
+    msg && E("div", { role: "status", style: { marginTop: 12, padding: '11px 13px', borderRadius: 14, background: '#f8fafc', border: `1px solid ${C.border}`, color: C.text, fontFamily: PJS, fontSize: 13.5, fontWeight: 700, lineHeight: 1.5 } }, msg))), document.body);
+}
 function RecoverPickerModal({
   subs,
   onSelect,
@@ -3425,11 +3557,13 @@ function SubCard({
     subId
   } = sub;
   const dl = Number(daysLeft || 0);
-  const tone = dl <= 0 ? 'bad' : dl <= 7 ? 'warn' : 'ok';
+  // daysLeft = calendar days (India) from the expiry date: 0 = expires today (still active), below 0 = ended.
+  const ended = daysLeft == null || daysLeft === '' || dl < 0;
+  const tone = ended ? 'bad' : dl <= 7 ? 'warn' : 'ok';
   const dur = Number(durationDays || 30);
   const pct = dur > 0 ? Math.min(100, Math.max(0, Math.round(dl / dur * 100))) : 0;
-  const barColor = dl <= 0 ? '#ef4444' : dl <= 7 ? '#f59e0b' : '#22c55e';
-  const accentBd = dl <= 0 ? 'rgba(239,68,68,.20)' : dl <= 7 ? 'rgba(245,158,11,.22)' : C.border;
+  const barColor = ended ? '#ef4444' : dl <= 7 ? '#f59e0b' : '#22c55e';
+  const accentBd = ended ? 'rgba(239,68,68,.20)' : dl <= 7 ? 'rgba(245,158,11,.22)' : C.border;
   function fmtDate(d) {
     try {
       if (!d) return '-';
@@ -3534,7 +3668,7 @@ function SubCard({
     }
   }, "Sub: ", subId))), React.createElement(Badge, {
     tone: tone
-  }, dl <= 0 ? '🔴 Expired' : dl <= 7 ? '⚠️ Expiring' : '🟢 Active')), dl > 0 && React.createElement("div", {
+  }, ended ? '🔴 Expired' : dl === 0 ? '⚠️ Expires today' : dl <= 7 ? '⚠️ Expiring' : '🟢 Active')), !ended && React.createElement("div", {
     style: {
       marginBottom: 12
     }
@@ -3558,7 +3692,7 @@ function SubCard({
       fontWeight: 800,
       color: dl <= 7 ? C.amber : C.green
     }
-  }, dl, " days")), React.createElement("div", {
+  }, dl === 0 ? 'Ends today' : dl + ' days')), React.createElement("div", {
     style: {
       height: 5,
       borderRadius: 999,
@@ -3614,7 +3748,7 @@ function SubCard({
     variant: "primary",
     full: true,
     onClick: () => onRenew(sub)
-  }, dl <= 0 ? '🔄 Reactivate' : '⚡ Renew'), React.createElement(Btn, {
+  }, ended ? '🔄 Reactivate' : '⚡ Renew'), React.createElement(Btn, {
     variant: "purple",
     onClick: () => onRecover(sub),
     style: {
@@ -3753,14 +3887,15 @@ function DashboardScreen({
   const actionable = dashData?.actionable || [];
   const history = dashData?.history || [];
   const allSubs = [...actionable, ...history];
-  const isLiveSub = s => Number(s.daysLeft) > 0;
+  // daysLeft 0 = expires today: still active.
+  const isLiveSub = s => s.daysLeft != null && s.daysLeft !== '' && Number(s.daysLeft) >= 0;
   const liveSubs = allSubs.filter(isLiveSub);
   const expiredSubs = allSubs.filter(s => !isLiveSub(s));
   const filteredSubs = subFilter === 'active' ? liveSubs : subFilter === 'expired' ? expiredSubs : null;
   const active = actionable.filter(s => Number(s.daysLeft || 0) > 7).length;
   const expiring = actionable.filter(s => {
     const d = Number(s.daysLeft || 0);
-    return d > 0 && d <= 7;
+    return s.daysLeft != null && d >= 0 && d <= 7;
   }).length;
   const name = profile?.name || '';
   const first = name ? name.split(' ')[0] : 'User';
@@ -5097,6 +5232,14 @@ function DetailsScreen({
       phone: normPhone_(phone || profile?.phone || f.phone || '')
     }));
   }, [phone, profile?.name, profile?.email, profile?.phone]);
+  // 🔒 Email lock: where the login goes, and whether it needs a code first (checked early so Pay stays one tap).
+  const [emailLock, setEmailLock] = useState(null);
+  const [emailSheet, setEmailSheet] = useState('');
+  const emailOk = useRef(false);
+  useEffect(() => {
+    if (!locked || !form.phone) return;
+    API.emailLockStatus(form.phone, '', r => setEmailLock(r && r.ok ? r : null), () => {});
+  }, [locked, form.phone]);
   function applyCoupon() {
     if (!form.phone.trim()) return alert('Enter phone first.');
     if (!form.coupon.trim()) return alert('Enter coupon code.');
@@ -5157,6 +5300,21 @@ function DetailsScreen({
       if (!isPrimeDev && !form.extraVal.trim()) return alert('Please fill: ' + (planObj.extraFieldLabel || 'Required field'));
     }
     if (planObj?.loginChoice && !form.loginMode) return alert('Please choose: the same login on all devices, or a separate login for each device.');
+    // 🔒 Email lock: verified / unchanged email → straight on. Unverified + recently changed (or not the last paid
+    // order's email) → a 6-digit code first. The server refuses the order without it anyway.
+    if (locked && !emailOk.current) {
+      const decide = r => {
+        if (r && r.ok && r.needsCode) {
+          setEmailLock(r);
+          setEmailSheet('confirm');
+          return;
+        }
+        emailOk.current = true;
+        proceed();
+      };
+      if (emailLock) return decide(emailLock);
+      return API.emailLockStatus(form.phone, '', decide, () => decide(null));
+    }
     if (form.coupon.trim() && !couponState.applied) {
       if (!confirm('You entered a coupon but did not apply it.\nContinue without applying?')) return;
     }
@@ -5280,11 +5438,53 @@ function DetailsScreen({
       color: C.muted,
       gridColumn: '1 / -1'
     }
-  }, "Email", React.createElement("br", null), React.createElement("b", {
+  }, "📧 Login details will be sent to", React.createElement("br", null), React.createElement("span", {
     style: {
-      color: C.text
+      display: 'inline-flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      columnGap: 6
     }
-  }, maskEmail_(form.email))))), React.createElement(Card, null, React.createElement("div", {
+  }, React.createElement("b", {
+    style: {
+      color: C.text,
+      overflowWrap: 'anywhere'
+    }
+  }, maskEmail_(form.email)), React.createElement("span", null, "—"), React.createElement("button", {
+    type: "button",
+    className: "ff-email-change",
+    onClick: () => setEmailSheet('change'),
+    style: {
+      background: 'none',
+      border: 0,
+      padding: '6px 2px',
+      color: '#2563eb',
+      fontFamily: PJS,
+      fontSize: 14,
+      fontWeight: 800,
+      textDecoration: 'underline',
+      cursor: 'pointer'
+    }
+  }, "Change")))), React.createElement(EmailLockSheet, {
+    open: !!emailSheet,
+    phone: form.phone,
+    mode: emailSheet,
+    onClose: () => setEmailSheet(''),
+    onDone: r => {
+      const wasConfirm = emailSheet === 'confirm' && r && r.verified;
+      setEmailSheet('');
+      if (r && r.changed) {
+        setForm(f => ({ ...f, email: r.email }));
+        emailOk.current = false;
+        API.emailLockStatus(form.phone, '', s => setEmailLock(s && s.ok ? s : null), () => setEmailLock(null));
+      }
+      if (wasConfirm) {
+        setEmailLock(s => s ? { ...s, needsCode: false, verified: true } : s);
+        emailOk.current = true;
+        setTimeout(proceed, 0);
+      }
+    }
+  })), React.createElement(Card, null, React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 17,
@@ -7177,6 +7377,27 @@ function VerifyScreen({
     onClick: manualRetry
   }, "🔁 Check Again"))))));
 }
+// Renewal plan rules — a copy of renewrules.js (planVariant / planDevices / renewPlanChoices); test/final-check checks they match.
+function renewPlanVariant_(plan) {
+  return String(plan || '').toLowerCase().replace(/(\d+)\s*devices?\b/g, '$1 devices').replace(/\b\d+\s*-?\s*(?:m|mo|mos|mon|mth|mths|month|months|d|day|days|w|wk|wks|week|weeks|y|yr|yrs|year|years)\b/g, ' ').replace(/\b(?:half[\s-]*yearly|monthly|yearly|annual|annually|quarterly|weekly|daily)\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function renewPlanDevices_(plan) {
+  return Number((String(plan || '').match(/(\d+)\s*device/i) || [])[1]) || 1;
+}
+function renewPlanChoices_(subPlan, planNames) {
+  const names = [];
+  for (const p of planNames || []) {
+    const n = String(p == null ? '' : p).trim();
+    if (n && !names.includes(n)) names.push(n);
+  }
+  const v = renewPlanVariant_(subPlan);
+  const same = names.filter(n => renewPlanVariant_(n) === v);
+  if (same.length) return same;
+  const dev = renewPlanDevices_(subPlan);
+  const byDevices = names.filter(n => renewPlanDevices_(n) === dev);
+  if (byDevices.length) return byDevices;
+  return names;
+}
 function RenewStartScreen({
   nav,
   sub,
@@ -7198,6 +7419,17 @@ function RenewStartScreen({
     loading: false,
     msg: ''
   });
+  // 🔒 Email lock: renewals never need a code — the server sends the login to the trusted profile email, or else to
+  // this plan's own email. Show where, with "Change".
+  const [renewLock, setRenewLock] = useState(null);
+  const [renewEmailSheet, setRenewEmailSheet] = useState(false);
+  const lockPhone = normPhone_(phone || sub?.phone || '');
+  const lockSubId = String(sub?.subId || '');
+  const loadRenewLock = () => {
+    if (!lockPhone || !lockSubId) return;
+    API.emailLockStatus(lockPhone, lockSubId, r => setRenewLock(r && r.ok ? r : null), () => {});
+  };
+  useEffect(loadRenewLock, [lockPhone, lockSubId]);
   if (!sub) return React.createElement(Slide, null, React.createElement("div", {
     style: {
       paddingBottom: 90
@@ -7232,13 +7464,20 @@ function RenewStartScreen({
   const currentPlan = String(sub.plan || '');
   const subId = String(sub.subId || '');
   const dl = Number(sub.daysLeft || 0);
-  const servicePlans = (boot?.plans || []).filter(p => p.service === service);
+  // A renewal keeps the same account and devices, so only the duration can change. Same list as the server
+  // (renewrules.js renewPlanChoices): old plan names of unknown kind get same-device plans, else all — never none.
+  const allServicePlans = (boot?.plans || []).filter(p => p.service === service);
+  const renewAllowed_ = renewPlanChoices_(currentPlan, allServicePlans.map(p => p.plan));
+  const servicePlans = allServicePlans.filter(p => renewAllowed_.includes(p.plan));
   const defaultPlanObj = servicePlans.find(p => p.plan === currentPlan) || servicePlans[0] || null;
   const [selectedPlan, setSelectedPlan] = useState(defaultPlanObj?.plan || currentPlan);
   const chosenPlanObj = servicePlans.find(p => p.plan === selectedPlan) || defaultPlanObj;
   const isSamePlan = selectedPlan === currentPlan;
-  const isExpired = dl <= 0;
-  const earlyDisc = !isExpired && isSamePlan ? Number(sub.earlyRenewDiscountEligible || 0) || Math.max(Number(sub.earlyDiscount8Plus || 0), Number(sub.earlyDiscount7to2 || 0)) || 0 : 0;
+  // daysLeft = calendar days (India) from the expiry date: 0 = expires today (still active), below 0 = ended.
+  const isExpired = dl < 0;
+  // Only the discount the server will really give (reads.js earlyRenewDiscountEligible) — the old fallback to the
+  // plan's biggest tier showed ₹ off that the pay screen then did not take.
+  const earlyDisc = !isExpired && isSamePlan ? Number(sub.earlyRenewDiscountEligible || 0) || 0 : 0;
   const tier = !isExpired && isSamePlan ? sub.earlyRenewDiscountTier === '8PLUS' ? '8+ days early' : sub.earlyRenewDiscountTier === '7TO2' ? '2–7 days early' : '' : '';
   const basePrice = Number(chosenPlanObj?.price || 0);
   const finalPrice = Math.max(0, basePrice - earlyDisc - (couponState.applied ? couponState.discount : 0));
@@ -7405,7 +7644,7 @@ function RenewStartScreen({
     value: subId || '-'
   }), React.createElement(KV, {
     label: "Days Left",
-    value: isExpired ? `Expired (${dl} days)` : String(dl)
+    value: isExpired ? `Expired (${dl} days)` : dl === 0 ? 'Expires today' : String(dl)
   })), servicePlans.length > 1 && React.createElement(Card, {
     style: {
       marginTop: 10
@@ -7889,7 +8128,49 @@ function RenewStartScreen({
     tone: "plain"
   }, "ℹ️ Your subscription has expired. Renewing will start a fresh period.") : !isSamePlan ? React.createElement(Hint, {
     tone: "blue"
-  }, "ℹ️ You are switching to a different plan. Early discount applies only on same-plan renewal.") : React.createElement(Hint, null, "ℹ️ No early renewal discount available right now."), React.createElement("div", {
+  }, "ℹ️ You are switching to a different plan. Early discount applies only on same-plan renewal.") : React.createElement(Hint, null, "ℹ️ No early renewal discount available right now."), renewLock && renewLock.renewMaskedEmail && React.createElement("div", {
+    className: "ff-renew-email",
+    style: {
+      marginTop: 12,
+      padding: '11px 14px',
+      borderRadius: 14,
+      background: '#f8fafc',
+      border: `1px solid ${C.border}`,
+      fontFamily: PJS,
+      fontSize: 13.5,
+      fontWeight: 650,
+      color: C.muted,
+      lineHeight: 1.5,
+      overflowWrap: 'anywhere'
+    }
+  }, "📧 Login details will be sent to ", React.createElement("b", {
+    style: {
+      color: C.text
+    }
+  }, renewLock.renewMaskedEmail), " — ", React.createElement("button", {
+    type: "button",
+    onClick: () => setRenewEmailSheet(true),
+    style: {
+      background: 'none',
+      border: 0,
+      padding: '4px 2px',
+      color: '#2563eb',
+      fontFamily: PJS,
+      fontSize: 14,
+      fontWeight: 800,
+      textDecoration: 'underline',
+      cursor: 'pointer'
+    }
+  }, "Change")), React.createElement(EmailLockSheet, {
+    open: renewEmailSheet,
+    phone: lockPhone,
+    mode: "change",
+    onClose: () => setRenewEmailSheet(false),
+    onDone: () => {
+      setRenewEmailSheet(false);
+      loadRenewLock();
+    }
+  }), React.createElement("div", {
     style: {
       display: 'flex',
       gap: 10,
@@ -8079,6 +8360,8 @@ function DoneScreen({
     onClick: () => nav(homeTarget, homeData)
   }, "🏠 Back to Home")))));
 }
+// Same words as recover.js NO_ACTIVE: one answer for no plan, wrong email, ended, refunded and removed.
+const RECOVER_NO_ACTIVE_ = 'No active plan found for this number and email. If your plan ended, renew it from My plans. Need help? Tap Help.';
 function RecoverScreen({
   nav,
   preSelectedSub,
@@ -8088,7 +8371,13 @@ function RecoverScreen({
   const resolvedPhone = savedPhone || preSelectedSub?.phone || '';
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState(resolvedPhone || '');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    try {
+      return localStorage.getItem('ff_recover_email') || '';
+    } catch (_) {
+      return '';
+    }
+  });
   const [otp, setOtp] = useState('');
   const [token, setToken] = useState('');
   const [subs, setSubs] = useState([]);
@@ -8098,8 +8387,16 @@ function RecoverScreen({
     text: '',
     ok: true
   });
+  const [sentTo, setSentTo] = useState('');
+  const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const [needHelp, setNeedHelp] = useState(false);
+  const [renewHint, setRenewHint] = useState(false);
+  const busy = useRef(false);
   const phoneLocked = !!resolvedPhone;
   const activePhone = normPhone_(phone || resolvedPhone);
+  const cleanEmail = String(email || '').replace(/\s+/g, '').toLowerCase();
+  const resendLeft = Math.max(0, Math.ceil((resendAt - now) / 1000));
   useEffect(() => {
     if (!setGlobalLoading) return;
     setGlobalLoading(loading || null, loading ? 'Please wait' : null);
@@ -8108,82 +8405,127 @@ function RecoverScreen({
   useEffect(() => {
     if (resolvedPhone) setPhone(resolvedPhone);
   }, [resolvedPhone]);
-  function showMsg(text, ok) {
+  // Resend countdown: ticks only while a countdown is running.
+  useEffect(() => {
+    if (resendLeft <= 0) return;
+    const t = setTimeout(() => setNow(Date.now()), 1000);
+    return () => clearTimeout(t);
+  }, [resendLeft, now]);
+  function showMsg(text, ok, help) {
     setMsg({
       text,
       ok
     });
+    setNeedHelp(!!help);
+    setRenewHint(false);
+  }
+  function backToStart(text) {
+    setStep(1);
+    setOtp('');
+    setToken('');
+    setSubs([]);
+    showMsg(text || '', !text);
   }
   function sendOtp() {
-    if (!activePhone) return alert('Enter phone.');
-    if (!email.trim()) return alert('Enter email.');
-    setLoading('📩 Sending OTP…');
-    API.recoverSendOtp(activePhone, email.trim(), r => {
+    if (activePhone.length !== 10) return showMsg('Enter your 10-digit phone number (the one you bought with).', false);
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(cleanEmail)) return showMsg('Enter the email you used when buying, like name@gmail.com.', false);
+    if (busy.current) return;
+    busy.current = true;
+    setLoading('📩 Sending code…');
+    API.recoverSendOtp(activePhone, cleanEmail, r => {
+      busy.current = false;
       setLoading('');
-      if (!r || r.ok === false) {
-        showMsg(r?.message || 'Failed to send OTP.', false);
+      if (r && r.wait) {
+        setResendAt(Date.now() + r.wait * 1000);
+        setNow(Date.now());
+        if (r.email) setSentTo(r.email);
+        showMsg(r.message, true);
+        setStep(2);
         return;
       }
-      showMsg((r.message || 'OTP sent.') + ' Sent to: ' + (r.email || ''), true);
+      if (!r || r.ok === false) {
+        showMsg(r?.message || 'Could not send the code. Please try again.', false, r?.noActive);
+        if (r?.noActive) setRenewHint(true);
+        return;
+      }
+      try {
+        localStorage.setItem('ff_recover_email', cleanEmail);
+      } catch (_) {}
+      setSentTo(r.email || '');
+      setResendAt(Date.now() + (Number(r.resendInSec) || 30) * 1000);
+      setNow(Date.now());
+      setOtp('');
+      showMsg(r.message || 'We sent a 6-digit code to your email. Check Spam too.', true);
       setStep(2);
     }, err => {
+      busy.current = false;
       setLoading('');
-      showMsg(err?.message || String(err), false);
+      showMsg(err?.message || 'No internet? Please try again.', false);
     });
   }
-  function verifyOtp() {
-    if (!otp.trim()) return alert('Enter OTP.');
-    setLoading('✅ Verifying OTP…');
-    API.recoverVerifyOtp(activePhone, email.trim(), otp.trim(), r => {
+  function verifyOtp(code) {
+    const c = String(code == null ? otp : code).replace(/\D/g, '');
+    if (c.length !== 6) return showMsg('Enter the 6-digit code from the email.', false);
+    if (busy.current) return;
+    busy.current = true;
+    setLoading('✅ Checking code…');
+    API.recoverVerifyOtp(activePhone, cleanEmail, c, r => {
+      busy.current = false;
       setLoading('');
       if (!r || r.ok === false) {
-        showMsg(r?.message || 'OTP verify failed.', false);
+        if (r?.expired) setResendAt(0);
+        setOtp('');
+        showMsg(r?.message || 'That code did not work. Please try again.', false);
         return;
       }
       const tk = String(r.recoverToken || '');
       if (!tk) {
-        showMsg('Token missing from server.', false);
+        showMsg('Something went wrong. Please send a new code.', false);
         return;
       }
       setToken(tk);
-      showMsg(r.message || 'Verified.', true);
       loadSubs(tk);
     }, err => {
+      busy.current = false;
       setLoading('');
-      showMsg(err?.message || String(err), false);
+      showMsg(err?.message || 'No internet? Please try again.', false);
     });
   }
   function loadSubs(tk) {
-    setLoading('🎬 Loading subscriptions…');
-    API.recoverListSubscriptionsSafe(activePhone, email.trim(), tk, r => {
+    setLoading('🎬 Loading your plans…');
+    API.recoverListSubscriptionsSafe(activePhone, cleanEmail, tk, r => {
       setLoading('');
       let data = r;
       if (data?.ok === true && data.subscriptions === undefined && data.data) data = data.data;
       if (data?.ok === false) {
-        showMsg(data.message || 'Failed to load.', false);
+        if (data.sessionExpired) return backToStart(data.message);
+        showMsg(data.message || 'Could not load your plans. Please try again.', false, data.noActive);
+        if (data.noActive) setRenewHint(true);
         return;
       }
       const list = Array.isArray(data?.subscriptions) ? data.subscriptions : [];
       setSubs(list);
-      if (preSelectedSub) {
-        const preId = String(preSelectedSub.orderId || preSelectedSub.subId || '');
-        const match = list.find(s => String(s.orderId || s.subId || '') === preId);
-        if (match) setSelectedOid(String(match.orderId || match.subId || ''));
-      }
+      const preId = String(preSelectedSub?.orderId || preSelectedSub?.subId || '');
+      const match = preId && list.find(s => String(s.orderId || s.subId || '') === preId);
+      if (match) setSelectedOid(String(match.orderId || match.subId || ''));else if (list.length === 1) setSelectedOid(String(list[0].orderId || list[0].subId || ''));
       setStep(3);
-      showMsg(list.length ? `Found ${list.length} subscription(s).` : 'No active subscriptions found.', list.length > 0);
+      showMsg(list.length ? '✅ Verified. Pick the plan you need the login for.' : RECOVER_NO_ACTIVE_, list.length > 0, !list.length);
+      if (!list.length) setRenewHint(true);
     }, err => {
+      busy.current = false;
       setLoading('');
-      showMsg(err?.message || String(err), false);
+      showMsg(err?.message || 'No internet? Please try again.', false);
     });
   }
   function revealAccess() {
-    if (!selectedOid) return alert('Select a subscription first.');
-    setLoading('🔓 Revealing access…');
-    API.recoverGetAccess(selectedOid, activePhone, email.trim(), token, r => {
+    if (!selectedOid) return showMsg('Tap a plan first.', false);
+    setLoading('🔓 Opening your login…');
+    API.recoverGetAccess(selectedOid, activePhone, cleanEmail, token, r => {
       setLoading('');
       if (!r || r.ok === false) {
-        showMsg(r?.message || 'Recover failed.', false);
+        if (r?.sessionExpired) return backToStart(r.message);
+        showMsg(r?.message || 'Could not open this login. Please try again.', false, r?.noActive);
+        if (r?.noActive) setRenewHint(true);
         return;
       }
       const rawAccess = r.access || r.data?.access || r || {};
@@ -8203,10 +8545,22 @@ function RecoverScreen({
         service: svcLabel
       });
     }, err => {
+      busy.current = false;
       setLoading('');
-      showMsg(err?.message || String(err), false);
+      showMsg(err?.message || 'No internet? Please try again.', false);
     });
   }
+  const linkBtn = {
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    color: '#2563eb',
+    fontFamily: PJS,
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: 'pointer',
+    textDecoration: 'underline'
+  };
   return React.createElement(Slide, null, React.createElement("div", {
     style: {
       paddingBottom: 90
@@ -8231,6 +8585,7 @@ function RecoverScreen({
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'flex-start',
+      gap: 8,
       marginBottom: 14
     }
   }, React.createElement("div", null, React.createElement("div", {
@@ -8241,7 +8596,15 @@ function RecoverScreen({
       color: C.text,
       marginBottom: 4
     }
-  }, "🔐 Recover Access"), preSelectedSub && React.createElement("div", {
+  }, "🔐 Recover Access"), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12.5,
+      color: C.muted,
+      fontWeight: 600,
+      marginBottom: preSelectedSub ? 6 : 0
+    }
+  }, step === 1 ? 'Get your login back with a code sent to your email.' : step === 2 ? 'Enter the code from your email.' : 'Pick a plan to see its login.'), preSelectedSub && React.createElement("div", {
     style: {
       display: 'inline-flex',
       alignItems: 'center',
@@ -8258,6 +8621,7 @@ function RecoverScreen({
   }, "🎬 ", preSelectedSub.service)), React.createElement(Badge, {
     tone: "info"
   }, "Step ", step, "/3")), msg.text && React.createElement("div", {
+    role: msg.ok ? 'status' : 'alert',
     style: {
       marginBottom: 12,
       padding: '10px 13px',
@@ -8267,9 +8631,27 @@ function RecoverScreen({
       fontFamily: PJS,
       fontSize: 13,
       fontWeight: 600,
+      lineHeight: 1.5,
       color: msg.ok ? '#15803d' : C.red
     }
-  }, msg.text), step === 1 && React.createElement("div", {
+  }, msg.text, (needHelp || renewHint) && React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 8,
+      flexWrap: 'wrap',
+      marginTop: 10
+    }
+  }, renewHint && React.createElement(Btn, {
+    size: "sm",
+    variant: "primary",
+    onClick: () => window.ffGoMyPlans ? window.ffGoMyPlans() : nav('dashboard', {
+      phone: activePhone
+    })
+  }, "🔁 Renew in My plans"), needHelp && React.createElement(Btn, {
+    size: "sm",
+    variant: "ghost",
+    onClick: ffOpenHelp_
+  }, "💬 Help"))), step === 1 && React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
@@ -8298,33 +8680,45 @@ function RecoverScreen({
       marginTop: 3
     }
   }, "📱 ", activePhone)) : React.createElement(Input, {
-    label: "Phone Number",
+    label: "Phone number you bought with",
     type: "tel",
-    placeholder: "+91 XXXXX XXXXX",
+    inputMode: "tel",
+    autoComplete: "tel",
+    placeholder: "10-digit mobile number",
     prefix: "📱",
     value: phone,
     onChange: e => setPhone(e.target.value)
   }), React.createElement(Input, {
-    label: "Email Address",
+    label: "Email you bought with",
     type: "email",
-    placeholder: "Registered email",
+    inputMode: "email",
+    autoComplete: "email",
+    placeholder: "name@gmail.com",
     value: email,
     onChange: e => setEmail(e.target.value)
-  }), React.createElement(Hint, null, "📧 OTP will be sent to your registered email. Use the same email you used when buying."), React.createElement(Btn, {
+  }), React.createElement(Hint, null, "📧 We email you a 6-digit code. Use the same email you typed when buying — it is in your FluxFilm order email. Only plans that are still active can be recovered."), React.createElement(Btn, {
     variant: "purple",
     full: true,
     onClick: sendOtp
-  }, "📩 Send OTP")), step === 2 && React.createElement("div", {
+  }, "📩 Send code")), step === 2 && React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
       gap: 12
     }
   }, React.createElement(Input, {
-    label: "Enter OTP",
-    placeholder: "6-digit code from email",
+    label: sentTo ? 'Code sent to ' + sentTo : 'Enter the code',
+    type: "text",
+    inputMode: "numeric",
+    autoComplete: "one-time-code",
+    maxLength: 6,
+    placeholder: "6-digit code",
     value: otp,
-    onChange: e => setOtp(e.target.value),
+    onChange: e => {
+      const v = String(e.target.value || '').replace(/\D/g, '').slice(0, 6);
+      setOtp(v);
+      if (v.length === 6) verifyOtp(v);
+    },
     autoFocus: true
   }), React.createElement("div", {
     style: {
@@ -8333,18 +8727,32 @@ function RecoverScreen({
     }
   }, React.createElement(Btn, {
     variant: "ghost",
-    onClick: () => {
-      setStep(1);
-      setMsg({
-        text: '',
-        ok: true
-      });
-    }
+    onClick: () => backToStart('')
   }, "⬅️ Back"), React.createElement(Btn, {
     variant: "purple",
     full: true,
-    onClick: verifyOtp
-  }, "✅ Verify OTP"))), step === 3 && React.createElement("div", null, subs.length === 0 && React.createElement("div", {
+    onClick: () => verifyOtp()
+  }, "✅ Verify code")), React.createElement("div", {
+    style: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: 10,
+      flexWrap: 'wrap',
+      fontFamily: PJS,
+      fontSize: 13,
+      color: C.muted,
+      fontWeight: 600
+    }
+  }, resendLeft > 0 ? React.createElement("span", null, "Send a new code in ", resendLeft, " s") : React.createElement("button", {
+    type: "button",
+    style: linkBtn,
+    onClick: sendOtp
+  }, "🔄 Send a new code"), React.createElement("button", {
+    type: "button",
+    style: linkBtn,
+    onClick: () => backToStart('')
+  }, "Wrong email? Change it")), React.createElement(Hint, null, "No email? Check Spam / Promotions, and search for \"FluxFilm\". It can take a minute.")), step === 3 && React.createElement("div", null, subs.length === 0 && React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 13.5,
@@ -8352,7 +8760,7 @@ function RecoverScreen({
       fontWeight: 600,
       padding: '12px 0'
     }
-  }, "No active subscriptions found for this phone + email."), React.createElement("div", {
+  }, RECOVER_NO_ACTIVE_), React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
@@ -8362,9 +8770,22 @@ function RecoverScreen({
   }, subs.map((s, i) => {
     const oid = String(s.orderId || s.subId || '');
     const sel = selectedOid === oid;
+    const ended = s.daysLeft != null && s.daysLeft < 0;
     return React.createElement("div", {
-      key: i,
-      onClick: () => setSelectedOid(oid),
+      key: oid || i,
+      role: "button",
+      tabIndex: 0,
+      "aria-pressed": sel,
+      onClick: () => {
+        setSelectedOid(oid);
+        setRenewHint(false);
+      },
+      onKeyDown: e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setSelectedOid(oid);
+        }
+      },
       style: {
         padding: '13px 14px',
         borderRadius: 16,
@@ -8374,9 +8795,15 @@ function RecoverScreen({
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
+        gap: 10,
+        opacity: s.refunded ? .6 : 1,
         transition: '.14s'
       }
-    }, React.createElement("div", null, React.createElement("div", {
+    }, React.createElement("div", {
+      style: {
+        minWidth: 0
+      }
+    }, React.createElement("div", {
       style: {
         fontFamily: PJS,
         fontSize: 15,
@@ -8394,19 +8821,28 @@ function RecoverScreen({
     }, s.plan), s.daysLeft != null && React.createElement("div", {
       style: {
         fontFamily: PJS,
-        fontSize: 11,
-        color: C.muted,
-        fontWeight: 600,
-        marginTop: 2
+        fontSize: 11.5,
+        color: s.refunded ? C.muted : ended ? C.red : s.daysLeft <= 3 ? '#b45309' : '#15803d',
+        fontWeight: 700,
+        marginTop: 3
       }
-    }, s.daysLeft > 0 ? `${s.daysLeft} days left` : 'Expired')), React.createElement(Badge, {
+    }, s.refunded ? 'Refunded' : ended ? `Ended${s.expiryText ? ' ' + s.expiryText : ''}` : s.daysLeft === 0 ? `Expires today${s.expiryText ? ' · ' + s.expiryText : ''}` : `${s.daysLeft} day${s.daysLeft === 1 ? '' : 's'} left${s.expiryText ? ' · till ' + s.expiryText : ''}`)), React.createElement(Badge, {
       tone: sel ? 'ok' : 'plain'
-    }, sel ? '✅ Selected' : '☑️ Select'));
+    }, sel ? '✅ Selected' : 'Select'));
   })), selectedOid && React.createElement(Btn, {
     variant: "primary",
     full: true,
     onClick: revealAccess
-  }, "🔓 Reveal Password")))));
+  }, "🔓 Show my login"), React.createElement("div", {
+    style: {
+      marginTop: 12,
+      textAlign: 'center'
+    }
+  }, React.createElement("button", {
+    type: "button",
+    style: linkBtn,
+    onClick: () => backToStart('')
+  }, "⬅️ Start again with another email"))))));
 }
 // Account → 🔊 Sounds / 📳 Vibration switches (this device only; the sound module is in <head>).
 function SoundRows() {
@@ -8804,9 +9240,9 @@ function AccountScreen({
   const active = allSubs.filter(s => Number(s.daysLeft || 0) > 7).length;
   const expiring = allSubs.filter(s => {
     const d = Number(s.daysLeft || 0);
-    return d > 0 && d <= 7;
+    return s.daysLeft != null && d >= 0 && d <= 7;
   }).length;
-  const expired = allSubs.filter(s => Number(s.daysLeft || 0) <= 0).length;
+  const expired = allSubs.filter(s => s.daysLeft == null || Number(s.daysLeft) < 0).length;
   const [profile, setProfile] = useState(passedProfile || null);
   const [profLoading, setProfLoading] = useState(!passedProfile);
   const [coupons, setCoupons] = useState([]);
@@ -8817,6 +9253,9 @@ function AccountScreen({
   const [pendingPhoto, setPendingPhoto] = useState('');
   const [photoMsg, setPhotoMsg] = useState(null);
   const [showCreator, setShowCreator] = useState(false);
+  // 🔒 Account → Profile → Change email (codes; see EmailLockSheet / emaillock.js).
+  const [emailSheetOpen, setEmailSheetOpen] = useState(false);
+  const [emailMsg, setEmailMsg] = useState('');
   // Account → Notifications row (renewal reminders on this device).
   const [pushSt, setPushSt] = useState('off');
   useEffect(() => {
@@ -9242,6 +9681,43 @@ function AccountScreen({
   }), React.createElement(KV, {
     label: "Email",
     value: profile?.email ? maskEmail_(profile.email) : '-'
+  }), profile?.email && React.createElement("div", {
+    style: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+      padding: '6px 0 10px'
+    }
+  }, React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12.5,
+      fontWeight: 650,
+      color: C.muted,
+      flex: '1 1 160px'
+    }
+  }, emailMsg || 'Your login details are sent to this email.'), React.createElement(Btn, {
+    variant: "ghost",
+    size: "sm",
+    onClick: () => setEmailSheetOpen(true)
+  }, "✏️ Change email")), React.createElement(EmailLockSheet, {
+    open: emailSheetOpen,
+    phone: phone,
+    mode: "change",
+    onClose: () => setEmailSheetOpen(false),
+    onDone: r => {
+      setEmailSheetOpen(false);
+      if (r && r.changed) {
+        setProfile(p => ({
+          ...(p || {}),
+          ...(r.profile || {}),
+          email: r.profile?.email || r.email
+        }));
+        setEmailMsg('✅ Email changed. We told your old email too.');
+      }
+    }
   }), React.createElement(KV, {
     label: "Member Since",
     value: profile?.memberSince ? fmtDate(profile.memberSince) : '-'
@@ -10979,6 +11455,7 @@ function RefundChoice({
   const [upi, setUpi] = useState('');
   const [code, setCode] = useState('');
   const [verify, setVerify] = useState(null);
+  const [refEmail, setRefEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState('');
@@ -11075,18 +11552,26 @@ function RefundChoice({
       setMsg('⚠️ Network problem — please try again.');
     });
   };
+  // No email hints: the customer types the email on the refunded order; every "no" gets one generic message.
   const sendCode = () => {
+    const em = refEmail.replace(/\s+/g, '').toLowerCase();
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(em)) return setMsg('⚠️ Enter your email, like name@gmail.com.');
     setBusy(true);
     setMsg('');
-    API.refundSendCode(ph, r => {
+    API.refundSendCode(ph, em, r => {
       setBusy(false);
       if (r && r.ok) {
         setVerify(Object.assign({}, verify, {
           sent: true,
-          maskedEmail: r.maskedEmail || verify && verify.maskedEmail
+          noActive: false
         }));
         setMsg(r.message || '');
-      } else setMsg('⚠️ ' + (r && r.message || 'Could not send the code.'));
+      } else {
+        setVerify(Object.assign({}, verify, {
+          noActive: !!(r && r.noActive)
+        }));
+        setMsg('⚠️ ' + (r && r.message || 'Could not send the code.'));
+      }
     }, () => {
       setBusy(false);
       setMsg('⚠️ Could not send the code. Please try again.');
@@ -11102,11 +11587,17 @@ function RefundChoice({
         setOtpToken_(ph, r);
         setCode('');
         sendUpi();
-      } else setMsg('⚠️ ' + (r && r.message || 'That code did not work.'));
+      } else {
+        setMsg('⚠️ ' + (r && r.message || 'That code did not work.'));
+        if (r && (r.expired || r.noActive)) setVerify(Object.assign({}, verify, {
+          sent: false,
+          noActive: !!r.noActive
+        }));
+      }
     }, () => {
       setBusy(false);
       setMsg('⚠️ Could not check the code. Please try again.');
-    });
+    }, refEmail.replace(/\s+/g, '').toLowerCase(), 'refund');
   };
   const note = msg ? React.createElement("p", {
     key: "n",
@@ -11166,7 +11657,14 @@ function RefundChoice({
     key: "h"
   }, "Confirm it’s you"), React.createElement("p", {
     key: "p"
-  }, verify && verify.hasEmail === false ? verify.message : verify && verify.sent ? `We emailed a 6-digit code to ${verify.maskedEmail || 'your email'}. Type it below.` : `For your safety, we’ll email a 6-digit code to ${verify && verify.maskedEmail || 'your email'} before sending money to a UPI ID.`), verify && verify.sent && React.createElement(Input, {
+  }, verify && verify.sent ? 'We emailed you a 6-digit code. Type it below (check Spam too).' : 'For your safety, type the email you used on this order. We’ll email you a 6-digit code before sending money to a UPI ID.'), !(verify && verify.sent) && React.createElement(Input, {
+    key: "em",
+    label: "Email on this order",
+    placeholder: "name@gmail.com",
+    type: "email",
+    value: refEmail,
+    onChange: e => setRefEmail(e.target.value.slice(0, 120))
+  }), verify && verify.sent && React.createElement(Input, {
     key: "i",
     label: "6-digit code",
     placeholder: "123456",
@@ -11177,11 +11675,11 @@ function RefundChoice({
   }), note, React.createElement("div", {
     key: "b",
     className: "ff-sheet-btns"
-  }, verify && verify.hasEmail === false ? React.createElement(Btn, {
-    variant: "primary",
+  }, verify && verify.noActive && React.createElement(Btn, {
+    variant: "ghost",
     full: true,
     onClick: () => API.openWhatsApp()
-  }, "💬 WhatsApp support") : verify && verify.sent ? React.createElement(Btn, {
+  }, "💬 Help"), verify && verify.sent ? React.createElement(Btn, {
     variant: "primary",
     full: true,
     disabled: busy,
@@ -13343,7 +13841,7 @@ function OtpPickerModal({
     }
   }, "Supported: JioHotstar, Zee5, SonyLIV")), otpSubs.map((sub, i) => {
     const dl = Number(sub.daysLeft || 0);
-    const isActive = dl > 0;
+    const isActive = sub.daysLeft != null && dl >= 0; // 0 = expires today, still active
     return React.createElement("button", {
       key: sub.subId || i,
       onClick: isActive ? () => onSelect(sub) : undefined,
@@ -13497,56 +13995,50 @@ function setOtpToken_(phone, r) {
     }));
   } catch (e) {}
 }
+// Get OTP has its own device token (otp2: proves an email that belongs to the plan). Refund / Games keep getOtpToken_.
+function getGetOtpToken_(phone) {
+  try {
+    const r = JSON.parse(localStorage.getItem('ff_getotp_access_' + normPhone_(phone)) || 'null');
+    return r && r.token && Date.parse(r.expiresAt) > Date.now() ? r.token : '';
+  } catch (e) {
+    return '';
+  }
+}
+function setGetOtpToken_(phone, r) {
+  try {
+    localStorage.setItem('ff_getotp_access_' + normPhone_(phone), JSON.stringify({
+      token: r.token,
+      expiresAt: r.expiresAt
+    }));
+  } catch (e) {}
+}
+// No email hints: the customer types the email they bought with; every "no" shows the same message.
 function OtpVerifyCard({
   phone,
   info,
   onVerified
 }) {
   const [step, setStep] = useState('send');
+  const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
-  const [email, setEmail] = useState(info && info.maskedEmail || '');
-  if (info && info.hasEmail === false) return React.createElement(Card, {
-    style: {
-      marginBottom: 14,
-      border: '1.5px solid rgba(245,158,11,.35)',
-      background: '#fffbeb'
-    }
-  }, React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 15,
-      fontWeight: 800,
-      color: '#78350f',
-      marginBottom: 6
-    }
-  }, "🔒 Confirm it’s you"), React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 13.5,
-      fontWeight: 600,
-      color: '#92400e',
-      lineHeight: 1.5
-    }
-  }, info.message), React.createElement(Btn, {
-    variant: "primary",
-    full: true,
-    style: {
-      marginTop: 12
-    },
-    onClick: () => API.openWhatsApp()
-  }, "💬 WhatsApp support"));
+  const [noActive, setNoActive] = useState(false);
   function send() {
+    const em = email.replace(/\s+/g, '').toLowerCase();
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(em)) return setMsg('⚠️ Enter your email, like name@gmail.com.');
     setBusy(true);
     setMsg('');
-    API.otpSendCode(phone, r => {
+    setNoActive(false);
+    API.otpSendCode(phone, em, r => {
       setBusy(false);
       if (r && r.ok) {
-        setEmail(r.maskedEmail || email);
         setStep('code');
         setMsg(r.message || '');
-      } else setMsg('⚠️ ' + (r && r.message || 'Could not send the code.'));
+      } else {
+        setNoActive(!!(r && r.noActive));
+        setMsg('⚠️ ' + (r && r.message || 'Could not send the code.'));
+      }
     }, () => {
       setBusy(false);
       setMsg('⚠️ Could not send the code. Please try again.');
@@ -13559,11 +14051,12 @@ function OtpVerifyCard({
     API.otpVerifyCode(phone, code, r => {
       setBusy(false);
       if (r && r.ok && r.token) {
-        setOtpToken_(phone, r);
+        setGetOtpToken_(phone, r);
         onVerified && onVerified();
       } else {
+        setNoActive(!!(r && r.noActive));
         setMsg('⚠️ ' + (r && r.message || 'That code did not work.'));
-        if (r && r.expired) {
+        if (r && (r.expired || r.noActive)) {
           setStep('send');
           setCode('');
         }
@@ -13571,7 +14064,7 @@ function OtpVerifyCard({
     }, () => {
       setBusy(false);
       setMsg('⚠️ Could not check the code. Please try again.');
-    });
+    }, email.replace(/\s+/g, '').toLowerCase());
   }
   return React.createElement(Card, {
     style: {
@@ -13596,12 +14089,21 @@ function OtpVerifyCard({
       lineHeight: 1.5,
       marginBottom: 12
     }
-  }, step === 'send' ? React.createElement(React.Fragment, null, "To keep your account safe, we email a 6-digit code to ", React.createElement("b", null, email || 'your email'), " the first time you use Get OTP on this phone. You won’t be asked again for 30 days.") : React.createElement(React.Fragment, null, "Enter the 6-digit code we sent to ", React.createElement("b", null, email), ". Check spam if you don’t see it.")), step === 'send' ? React.createElement(Btn, {
+  }, step === 'send' ? "Type the email you used when you bought this plan. We’ll email you a 6-digit code. You won’t be asked again on this phone for 30 days." : "Enter the 6-digit code we sent to your email. Check Spam if you don’t see it."), step === 'send' ? React.createElement(React.Fragment, null, React.createElement(Input, {
+    label: "Your email",
+    type: "email",
+    placeholder: "name@gmail.com",
+    value: email,
+    onChange: e => setEmail(e.target.value.slice(0, 120))
+  }), React.createElement(Btn, {
     variant: "primary",
     full: true,
     disabled: busy,
+    style: {
+      marginTop: 10
+    },
     onClick: send
-  }, busy ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), " Sending…") : '📧 Email me a code') : React.createElement(React.Fragment, null, React.createElement(Input, {
+  }, busy ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), " Sending…") : '📧 Email me a code')) : React.createElement(React.Fragment, null, React.createElement(Input, {
     label: "Code from email",
     type: "tel",
     placeholder: "6-digit code",
@@ -13637,7 +14139,14 @@ function OtpVerifyCard({
       fontWeight: 700,
       color: msg.indexOf('⚠️') === 0 ? C.red : C.muted
     }
-  }, msg));
+  }, msg), noActive && React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    style: {
+      marginTop: 10
+    },
+    onClick: () => API.openWhatsApp()
+  }, "💬 Help"));
 }
 function OtpScreen({
   nav,
@@ -13702,8 +14211,10 @@ function OtpScreen({
         setError('No response from server.');
         return;
       }
-      if (r.needsVerify) {
+      if (r.needsVerify || r.noActive) {
+        // noActive: this plan is not active, or its email is not the one this phone confirmed - let them try another email.
         setPhase('confirm');
+        if (r.noActive) setError(r.message || '');
         setVerifyInfo(r);
         return;
       }
@@ -13728,7 +14239,7 @@ function OtpScreen({
     }, err => {
       setPhase('confirm');
       setError('Failed to fetch OTP: ' + (err?.message || err));
-    });
+    }, sub?.subId || sub?.orderId || '');
   }
   function copyOtp() {
     if (!otp) return;
@@ -15077,6 +15588,19 @@ const API = {
   createOrUpdateCustomerProfile(payload, onSuccess, onFailure) {
     apiCall_('createOrUpdateCustomerProfile', [payload], onSuccess, onFailure);
   },
+  // 🔒 Profile email lock (emaillock.js). purpose = 'new' | 'old' | 'confirm'; target = an oldOptions id.
+  emailLockStatus(phone, subId, onSuccess, onFailure) {
+    apiCall_('emailLockStatus', [phone, subId || ''], onSuccess, onFailure);
+  },
+  emailSendCode(phone, purpose, email, target, onSuccess, onFailure) {
+    apiCall_('emailSendCode', [phone, purpose, email || '', target || ''], onSuccess, onFailure);
+  },
+  emailVerifyCode(phone, purpose, code, email, target, onSuccess, onFailure) {
+    apiCall_('emailVerifyCode', [phone, purpose, code, email || '', target || ''], onSuccess, onFailure);
+  },
+  changeProfileEmail(payload, onSuccess, onFailure) {
+    apiCall_('changeProfileEmail', [payload], onSuccess, onFailure);
+  },
   updateCustomerProfilePic(phone, url, onSuccess, onFailure) {
     apiCall_('updateCustomerProfilePic', [phone, url], onSuccess, onFailure);
   },
@@ -15163,14 +15687,14 @@ const API = {
   getResumePaymentByPhone(phone, onSuccess, onFailure) {
     apiCall_('getResumePaymentByPhone', [phone], onSuccess, onFailure);
   },
-  getLatestOtp(service, phone, onSuccess, onFailure) {
-    apiCall_('getLatestOtp', [service, phone, getOtpToken_(phone)], onSuccess, onFailure);
+  getLatestOtp(service, phone, onSuccess, onFailure, subRef) {
+    apiCall_('getLatestOtp', [service, phone, getGetOtpToken_(phone), String(subRef || '')], onSuccess, onFailure);
   },
-  otpSendCode(phone, onSuccess, onFailure) {
-    apiCall_('otpSendCode', [phone], onSuccess, onFailure);
+  otpSendCode(phone, email, onSuccess, onFailure) {
+    apiCall_('otpSendCode', [phone, email], onSuccess, onFailure);
   },
-  otpVerifyCode(phone, code, onSuccess, onFailure) {
-    apiCall_('otpVerifyCode', [phone, code], onSuccess, onFailure);
+  otpVerifyCode(phone, code, onSuccess, onFailure, email, kind) {
+    apiCall_('otpVerifyCode', [phone, code, email || '', kind || 'getotp'], onSuccess, onFailure);
   },
   getOtpQuota(phone, service, onSuccess, onFailure) {
     apiCall_('getOtpQuota', [phone, service], onSuccess, onFailure);
@@ -15207,8 +15731,8 @@ const API = {
   convertRefundToCredit(phone, orderId, onSuccess, onFailure) {
     apiCall_('convertRefundToCredit', [phone, orderId], onSuccess, onFailure);
   },
-  refundSendCode(phone, onSuccess, onFailure) {
-    apiCall_('refundSendCode', [phone], onSuccess, onFailure);
+  refundSendCode(phone, email, onSuccess, onFailure) {
+    apiCall_('refundSendCode', [phone, email], onSuccess, onFailure);
   },
   requestUpiRefund(phone, orderId, upiId, onSuccess, onFailure) {
     apiCall_('requestUpiRefund', [phone, orderId, upiId, getOtpToken_(phone)], onSuccess, onFailure);
