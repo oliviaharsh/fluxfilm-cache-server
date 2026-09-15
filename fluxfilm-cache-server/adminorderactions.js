@@ -41,8 +41,8 @@ const COOLDOWN_DAYS = Number(process.env.REUSE_COOLDOWN_DAYS || 10);
 class Refused extends Error { constructor(status, message, extra) { super(message); this.status = status; this.extra = extra || {}; } }
 const refundsMod = require('./refunds');
 
-/** A subscription row that really gave the customer something (a login, or marked delivered). */
-function isDeliveredSub(x) { return up(x.fulfillment_status) === 'FULFILLED' || !!s(x.login_id); }
+/** A subscription row that really gave the customer something — shared rule in delivered.js (login, profile, invite, old-site import…). */
+const { isDeliveredSub, DELIVERY_COLS } = require('./delivered');
 
 /**
  * Which actions fit this order. Pure: used by the actions endpoint (buttons) AND as the guard of every write,
@@ -171,7 +171,7 @@ function mount(app, deps) {
     try {
       const o = (await db.query('SELECT order_id, service, plan, final_amount, status, fulfillment_status, order_type, renew_sub_id, source, phone_norm, raw_json FROM orders WHERE order_id = ? LIMIT 1', [id]))[0];
       if (!o) return res.status(404).json({ ok: false, message: 'No order ' + id });
-      const subs = await db.query('SELECT sub_id, status, fulfillment_status, login_id FROM subscriptions WHERE order_id = ?', [id]);
+      const subs = await db.query('SELECT sub_id, ' + DELIVERY_COLS + ' FROM subscriptions WHERE order_id = ?', [id]);
       const raw = rawOf(o.raw_json);
       const d = decide(o, subs);
       const out = {
@@ -197,7 +197,7 @@ function mount(app, deps) {
     try {
       const o = (await db.query('SELECT order_id, service, plan, final_amount, status, fulfillment_status, order_type, renew_sub_id, source FROM orders WHERE order_id = ? LIMIT 1', [id]))[0];
       if (!o) throw new Refused(404, 'Order not found.');
-      const subs = await db.query('SELECT sub_id, status, fulfillment_status, login_id FROM subscriptions WHERE order_id = ?', [id]);
+      const subs = await db.query('SELECT sub_id, ' + DELIVERY_COLS + ' FROM subscriptions WHERE order_id = ?', [id]);
       const d = decide(o, subs);
       if (d.delivered) return res.json({ ok: true, already: true, orderId: id, message: '✅ Already delivered — nothing to do.' });
       if (!d.fulfil.allowed) throw new Refused(409, d.fulfil.reason);

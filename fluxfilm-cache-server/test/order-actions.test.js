@@ -49,7 +49,7 @@ function run(sql, p) {
   if (/^DELETE FROM orders WHERE order_id = \? LIMIT 1$/.test(sql)) { if (S.failDeleteOrder) return { affectedRows: 0 }; const n = S.orders.length; S.orders = S.orders.filter((o) => o.order_id !== p[0]); return { affectedRows: n - S.orders.length }; }
   // subscriptions
   if (/^SELECT \* FROM subscriptions WHERE order_id = \? FOR UPDATE$/.test(sql)) return S.subs.filter((x) => x.order_id === p[0]).map(clone);
-  if (/^SELECT sub_id, status, fulfillment_status, login_id FROM subscriptions WHERE order_id = \?$/.test(sql)) return S.subs.filter((x) => x.order_id === p[0]).map(clone);
+  if (/^SELECT sub_id, status, fulfillment_status, start_date, source, login_id, inventory_ref, account_id, profile_name, profile_number FROM subscriptions WHERE order_id = \?$/.test(sql)) return S.subs.filter((x) => x.order_id === p[0]).map(clone);
   if (/^SELECT 1 FROM subscriptions WHERE sub_id = \? LIMIT 1$/.test(sql)) return S.subs.filter((x) => x.sub_id === p[0]).map(() => ({ 1: 1 }));
   if (/^UPDATE subscriptions SET status = 'CANCELLED', fulfillment_status = 'REFUNDED'/.test(sql)) { const x = S.subs.find((y) => y.sub_id === p[p.length - 1]); if (x) { x.status = 'CANCELLED'; x.fulfillment_status = 'REFUNDED'; if (p.length > 1) x.raw_json = p[0]; } return { affectedRows: x ? 1 : 0 }; }
   if (/^UPDATE subscriptions SET status = 'ACTIVE', fulfillment_status = 'FULFILLED', login_id = \?/.test(sql)) { const x = S.subs.find((y) => y.sub_id === p[p.length - 1]); Object.assign(x, { status: 'ACTIVE', fulfillment_status: 'FULFILLED', login_id: p[0], password: p[1], profile_name: p[2], profile_pin: p[3], inventory_ref: p[5], expiry_date: p[8] }); return { affectedRows: 1 }; }
@@ -157,6 +157,19 @@ const rawOrder = (id) => { const r = order(id).raw_json; return typeof r === 'st
   ok('old-site renewal: no auto fulfil and no manual (renewals extend a sub)', !x.fulfil.allowed && !x.manual.allowed && x.refund.allowed, x);
   x = d({ source: null });
   ok('old-site NEW order: fulfil allowed (legacy flag set)', x.fulfil.allowed && x.legacy, x);
+  // Shared delivered rule (delivered.js, bug 15 Sep 2026: YouTube invite had no Offer refund).
+  x = d({ fulfillment_status: 'FAILED' }, [{ sub_id: 'S3', status: 'ACTIVE', fulfillment_status: 'FAILED', login_id: '', start_date: '2026-09-01 10:00:00', source: 'node' }]);
+  ok('FAILED row with no login → not delivered: undelivered 💸 Refund still allowed, no offer', !x.delivered && x.refund.allowed && x.erase.allowed && !x.offer.allowed, x);
+  x = d({ fulfillment_status: 'MANUAL_PENDING' }, [{ sub_id: 'S4', status: 'ACTIVE', fulfillment_status: 'MANUAL_PENDING', login_id: '', start_date: '2026-09-01 10:00:00', source: 'node' }]);
+  ok('MANUAL_PENDING row (has a start date, no login) → not delivered', !x.delivered && x.refund.allowed, x);
+  x = d({ fulfillment_status: 'FULFILLED', source: null }, [{ sub_id: 'S5', status: 'ACTIVE', fulfillment_status: null, login_id: null, profile_number: 'MIG_YT', start_date: '2026-09-01 10:00:00', source: null }]);
+  ok('YouTube family invite (profile only) → delivered: offer allowed, undelivered refund / erase refused', x.delivered && x.offer.allowed && !x.refund.allowed && !x.erase.allowed, x);
+  x = d({ fulfillment_status: '', source: null }, [{ sub_id: 'S6', status: 'ACTIVE', fulfillment_status: '', login_id: '', start_date: '2026-08-20 10:00:00', source: null }]);
+  ok('old-site import (empty fulfilment, ACTIVE, start date) → delivered', x.delivered && x.offer.allowed && !x.fulfil.allowed, x);
+  const del = require('../delivered').isDeliveredSub;
+  ok('delivered.js rule table', del({ fulfillment_status: 'delivered' }) && del({ fulfillment_status: 'Completed' }) && del({ status: 'PENDING', fulfillment_status: 'PENDING', inventory_ref: 'YT-01' }) && del({ status: 'EXPIRED', start_date: '2026-07-01', source: '' }) &&
+    !del({ status: 'ACTIVE', fulfillment_status: 'CREATED', start_date: '2026-09-01' }) && !del({ status: 'ACTIVE', fulfillment_status: 'PENDING', start_date: '2026-09-01' }) && !del({ status: 'ACTIVE', fulfillment_status: '', start_date: '' }) &&
+    !del({ status: 'ACTIVE', fulfillment_status: '', start_date: '2026-09-01', source: 'node' }) && !del({ status: 'CANCELLED', fulfillment_status: '', start_date: '2026-09-01' }));
 
   // ---------------------------------------------------------------- HTTP
   const express = require('express');

@@ -41,7 +41,8 @@ const PER_DAY = 5;
 const REASONS = { NOT_WORKING: 'Not working', NOT_RECEIVED: 'Didn’t receive', NOT_NEEDED: 'Don’t need anymore', QUALITY: 'Quality changed', OTHER: 'Other' };
 const REQ_RE = /^RQ[A-Z0-9]{8}$/;
 const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const isDeliveredSub = (x) => up(x.fulfillment_status) === 'FULFILLED' || !!s(x.login_id);
+// Shared rule (delivered.js): no-login plans (YouTube invites, OTP services) and old-site imports count as delivered.
+const { isDeliveredSub, DELIVERY_COLS } = require('./delivered');
 const ENDED = ['REFUNDED', 'CANCELLED', 'CANCELED', 'REMOVED', 'ERASED'];
 const paidAtOf = (o) => s(o.verified_at) || s(o.created_at_sheet);
 
@@ -218,7 +219,7 @@ function create(deps) {
     if (ids.length) {
       const marks = ids.map(() => '?').join(',');
       for (const o of (await q('SELECT order_id, name, status, fulfillment_status, verified_at, created_at_sheet FROM orders WHERE order_id IN (' + marks + ')', ids)) || []) orders.set(s(o.order_id), o);
-      for (const x of (await q('SELECT order_id, sub_id, status, fulfillment_status, login_id, expiry_date FROM subscriptions WHERE order_id IN (' + marks + ')', ids)) || []) { const k = s(x.order_id); if (!subsBy.has(k)) subsBy.set(k, []); subsBy.get(k).push(x); }
+      for (const x of (await q('SELECT order_id, sub_id, expiry_date, ' + DELIVERY_COLS + ' FROM subscriptions WHERE order_id IN (' + marks + ')', ids)) || []) { const k = s(x.order_id); if (!subsBy.has(k)) subsBy.set(k, []); subsBy.get(k).push(x); }
     }
     try {
       const phones = [...new Set(rows.map((r) => norm(r.phone_norm)).filter(Boolean))];
