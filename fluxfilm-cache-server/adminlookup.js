@@ -152,7 +152,7 @@ function mount(app, deps) {
         const cap = capMap.get(id);
         const u = use.get(id) || { subs: 0, devices: 0, tv: 0 };
         const active = s(a.is_active).toUpperCase() === 'TRUE' && (!cap || s(cap.is_active).toUpperCase() !== 'FALSE');
-        const row = { service: s(a.service), accountId: id, login: s(a.login_id), plan: s(a.plan), notes: s(a.notes), policy, isActive: active, activeSubs: u.subs, expiredOnAccount: expBy[id] ? expBy[id].pending : 0, expiredOldUsers: expBy[id] ? expBy[id].oldUsers : 0 };
+        const row = { service: s(a.service), accountId: id, login: s(a.login_id), plan: s(a.plan), notes: s(a.notes), policy, isActive: active, activeSubs: u.subs, expiredOnAccount: expBy[id] ? expBy[id].pending : 0, expiredOldUsers: expBy[id] ? expBy[id].oldUsers : 0, removeAdvice: expBy[id] ? expBy[id].advice : 'NONE', removeOn: expBy[id] ? expBy[id].changeOn : '' };
         if (policy === 'CAPACITY') {
           row.cap = asNum(cap && cap.max_total) || primeMax; row.used = u.devices;
           row.tvCap = asNum(cap && cap.max_tv) || primeTv; row.tvUsed = u.tv; row.unit = 'devices';
