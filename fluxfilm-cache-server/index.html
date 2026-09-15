@@ -13297,56 +13297,50 @@ function setOtpToken_(phone, r) {
     }));
   } catch (e) {}
 }
+// Get OTP has its own device token (otp2: proves an email that belongs to the plan). Refund / Games keep getOtpToken_.
+function getGetOtpToken_(phone) {
+  try {
+    const r = JSON.parse(localStorage.getItem('ff_getotp_access_' + normPhone_(phone)) || 'null');
+    return r && r.token && Date.parse(r.expiresAt) > Date.now() ? r.token : '';
+  } catch (e) {
+    return '';
+  }
+}
+function setGetOtpToken_(phone, r) {
+  try {
+    localStorage.setItem('ff_getotp_access_' + normPhone_(phone), JSON.stringify({
+      token: r.token,
+      expiresAt: r.expiresAt
+    }));
+  } catch (e) {}
+}
+// No email hints: the customer types the email they bought with; every "no" shows the same message.
 function OtpVerifyCard({
   phone,
   info,
   onVerified
 }) {
   const [step, setStep] = useState('send');
+  const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
-  const [email, setEmail] = useState(info && info.maskedEmail || '');
-  if (info && info.hasEmail === false) return React.createElement(Card, {
-    style: {
-      marginBottom: 14,
-      border: '1.5px solid rgba(245,158,11,.35)',
-      background: '#fffbeb'
-    }
-  }, React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 15,
-      fontWeight: 800,
-      color: '#78350f',
-      marginBottom: 6
-    }
-  }, "🔒 Confirm it’s you"), React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 13.5,
-      fontWeight: 600,
-      color: '#92400e',
-      lineHeight: 1.5
-    }
-  }, info.message), React.createElement(Btn, {
-    variant: "primary",
-    full: true,
-    style: {
-      marginTop: 12
-    },
-    onClick: () => API.openWhatsApp()
-  }, "💬 WhatsApp support"));
+  const [noActive, setNoActive] = useState(false);
   function send() {
+    const em = email.replace(/\s+/g, '').toLowerCase();
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(em)) return setMsg('⚠️ Enter your email, like name@gmail.com.');
     setBusy(true);
     setMsg('');
-    API.otpSendCode(phone, r => {
+    setNoActive(false);
+    API.otpSendCode(phone, em, r => {
       setBusy(false);
       if (r && r.ok) {
-        setEmail(r.maskedEmail || email);
         setStep('code');
         setMsg(r.message || '');
-      } else setMsg('⚠️ ' + (r && r.message || 'Could not send the code.'));
+      } else {
+        setNoActive(!!(r && r.noActive));
+        setMsg('⚠️ ' + (r && r.message || 'Could not send the code.'));
+      }
     }, () => {
       setBusy(false);
       setMsg('⚠️ Could not send the code. Please try again.');
@@ -13359,11 +13353,12 @@ function OtpVerifyCard({
     API.otpVerifyCode(phone, code, r => {
       setBusy(false);
       if (r && r.ok && r.token) {
-        setOtpToken_(phone, r);
+        setGetOtpToken_(phone, r);
         onVerified && onVerified();
       } else {
+        setNoActive(!!(r && r.noActive));
         setMsg('⚠️ ' + (r && r.message || 'That code did not work.'));
-        if (r && r.expired) {
+        if (r && (r.expired || r.noActive)) {
           setStep('send');
           setCode('');
         }
@@ -13371,7 +13366,7 @@ function OtpVerifyCard({
     }, () => {
       setBusy(false);
       setMsg('⚠️ Could not check the code. Please try again.');
-    });
+    }, email.replace(/\s+/g, '').toLowerCase());
   }
   return React.createElement(Card, {
     style: {
@@ -13396,12 +13391,21 @@ function OtpVerifyCard({
       lineHeight: 1.5,
       marginBottom: 12
     }
-  }, step === 'send' ? React.createElement(React.Fragment, null, "To keep your account safe, we email a 6-digit code to ", React.createElement("b", null, email || 'your email'), " the first time you use Get OTP on this phone. You won’t be asked again for 30 days.") : React.createElement(React.Fragment, null, "Enter the 6-digit code we sent to ", React.createElement("b", null, email), ". Check spam if you don’t see it.")), step === 'send' ? React.createElement(Btn, {
+  }, step === 'send' ? "Type the email you used when you bought this plan. We’ll email you a 6-digit code. You won’t be asked again on this phone for 30 days." : "Enter the 6-digit code we sent to your email. Check Spam if you don’t see it."), step === 'send' ? React.createElement(React.Fragment, null, React.createElement(Input, {
+    label: "Your email",
+    type: "email",
+    placeholder: "name@gmail.com",
+    value: email,
+    onChange: e => setEmail(e.target.value.slice(0, 120))
+  }), React.createElement(Btn, {
     variant: "primary",
     full: true,
     disabled: busy,
+    style: {
+      marginTop: 10
+    },
     onClick: send
-  }, busy ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), " Sending…") : '📧 Email me a code') : React.createElement(React.Fragment, null, React.createElement(Input, {
+  }, busy ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), " Sending…") : '📧 Email me a code')) : React.createElement(React.Fragment, null, React.createElement(Input, {
     label: "Code from email",
     type: "tel",
     placeholder: "6-digit code",
@@ -13437,7 +13441,14 @@ function OtpVerifyCard({
       fontWeight: 700,
       color: msg.indexOf('⚠️') === 0 ? C.red : C.muted
     }
-  }, msg));
+  }, msg), noActive && React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    style: {
+      marginTop: 10
+    },
+    onClick: () => API.openWhatsApp()
+  }, "💬 Help"));
 }
 function OtpScreen({
   nav,
@@ -13502,8 +13513,10 @@ function OtpScreen({
         setError('No response from server.');
         return;
       }
-      if (r.needsVerify) {
+      if (r.needsVerify || r.noActive) {
+        // noActive: this plan is not active, or its email is not the one this phone confirmed - let them try another email.
         setPhase('confirm');
+        if (r.noActive) setError(r.message || '');
         setVerifyInfo(r);
         return;
       }
@@ -13528,7 +13541,7 @@ function OtpScreen({
     }, err => {
       setPhase('confirm');
       setError('Failed to fetch OTP: ' + (err?.message || err));
-    });
+    }, sub?.subId || sub?.orderId || '');
   }
   function copyOtp() {
     if (!otp) return;
@@ -14962,14 +14975,14 @@ const API = {
   getResumePaymentByPhone(phone, onSuccess, onFailure) {
     apiCall_('getResumePaymentByPhone', [phone], onSuccess, onFailure);
   },
-  getLatestOtp(service, phone, onSuccess, onFailure) {
-    apiCall_('getLatestOtp', [service, phone, getOtpToken_(phone)], onSuccess, onFailure);
+  getLatestOtp(service, phone, onSuccess, onFailure, subRef) {
+    apiCall_('getLatestOtp', [service, phone, getGetOtpToken_(phone), String(subRef || '')], onSuccess, onFailure);
   },
-  otpSendCode(phone, onSuccess, onFailure) {
-    apiCall_('otpSendCode', [phone], onSuccess, onFailure);
+  otpSendCode(phone, email, onSuccess, onFailure) {
+    apiCall_('otpSendCode', [phone, email], onSuccess, onFailure);
   },
-  otpVerifyCode(phone, code, onSuccess, onFailure) {
-    apiCall_('otpVerifyCode', [phone, code], onSuccess, onFailure);
+  otpVerifyCode(phone, code, onSuccess, onFailure, email) {
+    apiCall_('otpVerifyCode', email ? [phone, code, email] : [phone, code], onSuccess, onFailure);
   },
   getOtpQuota(phone, service, onSuccess, onFailure) {
     apiCall_('getOtpQuota', [phone, service], onSuccess, onFailure);
