@@ -98,7 +98,7 @@ async function getMySubscriptions(phone) {
   const groupsOn = await deviceLogins.groupsReady(db.query);
   const allRows = await db.query(
     `SELECT sub_id, order_id, service, plan, email, start_date, expiry_date,
-            profile_number, profile_name, profile_pin, inventory_ref` + (groupsOn ? ', device_count, group_id, group_index' : '') + `
+            profile_number, profile_name, profile_pin, inventory_ref, status, fulfillment_status` + (groupsOn ? ', device_count, group_id, group_index' : '') + `
      FROM subscriptions WHERE phone_norm = ?`, [ph]);
   const infoBanner = '📱 Please enter the same phone number you used to buy subscriptions.';
   if (!allRows.length) return { ok: true, phone: ph, infoBanner, actionable: [], history: [] };
@@ -152,6 +152,9 @@ async function getMySubscriptions(phone) {
       uiTone: elig === 'CAN_RENEW' ? 'normal' : (elig === 'LATE_RENEW' ? 'faded_red' : 'faded_grey'),
       showRenewButton: elig !== 'TOO_LATE',
       inventoryRef: String(r.inventory_ref || '').trim(),
+      // ⏳ Renewal reminder pop-up skips refunded / cancelled plans (admin refund sets CANCELLED + REFUNDED).
+      status: String(r.status || '').trim().toUpperCase(),
+      fulfillmentStatus: String(r.fulfillment_status || '').trim().toUpperCase(),
     }, devices && devices.deviceCount > 1 ? { deviceCount: devices.deviceCount, sameLogin: devices.sameLogin, devices: devices.list } : {});
   });
 
