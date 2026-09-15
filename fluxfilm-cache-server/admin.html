@@ -2592,6 +2592,7 @@ function fdLoad(then) {
     if (!r.ok) { $('#fdbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
     FD.list = r.posts || []; FD.services = r.services || []; FD.settings = r.settings || {}; FD.job = r.job || null;
     FD.serviceInfo = r.serviceInfo || []; FD.brands = r.brands || []; FD.commentsReady = !!r.commentsReady; FD.commentCounts = r.commentCounts || {};
+    FD.marksReady = r.marksReady !== false; FD.marksCounts = r.marksCounts || {};
     var n = $('#fdcmn'); if (n) n.innerHTML = FD.commentCounts.pending ? '<span class="pill p-warn">' + FD.commentCounts.pending + ' to check</span>' : '';
     if (then) then(); else if (!FD.panel) fdRenderList();
   });
@@ -2643,6 +2644,9 @@ function fdCleanup() {
 function fdRenderList() {
   FD.panel = ''; FD.edit = null;
   var h = FD.settings.hasKey ? fdJobCard() : '<div class="qnote" style="margin:0 0 12px">🤖 Add a free TMDB key in ⚙️ Settings and the feed fills itself: new movies &amp; shows on your platforms in India, with poster, story, genres and trailer.</div>';
+  // ❤️ 🔖 Liked / saved posts follow the customer's account only after db/schema-v25.sql (feedmarks.js).
+  h += FD.marksReady ? '<div class="muted" style="font-size:.8rem;margin:0 0 10px">❤️ ' + (FD.marksCounts.likes || 0) + ' account likes · 🔖 ' + (FD.marksCounts.saves || 0) + ' saves (customers see them in What\'s new → ☰ menu)</div>'
+    : '<div class="qnote warn" style="margin:0 0 12px">🔖 Liked &amp; saved posts stay on each customer\'s phone for now. Run <b>db/schema-v25.sql</b> in phpMyAdmin once so they follow the customer\'s account (any phone).</div>';
   if (!FD.list.length) h += '<div class="card" style="text-align:center;padding:28px"><div style="font-size:2.4rem">🍿</div><h3>No posts yet</h3><p class="muted">➕ New post, or 🔎 Find on TMDB once you have a key.</p></div>';
   else h += '<div class="pr-list">' + FD.list.map(function (p) {
     var st = FD_STATUS[p.status] || [p.status, 'p-grey']; var img = fdImg(p, 'w185');

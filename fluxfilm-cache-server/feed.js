@@ -381,6 +381,16 @@ function record(id, kind, device) {
   pending.set(k, cur);
   return { ok: true };
 }
+/** ❤️ Account likes (feedmarks.js): +1 / -1 only when the customer's feed_likes row really changed (no device id needed). */
+function countLike(id, delta) {
+  const k = safeId(id);
+  const d = Number(delta) > 0 ? 1 : Number(delta) < 0 ? -1 : 0;
+  if (!k || !d) return { ok: false };
+  const cur = pending.get(k) || { views: 0, likes: 0, clicks: 0, shares: 0, plays: 0 };
+  cur.likes += d;
+  pending.set(k, cur);
+  return { ok: true };
+}
 async function flushStats() {
   if (!pending.size) return;
   const batch = [...pending.entries()]; pending.clear();
@@ -1211,7 +1221,7 @@ function startTimer(deps) {
 module.exports = {
   posterPath, posterImage,
   TYPES, CTAS, IMG_HOSTS, TRAILER_HOSTS, IG_HOSTS, DEFAULT_PROVIDERS, DEFAULT_LANGS, MAX_POSTS,
-  validate, instagramUrl, youtubeId, list, save, remove, setImage, setThumb, image, statusOf, sortPosts, publicList, trendingLines, record, flushStats, stats,
+  validate, instagramUrl, youtubeId, list, save, remove, setImage, setThumb, image, statusOf, sortPosts, publicList, trendingLines, record, countLike, flushStats, stats,
   getSettings, publicSettings, saveSettings, tmdbSearch, tmdbCreate, tmdbSuggest, tmdbProviders, providersFor, draftFrom, catalogServices, catalogServiceInfo,
   discover, runImport, jobStatus, startTimer, toIso,
   newWindow, seriesNews, movieNews, indiaReleaseDate, notNewCandidates, hideNotNew,

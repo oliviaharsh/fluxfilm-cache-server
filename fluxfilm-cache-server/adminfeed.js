@@ -25,6 +25,8 @@ function mount(app, deps) {
   const audit = deps.audit || { record: () => {} };
   const feed = deps.feed || require('./feed');
   const comments = deps.comments || require('./feedcomments');
+  // ❤️ 🔖 account likes / saves (feedmarks.js): only "is schema-v25 in?" + totals for the note in the list.
+  let marks = deps.marks || null; if (!marks) { try { marks = require('./feedmarks'); } catch (_) { marks = null; } }
   const ai = deps.ai || require('./feedai');
   // ✨ AI fill costs AI tokens: 20 per 10 minutes for the whole admin.
   let aiLimit = null; try { aiLimit = require('./security').rateLimiter(20, 10 * 60e3); } catch (_) {}
@@ -35,11 +37,12 @@ function mount(app, deps) {
   app.get('/admin/api/feed', async (req, res) => {
     if (!auth(req, res)) return;
     try {
-      const [items, st, settings, info, job, cm] = await Promise.all([feed.list(), feed.stats(), feed.getSettings(), feed.catalogServiceInfo(), feed.jobStatus().catch(() => null),
-        comments.adminList({ status: 'pending', limit: 1 }).catch(() => ({ ready: false, counts: {}, byPost: {} }))]);
+      const [items, st, settings, info, job, cm, mk] = await Promise.all([feed.list(), feed.stats(), feed.getSettings(), feed.catalogServiceInfo(), feed.jobStatus().catch(() => null),
+        comments.adminList({ status: 'pending', limit: 1 }).catch(() => ({ ready: false, counts: {}, byPost: {} })),
+        marks ? marks.adminInfo().catch(() => ({ ready: false })) : Promise.resolve({ ready: false })]);
       const byPost = cm.byPost || {};
       const posts = feed.sortPosts(items).map((p) => Object.assign({}, p, { status: feed.statusOf(p), views: (st[p.id] || {}).views || 0, likes: (st[p.id] || {}).likes || 0, clicks: (st[p.id] || {}).clicks || 0, shares: (st[p.id] || {}).shares || 0, plays: (st[p.id] || {}).plays || 0, comments: byPost[p.id] || { visible: 0, pending: 0, hidden: 0 } }));
-      res.json({ ok: true, posts, services: info.map((x) => x.service), serviceInfo: info, brands: feed.BRANDS.map((b) => ({ name: b.name, emoji: b.emoji })), settings: feed.publicSettings(settings), job, max: feed.MAX_POSTS, now: new Date().toISOString(), commentsReady: !!cm.ready, commentCounts: cm.counts || {} });
+      res.json({ ok: true, posts, services: info.map((x) => x.service), serviceInfo: info, brands: feed.BRANDS.map((b) => ({ name: b.name, emoji: b.emoji })), settings: feed.publicSettings(settings), job, max: feed.MAX_POSTS, now: new Date().toISOString(), commentsReady: !!cm.ready, commentCounts: cm.counts || {}, marksReady: !!mk.ready, marksCounts: { likes: Number(mk.likes) || 0, saves: Number(mk.saves) || 0 } });
     } catch (e) { fail(res, e); }
   });
 

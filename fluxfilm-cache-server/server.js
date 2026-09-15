@@ -233,6 +233,23 @@ if (feedMod && feedCommentsMod) {
   LIMITS.addFeedComment = security.rateLimiter(40, TEN_MIN);
   PHONE_LIMITS.addFeedComment = security.rateLimiter(10, TEN_MIN);
 }
+// ❤️ 🔖 Liked / saved posts follow the customer's account (feedmarks.js, db/schema-v25.sql). Same phone session as comments.
+// a = [phone, postId, 'like' | 'save', on] / [phone] / [phone, { liked: [ids], saved: [ids] }]. Before schema-v25: ready false.
+let feedMarksMod = null; try { feedMarksMod = require('./feedmarks'); } catch (e) { console.log('[feed marks] not loaded:', e.message); }
+if (feedMod && feedMarksMod) {
+  Object.assign(DB_STOREFRONT, {
+    setFeedMark: (a) => feedMarksMod.set(a[0], a[1], a[2], a[3]),
+    getFeedMarks: (a) => feedMarksMod.list(a[0]),
+    importFeedMarks: (a) => feedMarksMod.importLocal(a[0], a[1]),
+  });
+  DB_STOREFRONT_ACTIONS.add('setFeedMark'); DB_STOREFRONT_ACTIONS.add('getFeedMarks'); DB_STOREFRONT_ACTIONS.add('importFeedMarks');
+  LIMITS.setFeedMark = security.rateLimiter(400, TEN_MIN);
+  LIMITS.getFeedMarks = security.rateLimiter(200, TEN_MIN);
+  LIMITS.importFeedMarks = security.rateLimiter(20, TEN_MIN);
+  PHONE_LIMITS.setFeedMark = security.rateLimiter(120, TEN_MIN);
+  PHONE_LIMITS.getFeedMarks = security.rateLimiter(60, TEN_MIN);
+  PHONE_LIMITS.importFeedMarks = security.rateLimiter(6, 60 * 60e3);
+}
 
 // 🎮 Games (/games page, admin → 🎮 Games). a = [phone, deviceToken, ...]. The server decides and scores every game.
 let gamesMod = null; try { gamesMod = require('./games'); } catch (e) { console.log('[games] not loaded:', e.message); }
