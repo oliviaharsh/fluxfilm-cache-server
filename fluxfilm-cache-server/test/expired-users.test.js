@@ -81,6 +81,25 @@ section('rule details');
   const sameCust = E.compute({ now, accounts, subs: [act({ sub_id: 'N1', phone_norm: '9000000020', inventory_ref: 'NF-1#P5' }), sub({ sub_id: 'O1', phone_norm: '9000000020', inventory_ref: 'NF-1#P1' })] });
   ok('same customer active again on the same login (moved profile) → old row not pending', sameCust.main.pending === 0 && sameCust.main.groups.length === 0, sameCust.main);
   ok('the SQL reads only active + expired-not-removed rows with an account', /expiry_date < NOW\(\) AND COALESCE\(s.removed, 0\) = 0/.test(E.SUBS_SQL) && !/INTERVAL 60 DAY/.test(E.SUBS_SQL));
+
+  // 🚪 Remove users: one set of numbers with explicit units (customers vs accounts vs safe vs other services).
+  const c = E.summarize(r);
+  ok('summarize: 3 customers on 2 accounts to log out (customers ≠ accounts)', c.customers === 3 && c.accounts === 2, c);
+  ok('summarize: safe accounts + their old users are separate (2 accounts, 2 old users) and not in customers', c.safeAccounts === 2 && c.safeUsers === 2, c);
+  ok('summarize: per family customers + accounts', c.byFamily.Netflix.customers === 2 && c.byFamily.Netflix.accounts === 1 && c.byFamily['Prime Video'].customers === 1 && c.byFamily['Prime Video'].accounts === 1 && !c.byFamily['Zee5 Premium'], c.byFamily);
+  ok('summarize: other services on their own (2 customers on 2 accounts)', c.other.customers === 2 && c.other.accounts === 2 && c.other.safeAccounts === 0, c.other);
+  ok('summarize = the Today number (main.pending) and main.accountsToFix', c.customers === r.main.pending && c.accounts === r.main.accountsToFix);
+  ok('summarize of an empty/failed result is all zeros', JSON.stringify(E.summarize(null)) === JSON.stringify({ customers: 0, accounts: 0, safeAccounts: 0, safeUsers: 0, byFamily: {}, other: { customers: 0, accounts: 0, safeAccounts: 0, safeUsers: 0, byFamily: {} } }), E.summarize(null));
+  const very = nf.people.find((p) => p.subId === 'X1');
+  ok('person rows carry days since expiry + profile slot', very && very.daysAgo === Math.floor((now - E.toMs('2025-01-01 10:00:00')) / 86400e3) && very.slot === 'Profile 3', very);
+  ok('group carries the login as saved (display) and each account ID\'s own service (for 🔑 Password change)', nf.loginLabel === 'One@X' && nf.accountServices['NF-1'] === 'Netflix' && nf.accountServices['NF-2'] === 'Netflix (Group Offer)', [nf.loginLabel, nf.accountServices]);
+  ok('slotOf: Prime devices / TV', E.slotOf({ inventory_ref: 'PR-1', device_count: 2, tv_count: 1 }) === '2 devices · 1 TV' && E.slotOf({ inventory_ref: 'PR-1', device_count: 1, device_type: 'TV' }) === '1 device · TV' && E.slotOf({ inventory_ref: 'PR-1' }) === '', [E.slotOf({ inventory_ref: 'PR-1', device_count: 2, tv_count: 1 }), E.slotOf({ inventory_ref: 'PR-1', device_count: 1, device_type: 'TV' })]);
+  ok('the SQL also reads device columns for the slot', /s\.device_count, s\.device_type, s\.tv_count/.test(E.SUBS_SQL));
+}
+{
+  const r = E.compute({ subs: withTestsRemoved(), accounts: FX.accounts, now: NOW });
+  const c = E.summarize(r);
+  ok('live copy: 15 customers on 9 accounts (the Sheet numbers, units explicit)', c.customers === 15 && c.accounts === 9 && c.byFamily.Netflix.customers === 15 && c.byFamily.Netflix.accounts === 9, c);
 }
 
 section('admin endpoints: expired list + tick all subscriptions of an order removed');
@@ -93,6 +112,7 @@ section('admin endpoints: expired list + tick all subscriptions of an order remo
       sql = sql.replace(/\s+/g, ' ').trim(); calls.push({ sql, params });
       if ((sql.match(/\?/g) || []).length !== (params || []).length) throw new Error('placeholder count mismatch: ' + sql);
       if (/^SELECT COUNT\(\*\) total/.test(sql)) { const x = subsOf[params[0]]; return [x || { total: 0 }]; }
+      if (/^UPDATE subscriptions SET removed = 1/.test(sql) && /WHERE sub_id IN \(/.test(sql)) return { affectedRows: params.filter((id) => !/RUN|DONE/.test(id)).length };
       if (/^UPDATE subscriptions SET removed = 1/.test(sql)) {
         const x = subsOf[params[0]]; if (!x) return { affectedRows: 0 };
         const n = x.ended + (/NOT \(UPPER/.test(sql) ? 0 : x.running);
@@ -140,7 +160,35 @@ section('admin endpoints: expired list + tick all subscriptions of an order remo
     const html = await (await fetch(base + '/panel')).text();
     const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter((x) => x.trim());
     let parsed = true; for (const sc of scripts) { try { new Function(sc); } catch (e) { parsed = false; console.log('   parse error:', e.message); } }
-    ok('panel parses and has the order cleanup button + expired list', parsed && /Mark all subscriptions of this order as removed/.test(html) && /function renderExpiredUsers\(/.test(html));
+    ok('panel parses and has the order cleanup button', parsed && /Mark all subscriptions of this order as removed/.test(html));
+
+    // 🚪 Remove users: one API for Today, the new screen and Stock.
+    r = await get('/admin/api/remove-users');
+    const cnt = r.body.counts || {};
+    ok('GET remove-users: ok + list + counts {customers, accounts, safeAccounts, safeUsers, byFamily, other}', r.body.ok && r.body.main.groups.length === 1 && ['customers', 'accounts', 'safeAccounts', 'safeUsers', 'byFamily', 'other'].every((k) => k in cnt) && cnt.customers === 1 && cnt.accounts === 1 && cnt.other.customers === 0, r.body);
+    ok('remove-users needs admin', (await fetch(base + '/admin/api/remove-users')).status === 403);
+    const alias = await get('/admin/api/expired-users');
+    ok('older /expired-users answers the same (with counts)', JSON.stringify(alias.body.counts) === JSON.stringify(cnt) && alias.body.main.pending === 1);
+    calls.length = 0;
+    r = await post('/admin/api/remove-users/removed', { subIds: ['B', 'C', 'B', ' '], label: 'NF-1' });
+    const bulk = calls.find((c) => /^UPDATE subscriptions SET removed = 1/.test(c.sql));
+    ok('Remove all on this account: ticks the listed subs (deduped), removed_at = now, raw_json in step', r.body.ok && r.body.marked === 2 && bulk && bulk.params.join() === 'B,C' && /sub_id IN \(\?, \?\)/.test(bulk.sql) && /removed_at = NOW\(\)/.test(bulk.sql) && /RemovedFromDevice', 'TRUE'/.test(bulk.sql), { body: r.body, bulk });
+    ok('  ...never touches running or already-removed subscriptions', bulk && /COALESCE\(removed, 0\) = 0/.test(bulk.sql) && /NOT \(UPPER\(COALESCE\(status, ''\)\) = 'ACTIVE' AND expiry_date > NOW\(\)\)/.test(bulk.sql), bulk && bulk.sql);
+    await tick();
+    ok('  ...one change-log entry naming the account', calls.some((c) => /^INSERT INTO audit_log/.test(c.sql) && c.params[0] === 'sub.removedBulk' && c.params[2] === 'NF-1'));
+    r = await post('/admin/api/remove-users/removed', { subIds: ['B', 'RUN1'] });
+    ok('  ...reports skipped rows', r.body.ok && r.body.marked === 1 && r.body.skipped === 1 && /skipped/.test(r.body.message), r.body);
+    ok('  ...needs subIds (400) and at most 100', (await post('/admin/api/remove-users/removed', { subIds: [] })).status === 400 && (await post('/admin/api/remove-users/removed', { subIds: Array.from({ length: 101 }, (_, i) => 'S' + i) })).status === 400);
+    ok('  ...needs admin', (await fetch(base + '/admin/api/remove-users/removed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"subIds":["B"]}' })).status === 403);
+
+    section('panel: 🚪 Remove users screen, Today card, Stock');
+    ok('sidebar has 🚪 Remove users with its own view (history entry via nav)', /\['removeusers', '🚪', 'Remove users'\]/.test(html) && /removeusers: removeUsersView/.test(html) && /function removeUsersView\(/.test(html));
+    ok('screen reads the one API and shows units explicitly', /api\('\/admin\/api\/remove-users'\)/.test(html) && /ruPlural\(c\.customers, 'customer'\) \+ '<\/b> on <b>' \+ ruPlural\(c\.accounts, 'account'\)/.test(html) && /safe to reset/.test(html) && /Other services: <b>/.test(html));
+    ok('sections: log out per login (✅ Removed + Remove all), safe → 🔑 Password change, other services collapsed, search', /data-rurm=/.test(html) && /Remove all ' \+ g\.count \+ ' on this account/.test(html) && /\/admin\/api\/remove-users\/removed/.test(html) && /data-rupw=/.test(html) && /nav\('password'\); loadImpact\(\)/.test(html) && /id="ruc"/.test(html) && /id="ruq"/.test(html));
+    ok('customer rows: phone masked to last 4, days since expiry, profile/device slot', /'…' \+ esc\(String\(p\.phone\)\.slice\(-4\)\)/.test(html) && /'expired ' \+ ruPlural\(p\.daysAgo, 'day'\) \+ ' ago'/.test(html) && /p\.slot/.test(html));
+    ok('Today card shows its subtitle and opens the new screen', /it\.sub && it\.count > 0/.test(html) && /go\.view === 'removeusers'/.test(html));
+    ok('Stock: no "Accounts with expired customers" KPI, no 🚪 expired filter/section, old list code gone', !/Accounts with expired customers/.test(html) && !/\['expired', '🚪 Expired customers/.test(html) && !/K\.filter === 'expired'/.test(html) && !/function renderExpiredUsers\(/.test(html) && !/expiredUsers/.test(html));
+    ok('Stock links to 🚪 Remove users with the same counts; per-account badge opens it for that account', /d\.removeUsers/.test(html) && /🚪 Remove users' \+ \(ru && ru\.customers/.test(html) && /data-kru="' \+ esc\(a\.accountId\)/.test(html) && /nav\('removeusers'\)/.test(html));
   } finally {
     if (server.closeAllConnections) server.closeAllConnections();
     await new Promise((res) => server.close(res));

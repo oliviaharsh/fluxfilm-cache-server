@@ -24,6 +24,18 @@ function mount(app, deps) {
   const one = async (sql, p) => { try { const r = await db.query(sql, p || []); return r[0] || {}; } catch (e) { return { error: e.message }; } };
   const many = async (sql, p) => { try { return await db.query(sql, p || []); } catch (e) { return []; } };
 
+  // 🚪 card: the same numbers as GET /admin/api/remove-users (expiredusers.summarize), opens the 🚪 Remove users screen.
+  const expiredCard = (ex) => {
+    const E = deps.expiredusers || require('./expiredusers');
+    const ok = !!(ex && ex.main);
+    const c = ok ? E.summarize(ex) : { customers: 0, accounts: 0 };
+    return {
+      key: 'expired', icon: '🚪', title: 'Customers to log out', count: c.customers, tone: 'warn',
+      sub: ok ? 'on ' + c.accounts + ' account' + (c.accounts === 1 ? '' : 's') : 'could not work it out — open 🚪 Remove users',
+      accounts: c.accounts, go: { view: 'removeusers' }, names: ok ? E.todayNames(ex, 20) : [],
+    };
+  };
+
   app.get('/admin/api/today', async (req, res) => {
     if (!auth(req, res)) return;
     try {
@@ -64,7 +76,8 @@ function mount(app, deps) {
           { key: 'ending', icon: '⏳', title: 'Plans ending in 3 days', count: +ending.n || 0, tone: 'warn', go: { view: 'reminders' }, list: endingList },
           { key: 'out', icon: '🔴', title: 'Plans out of stock', count: out.length, tone: 'bad', names: out, go: { view: 'stock' } },
           { key: 'low', icon: '🟡', title: 'Plans running low', count: low.length, tone: 'warn', names: low, go: { view: 'stock' } },
-          { key: 'expired', icon: '🚪', title: 'Expired customers to remove (accounts still in use)', count: expiredOn && expiredOn.main ? expiredOn.main.pending : 0, tone: 'warn', go: { view: 'stock', stock: 'expired' }, names: expiredOn && expiredOn.main ? (deps.expiredusers || require('./expiredusers')).todayNames(expiredOn, 20) : [] },
+          // Unit = customers (people to log out); the subtitle says how many account logins they are on.
+          expiredCard(expiredOn),
           { key: 'unpaid', icon: '🧾', title: 'Unpaid website checkouts (3 days)', count: +unpaid.n || 0, tone: 'info', go: { view: 'orders', orders: 'unpaid' } },
           { key: 'restock', icon: '🔔', title: 'Customers waiting for restock', count: +restock.n || 0, tone: 'info', go: { view: 'data', table: 'restock_requests' } },
         ],

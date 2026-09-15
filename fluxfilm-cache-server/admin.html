@@ -404,6 +404,17 @@ textarea.inp{resize:vertical}
 .tcard.info{border-color:#bfdbfe;background:#f5f9ff}.tcard.info .tcount{color:#1d4ed8}
 .tcard.clear{opacity:.6}.tcard.clear .tcount{color:var(--ok);font-size:1.1rem}
 .tnames{font-size:.72rem;color:var(--mut);margin-top:4px;line-height:1.5}
+.tsub{display:block;font-size:.78rem;font-weight:600;margin-top:1px}
+/* 🚪 Remove users */
+.ru-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.ru-chip{border:1px solid var(--line);background:#fff;border-radius:14px;padding:10px 14px;font-size:.84rem;line-height:1.35;text-align:left;cursor:pointer;color:var(--ink);flex:1 1 220px}
+.ru-chip b{font-size:1.05rem}.ru-chip.warn{border-color:#fcd34d;background:#fffbeb}.ru-chip.ok{border-color:#bbf7d0;background:#f0fdf4}
+.ru-acc{padding:12px 14px;margin-bottom:10px}
+.ru-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}
+.ru-person{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f4f8;flex-wrap:wrap}.ru-person:last-child{border-bottom:0}
+.ru-person .grow{flex:1;min-width:170px}
+.ru-person .btn,.ru-acc .ru-all{min-height:40px}
+@media(max-width:600px){.ru-person .btn{width:100%;justify-content:center}.ru-acc .ru-all{width:100%;justify-content:center}}
 .tadd{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.tadd .inp{padding:8px 11px}.tadd #tt{flex:1;min-width:180px}
 .todo input[type=checkbox]{width:18px;height:18px;accent-color:var(--ok)}.todo.done .ttitle{text-decoration:line-through;color:var(--mut)}
 .adet{width:100%;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:10px;font-size:.72rem;overflow:auto;max-height:260px;margin:6px 0 0}
@@ -552,7 +563,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
   ['DATA'], ['golive', '🚚', 'Go-live import'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
@@ -597,7 +608,7 @@ function nav(v) {
   route();
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, removeusers: removeUsersView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -1838,21 +1849,24 @@ function renderStock() {
   var lvPill = function (lv, stock, source) { if (source === 'manual' && stock == null) return '<span class="pill p-grey">manual</span>'; return '<span class="pill ' + (lv === 'OUT' ? 'p-bad' : lv === 'LOW' ? 'p-warn' : 'p-ok') + '">' + (stock == null ? lv : stock + ' free') + '</span>'; };
   var counts = { OUT: 0, LOW: 0 }; d.plans.forEach(function (p) { if (counts[p.stockLevel] != null) counts[p.stockLevel]++; });
   var accs = d.accounts;
-  var nFull = accs.filter(function (a) { return a.status === 'FULL' || a.status === 'TV_FULL'; }).length, nIn = accs.filter(function (a) { return a.status === 'INACTIVE'; }).length, nExp = accs.filter(function (a) { return a.expiredOnAccount > 0; }).length;
+  var nFull = accs.filter(function (a) { return a.status === 'FULL' || a.status === 'TV_FULL'; }).length, nIn = accs.filter(function (a) { return a.status === 'INACTIVE'; }).length;
+  // Who to log out is not a stock number: it lives in 🚪 Remove users (same counts as Today). Stock only links there.
+  var ru = d.removeUsers;
   var h = '<div class="kpis"><div class="kpi"><div class="ic">🔴</div><div><div class="n">' + counts.OUT + '</div><div class="l">Plans out of stock</div></div></div><div class="kpi"><div class="ic">🟡</div><div><div class="n">' + counts.LOW + '</div><div class="l">Plans running low</div></div></div>' +
-    '<div class="kpi"><div class="ic">🧱</div><div><div class="n">' + nFull + '</div><div class="l">Accounts full</div></div></div><div class="kpi"><div class="ic">🚪</div><div><div class="n">' + nExp + '</div><div class="l">Accounts with expired customers</div></div></div></div>';
+    '<div class="kpi"><div class="ic">🧱</div><div><div class="n">' + nFull + '</div><div class="l">Accounts full</div></div></div></div>' +
+    '<div class="row" style="margin:-6px 0 10px"><a href="#removeusers" class="chip" data-kru="" onclick="event.preventDefault()">🚪 Remove users' + (ru && ru.customers ? ' · ' + ru.customers + ' customers on ' + ru.accounts + ' accounts' : '') + ' →</a></div>';
   h += '<div class="subhead"><h3>Plans</h3></div><div class="kgrid">' + services.map(function (sv) {
     var list = byService[sv].slice().sort(function (a, b) { return (a.durationDays || 0) - (b.durationDays || 0); });
     return '<div class="card kcard ' + worst(list).toLowerCase() + '"><div class="row" style="justify-content:space-between;margin-bottom:8px"><b>' + svcIcon(sv) + ' ' + esc(sv) + '</b></div>' +
       list.map(function (p) { return '<div class="kline"><span>' + esc(p.plan) + ' <small class="muted">' + money(p.price) + '</small></span>' + lvPill(p.stockLevel, p.stock, p.source) + '</div>'; }).join('') + '</div>';
   }).join('') + '</div>';
   h += '<div class="subhead"><h3>Accounts (' + accs.length + ')</h3><div class="row"><input class="inp" id="kq" placeholder="Search account or login…" value="' + esc(K.q) + '" style="padding:7px 11px;font-size:.82rem"/>' +
-    [['all', 'All'], ['full', '🧱 Full (' + nFull + ')'], ['expired', '🚪 Expired customers (' + nExp + ')'], ['inactive', '⚪ Inactive (' + nIn + ')']].map(function (f) { return '<button class="chip' + (K.filter === f[0] ? ' on' : '') + '" data-kf="' + f[0] + '">' + f[1] + '</button>'; }).join('') + '</div></div><div id="kaccs"></div>';
+    [['all', 'All'], ['full', '🧱 Full (' + nFull + ')'], ['inactive', '⚪ Inactive (' + nIn + ')']].map(function (f) { return '<button class="chip' + (K.filter === f[0] ? ' on' : '') + '" data-kf="' + f[0] + '">' + f[1] + '</button>'; }).join('') + '</div></div><div id="kaccs"></div>';
   $('#kbody').innerHTML = h;
   renderAccounts();
   var t; $('#kq').addEventListener('input', function () { K.q = $('#kq').value.trim().toLowerCase(); clearTimeout(t); t = setTimeout(renderAccounts, 200); });
   $('#kbody').onclick = function (e) {
-    if (expiredClick(e)) return;
+    var kru = e.target.closest('[data-kru]'); if (kru) { e.preventDefault(); RU.data = null; RU.q = kru.getAttribute('data-kru') || ''; nav('removeusers'); return; }
     var f = e.target.closest('[data-kf]'); if (f) { K.filter = f.getAttribute('data-kf'); $$('#kbody [data-kf]').forEach(function (c) { c.classList.toggle('on', c === f); }); renderAccounts(); return; }
     var sv = e.target.closest('[data-ksvc]'); if (sv) { var k = sv.getAttribute('data-ksvc'); K.open[k] = !K.open[k]; renderAccounts(); return; }
     var see = e.target.closest('[data-see]'); if (see) { store('ff_f_subscriptions', [{ col: 'inventory_ref', op: 'contains', value: see.getAttribute('data-see') }].concat(see.getAttribute('data-exp') ? [{ col: 'expiry_date', op: 'before_now' }, { col: 'removed', op: 'eq', value: '0' }] : [{ col: 'status', op: 'eq', value: 'ACTIVE' }, { col: 'expiry_date', op: 'after_now' }])); store('ff_tab', 'subscriptions'); S.tab = 'subscriptions'; S.offset = 0; S.q = ''; nav('data'); }
@@ -1862,7 +1876,6 @@ function renderAccounts() {
   var el = $('#kaccs'); if (!el) return;
   var list = K.data.accounts.filter(function (a) {
     if (K.filter === 'full' && !(a.status === 'FULL' || a.status === 'TV_FULL')) return false;
-    if (K.filter === 'expired' && !(a.expiredOnAccount > 0)) return false;
     if (K.filter === 'inactive' && a.status !== 'INACTIVE') return false;
     if (K.q && (a.accountId + ' ' + a.login + ' ' + a.service + ' ' + a.plan).toLowerCase().indexOf(K.q) < 0) return false;
     return true;
@@ -1870,12 +1883,11 @@ function renderAccounts() {
   var groups = {}; list.forEach(function (a) { (groups[a.service] = groups[a.service] || []).push(a); });
   var names = Object.keys(groups).sort();
   var expandAll = !!(K.q || K.filter !== 'all');
-  // 🚪 filter: who to remove per account login (Sheet rule) above the accounts themselves.
-  el.innerHTML = (K.filter === 'expired' ? renderExpiredUsers(K.data.expiredUsers) + '<div class="subhead"><h3>Accounts with expired customers</h3></div>' : '') + (names.length ? names.map(function (sv) {
+  el.innerHTML = (names.length ? names.map(function (sv) {
     var rows = groups[sv], open = expandAll || K.open[sv];
     var used = rows.reduce(function (n, a) { return n + (a.used || 0); }, 0), cap = rows.reduce(function (n, a) { return n + (a.isActive && a.cap ? a.cap : 0); }, 0);
     return '<div class="card" style="padding:0;margin-bottom:10px;overflow:hidden"><button class="ksvc" data-ksvc="' + esc(sv) + '"><span>' + (open ? '▾' : '▸') + ' ' + svcIcon(sv) + ' <b>' + esc(sv) + '</b> <span class="muted">· ' + rows.length + ' accounts' + (cap ? ' · ' + used + ' / ' + cap + ' ' + esc(rows[0].unit || '') + ' used' : '') + '</span></span>' +
-      '<span>' + (rows.some(function (a) { return a.status === 'FULL' || a.status === 'TV_FULL'; }) ? '<span class="pill p-warn">has full</span> ' : '') + (rows.some(function (a) { return a.expiredOnAccount > 0; }) ? '<span class="pill p-bad">' + rows.reduce(function (n, a) { return n + a.expiredOnAccount; }, 0) + ' expired to remove</span>' : '') + '</span></button>' +
+      '<span>' + (rows.some(function (a) { return a.status === 'FULL' || a.status === 'TV_FULL'; }) ? '<span class="pill p-warn">has full</span> ' : '') + (function () { var seen = {}, n = rows.reduce(function (t, a) { if (seen[a.accountId]) return t; seen[a.accountId] = 1; return t + (a.expiredOnAccount || 0); }, 0); return n ? '<span class="pill p-bad">🚪 ' + n + ' to log out</span>' : ''; })() + '</span></button>' +
       (open ? '<div class="list" style="padding:0 14px 8px">' + rows.map(accountRow).join('') + '</div>' : '') + '</div>';
   }).join('') : '<div class="card muted">No accounts match.</div>');
 }
@@ -1885,7 +1897,7 @@ function accountRow(a) {
   return '<div class="li"><div class="grow"><b style="font-family:Consolas,monospace">' + esc(a.accountId) + '</b> ' + pill + (a.plan ? ' <span class="pill p-blue">' + esc(a.plan) + '</span>' : '') +
     '<div class="muted" style="font-size:.72rem">' + esc(a.login || '(no login)') + (a.notes ? ' · ' + esc(a.notes) : '') + '</div>' +
     (a.cap ? '<div class="bar' + (pct >= 100 ? ' b' : pct >= 75 ? ' w' : '') + '" style="margin-top:6px;max-width:320px"><i style="width:' + pct + '%"></i></div><div class="muted" style="font-size:.7rem;margin-top:3px">' + a.used + ' / ' + a.cap + ' ' + esc(a.unit) + (a.tvCap != null ? ' · TV ' + a.tvUsed + ' / ' + a.tvCap : '') + '</div>' : '') + '</div>' +
-    '<div class="row" style="gap:6px"><button class="chip" data-see="' + esc(a.accountId) + '">👥 ' + a.activeSubs + ' active</button>' + (a.expiredOnAccount ? '<button class="chip clear" data-see="' + esc(a.accountId) + '" data-exp="1">🚪 ' + a.expiredOnAccount + ' to remove</button>' : '') + (a.expiredOldUsers ? '<span class="pill p-grey" title="Nobody active on this login: safe to reset devices / change the password">🧹 ' + a.expiredOldUsers + ' old users</span>' : '') + '</div></div>';
+    '<div class="row" style="gap:6px"><button class="chip" data-see="' + esc(a.accountId) + '">👥 ' + a.activeSubs + ' active</button>' + (a.expiredOnAccount ? '<button class="chip clear" data-kru="' + esc(a.accountId) + '" title="Open 🚪 Remove users for this account">🚪 ' + a.expiredOnAccount + ' to log out</button>' : '') + (a.expiredOldUsers ? '<span class="pill p-grey" title="Nobody active on this login: safe to reset devices / change the password">🧹 ' + a.expiredOldUsers + ' old users</span>' : '') + '</div></div>';
 }
 
 /* ================= Today (action list + to-dos) ================= */
@@ -1944,7 +1956,7 @@ function renderTodayItems() {
       if (it.list && it.list.length) extra = '<div class="tnames">' + it.list.map(function (s) { return svcIcon(s.service) + ' ' + esc(s.service) + ' · ' + esc(s.phone_norm) + ' · ' + prettyDate(s.expiry_date, true); }).join('<br>') + '</div>';
       // Paid but not delivered: each stuck order opens straight into its actions (Fulfil / Refund / Erase).
       if (it.orders && it.orders.length && it.count > 0) extra = '<span class="tnames">' + it.orders.filter(function (o) { return o && o.order_id; }).map(function (o) { return '<span class="tstuck" role="button" data-toid="' + esc(o.order_id) + '">' + svcIcon(o.service) + ' <b>' + esc(o.order_id) + '</b> · ' + esc(o.name || '') + ' · ' + esc(o.service) + ' ' + esc(o.plan) + ' · ' + money(o.final_amount) + ' ' + statusPill(o.fulfillment_status || 'PENDING') + ' <u>Fix ›</u></span>'; }).join('') + '</span>';
-      return '<button class="tcard ' + (it.count > 0 ? it.tone : 'clear') + '" data-i="' + i + '"><span class="tic">' + it.icon + '</span><span class="tbody"><b>' + esc(it.title) + '</b>' + extra + '</span><span class="tcount">' + (it.count > 0 ? it.count : '✓') + '</span></button>';
+      return '<button class="tcard ' + (it.count > 0 ? it.tone : 'clear') + '" data-i="' + i + '"><span class="tic">' + it.icon + '</span><span class="tbody"><b>' + esc(it.title) + '</b>' + (it.sub && it.count > 0 ? ' <span class="muted tsub">' + esc(it.sub) + '</span>' : '') + extra + '</span><span class="tcount">' + (it.count > 0 ? it.count : '✓') + '</span></button>';
     }).join('') + '</div>';
   $('#titems').onclick = function (e) { var so = e.target.closest('[data-toid]'); if (so) { openOrder(so.getAttribute('data-toid')); return; } var b = e.target.closest('.tcard'); if (b) todayGo(items[+b.getAttribute('data-i')].go); };
 }
@@ -1953,6 +1965,7 @@ function todayGo(go) {
   if (go.view === 'orders') { O.view = go.orders || 'all'; O.q = ''; }
   if (go.view === 'data' && go.table) { S.tab = go.table; store('ff_tab', go.table); S.offset = 0; S.q = ''; }
   if (go.view === 'stock' && go.stock) { K.filter = go.stock; K.data = null; }
+  if (go.view === 'removeusers') { RU.data = null; RU.q = ''; }
   if (go.view === 'bank') { BK.filter = 'after'; BK.q = ''; }
   nav(go.view);
 }
@@ -3468,38 +3481,146 @@ function bankClick(e) {
   if (act === 'refresh') loadBank();
 }
 
-/* ================= 🚪 expired customers still on accounts (Stock → 🚪 filter) + order cleanup ================= */
-function renderExpiredUsers(ex) {
-  if (!ex || !ex.main) return '<div class="card muted" style="margin-bottom:10px">Could not work out the expired customers right now — try ⟳ Refresh.</div>';
-  var person = function (p) {
-    return '<div class="li" style="padding:7px 0"><div class="grow"><b>' + esc(p.name) + '</b> <span class="muted">· ' + esc(p.phone) + '</span><div class="muted" style="font-size:.72rem">' + esc(p.service) + ' ' + esc(p.plan) + ' · ' + esc(p.accountRef || p.accountId) + ' · ended ' + prettyDate(p.expiry, true) + (p.orderId ? ' · <a href="#" data-exorder="' + esc(p.orderId) + '">' + esc(p.orderId) + '</a>' : '') + '</div></div>' +
-      '<button class="btn ghost sm" data-exrm="' + esc(p.subId) + '" data-exname="' + esc(p.name) + '">🚪 Removed</button></div>';
-  };
-  var group = function (g) {
-    return '<div class="card" style="padding:10px 14px;margin-bottom:8px"><div class="row" style="justify-content:space-between;gap:6px;flex-wrap:wrap"><b style="font-family:Consolas,monospace">' + esc(g.accountIds.join(' / ') || g.login) + '</b>' +
-      (g.action === 'REMOVE' ? '<span class="pill p-bad">⚠️ Remove ' + g.count + '</span>' : '<span class="pill p-ok">✅ Safe → reset devices / change password</span>') + '</div>' +
-      '<div class="muted" style="font-size:.72rem">' + esc(g.login || '(no login)') + ' · ' + g.activeCount + ' active · ' + esc(g.services.join(', ')) + '</div><div class="list">' + g.people.map(person).join('') + '</div></div>';
-  };
-  var fam = function (bf) { var k = Object.keys(bf || {}); return k.length ? k.map(function (x) { return esc(x) + ' ' + bf[x]; }).join(' · ') : ''; };
-  var m = ex.main, o = ex.other || { groups: [], pending: 0, safeOldUsers: 0 };
-  var rem = m.groups.filter(function (g) { return g.action === 'REMOVE'; }), safe = m.groups.filter(function (g) { return g.action !== 'REMOVE'; });
-  return '<div class="subhead" style="margin-top:4px"><h3>🚪 Expired customers to remove (' + m.pending + ')</h3></div>' +
-    '<p class="muted" style="font-size:.78rem;margin:-4px 0 10px">Same rule as the old Sheet dashboard: only accounts that still have active customers, no day limit. ' + (fam(m.byFamily) ? fam(m.byFamily) + '. ' : '') + 'Tap 🚪 Removed after you removed the profile or signed them out.</p>' +
-    (rem.length ? rem.map(group).join('') : '<div class="card muted" style="margin-bottom:8px">🎉 Nobody to remove.</div>') +
-    (safe.length ? '<details class="card" style="padding:10px 14px;margin-bottom:8px"><summary style="cursor:pointer"><b>✅ Safe accounts (' + safe.length + ')</b> <span class="muted">— nobody active: reset devices / change password · ' + m.safeOldUsers + ' old users</span></summary>' + safe.map(group).join('') + '</details>' : '') +
-    (o.groups.length ? '<details class="card" style="padding:10px 14px;margin-bottom:8px"><summary style="cursor:pointer"><b>📺 Whole-account & OTP services</b> <span class="muted">(Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube) — ' + o.pending + ' to remove' + (fam(o.byFamily) ? ' (' + fam(o.byFamily) + ')' : '') + ' · ' + o.safeOldUsers + ' old users</span></summary>' + o.groups.map(group).join('') + '</details>' : '');
-}
-function expiredClick(e) {
-  var ord = e.target.closest('[data-exorder]'); if (ord) { e.preventDefault(); openOrder(ord.getAttribute('data-exorder')); return true; }
-  var rm = e.target.closest('[data-exrm]'); if (!rm) return false;
-  var sid = rm.getAttribute('data-exrm');
-  if (!confirm('Tick ' + (rm.getAttribute('data-exname') || sid) + ' (' + sid + ') as removed from the account (now)?')) return true;
-  rm.disabled = true;
-  post('/admin/api/sub-removed', { sub_id: sid, removed: true, removed_at: '' }).then(function (r) {
-    if (!r.ok) { rm.disabled = false; toast('⚠️ ' + (r.message || 'failed')); return; }
-    toast('🚪 Ticked removed'); K.data = null; stockView();
+/* ================= 🚪 Remove users (expired customers still on accounts) + order cleanup ================= */
+// One list for Today's 🚪 card, this screen and Stock's per-account badge: GET /admin/api/remove-users (expiredusers.js,
+// the old Sheet DASHBOARD rule). Units are always spelled out: customers (people to log out) vs accounts (logins).
+var RU = { data: null, q: '', fam: 'all', open: {} };
+function removeUsersView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🚪 Remove users</h1><p>Expired customers still on an account that other customers use — log them out, then tap ✅ Removed</p></div><button class="btn ghost" id="ruref">⟳ Refresh</button></div><div id="rubody"><p class="muted">Loading…</p></div>';
+  $('#ruref').onclick = function () { RU.data = null; removeUsersView(); };
+  if (RU.data) return renderRemoveUsers();
+  api('/admin/api/remove-users').then(function (r) {
+    if (!$('#rubody')) return;
+    if (!r.ok) { $('#rubody').innerHTML = '<div class="card muted">' + esc(r.message || 'Could not work out who to remove — try ⟳ Refresh.') + '</div>'; return; }
+    RU.data = r; renderRemoveUsers();
   });
-  return true;
+}
+function ruPlural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
+// Same numbers as the server's summarize(), worked out again after a local ✅ Removed tick.
+function ruCount(sec) {
+  var c = { customers: 0, accounts: 0, safeAccounts: 0, safeUsers: 0, byFamily: {} };
+  ((sec && sec.groups) || []).forEach(function (g) {
+    if (g.action === 'REMOVE') { c.customers += g.count; c.accounts++; var f = c.byFamily[g.family] || (c.byFamily[g.family] = { customers: 0, accounts: 0 }); f.customers += g.count; f.accounts++; }
+    else { c.safeAccounts++; c.safeUsers += g.count; }
+  });
+  return c;
+}
+function ruCounts() {
+  var d = RU.data;
+  if (d.counts && !d.recount) return d.counts;
+  var m = ruCount(d.main); m.other = ruCount(d.other); return m;
+}
+function ruMatch(g) {
+  var q = RU.q.toLowerCase(); if (!q) return { show: true, people: g.people };
+  var acc = (g.accountIds.join(' ') + ' ' + (g.loginLabel || g.login || '') + ' ' + g.services.join(' ')).toLowerCase().indexOf(q) > -1;
+  if (acc) return { show: true, people: g.people };
+  var qd = q.replace(/\D/g, '');
+  var people = g.people.filter(function (p) { return (p.name + ' ' + p.orderId + ' ' + p.subId).toLowerCase().indexOf(q) > -1 || (qd.length >= 3 && String(p.phone).indexOf(qd) > -1); });
+  return { show: people.length > 0, people: people };
+}
+function ruPerson(p, g) {
+  var ago = p.daysAgo == null ? '' : p.daysAgo === 0 ? 'expired today' : 'expired ' + ruPlural(p.daysAgo, 'day') + ' ago';
+  return '<div class="ru-person"><div class="grow"><b>' + esc(p.name) + '</b> <span class="muted">· ' + (p.phone ? '…' + esc(String(p.phone).slice(-4)) : 'no phone') + '</span>' +
+    '<div class="muted" style="font-size:.74rem">' + esc(p.plan || p.service) + (p.slot ? ' · ' + esc(p.slot) : '') + ' · <b style="color:var(--bad)">' + ago + '</b> (' + prettyDate(p.expiry) + ')' + (p.orderId ? ' · <a href="#" data-ruorder="' + esc(p.orderId) + '">' + esc(p.orderId) + '</a>' : '') + '</div></div>' +
+    '<button class="btn ghost sm" data-rurm="' + esc(p.subId) + '" data-runame="' + esc(p.name) + '">✅ Removed</button></div>';
+}
+function ruGroup(g, m) {
+  var ids = g.accountIds.length ? g.accountIds : [g.login];
+  var head = '<div class="ru-head"><div><b style="font-family:Consolas,monospace">' + svcIcon(g.services[0] || g.family) + ' ' + esc(ids.join(' / ')) + '</b>' +
+    '<div class="muted" style="font-size:.74rem;word-break:break-all">' + esc(g.loginLabel || g.login || '(no login)') + ' · ' + ruPlural(g.activeCount, 'active customer') + '</div></div>';
+  if (g.action === 'REMOVE') {
+    return '<div class="card ru-acc">' + head + '<span class="pill p-bad">⚠️ Log out ' + g.count + '</span></div>' +
+      (m.people.length < g.people.length ? '<div class="muted" style="font-size:.72rem;margin-top:4px">Showing ' + m.people.length + ' of ' + g.count + ' (search)</div>' : '') +
+      '<div>' + m.people.map(function (p) { return ruPerson(p, g); }).join('') + '</div>' +
+      (g.count > 1 ? '<button class="btn dark sm ru-all" data-ruall="' + esc(g.key) + '">✅ Remove all ' + g.count + ' on this account</button>' : '') + '</div>';
+  }
+  // Nobody active on this login: change the password (the 🔑 tool ticks everyone removed and covers every ID on the login).
+  return '<div class="card ru-acc">' + head + '<span class="pill p-ok">✅ Safe → reset password</span></div>' +
+    '<div class="muted" style="font-size:.76rem;margin:6px 0">' + ruPlural(g.count, 'old user') + ': ' + g.people.map(function (p) { return esc(p.name); }).join(', ') + '</div>' +
+    '<div class="row" style="gap:6px;flex-wrap:wrap">' + ids.slice(0, 1).map(function (id) { return'<button class="btn ghost sm" data-rupw="' + esc(id) + '" data-rusvc="' + esc((g.accountServices && g.accountServices[id]) || g.services[0] || g.family) + '">🔑 Change password' + (ids.length > 1 ? ' (all ' + ids.length + ' IDs)' : '') + '</button>'; }).join('') + '</div></div>';
+}
+function renderRemoveUsers() {
+  var el = $('#rubody'); if (!el || !RU.data) return;
+  var d = RU.data, c = ruCounts(), o = c.other || { customers: 0, accounts: 0, safeAccounts: 0, safeUsers: 0 };
+  var main = (d.main && d.main.groups) || [], other = (d.other && d.other.groups) || [];
+  var fams = Object.keys(c.byFamily || {}).sort();
+  if (RU.fam !== 'all' && fams.indexOf(RU.fam) < 0) RU.fam = 'all';
+  var famLine = fams.map(function (f) { return esc(f) + ' ' + c.byFamily[f].customers + ' on ' + c.byFamily[f].accounts; }).join(' · ');
+  var h = '<div class="ru-chips">' +
+    '<button class="ru-chip warn" data-rujump="rua">⚠️ <b>' + ruPlural(c.customers, 'customer') + '</b> on <b>' + ruPlural(c.accounts, 'account') + '</b> to log out' + (famLine ? '<br><span class="muted" style="font-size:.74rem">' + famLine + '</span>' : '') + '</button>' +
+    '<button class="ru-chip ok" data-rujump="rub">✅ <b>' + ruPlural(c.safeAccounts, 'account') + '</b> safe to reset<br><span class="muted" style="font-size:.74rem">' + ruPlural(c.safeUsers, 'old user') + ' · nobody active</span></button>' +
+    '<button class="ru-chip" data-rujump="ruc">📺 Other services: <b>' + ruPlural(o.customers, 'customer') + '</b><br><span class="muted" style="font-size:.74rem">on ' + ruPlural(o.accounts, 'account') + ' · Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube</span></button></div>' +
+    '<div class="search" style="margin-bottom:10px"><input class="inp" id="ruq" placeholder="🔎 Name, phone, order or account…" value="' + esc(RU.q) + '" autocomplete="off"/></div>' +
+    '<div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">' + [['all', 'All (' + c.customers + ')']].concat(fams.map(function (f) { return [f, f + ' (' + c.byFamily[f].customers + ')']; })).map(function (f) { return '<button class="chip' + (RU.fam === f[0] ? ' on' : '') + '" data-rufam="' + esc(f[0]) + '">' + esc(f[1]) + '</button>'; }).join('') + '</div>' +
+    '<div id="ruparts"></div>';
+  el.innerHTML = h;
+  renderRuParts();
+  var t; $('#ruq').addEventListener('input', function () { RU.q = $('#ruq').value.trim(); clearTimeout(t); t = setTimeout(renderRuParts, 200); });
+  el.onclick = ruClick;
+}
+function renderRuParts() {
+  var box = $('#ruparts'); if (!box) return;
+  var d = RU.data, main = (d.main && d.main.groups) || [], other = (d.other && d.other.groups) || [];
+  var pick = function (list, action, famOnly) {
+    return list.filter(function (g) { return g.action === action && (!famOnly || RU.fam === 'all' || g.family === RU.fam); }).map(function (g) { return { g: g, m: ruMatch(g) }; }).filter(function (x) { return x.m.show; });
+  };
+  var rem = pick(main, 'REMOVE', true), safe = pick(main, 'SAFE', true), oth = other.map(function (g) { return { g: g, m: ruMatch(g) }; }).filter(function (x) { return x.m.show; });
+  var draw = function (list) { return list.map(function (x) { return ruGroup(x.g, x.m); }).join(''); };
+  var searching = !!RU.q;
+  box.innerHTML =
+    '<div class="subhead" id="rua" style="margin-top:6px"><h3>⚠️ Log these customers out (' + rem.reduce(function (n, x) { return n + x.m.people.length; }, 0) + ')</h3></div>' +
+    '<p class="muted" style="font-size:.78rem;margin:-4px 0 10px">Their plan ended but they are still on an account other customers use. Remove the profile / sign the device out, then tap ✅ Removed. Same rule as the old Sheet dashboard (no day limit; renewals are skipped).</p>' +
+    (rem.length ? draw(rem) : '<div class="card muted" style="margin-bottom:8px">' + (searching ? 'No match.' : '🎉 Nobody to log out.') + '</div>') +
+    '<details class="card" id="rub" style="padding:10px 14px;margin:14px 0 8px"' + (searching || RU.open.rub ? ' open' : '') + '><summary style="cursor:pointer"><b>✅ Safe to reset (' + safe.length + ' accounts)</b> <span class="muted">— nobody active: change the password, old users are ticked removed</span></summary>' +
+    (safe.length ? draw(safe) : '<p class="muted">None.</p>') + '</details>' +
+    '<details class="card" id="ruc" style="padding:10px 14px;margin-bottom:8px"' + (searching || RU.open.ruc ? ' open' : '') + '><summary style="cursor:pointer"><b>📺 Other services (whole-account / OTP)</b> <span class="muted">— Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube</span></summary>' +
+    (oth.length ? draw(oth) : '<p class="muted">None.</p>') + '</details>';
+  $$('#ruparts details').forEach(function (dt) { dt.addEventListener('toggle', function () { RU.open[dt.id] = dt.open; }); });
+}
+function ruFind(key) {
+  var d = RU.data, all = [].concat((d.main && d.main.groups) || [], (d.other && d.other.groups) || []);
+  for (var i = 0; i < all.length; i++) if (all[i].key === key) return all[i];
+  return null;
+}
+// Drop ticked people from the loaded list (no reload: the phone keeps its scroll position).
+function ruDrop(subIds) {
+  var gone = {}; subIds.forEach(function (x) { gone[x] = 1; });
+  ['main', 'other'].forEach(function (k) {
+    var sec = RU.data[k]; if (!sec) return;
+    sec.groups = sec.groups.filter(function (g) { g.people = g.people.filter(function (p) { return !gone[p.subId]; }); g.count = g.people.length; return g.count > 0; });
+  });
+  RU.data.recount = true; K.data = null; T.data = null;
+  renderRemoveUsers();
+}
+function ruClick(e) {
+  var j = e.target.closest('[data-rujump]'); if (j) { var tg = $('#' + j.getAttribute('data-rujump')); if (tg) { if (tg.tagName === 'DETAILS') { tg.open = true; RU.open[tg.id] = true; } tg.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
+  var f = e.target.closest('[data-rufam]'); if (f) { RU.fam = f.getAttribute('data-rufam'); $$('#rubody [data-rufam]').forEach(function (x) { x.classList.toggle('on', x === f); }); renderRuParts(); return; }
+  var ord = e.target.closest('[data-ruorder]'); if (ord) { e.preventDefault(); openOrder(ord.getAttribute('data-ruorder')); return; }
+  var pw = e.target.closest('[data-rupw]'); if (pw) { PW.q = ''; PW.accounts = null; PW.result = null; PW.showAll = {}; PW.impact = null; PW.pick = { service: pw.getAttribute('data-rusvc'), accountId: pw.getAttribute('data-rupw') }; nav('password'); loadImpact(); return; }
+  var rm = e.target.closest('[data-rurm]');
+  if (rm) {
+    var sid = rm.getAttribute('data-rurm');
+    if (!confirm('Did you log out ' + (rm.getAttribute('data-runame') || sid) + '?\n\nTick ' + sid + ' as removed from the account (now).')) return;
+    rm.disabled = true;
+    post('/admin/api/sub-removed', { sub_id: sid, removed: true, removed_at: '' }).then(function (r) {
+      if (!r.ok) { rm.disabled = false; toast('⚠️ ' + (r.message || 'failed')); return; }
+      toast('✅ Ticked removed'); ruDrop([sid]);
+    });
+    return;
+  }
+  var all = e.target.closest('[data-ruall]');
+  if (all) {
+    var g = ruFind(all.getAttribute('data-ruall')); if (!g) return;
+    var label = g.accountIds.join(' / ') || g.login;
+    if (!confirm('Did you log out all ' + g.count + ' on ' + label + '?\n\n' + g.people.map(function (p) { return '• ' + p.name; }).join('\n') + '\n\nThey will be ticked as removed (now).')) return;
+    all.disabled = true;
+    var ids = g.people.map(function (p) { return p.subId; });
+    post('/admin/api/remove-users/removed', { subIds: ids, label: label }).then(function (r) {
+      if (!r.ok) { all.disabled = false; toast('⚠️ ' + (r.message || 'failed')); return; }
+      toast(r.message || 'Done');
+      if (r.skipped) { RU.data = null; removeUsersView(); } else ruDrop(ids);
+    });
+  }
 }
 function loadOrderCleanup(id) {
   var box = $('#od_cleanup'); if (!box) return;

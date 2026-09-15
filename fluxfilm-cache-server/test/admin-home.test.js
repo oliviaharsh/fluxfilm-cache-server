@@ -68,7 +68,11 @@ const catalog = { getStockLevels: async () => ({ ok: true, levels: { 'SonyLiv Pr
   let r = await get('/admin/api/today');
   const item = (k) => r.body.items.find((i) => i.key === k);
   ok('lists what needs doing with counts', r.body.ok && item('undelivered').count === 1 && item('manual').count === 2 && item('ending').count === 3 && item('expired').count === 2 && item('restock').count === 4 && item('unpaid').count === 5, r.body.items);
-  ok('expired: only the account still in use counts, named with who to remove', item('expired').names.length === 1 && /^NF-A · remove 2: Old Three, Old Two$/.test(item('expired').names[0]) && item('expired').go.stock === 'expired', item('expired'));
+  ok('expired: only the account still in use counts, named with who to remove', item('expired').names.length === 1 && /^NF-A · remove 2: Old Three, Old Two$/.test(item('expired').names[0]), item('expired'));
+  ok('🚪 card: title "Customers to log out", count = customers (2), subtitle = accounts ("on 1 account")', item('expired').title === 'Customers to log out' && item('expired').count === 2 && item('expired').sub === 'on 1 account' && item('expired').accounts === 1, item('expired'));
+  ok('🚪 card opens the 🚪 Remove users screen, not Stock', item('expired').go.view === 'removeusers' && !item('expired').go.stock, item('expired').go);
+  const ru = await get('/admin/api/remove-users');
+  ok('Today count and subtitle = GET /admin/api/remove-users counts (one source)', ru.body.ok && ru.body.counts.customers === item('expired').count && ru.body.counts.accounts === item('expired').accounts && ru.body.counts.safeAccounts === 1 && ru.body.counts.safeUsers === 1, ru.body.counts);
   ok('unmatched payments: since go-live (2026-09-14 21:00) only, opens 🏦 Bank payments', item('unmatched').count === 2 && item('unmatched').go.view === 'bank', item('unmatched'));
   ok('out of stock / low plans named', item('out').names[0] === 'SonyLiv Premium · 1 Month' && item('low').names[0] === 'JioHotstar · 1 Month (2)');
   ok('each item says where to go', item('undelivered').go.orders === 'undelivered' && item('restock').go.table === 'restock_requests');

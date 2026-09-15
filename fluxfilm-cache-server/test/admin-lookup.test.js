@@ -136,7 +136,10 @@ const lookupDeps = {
   ok('Netflix counts profiles: 2 of 5 used', acc('NF-01').unit === 'profiles' && acc('NF-01').cap === 5 && acc('NF-01').used === 2 && acc('NF-01').status === 'OK', acc('NF-01'));
   ok('expired-but-not-removed customers counted per account (profiles roll up)', acc('NF-01').expiredOnAccount === 2 && acc('PRI-01').expiredOnAccount === 1, [acc('NF-01'), acc('PRI-01')]);
   ok('account nobody active uses: not "to remove", listed as old users (safe to reset)', acc('PRI-02').expiredOnAccount === 0 && acc('PRI-02').expiredOldUsers === 1, acc('PRI-02'));
-  ok('stock response carries the per-login list (main + other)', r.body.expiredUsers && r.body.expiredUsers.main.pending === 3 && r.body.expiredUsers.main.safeOldUsers === 1 && Array.isArray(r.body.expiredUsers.other.groups), r.body.expiredUsers);
+  ok('stock no longer carries the per-login remove list (moved to 🚪 Remove users)', r.body.expiredUsers === undefined, Object.keys(r.body));
+  ok('stock link counts = remove-users counts: 3 customers on 2 accounts, 1 safe account (1 old user)', r.body.removeUsers && r.body.removeUsers.customers === 3 && r.body.removeUsers.accounts === 2 && r.body.removeUsers.safeAccounts === 1 && r.body.removeUsers.safeUsers === 1 && r.body.removeUsers.other.customers === 0, r.body.removeUsers);
+  const ruApi = await get('/admin/api/remove-users');
+  ok('per-account Stock badges add up to the same customers as 🚪 Remove users', ruApi.body.ok && r.body.accounts.reduce((n, a) => n + (a.expiredOnAccount || 0), 0) === ruApi.body.counts.customers && JSON.stringify(ruApi.body.counts) === JSON.stringify(r.body.removeUsers), [ruApi.body.counts, r.body.removeUsers]);
   ok('OTP login capacity from inventory_capacity (1 of 2)', acc('JH-01').cap === 2 && acc('JH-01').used === 1 && acc('JH-01').free === 1, acc('JH-01'));
   ok('manual service has no capacity', acc('YT-01').status === 'MANUAL' && acc('YT-01').cap === null);
   ok('stock endpoint needs admin', (await fetch(base + '/admin/api/stock')).status === 403);

@@ -113,7 +113,7 @@ function mount(app, deps) {
         db.query('SELECT service, account_id, profile_number, profile_name, raw_json FROM inventory_profiles', []),
         db.query(
           "SELECT inventory_ref, COUNT(*) subs, SUM(COALESCE(device_count, 1)) devices, SUM(CASE WHEN tv_count IS NOT NULL THEN tv_count WHEN UPPER(device_type) = 'TV' THEN COALESCE(device_count, 1) ELSE 0 END) tv FROM subscriptions WHERE " + OCC_ACTIVE + ' GROUP BY inventory_ref', []),
-        // Expired, not ticked "removed", on a login that still has active customers (Sheet rule, expiredusers.js).
+        // Same result as 🚪 Remove users (expiredusers.js, Sheet rule): per-account badge + the link's counts.
         M.expiredusers().load((sql, p) => db.query(sql, p)).catch((e) => { console.log('[stock] expired users failed:', e.message); return null; }),
       ]);
       const plans = (boot && boot.plans) || [];
@@ -175,8 +175,9 @@ function mount(app, deps) {
           return { service: p.service, plan: p.plan, price: p.price, durationDays: p.durationDays, stock: l.stock == null ? null : l.stock, stockLevel: l.stockLevel || 'OK', source: l.source || '' };
         }),
         accounts: out,
-        // Who to remove, per login: main list (Netflix / Prime …) and the whole-account / OTP services (collapsed in the panel).
-        expiredUsers: expired ? { main: expired.main, other: expired.other } : null,
+        // Stock is about free slots. Who to log out lives in 🚪 Remove users (GET /admin/api/remove-users); Stock only
+        // links there with the same counts (customers / accounts) and shows the per-account badge from the same result.
+        removeUsers: expired ? M.expiredusers().summarize(expired) : null,
       });
     } catch (e) { fail(res, e); }
   });
