@@ -597,7 +597,10 @@ async function renewStart(c, ctx, serviceHint) {
 /** Step 2: same length or another length of the same kind of plan (same Sharing/Private, same number of devices). */
 function renewDurations(st, ctx, lang) {
   const r = st.renew;
-  const opts = (ctx.cat.plans || []).filter((p) => p.service === r.service && variantOf(p.plan) === variantOf(r.plan) && devicesInPlan(p.plan) === devicesInPlan(r.plan))
+  // Same list as the website renew page and the server check (renewrules.js), incl. old imported plan names.
+  const svcPlans = (ctx.cat.plans || []).filter((p) => p.service === r.service);
+  const allowed = require('./renewrules').renewPlanChoices(r.plan, svcPlans.map((p) => p.plan));
+  const opts = svcPlans.filter((p) => allowed.includes(p.plan))
     .sort((a, b) => a.durationDays - b.durationDays || a.price - b.price);
   if (!opts.length) { st.step = 'handoff'; return [{ intent: 'RENEW_PLAN_GONE', facts: { title: r.service + ' ' + r.plan }, buttons: [btn('whatsapp', lang), btn('menu', lang)] }]; }
   st.renewOptions = opts.map((p) => p.plan);

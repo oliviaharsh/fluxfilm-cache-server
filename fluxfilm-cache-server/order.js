@@ -39,12 +39,10 @@ function newAccessToken() { return crypto.randomBytes(18).toString('hex'); }
 function hashAccessToken(t) { return crypto.createHash('sha256').update(String(t || '')).digest('hex'); }
 
 // "Sharing 2 Devices 3M" → "sharing 2 devices": the plan name without its duration. Two plans with the same
-// variant differ only in duration, which is the only thing a renewal may change.
-function planVariant(plan) {
-  return String(plan || '').toLowerCase()
-    .replace(/\b\d+\s*(m|mo|y|yr|month|months|year|years)\b/g, ' ')
-    .replace(/\s+/g, ' ').trim();
-}
+// variant differ only in duration, which is the only thing a renewal may change. Shared with reads.js and
+// index.html (renewrules.js), including old imported names ("1 Month", "Yearly", "30 Days", "12M").
+const renewRules = require('./renewrules');
+const planVariant = renewRules.planVariant;
 // ACTIVE or EXPIRED subscriptions that were not refunded / cancelled / never delivered (legacy rows have no fulfillment_status).
 function renewableStatus(sub) {
   const st = String(sub.status || '').trim().toUpperCase();
@@ -457,8 +455,17 @@ async function renewQuote(subId, planOverride) {
   // A renewal extends the SAME account/profile and keeps its device count, so it may only change the DURATION.
   // Before: "2 Devices 1M" renewed as "1 Month" paid the 1-device price and kept 2 devices; a Netflix Private
   // profile renewed at the Sharing price kept the private profile.
-  if (!samePlan && planVariant(plan) !== planVariant(sub.plan)) {
-    return { ok: false, renewBlocked: true, message: 'A renewal can only change the duration of your plan. To change devices or Private/Sharing, please buy a new plan.' };
+  // The allowed plans are exactly the ones the renew page lists (renewrules.renewPlanChoices over the active plans of
+  // the service): same kind when it is known; for an old plan name of unknown kind, same device count, else any.
+  if (!samePlan) {
+    const svcRows = await db.query('SELECT plan, is_active, raw_json FROM plans WHERE service = ?', [sub.service]);
+    const activeNames = (svcRows || []).filter((r) => {
+      const a = (r.is_active != null && r.is_active !== '') ? r.is_active : rawOf(r.raw_json).IsActive;
+      return String(a == null ? '' : a).trim().toUpperCase() === 'TRUE';
+    }).map((r) => String(r.plan || '').trim());
+    if (!renewRules.renewPlanChoices(sub.plan, activeNames).includes(plan)) {
+      return { ok: false, renewBlocked: true, message: 'A renewal can only change the duration of your plan. To change devices or Private/Sharing, please buy a new plan.' };
+    }
   }
 
   const planRows = await db.query('SELECT price, raw_json FROM plans WHERE service = ? AND plan = ? LIMIT 1', [sub.service, plan]);
@@ -469,9 +476,9 @@ async function renewQuote(subId, planOverride) {
   // R1: check the account can still serve this customer BEFORE they pay.
   const renewal = await require('./fulfill').planRenewal(sid, plan);
 
-  // days left from current expiry -> tiered early-renew discount
-  let daysLeft = null;
-  if (sub.expiry_date) { const ex = new Date(sub.expiry_date); if (!isNaN(ex.getTime())) daysLeft = Math.ceil((ex.getTime() - Date.now()) / 86400000); }
+  // days left from current expiry -> tiered early-renew discount. The SAME calendar-day count (India, expiry date)
+  // as My plans (reads.js), so the renew page and this price always agree.
+  const daysLeft = renewRules.daysLeftIst(sub.expiry_date);
   let earlyDiscount = 0;
   // The early-renew discount is for renewing the SAME plan (that is what the renew page shows and promises).
   if (daysLeft != null && samePlan) {
@@ -479,7 +486,7 @@ async function renewQuote(subId, planOverride) {
     else if (daysLeft >= 2) earlyDiscount = asNum(praw.EarlyRenewDiscount_7to2);
   }
   const price = asNum(prow.price);
-  return { ok: true, sub, plan, price, daysLeft, earlyDiscount, amount: Math.max(0, price - earlyDiscount), renewal };
+  return { ok: true, sub, plan, price, daysLeft, renewEligibility: renewRules.renewEligibility(daysLeft), earlyDiscount, amount: Math.max(0, price - earlyDiscount), renewal };
 }
 
 /**
@@ -496,7 +503,11 @@ async function createRenewOrder(subId, planOverride, couponCode, opts) {
   // (no spaces, 3-20 chars) is treated as a coupon, not a plan override.
   let cc = String(couponCode || '').trim().toUpperCase();
   let po = String(planOverride || '').trim();
-  if (!cc && po && /^[A-Z0-9_-]{3,20}$/.test(po.toUpperCase())) { cc = po.toUpperCase(); po = ''; }
+  // …unless it is a real plan of this subscription's service (live "YouTube Premium" plan "1Year" has no space).
+  if (!cc && po && /^[A-Z0-9_-]{3,20}$/.test(po.toUpperCase())) {
+    const isPlan = await db.query('SELECT 1 AS x FROM plans p JOIN subscriptions s ON s.service = p.service WHERE s.sub_id = ? AND p.plan = ? LIMIT 1', [String(subId || '').trim(), po]).catch(() => []);
+    if (!(isPlan && isPlan.length)) { cc = po.toUpperCase(); po = ''; }
+  }
 
   const q = await renewQuote(subId, po);
   if (!q.ok) return q;

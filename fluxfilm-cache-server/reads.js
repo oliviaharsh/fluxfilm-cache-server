@@ -43,12 +43,10 @@ function calcEarlyDiscount(daysLeft, pInfo) {
   if (daysLeft >= TIER2_MIN && daysLeft <= TIER2_MAX && d72 > 0) return { amount: d72, tier: '7TO2' };
   return { amount: 0, tier: 'NONE' };
 }
-function renewEligibility(daysLeft) {
-  if (daysLeft == null) return 'TOO_LATE';
-  if (daysLeft >= 0) return 'CAN_RENEW';
-  if (daysLeft >= -5) return 'LATE_RENEW';
-  return 'TOO_LATE';
-}
+// Days left + late-renew window are shared with order.js renewQuote (renewrules.js): calendar days in India
+// from the expiry DATE; renew allowed until 6 days after the expiry date.
+const renewRules = require('./renewrules');
+const renewEligibility = renewRules.renewEligibility;
 function renewableRow(r) {
   const st = String(r.status || '').trim().toUpperCase();
   const fs = String(r.fulfillment_status || '').trim().toUpperCase();
@@ -61,7 +59,7 @@ function expiryMood(daysLeft) {
   if (daysLeft >= 6) return { emoji: '🙂', text: 'All good' };
   if (daysLeft >= 1) return { emoji: '😰', text: 'Expiring soon' };
   if (daysLeft === 0) return { emoji: '⚠️', text: 'Expires today' };
-  if (daysLeft >= -5) return { emoji: '😵', text: 'Expired (late renew allowed)' };
+  if (daysLeft >= -renewRules.LATE_RENEW_DAYS) return { emoji: '😵', text: 'Expired (late renew allowed)' };
   return { emoji: '🟥', text: 'Expired' };
 }
 
@@ -127,10 +125,8 @@ async function getMySubscriptions(phone) {
   const all = rows.map((r) => {
     const svc = String(r.service || '').trim();
     const plan = String(r.plan || '').trim();
-    const expDate = parseDbDate(r.expiry_date);
-    // Just past expiry is -1 day, not "-0" (Math.ceil gave -0 = "Expires today" for a whole day AFTER it ended).
-    const msLeft = expDate ? expDate.getTime() - nowMs : null;
-    const daysLeft = msLeft == null ? null : (msLeft < 0 ? Math.floor(msLeft / 86400000) : Math.ceil(msLeft / 86400000));
+    // Calendar days in India from the expiry DATE: today = 0 ("Expires today"), yesterday = -1, tomorrow = 1.
+    const daysLeft = renewRules.daysLeftIst(r.expiry_date, nowMs);
     const pInfo = planInfo(plansMap, svc, plan);
     const disc = calcEarlyDiscount(daysLeft, pInfo);
     const elig = renewEligibility(daysLeft);

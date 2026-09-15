@@ -16,7 +16,7 @@ function fresh() {
   return {
     sql: [], inserted: [],
     plans: [
-      { service: 'Prime Video', plan: '1 Month', duration_days: 30, price: 39, is_active: 'TRUE', raw_json: JSON.stringify({ AllocationPolicy: 'CAPACITY', EarlyRenewDiscount: 5 }) },
+      { service: 'Prime Video', plan: '1 Month', duration_days: 30, price: 39, early_renew_discount: 5, is_active: 'TRUE', raw_json: JSON.stringify({ AllocationPolicy: 'CAPACITY', EarlyRenewDiscount: 5 }) },
       { service: 'Prime Video', plan: '3 Months', duration_days: 90, price: 111, is_active: 'TRUE', raw_json: JSON.stringify({ AllocationPolicy: 'CAPACITY', EarlyRenewDiscount: 40 }) },
       { service: 'Prime Video', plan: '2 Devices 1M', duration_days: 30, price: 59, is_active: 'TRUE', raw_json: JSON.stringify({ AllocationPolicy: 'CAPACITY' }) },
       { service: 'Prime Video', plan: '2 Devices 3M', duration_days: 90, price: 149, is_active: 'TRUE', raw_json: JSON.stringify({ AllocationPolicy: 'CAPACITY' }) },
@@ -35,6 +35,10 @@ function run(sqlRaw, params) {
   S.sql.push({ sql, params });
   if (/information_schema/.test(sql)) return [{ n: 0 }];
   if (/FROM plans WHERE service = \? AND plan = \?/.test(sql)) return S.plans.filter((p) => p.service === params[0] && p.plan === params[1]);
+  if (/^SELECT plan, is_active, raw_json FROM plans WHERE service = \?$/.test(sql)) return S.plans.filter((p) => p.service === params[0]);
+  if (/^SELECT 1 AS x FROM plans p JOIN subscriptions s ON s.service = p.service WHERE s.sub_id = \? AND p.plan = \? LIMIT 1$/.test(sql)) {
+    const sb = S.subs.find((x) => x.sub_id === params[0]); return sb && S.plans.some((p) => p.service === sb.service && p.plan === params[1]) ? [{ x: 1 }] : [];
+  }
   if (/^SELECT service, plan, duration_days/.test(sql) && /FROM plans/.test(sql)) return S.plans;
   if (/^SELECT 1 FROM orders WHERE order_id/.test(sql)) return [];
   if (/FROM subscriptions WHERE sub_id = \?/.test(sql)) return S.subs.filter((s) => s.sub_id === params[0]);
@@ -196,16 +200,24 @@ const sub = (o) => Object.assign({ sub_id: 'SUB-100000001', service: 'Prime Vide
   await payments.findByRef('FF1234567', 'UTR 612345678901', 99);
   const up = S.sql.find((x) => /^UPDATE bank_credits/.test(x.sql));
   ok('credit whose bank note names ANOTHER order is not used', up && /COALESCE\(order_ids, ''\) = '' OR FIND_IN_SET\(\?, order_ids\) > 0/.test(up.sql), up && up.sql);
-  ok('credit older than the order (minus a few minutes) is not used', up && /received_at >= \(SELECT DATE_SUB\(o\.created_at_sheet, INTERVAL \? MINUTE\) FROM orders o WHERE o\.order_id = \?/.test(up.sql), up && up.sql);
+  ok('credit older than the order (minus a few minutes) is not used; no order time (NULL) skips the check', up && /received_at >= COALESCE\(\(SELECT DATE_SUB\(o\.created_at_sheet, INTERVAL \? MINUTE\) FROM orders o WHERE o\.order_id = \? LIMIT 1\), '1000-01-01 00:00:00'\)/.test(up.sql), up && up.sql);
   ok('parameters bound in order', up && JSON.stringify(up.params) === JSON.stringify(['FF1234567', '612345678901', 99, 'FF1234567', payments._internal.REF_WINDOW_MIN, 'FF1234567']), up && up.params);
 
-  section('payments: only the real bank address is trusted');
+  section('payments: only the bank is trusted (exact address, its domain, or equitas.bank.in)');
   const fb = payments._internal.fromBank;
-  ok('esfb-alerts@equitas.bank.in → trusted', fb({ from: { value: [{ address: 'esfb-alerts@equitas.bank.in', name: 'Equitas' }] } }));
-  ok('upper-case bank address → trusted', fb({ from: { value: [{ address: 'ESFB-Alerts@Equitas.Bank.In' }] } }));
-  ok('bank address only as DISPLAY NAME → refused', !fb({ from: { value: [{ address: 'someone@gmail.com', name: 'esfb-alerts@equitas.bank.in' }] } }));
-  ok('look-alike domain → refused', !fb({ from: { value: [{ address: 'esfb-alerts@equitas.bank.in.evil.test' }] } }));
-  ok('no From → refused', !fb({}) && !fb(null));
+  const F = (address, name) => ({ from: { value: [{ address, name: name || '' }] } });
+  ok('esfb-alerts@equitas.bank.in → trusted', fb(F('esfb-alerts@equitas.bank.in', 'Equitas')));
+  ok('upper-case bank address → trusted', fb(F('ESFB-Alerts@Equitas.Bank.In')));
+  ok('another @equitas.bank.in address → trusted', fb(F('alerts@equitas.bank.in')));
+  ok('subdomain of equitas.bank.in → trusted', fb(F('noreply@mail.equitas.bank.in')));
+  ok('BANK_SENDER as a bare domain → trusted', fb(F('esfb-alerts@equitas.bank.in'), 'equitas.bank.in') && fb(F('x@alerts.otherbank.example'), 'otherbank.example'));
+  ok('BANK_SENDER "@domain" → trusted', fb(F('esfb-alerts@otherbank.example'), '@otherbank.example'));
+  ok('BANK_SENDER a different address on the same domain → trusted', fb(F('esfb-alerts@otherbank.example'), 'alerts@otherbank.example'));
+  ok('BANK_SENDER on gmail.com does not trust every gmail user', fb(F('bank@gmail.com'), 'bank@gmail.com') && !fb(F('evil@gmail.com'), 'bank@gmail.com') && !fb(F('evil@x.co.in'), 'co.in'));
+  ok('bank address only as DISPLAY NAME → refused', !fb(F('someone@gmail.com', 'esfb-alerts@equitas.bank.in')));
+  ok('look-alike domains → refused', !fb(F('esfb-alerts@equitas.bank.in.evil.test')) && !fb(F('esfb-alerts@xequitas.bank.in')) && !fb(F('esfb-alerts@equitas-bank.in')) && !fb(F('esfb-alerts@equitas.bank.in.evil.com'), 'equitas.bank.in'));
+  ok('two From addresses → refused', !fb({ from: { value: [{ address: 'esfb-alerts@equitas.bank.in' }, { address: 'x@evil.test' }] } }));
+  ok('no From → refused', !fb({}) && !fb(null) && !fb(F('')));
 
   // ------------------------------------------------------------------------------------------------
   section('stock: the allocation lock must really be held');
@@ -229,16 +241,98 @@ const sub = (o) => Object.assign({ sub_id: 'SUB-100000001', service: 'Prime Vide
   const my = await reads.getMySubscriptions('9876543210');
   const byId = {}; for (const x of [].concat(my.actionable || [], my.history || [])) byId[x.subId] = x;
   const a1 = byId['SUB-100000001']; const a2 = byId['SUB-100000002']; const a3 = byId['SUB-100000003']; const a4 = byId['SUB-100000004'];
-  ok('expired 2 hours ago → daysLeft -1, not "Expires today"', a1 && a1.daysLeft === -1 && a1.moodText !== 'Expires today', a1 && { d: a1.daysLeft, m: a1.moodText });
-  ok('… still renewable (late renew)', a1 && a1.showRenewButton === true);
-  ok('expires in 2 hours → daysLeft 1', a2 && a2.daysLeft === 1, a2 && a2.daysLeft);
+  const dayDiff = (ms) => Math.round((Date.parse(ist(ms).slice(0, 10) + 'T00:00:00Z') - Date.parse(ist(Date.now()).slice(0, 10) + 'T00:00:00Z')) / 86400e3);
+  ok('expired 2 hours ago → calendar days (0 if that was still today, else -1), never "1 day left"', a1 && a1.daysLeft === dayDiff(Date.now() - 2 * 3600e3) && a1.daysLeft <= 0, a1 && { d: a1.daysLeft, m: a1.moodText });
+  ok('… still renewable', a1 && a1.showRenewButton === true);
+  ok('expires in 2 hours → calendar days (0 = today, 1 after midnight)', a2 && a2.daysLeft === dayDiff(Date.now() + 2 * 3600e3), a2 && a2.daysLeft);
   ok('refunded subscription → no Renew button', a3 && a3.showRenewButton === false, a3);
   ok('legacy active subscription (no fulfilment status) → Renew button', a4 && a4.showRenewButton === true, a4);
 
   // ------------------------------------------------------------------------------------------------
+  section('expiry: one calendar-day count in India (page and server)');
+  const RR = require('../renewrules');
+  const at = (s) => Date.parse(s); // an exact moment
+  const NOW = at('2026-09-15T14:00:00+05:30');
+  const dayCase = (label, expiry, now, want, elig) => {
+    const d = RR.daysLeftIst(expiry, now);
+    ok(label + ' → ' + want + (elig ? ' ' + elig : ''), d === want && (!elig || RR.renewEligibility(d) === elig), { d, e: RR.renewEligibility(d) });
+  };
+  dayCase('expiry today 23:59', '2026-09-15 23:59:00', NOW, 0, 'CAN_RENEW');
+  dayCase('expiry today 00:30 (time already passed)', '2026-09-15 00:30:00', NOW, 0, 'CAN_RENEW');
+  dayCase('expiry today 00:30, checked at 23:59:30', '2026-09-15 00:30:00', at('2026-09-15T23:59:30+05:30'), 0);
+  dayCase('expiry today 23:59, checked at 00:00:10 (just after midnight)', '2026-09-15 23:59:00', at('2026-09-15T00:00:10+05:30'), 0);
+  dayCase('expiry yesterday', '2026-09-14 10:00:00', NOW, -1, 'LATE_RENEW');
+  dayCase('tomorrow 00:05', '2026-09-16 00:05:00', NOW, 1, 'CAN_RENEW');
+  dayCase('day 6 after expiry', '2026-09-09 23:59:00', NOW, -6, 'LATE_RENEW');
+  dayCase('day 7 after expiry', '2026-09-08 00:30:00', NOW, -7, 'TOO_LATE');
+  dayCase('leap day: 29 Feb expiry seen on 1 Mar', '2028-02-29 20:00:00', at('2028-03-01T09:00:00+05:30'), -1, 'LATE_RENEW');
+  dayCase('leap year: 28 Feb 23:00 → 1 Mar expiry', '2028-03-01 00:30:00', at('2028-02-28T23:00:00+05:30'), 2);
+  dayCase('non-leap year: 28 Feb → 1 Mar', '2027-03-01 10:00:00', at('2027-02-28T10:00:00+05:30'), 1);
+  dayCase('month end in UTC but 1 Oct in India', '2026-10-01 00:10:00', at('2026-09-30T20:00:00Z'), 0);
+  dayCase('30 Sep 23:30 India → 1 Oct expiry', '2026-10-01 00:10:00', at('2026-09-30T23:30:00+05:30'), 1);
+  dayCase('31 Dec → 1 Jan', '2027-01-01 09:00:00', at('2026-12-31T22:00:00+05:30'), 1);
+  dayCase('Date object / ISO with zone', new Date('2026-09-15T18:00:00Z'), NOW, 0);
+  ok('no / bad expiry → null (TOO_LATE, no Renew)', RR.daysLeftIst(null, NOW) === null && RR.daysLeftIst('', NOW) === null && RR.daysLeftIst('2026-02-30 10:00:00', NOW) === null && RR.renewEligibility(null) === 'TOO_LATE');
+  ok('mood: 0 = "Expires today", -1 and -6 = late renew allowed, -7 = Expired', reads._internal.expiryMood(0).text === 'Expires today' && /late renew/.test(reads._internal.expiryMood(-1).text) && /late renew/.test(reads._internal.expiryMood(-6).text) && reads._internal.expiryMood(-7).text === 'Expired');
+
+  // My plans and renewQuote see the same day count and the same early discount.
+  const istDay = (n, hhmm) => ist(Date.now() + n * 86400e3).slice(0, 10) + ' ' + hhmm + ':00';
+  for (const [n, hhmm] of [[0, '00:30'], [0, '23:59'], [-1, '12:00'], [-6, '23:59'], [-7, '00:30'], [7, '23:59'], [8, '00:30'], [2, '00:01']]) {
+    S = fresh(); S.subs.push(sub({ expiry_date: istDay(n, hhmm) }));
+    const mine = (await reads.getMySubscriptions('9876543210'));
+    const card = [].concat(mine.actionable || [], mine.history || [])[0];
+    const qq = await order.renewQuote('SUB-100000001');
+    ok('expiry ' + (n >= 0 ? '+' : '') + n + ' days at ' + hhmm + ': page daysLeft ' + (card && card.daysLeft) + ' = server ' + qq.daysLeft + ' = ' + n + '; same discount',
+      card && card.daysLeft === n && qq.daysLeft === n && card.earlyRenewDiscountEligible === qq.earlyDiscount && card.renewEligibility === qq.renewEligibility && card.showRenewButton === (n >= -6),
+      { card: card && { d: card.daysLeft, disc: card.earlyRenewDiscountEligible, e: card.renewEligibility }, q: { d: qq.daysLeft, disc: qq.earlyDiscount, e: qq.renewEligibility } });
+  }
+
+  // ------------------------------------------------------------------------------------------------
+  section('renewals: old imported plan names never give an empty renew page');
+  const legacy = ['1 Month', 'Yearly', '30 Days', '3 Months', '12M', '1 Year', 'Annual', 'Monthly', '6 Mon', 'Half-Yearly', '90 days', '1Year', '12 Months'];
+  ok('every duration spelling normalises to the same (empty) kind', legacy.every((n) => RR.planVariant(n) === ''), legacy.map((n) => [n, RR.planVariant(n)]));
+  ok('"Sharing 1M" = "Sharing 12 Months" = "Sharing - Yearly"', RR.planVariant('Sharing 1M') === 'sharing' && RR.planVariant('Sharing 12 Months') === 'sharing' && RR.planVariant('Sharing - Yearly') === 'sharing');
+  ok('"Sharing 2 Device 1 Year" = "Sharing 2 Devices 1M"; ≠ "Sharing 1M"', RR.planVariant('Sharing 2 Device 1 Year') === RR.planVariant('Sharing 2 Devices 1M') && RR.planVariant('Sharing 2 Devices 1M') !== RR.planVariant('Sharing 1M'));
+  const NF = ['Private 1M', 'Private 3M', 'Sharing 1M', 'Sharing 2 Devices 1M'];
+  const PV = ['1 Month', '3 Months', '2 Devices 1M', '2 Devices 3M'];
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  ok('known kind: Private → only Private durations', same(RR.renewPlanChoices('Private 12 Months', NF), ['Private 1M', 'Private 3M']));
+  ok('old Netflix "1 Month" (kind unknown) → the 1-device plans', same(RR.renewPlanChoices('1 Month', NF), ['Private 1M', 'Private 3M', 'Sharing 1M']));
+  ok('old Netflix "2 Devices Yearly" → the 2-device plan', same(RR.renewPlanChoices('2 Devices Yearly', NF), ['Sharing 2 Devices 1M']));
+  ok('unknown kind AND no plan with that device count → every plan of the service', same(RR.renewPlanChoices('4 Devices Yearly', NF), NF));
+  ok('Prime "1 Month" / "12M" / "Yearly" → 1-device durations only; "2 Devices 1M" → 2-device only', same(RR.renewPlanChoices('1 Month', PV), ['1 Month', '3 Months']) && same(RR.renewPlanChoices('Yearly', PV), ['1 Month', '3 Months']) && same(RR.renewPlanChoices('2 Devices 1M', PV), ['2 Devices 1M', '2 Devices 3M']));
+  ok('any old name with plans available → never an empty list', legacy.concat(['Premium', 'Private Screen', 'Family 5 Devices']).every((n) => RR.renewPlanChoices(n, NF).length > 0 && RR.renewPlanChoices(n, PV).length > 0));
+
+  S = fresh(); S.subs.push(sub({ service: 'Netflix', plan: '1 Month' }));
+  r = await order.createRenewOrder('SUB-100000001', 'Sharing 1M');
+  ok('server: old Netflix "1 Month" renews into "Sharing 1M"', r.ok === true, r);
+  S = fresh(); S.subs.push(sub({ service: 'Netflix', plan: '1 Month' }));
+  r = await order.createRenewOrder('SUB-100000001', 'Sharing 2 Devices 1M');
+  ok('server: old Netflix "1 Month" → 2-device plan refused (page does not offer it)', r.ok === false && r.renewBlocked === true, r);
+  S = fresh(); S.subs.push(sub({ service: 'Netflix', plan: 'Private 1M' }));
+  S.plans.push({ service: 'Netflix', plan: 'Private 3M', duration_days: 90, price: 450, is_active: 'FALSE', raw_json: '{}' });
+  r = await order.createRenewOrder('SUB-100000001', 'Private 3M');
+  ok('server: an inactive plan is not a renew choice', r.ok === false, r);
+
+  S = fresh(); S.plans.push({ service: 'YouTube Premium', plan: '1Year', duration_days: 365, price: 999, is_active: 'TRUE', raw_json: JSON.stringify({ AllocationPolicy: 'NONE', FulfillmentMode: 'MANUAL' }) });
+  S.subs.push(sub({ service: 'YouTube Premium', plan: '1 Month', status: 'ACTIVE', fulfillment_status: 'MANUAL_PENDING' }));
+  r = await order.createRenewOrder('SUB-100000001', '1Year');
+  ok('plan "1Year" (no space) is renewed into, not read as a coupon code', r.ok === true && lastAmount() === 999, { r, amt: lastAmount() });
+  S = fresh(); S.subs.push(sub({ service: 'YouTube Premium', plan: '1 Month', status: 'ACTIVE', fulfillment_status: 'MANUAL_PENDING' }));
+  S.coupons.push({ Code: 'FLUX10', Active: 'TRUE', Type: 'FLAT', Value: 10 });
+  r = await order.createRenewOrder('SUB-100000001', 'FLUX10');
+  ok('old callers: a coupon in the 2nd argument still works as a coupon', r.ok === true && lastAmount() === 89, { r, amt: lastAmount() });
+
+  const html0 = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const grab = (name) => { const m = html0.match(new RegExp('function ' + name + '\\([^)]*\\) \\{[\\s\\S]*?\\n\\}')); return m ? m[0] : ''; };
+  const pageFns = new Function(grab('renewPlanVariant_') + '\n' + grab('renewPlanDevices_') + '\n' + grab('renewPlanChoices_') + '\nreturn { v: renewPlanVariant_, c: renewPlanChoices_ };')();
+  const names = legacy.concat(NF, PV, ['Sharing 2 Device 1 Year', '4 Devices Yearly', 'Private Screen', 'Family 5 Devices 1M', '', null]);
+  ok('index.html renewPlanChoices_ gives exactly the server answers', names.every((n) => pageFns.v(n) === RR.planVariant(n) && same(pageFns.c(n, NF), RR.renewPlanChoices(n, NF)) && same(pageFns.c(n, PV), RR.renewPlanChoices(n, PV))));
+
+  // ------------------------------------------------------------------------------------------------
   section('storefront renew page');
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  ok('renew page lists only plans with the same devices / Private-Sharing (duration changes only)', /planVariant_\(p\.plan\) === planVariant_\(currentPlan\)/.test(html));
+  ok('renew page lists the shared renewPlanChoices_ (same kind; old names → same devices, else all)', /const renewAllowed_ = renewPlanChoices_\(currentPlan, allServicePlans\.map\(p => p\.plan\)\);/.test(html) && /const servicePlans = allServicePlans\.filter\(p => renewAllowed_\.includes\(p\.plan\)\);/.test(html));
   ok('renew page shows only the discount the server gives (no biggest-tier fallback)', !/earlyRenewDiscountEligible \|\| 0\) \|\| Math\.max\(Number\(sub\.earlyDiscount8Plus/.test(html));
   let parsed = 0; let bad = '';
   const re = /<script(?![^>]*type=["'](?:application\/ld\+json|application\/json|text\/babel))[^>]*>([\s\S]*?)<\/script>/gi; let m;
