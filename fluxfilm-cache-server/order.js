@@ -10,6 +10,7 @@ const pay = require('./payments');
 const referrals = require('./referrals');
 const coins = require('./coins');
 const deviceLogins = require('./devicelogins');
+const emaillock = require('./emaillock');
 
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) || !isFinite(n) ? 0 : n; };
@@ -143,7 +144,7 @@ async function createOrder(p, opts) {
   const service = String(p.service || '').trim();
   const plan = String(p.plan || '').trim();
   const name = String(p.name || '').trim();
-  const email = String(p.email || '').trim();
+  let email = String(p.email || '').trim();
   const phone = norm(p.phone);
   const couponCode = String(p.couponCode || '').trim().toUpperCase();
   const notes = String(p.notes || '').trim();
@@ -154,6 +155,15 @@ async function createOrder(p, opts) {
   if (!service || !plan) return { ok: false, message: 'Select service and plan.' };
   if (!phone) return { ok: false, message: 'Phone number is required.' };
   if (!name) return { ok: false, message: 'Full name is required.' };
+  // 🔒 Email lock (emaillock.js): the storefront / Olivia may only send the login to the profile email, and only once
+  // it is safe (verified, or unchanged since the last paid order); otherwise { emailCheck } / { emailChangeRequired }
+  // and no order is made. Admin quick orders (amountOverride, server-only) and renewals (createRenewOrder picks the
+  // email itself and sets the server-only emailChecked) skip this.
+  if (!(opts.amountOverride != null && opts.amountOverride !== '') && opts.emailChecked !== true) {
+    const chk = await emaillock.orderEmail(phone, email);
+    if (!chk.ok) return chk;
+    email = chk.email;
+  }
   if (!email && !opts.allowNoEmail) return { ok: false, message: 'Email is required.' };
 
   const planRows = await db.query('SELECT price, duration_days, is_active, raw_json FROM plans WHERE service = ? AND plan = ? LIMIT 1', [service, plan]);
@@ -517,14 +527,18 @@ async function createRenewOrder(subId, planOverride, couponCode, opts) {
 
   const cust = await db.query('SELECT name FROM customers WHERE phone_norm = ? LIMIT 1', [norm(sub.phone)]);
   const name = (cust[0] && cust[0].name) || 'Customer';
+  // 🔒 Email lock: the trusted profile email (verified / unchanged since the last paid order), otherwise the email on
+  // this plan, which already received its login. Never a fresh unverified change, and never a code step.
+  let renewTo = sub.email;
+  try { renewTo = (await emaillock.renewEmail(sub.phone, sub.email)) || sub.email; } catch (e) { console.log('[email-lock] renew email check failed, using the plan email:', e.message); }
 
   const out = await createOrder({
-    service: sub.service, plan, name, email: sub.email, phone: sub.phone,
+    service: sub.service, plan, name, email: renewTo, phone: sub.phone,
     couponCode: cc, notes: opts.notes || ('RENEW:' + sub.sub_id), useCoins: opts.useCoins === true,
   }, {
     // F1: a purchase with separate logins always renews through its first row, so every row renews together.
     action: 'RENEW', renewSubId: renewal.leadSubId || sub.sub_id, discountOverride: q.earlyDiscount,
-    amountOverride: opts.amountOverride, allowNoEmail: true, rawExtra: opts.rawExtra,
+    amountOverride: opts.amountOverride, allowNoEmail: true, rawExtra: opts.rawExtra, emailChecked: true,
   });
   if (out && out.ok) {
     out.renew = true; out.renewSubId = renewal.leadSubId || sub.sub_id;
