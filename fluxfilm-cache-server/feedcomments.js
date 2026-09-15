@@ -80,8 +80,13 @@ async function currentAvatars(ids) {
   const need = want.filter((id) => { const h = avatarCache.get(id); return !h || now - h.at >= AVATAR_MS; });
   if (need.length) {
     try {
-      const rows = await db.query('SELECT c.id AS id, cu.profile_pic_url AS pic FROM feed_comments c JOIN customers cu ON cu.phone_norm = c.phone_norm WHERE c.id IN (' + need.map(() => '?').join(', ') + ')', need);
-      const got = new Map((Array.isArray(rows) ? rows : []).map((r) => [Math.floor(Number(r.id)), safeAvatar(r.pic)]));
+      // Two plain queries, no JOIN: feed_comments (utf8mb4_unicode_ci) and customers use different collations on live MariaDB.
+      const cm = await db.query('SELECT id, phone_norm FROM feed_comments WHERE id IN (' + need.map(() => '?').join(', ') + ')', need);
+      const phones = [...new Set((Array.isArray(cm) ? cm : []).map((r) => s(r.phone_norm)).filter(Boolean))];
+      const cu = phones.length ? await db.query('SELECT phone_norm, profile_pic_url FROM customers WHERE phone_norm IN (' + phones.map(() => '?').join(', ') + ')', phones) : [];
+      const picOf = new Map((Array.isArray(cu) ? cu : []).map((r) => [s(r.phone_norm), r.profile_pic_url]));
+      const rows = (Array.isArray(cm) ? cm : []).filter((r) => picOf.has(s(r.phone_norm))).map((r) => ({ id: r.id, pic: picOf.get(s(r.phone_norm)) }));
+      const got = new Map(rows.map((r) => [Math.floor(Number(r.id)), safeAvatar(r.pic)]));
       for (const id of need) if (got.has(id)) avatarCache.set(id, { at: now, url: got.get(id) });
       if (avatarCache.size > 5000) avatarCache.clear();
     } catch (_) { /* keep the saved pictures */ }

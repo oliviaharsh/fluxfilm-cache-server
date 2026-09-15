@@ -67,8 +67,13 @@ function run(sql, p) {
   if (/^SELECT offer_id FROM refund_offers WHERE offer_id = \? LIMIT 1$/.test(sql)) return S.offers.filter((r) => r.offer_id === p[0]).map((r) => ({ offer_id: r.offer_id }));
   if (/^SELECT \* FROM refund_offers WHERE order_id = \? ORDER BY created_at DESC LIMIT 5$/.test(sql)) return S.offers.filter((r) => r.order_id === p[0]).slice().reverse().map(clone);
   if (/^SELECT \* FROM refund_offers ORDER BY created_at DESC LIMIT 100$/.test(sql)) return S.offers.slice().reverse().map(clone);
-  if (/^SELECT r\.offer_id, r\.expires_at, o\.email, o\.phone_norm, o\.status FROM refund_offers r JOIN orders o ON o\.order_id = r\.order_id WHERE r\.phone_norm = \? AND r\.status = 'OFFERED' LIMIT 10$/.test(sql)) {
-    return S.offers.filter((r) => r.phone_norm === p[0] && r.status === 'OFFERED').map((r) => { const o = order(r.order_id) || {}; return { offer_id: r.offer_id, expires_at: r.expires_at, email: o.email, phone_norm: o.phone_norm, status: o.status }; });
+  // No JOIN any more (live MariaDB: refund_offers and orders have different collations) — two plain queries.
+  if (/JOIN/.test(sql) && /refund_offers/.test(sql)) throw new Error("Illegal mix of collations (utf8mb4_unicode_ci,IMPLICIT) and (utf8mb4_general_ci,IMPLICIT) for operation '='");
+  if (/^SELECT offer_id, order_id, expires_at FROM refund_offers WHERE phone_norm = \? AND status = 'OFFERED' LIMIT 10$/.test(sql)) {
+    return S.offers.filter((r) => r.phone_norm === p[0] && r.status === 'OFFERED').map((r) => ({ offer_id: r.offer_id, order_id: r.order_id, expires_at: r.expires_at }));
+  }
+  if (/^SELECT order_id, email, phone_norm, status FROM orders WHERE order_id IN \(\?(, \?)*\)$/.test(sql)) {
+    return p.map((id) => order(id)).filter(Boolean).map((o) => ({ order_id: o.order_id, email: o.email, phone_norm: o.phone_norm, status: o.status }));
   }
   if (/^SELECT sub_ids FROM refund_offers WHERE status IN \('UPI_REQUESTED', 'DONE'\)/.test(sql)) return S.offers.filter((r) => ['UPI_REQUESTED', 'DONE'].includes(r.status) && r.sub_ids).map((r) => ({ sub_ids: r.sub_ids }));
   if (/^INSERT INTO refund_offers \(offer_id, order_id, live_order, sub_ids, phone_norm, service, plan, reason, paid_amount, charge_amount, suggested_charge, refund_amount, days_used, total_days, bonus_percent, note, status, expires_at, created_at\)/.test(sql)) {
