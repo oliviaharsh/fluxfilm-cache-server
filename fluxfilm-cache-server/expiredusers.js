@@ -215,7 +215,7 @@ function compute(input) {
     const sec = out[g.section];
     const hasActive = g.active.length > 0;
     pending.sort((a, b) => toMs(b.expiry_date) - toMs(a.expiry_date));
-    const people = pending.map((x) => ({ subId: s(x.sub_id), orderId: s(x.order_id), name: nameOf(x), phone: s(x.phone_norm), service: s(x.service), plan: s(x.plan), expiry: s(x.expiry_date instanceof Date ? x.expiry_date.toISOString() : x.expiry_date), daysAgo: Math.max(0, Math.floor((now - toMs(x.expiry_date)) / 86400e3)), accountRef: s(x.inventory_ref), accountId: accountOfRef(x.inventory_ref) || s(x.account_id), slot: slotOf(x) }));
+    const people = pending.map((x) => ({ subId: s(x.sub_id), orderId: s(x.order_id), name: nameOf(x), phone: s(x.phone_norm), service: s(x.service), plan: s(x.plan), expiry: s(x.expiry_date instanceof Date ? x.expiry_date.toISOString() : x.expiry_date), daysAgo: Math.max(0, Math.floor((now - toMs(x.expiry_date)) / 86400e3)), accountRef: s(x.inventory_ref), accountId: accountOfRef(x.inventory_ref) || s(x.account_id), slot: slotOf(x), deviceName: s(x.device_name) === 'null' ? '' : s(x.device_name) || s(rawOf(x.raw_json).DeviceName) }));
     const advice = adviceFor(pending.length, g.active.map((a) => ({ ms: toMs(a.expiry_date), name: nameOf(a) })), now, rules);
     const blank = () => ({ pending: 0, oldUsers: 0, hasActive: false, advice: 'NONE', changeOn: '' });
     for (const p of people) {
@@ -291,6 +291,8 @@ function todoLine(c) {
 // Only rows that can matter: active ones (to know who is still on a login) and expired rows not yet ticked removed.
 const SUBS_SQL =
   "SELECT s.sub_id, s.order_id, s.phone_norm, s.service, s.plan, s.status, s.expiry_date, s.inventory_ref, s.account_id, s.login_id, COALESCE(s.removed, 0) AS removed, s.renew_sub_id, s.device_count, s.device_type, s.tv_count, " +
+  // 📱 OTP device name the owner typed (otpdevices.js) — same row, no cross-table compare.
+  "IF(JSON_VALID(s.raw_json), JSON_UNQUOTE(JSON_EXTRACT(s.raw_json, '$.DeviceName')), NULL) AS device_name, " +
   '(SELECT c.name FROM customers c WHERE c.phone_norm = s.phone_norm LIMIT 1) AS name ' +
   "FROM subscriptions s WHERE (COALESCE(s.inventory_ref, '') <> '' OR COALESCE(s.login_id, '') <> '') " +
   "AND ((UPPER(s.status) = 'ACTIVE' AND s.expiry_date > NOW()) OR (s.expiry_date < NOW() AND COALESCE(s.removed, 0) = 0))";
