@@ -5,8 +5,9 @@
  * mail read (so it's served once), and logs it for the monthly quota. No Apps Script.
  *
  * Safety (15 Sep 2026): needs an otp2 device token (email that belongs to the plan, otpaccess.js); only ACTIVE
- * purchases of that service unlocked by that email; only mails from the last 10 minutes; and only an OTP for
- * THAT purchase's login (see pickOtpMail) - never another account's.
+ * purchases of that service unlocked by that email; only mails from the last 10 minutes; a mail that names a
+ * number must name THAT purchase's login (never another number); a mail with no number = latest OTP of that
+ * service in the last 10 minutes (fallback, counted in app_settings 'getotp_fallback_count'). See pickOtpMail.
  */
 const db = require('./db');
 
@@ -95,19 +96,18 @@ function loginsIn(text, known) {
   return { found, cleaned };
 }
 /**
- * Newest mail (inside the fresh window) whose OTP belongs to one of `allowed` logins. Returns { item, otp, body },
- * { unsure } (only mails that could be for another login) or null.
- *  - a mail that names a login / phone number is used only when every login and number in it is this plan's;
- *  - a mail that names no login (the SMS forwarder does not add the SIM number) is used only when this service
- *    has exactly ONE login in our records, so it can never be another account's OTP.
+ * Newest usable OTP mail for this service inside the fresh window (10 min). Returns { item, otp, body, matchedBy } or null.
+ *  - STRICT: a mail that names a login / phone number (SIM) is used only when every login and number in it is this
+ *    plan's. A mail naming ANOTHER number is never used.
+ *  - FALLBACK (owner, 15 Sep 2026): a mail that names no number (today's SMS Forwarder mails carry no SIM number)
+ *    is used as "the latest OTP for this service in the past 10 minutes". Once the forwarder adds the SIM number,
+ *    every mail names one and only STRICT applies - no code change needed.
  * items: [{ uid, date, subject, text }]
  */
 function pickOtpMail(items, opts) {
   const { keywords, allowed, known, now, windowMs } = opts;
-  const everyLogin = new Set([...known, ...allowed]);
-  const onlyOneLogin = everyLogin.size === 1 && allowed.size === 1;
+  const everyLogin = new Set([...(known || []), ...allowed]);
   const list = (items || []).slice().sort((a, b) => b.date.getTime() - a.date.getTime());
-  let unsure = false;
   for (const it of list) {
     const age = now - it.date.getTime();
     if (!(age >= -60e3 && age <= windowMs)) continue;
@@ -117,14 +117,24 @@ function pickOtpMail(items, opts) {
     const inSubject = loginsIn(it.subject, everyLogin).found;
     const { found: inBody, cleaned } = loginsIn(body, everyLogin);
     const found = new Set([...inSubject, ...inBody]);
-    if (found.size) {
-      if (![...found].every((k) => allowed.has(k))) continue;
-    } else if (!onlyOneLogin) { if (extractOtp(cleaned)) unsure = true; continue; }
+    if (found.size && ![...found].every((k) => allowed.has(k))) continue;
     const otp = extractOtp(cleaned);
     if (!otp) continue;
-    return { item: it, otp, body };
+    return { item: it, otp, body, matchedBy: found.size ? 'login' : 'fallback' };
   }
-  return unsure ? { unsure: true } : null;
+  return null;
+}
+
+// Admin-visible count of fallback OTPs (no customer data): app_settings 'getotp_fallback_count' = {"n":…,"last":"YYYY-MM-DD"}.
+let fallbackSeen = 0;
+async function noteFallback(svcKey) {
+  fallbackSeen += 1;
+  console.log('[otp] fallback used: ' + svcKey + ' OTP mail had no SIM number - showed the latest one (count since start: ' + fallbackSeen + ')');
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+  try {
+    await db.query("INSERT INTO app_settings (setting_key, value) VALUES ('getotp_fallback_count', ?) ON DUPLICATE KEY UPDATE value = JSON_OBJECT('n', COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(value, '$.n')) AS UNSIGNED), 0) + 1, 'last', ?)",
+      [JSON.stringify({ n: 1, last: day }), day]);
+  } catch (_) { /* count is optional */ }
 }
 
 /** Every login of this service still in use: inventory accounts not switched off + logins on recent subscriptions. */
@@ -182,14 +192,11 @@ async function getLatestOtp(service, phone, token, subRef, deps) {
         items.push({ uid: msg.uid, date, subject: parsed.subject || '', text: String(parsed.text || parsed.html || '') });
       }
       const hit = pickOtpMail(items, { keywords, allowed, known, now, windowMs });
-      if (hit && hit.unsure) {
-        console.log('[otp] ' + svcKey + ' OTP mail does not say which login it is for (several logins in use) - not shown');
-        return { ok: true, found: false, message: 'We got an OTP but could not match it to your account. Please tap Help and our team will send it to you.' };
-      }
       if (!hit) return { ok: true, found: false, message: 'No fresh OTP found for ' + svc + '. Codes expire in ~10 min — try logging in again.' };
       try { await client.messageFlagsAdd({ uid: hit.item.uid }, ['\\Seen'], { uid: true }); } catch (_) {}
       const age = now - hit.item.date.getTime();
       _logOtp(svcKey, hit.otp, ph, hit.body);
+      if (hit.matchedBy === 'fallback') await noteFallback(svcKey);
       return { ok: true, found: true, otp: hit.otp, service: svc, receivedAt: new Date(hit.item.date).toISOString(), ageSec: Math.max(0, Math.round(age / 1000)), remainingSec: Math.max(0, Math.round((windowMs - age) / 1000)) };
     } finally { lock.release(); }
   });

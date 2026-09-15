@@ -82,6 +82,7 @@ const mockDb = {
     }
     if (/^DELETE FROM app_settings WHERE setting_key = \?$/.test(sql)) { DB.settings.delete(p[0]); return { affectedRows: 1 }; }
     if (/^DELETE FROM app_settings WHERE setting_key LIKE/.test(sql)) return { affectedRows: 0 };
+    if (/^INSERT INTO app_settings \(setting_key, value\) VALUES \('getotp_fallback_count', \?\) ON DUPLICATE KEY UPDATE/.test(sql)) { DB.fallbackCount = (DB.fallbackCount || 0) + 1; DB.fallbackSql = [sql, p]; return { affectedRows: 1 }; }
     throw new Error('unexpected SQL: ' + sql);
   },
 };
@@ -251,15 +252,38 @@ const parse = async (m) => ({ subject: m.subject, text: m.text });
   ], flags) });
   ok("another account's newer OTP (login …0002) is skipped; this plan's login …0001 OTP is returned", res.found === true && res.otp === '777111' && flags.join() === '2', { res, flags });
   flags.length = 0;
-  res = await otp.getLatestOtp('JioHotstar', P, tokS1, 'S1', { parse, withImap: imapWith([mail(3, 1, J1 + '555666 is your JioHotstar verification code.')], flags) });
-  ok('JioHotstar has 2 logins in use: a mail that does not say which → not shown, customer told to tap Help', res.found === false && /could not match/.test(res.message) && !flags.length, res);
+  DB.fallbackCount = 0;
+  res = await otp.getLatestOtp('JioHotstar', P, tokS1, 'S1', { parse, withImap: imapWith([
+    mail(30, 9, J1 + '111222 is your JioHotstar verification code.'),
+    mail(31, 3, J1 + '555666 is your JioHotstar verification code.'),
+    mail(32, 1, J1 + '999000 is your JioHotstar verification code. Sent to 9000000002'),
+    mail(33, 12, J1 + '313131 is your JioHotstar verification code.'),
+  ], flags) });
+  ok('FALLBACK: mails without a SIM number → the NEWEST one from the past 10 min is shown (the newer mail naming another number is still skipped)', res.found === true && res.otp === '555666' && flags.join() === '31', { res, flags });
+  ok('  ...and the fallback is counted for the admin (no customer data)', DB.fallbackCount === 1 && !/9876543210|sub@x/.test(JSON.stringify(DB.fallbackSql)), DB.fallbackSql);
+  flags.length = 0;
+  res = await otp.getLatestOtp('JioHotstar', P, tokS1, 'S1', { parse, withImap: imapWith([mail(34, 10.5, J1 + '424242 is your JioHotstar verification code.'), mail(35, 30, J1 + '525252 is your JioHotstar verification code.')], flags) });
+  ok('FALLBACK: nothing older than 10 minutes is ever shown', res.found === false && !flags.length, res);
+  res = await otp.getLatestOtp('JioHotstar', P, tokS1, 'S1', { parse, withImap: imapWith([mail(36, 1, J1 + '626262 is your JioHotstar verification code. To +91-90000-00009'), mail(37, 2, J1 + '727272 JioHotstar code, SIM 9000000002')], flags) });
+  ok('a mail naming another number (known or unknown) is never shown, even with no other mail', res.found === false && !flags.length, res);
+  res = await otp.getLatestOtp('JioHotstar', P, tokS1, 'S1', { parse, withImap: imapWith([mail(38, 1, J1 + '828282 is your JioHotstar verification code. To 9000000001'), mail(39, 0.5, J1 + '929292 is your JioHotstar verification code. To 9000000002')], flags) });
+  ok('once mails carry the SIM number, strict matching applies with no code change', res.found === true && res.otp === '828282' && DB.fallbackCount === 1, res);
+  resetData();
+  DB.subs.find((x) => x.sub_id === 'S1').fulfillment_status = 'REFUNDED';
+  let imapHit = false;
+  res = await otp.getLatestOtp('JioHotstar', P, tokS1, 'S1', { parse, withImap: async () => { imapHit = true; return {}; } });
+  ok('fallback never runs before the gates: refunded plan → refused, inbox not opened', res.noActive === true && !imapHit, res);
+  resetData();
+  res = await otp.getLatestOtp('JioHotstar', P, '', 'S1', { parse, withImap: async () => { imapHit = true; return {}; } });
+  ok('  ...no verified email token → refused, inbox not opened', res.needsVerify === true && !imapHit, res);
+  flags.length = 0;
   res = await otp.getLatestOtp('JioHotstar', P, tokS1, 'S1', { parse, withImap: imapWith([mail(4, 11, J1 + '123123 is your JioHotstar verification code. 9000000001')], flags) });
   ok('11-minute-old mail for the right login → too old, not shown', res.found === false && !flags.length, res);
   res = await otp.getLatestOtp('JioHotstar', P, tokS1, 'S1', { parse, withImap: imapWith([mail(5, 1, 'SMSForwarder From : VM-ZEEOTT-S() Your OTP is: 909090 for 9000000001')], flags) });
   ok('a Zee5 mail is never returned for JioHotstar', res.found === false && !flags.length, res);
   const tokToday2 = (await verifyAs('today@x.com')).token;
   res = await otp.getLatestOtp('Zee5', P, tokToday2, 'S8', { parse, withImap: imapWith([mail(6, 2, 'SMSForwarder From : VM-ZEEOTT-S() Your OTP is: 246810')], flags) });
-  ok('Zee5 has ONE login in use: mail without a number is fine (plan expiring today)', res.found === true && res.otp === '246810', res);
+  ok('Zee5 mail without a number (plan expiring today) → shown', res.found === true && res.otp === '246810', res);
   res = await otp.getLatestOtp('Zee5', P, tokToday2, 'S8', { parse, withImap: imapWith([mail(7, 1, 'SMSForwarder From : VM-ZEEOTT-S() Your OTP is: 135790 login 9000000009')], flags) });
   ok('  ...but a Zee5 mail naming a login that is not this plan’s is refused', res.found === false, res);
   ok('phone numbers in a mail are never read as the OTP', otp._internal.pickOtpMail([mail(8, 1, 'jiohotstar code for +91 90000-00001 : 4321')], { keywords: ['jiohotstar'], allowed: new Set(['p:9000000001']), known: new Set(['p:9000000001']), now: Date.now(), windowMs: 600e3 }).otp === '4321');
