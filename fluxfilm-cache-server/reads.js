@@ -157,6 +157,9 @@ async function getMySubscriptions(phone) {
       // Refunded / cancelled / not-yet-delivered rows cannot be renewed (order.js renewQuote refuses them too).
       showRenewButton: elig !== 'TOO_LATE' && renewableRow(r),
       inventoryRef: String(r.inventory_ref || '').trim(),
+      // ⏳ Renewal reminder pop-up skips refunded / cancelled plans (admin refund sets CANCELLED + REFUNDED).
+      status: String(r.status || '').trim().toUpperCase(),
+      fulfillmentStatus: String(r.fulfillment_status || '').trim().toUpperCase(),
     }, devices && devices.deviceCount > 1 ? { deviceCount: devices.deviceCount, sameLogin: devices.sameLogin, devices: devices.list } : {});
   });
 

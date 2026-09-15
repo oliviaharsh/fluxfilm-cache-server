@@ -7,6 +7,7 @@
  *
  *   getStatus()          → { ok, paused, message, backText, since, helpBubble, sassy } (public, storefront polls it)
  *   helpBubble (default ON): the small floating 💬 Help bubble on Home / My plans / Account; OFF = only the top Help button.
+ *   renewPopup (default ON) + renewPopupBefore (7, 1–14) / renewPopupAfter (3, 0–5): the ⏳ renewal reminder pop-up.
  *   sassyGreeting (default ON): the fun rotating greeting on My plans; OFF = plain "Welcome back, Name".
  *   guard()              → null, or { ok:false, paused:true, message }         (createOrder / createRenewOrder)
  *   saveSettings(input)  → { ok, settings, changed }                            (admin)
@@ -23,8 +24,15 @@ const DEFAULTS = Object.freeze({
   backText: '',
   since: '',
   helpBubble: true,
+  // ⏳ Renewal reminder pop-up (storefront): on app open when a plan ends within `renewPopupBefore` days
+  // or ended at most `renewPopupAfter` days ago (India calendar days).
+  renewPopup: true,
+  renewPopupBefore: 7,
+  renewPopupAfter: 3,
   sassyGreeting: true,
 });
+const RENEW_POPUP_MAX_BEFORE = 14;
+const RENEW_POPUP_MAX_AFTER = 5; // renew is allowed until 5 days after expiry (reads.js renewEligibility)
 
 function validateSettings(input, prev) {
   const inb = input || {}; const errors = [];
@@ -36,6 +44,17 @@ function validateSettings(input, prev) {
     else out.message = m || DEFAULTS.message;
   }
   if (inb.helpBubble !== undefined) out.helpBubble = !(inb.helpBubble === false || inb.helpBubble === 0 || /^(false|0|off)$/i.test(s(inb.helpBubble)));
+  if (inb.renewPopup !== undefined) out.renewPopup = !(inb.renewPopup === false || inb.renewPopup === 0 || /^(false|0|off)$/i.test(s(inb.renewPopup)));
+  const whole = (v, lo, hi, label) => {
+    const n = Number(s(v));
+    if (s(v) === '' || !Number.isInteger(n) || n < lo || n > hi) { errors.push(label + ' must be a whole number from ' + lo + ' to ' + hi + '.'); return null; }
+    return n;
+  };
+  if (inb.renewPopupBefore !== undefined) { const n = whole(inb.renewPopupBefore, 1, RENEW_POPUP_MAX_BEFORE, 'Days before expiry'); if (n != null) out.renewPopupBefore = n; }
+  if (inb.renewPopupAfter !== undefined) { const n = whole(inb.renewPopupAfter, 0, RENEW_POPUP_MAX_AFTER, 'Days after expiry'); if (n != null) out.renewPopupAfter = n; }
+  // Saved values from an older build (or edited by hand) are clamped, never trusted.
+  if (!Number.isInteger(out.renewPopupBefore) || out.renewPopupBefore < 1 || out.renewPopupBefore > RENEW_POPUP_MAX_BEFORE) out.renewPopupBefore = DEFAULTS.renewPopupBefore;
+  if (!Number.isInteger(out.renewPopupAfter) || out.renewPopupAfter < 0 || out.renewPopupAfter > RENEW_POPUP_MAX_AFTER) out.renewPopupAfter = DEFAULTS.renewPopupAfter;
   if (inb.sassyGreeting !== undefined) out.sassyGreeting = !(inb.sassyGreeting === false || inb.sassyGreeting === 0 || /^(false|0|off)$/i.test(s(inb.sassyGreeting)));
   if (inb.backText !== undefined) {
     const b = s(inb.backText).replace(/[<>]/g, '');
@@ -67,13 +86,14 @@ async function saveSettings(input) {
   if (!next.paused) next.since = '';
   await db.query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [KEY, JSON.stringify(next)]);
   cache = null;
-  const changed = ['paused', 'message', 'backText', 'helpBubble', 'sassyGreeting'].filter((k) => String(before[k]) !== String(next[k]));
+  const changed = ['paused', 'message', 'backText', 'helpBubble', 'sassyGreeting', 'renewPopup', 'renewPopupBefore', 'renewPopupAfter'].filter((k) => String(before[k]) !== String(next[k]));
   return { ok: true, settings: next, before, changed };
 }
 
 async function getStatus() {
   const c = await getSettings();
-  return { ok: true, paused: !!c.paused, message: c.paused ? c.message : '', backText: c.paused ? c.backText : '', since: c.paused ? c.since : '', helpBubble: c.helpBubble !== false, sassy: c.sassyGreeting !== false };
+  return { ok: true, paused: !!c.paused, message: c.paused ? c.message : '', backText: c.paused ? c.backText : '', since: c.paused ? c.since : '', helpBubble: c.helpBubble !== false, sassy: c.sassyGreeting !== false,
+    renewPopup: c.renewPopup !== false, renewPopupBefore: c.renewPopupBefore, renewPopupAfter: c.renewPopupAfter };
 }
 
 /** Called before creating any new order. Fails OPEN on a database hiccup (the order code has its own checks). */

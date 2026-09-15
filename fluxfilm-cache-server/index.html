@@ -464,6 +464,49 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 @keyframes ffPromoBounce { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-6px) rotate(4deg); } }
 @keyframes ffPromoGlow { from { transform: translateX(0); opacity: .6; } to { transform: translateX(-30%); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ff-promo-pop, .ff-promo-big, .ff-promo-glow, .ff-promo-bg { animation: none; } }
+/* ⏳ Renewal reminder pop-up (RenewReminder). Fixed overlay = no layout shift; one small entrance + the ring filling. */
+.ff-rr-bg { position: fixed; inset: 0; z-index: 76; display: grid; place-items: center; padding: 16px; background: rgba(15,23,42,.5); animation: ffInstallFade .2s ease both; }
+.ff-rr { --rr: #7c3aed; --rr2: #a855f7; --rrbg: rgba(124,58,237,.12); position: relative; box-sizing: border-box; width: 100%; max-width: 380px; max-height: calc(100vh - 32px); overflow-y: auto; overscroll-behavior: contain; padding: 22px 18px 12px; border-radius: 26px; background: #fff; color: #0f172a; text-align: center; font-family: 'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif; box-shadow: 0 30px 70px rgba(15,23,42,.4); outline: none; animation: ffRrIn .34s cubic-bezier(.2,.9,.3,1.15) both; }
+.ff-rr::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 130px; border-radius: 26px 26px 0 0; background: linear-gradient(180deg, var(--rrbg), rgba(255,255,255,0)); pointer-events: none; }
+.ff-rr > * { position: relative; }
+.ff-rr.t-soon { --rr: #d97706; --rr2: #f59e0b; --rrbg: rgba(245,158,11,.16); }
+.ff-rr.t-urgent { --rr: #e11d48; --rr2: #f97316; --rrbg: rgba(225,29,72,.12); }
+.ff-rr.t-ended { --rr: #475569; --rr2: #7c3aed; --rrbg: rgba(71,85,105,.12); }
+.ff-rr-x { position: absolute; top: 8px; right: 8px; z-index: 2; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(15,23,42,.06); color: #334155; font-size: 20px; line-height: 1; cursor: pointer; }
+.ff-rr-ring { width: 104px; height: 104px; margin: 0 auto 10px; }
+.ff-rr-ring svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); }
+.ff-rr-ring circle { fill: none; stroke-width: 9; }
+.ff-rr-ring .trk { stroke: rgba(15,23,42,.08); }
+.ff-rr-ring .val { stroke: var(--rr); stroke-linecap: round; animation: ffRrRing .9s .15s ease-out both; }
+.ff-rr-ring-in { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+.ff-rr-num { font-size: 36px; font-weight: 900; color: var(--rr); font-variant-numeric: tabular-nums; }
+.ff-rr-num.word { font-size: 21px; }
+.ff-rr-unit { margin-top: 4px; font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #64748b; }
+.ff-rr-title { margin: 0 6px; font-size: 20px; font-weight: 900; line-height: 1.25; }
+.ff-rr-body { margin: 6px 0 0; font-size: 14.5px; font-weight: 600; line-height: 1.5; color: #334155; }
+.ff-rr-price { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 4px 8px; margin-top: 12px; }
+.ff-rr-price b { font-size: 28px; font-weight: 900; }
+.ff-rr-price s { font-size: 15px; font-weight: 700; color: #94a3b8; }
+.ff-rr-price span { font-size: 12.5px; font-weight: 700; color: #64748b; }
+.ff-rr-perks, .ff-rr-list { display: grid; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; text-align: left; }
+.ff-rr-perks li { padding: 8px 11px; border-radius: 12px; background: #f8fafc; font-size: 13px; font-weight: 650; line-height: 1.4; color: #334155; }
+.ff-rr-list { gap: 8px; }
+.ff-rr-item { display: flex; align-items: center; gap: 10px; padding: 9px; border: 1px solid rgba(15,23,42,.1); border-radius: 16px; }
+.ff-rr-chip { flex: none; width: 58px; padding: 6px 2px; border-radius: 12px; background: #7c3aed; color: #fff; text-align: center; font-size: 10.5px; font-weight: 800; line-height: 1.1; }
+.ff-rr-chip b { display: block; font-size: 20px; font-weight: 900; }
+.ff-rr-chip.t-soon { background: #d97706; } .ff-rr-chip.t-urgent { background: #e11d48; } .ff-rr-chip.t-ended { background: #475569; }
+.ff-rr-item-main { flex: 1; min-width: 0; }
+.ff-rr-item-name { font-size: 14px; font-weight: 800; line-height: 1.3; }
+.ff-rr-item-sub { margin-top: 2px; font-size: 12px; font-weight: 650; line-height: 1.35; color: #64748b; }
+.ff-rr-item-btn { flex: none; min-height: 40px; padding: 0 12px; border: 0; border-radius: 999px; background: #0f172a; color: #fff; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.ff-rr-cta { display: block; width: 100%; min-height: 52px; margin-top: 14px; border: 0; border-radius: 16px; background: linear-gradient(135deg, var(--rr), var(--rr2)); color: #fff; font: inherit; font-size: 17px; font-weight: 900; cursor: pointer; box-shadow: 0 10px 24px rgba(15,23,42,.18); }
+.ff-rr-later { display: block; min-height: 44px; margin: 4px auto 0; padding: 0 14px; border: 0; background: none; color: #475569; font: inherit; font-size: 14px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+@keyframes ffRrIn { from { transform: translateY(18px) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ffRrRing { from { stroke-dashoffset: 282.7; } }
+html.ff-lite .ff-rr { animation-duration: .18s; } html.ff-lite .ff-rr-ring .val { animation: none; }
+@media (prefers-reduced-motion: reduce) { .ff-rr, .ff-rr-bg, .ff-rr-ring .val { animation: none; } }
+.ff-rr.multi .ff-rr-title { margin: 0 34px; }
+@media (max-width: 340px) { .ff-rr { padding: 20px 12px 10px; } .ff-rr-title { font-size: 18px; } .ff-rr-ring { width: 90px; height: 90px; } .ff-rr-num { font-size: 30px; } .ff-rr-item { gap: 8px; padding: 8px; } .ff-rr-chip { width: 50px; } .ff-rr-item-btn { padding: 0 10px; } }
 /* ── 🍿 What's new feed — run 4 look: app-like posts (brand header, rounded 4:5 media, compact actions, comment previews,
    comments bottom sheet, sticky CTA pill, collapsible filters). Images keep a fixed 4:5 box so nothing jumps. ── */
 .ff-feed { max-width: 520px; margin: 0 auto; position: relative; }
@@ -7404,7 +7447,8 @@ function RenewStartScreen({
   phone,
   setOrderData,
   setLoading,
-  boot
+  boot,
+  renewCoupon
 }) {
   const [working, setWorking] = useState(false);
   const submitting = useRef(false);
@@ -7412,13 +7456,20 @@ function RenewStartScreen({
     on: false,
     q: null
   });
-  const [couponCode, setCouponCode] = useState(getPromoCoupon_);
+  const [couponCode, setCouponCode] = useState(() => renewCoupon || getPromoCoupon_());
   const [couponState, setCouponState] = useState({
     applied: false,
     discount: 0,
     loading: false,
     msg: ''
   });
+  // ⏳ Opened from the renewal reminder pop-up with a RENEW coupon: apply it once, quietly (server checks it as usual).
+  const applyCouponRef = useRef(null);
+  useEffect(() => {
+    if (!renewCoupon || !sub) return;
+    const t = setTimeout(() => applyCouponRef.current && applyCouponRef.current(true), 60);
+    return () => clearTimeout(t);
+  }, []);
   // 🔒 Email lock: renewals never need a code — the server sends the login to the trusted profile email, or else to
   // this plan's own email. Show where, with "Change".
   const [renewLock, setRenewLock] = useState(null);
@@ -7482,8 +7533,8 @@ function RenewStartScreen({
   const basePrice = Number(chosenPlanObj?.price || 0);
   const finalPrice = Math.max(0, basePrice - earlyDisc - (couponState.applied ? couponState.discount : 0));
   const coinRupees = coinSel.on && coinSel.q && coinSel.q.coins > 0 ? Math.min(finalPrice, Number(coinSel.q.rupees || 0)) : 0;
-  function applyCoupon() {
-    if (!couponCode.trim()) return alert('Enter a coupon code.');
+  function applyCoupon(quiet) {
+    if (!couponCode.trim()) return quiet === true ? null : alert('Enter a coupon code.');
     setCouponState(s => ({
       ...s,
       loading: true,
@@ -7498,6 +7549,18 @@ function RenewStartScreen({
       scope: 'RENEW'
     }, res => {
       if (!res || !res.ok) {
+        if (quiet === true) {
+          // Reminder coupon no longer fits (used up, other plan…): clear it silently, the customer can still type one.
+          setCouponState(s => ({
+            ...s,
+            loading: false,
+            applied: false,
+            discount: 0,
+            msg: ''
+          }));
+          setCouponCode(getPromoCoupon_());
+          return;
+        }
         setCouponState(s => ({
           ...s,
           loading: false,
@@ -7522,6 +7585,7 @@ function RenewStartScreen({
       msg: '❌ Coupon check failed.'
     })));
   }
+  applyCouponRef.current = applyCoupon;
   function startRenew() {
     if (submitting.current) return;
     if (!subId) return alert('Subscription ID missing.');
@@ -10898,7 +10962,7 @@ function InstallPrompt({
     if (seen || installHiddenUntil_() > Date.now()) return;
     if (!ready && !isIos_()) return;
     const t = setTimeout(() => {
-      if (window.ffPromoOpen) return; // an offer pop-up is showing — ask on the next screen instead
+      if (window.ffPromoOpen || window.ffRenewPopOpen) return; // an offer / renewal reminder pop-up is showing — ask on the next screen instead
       if (window.ffPushOpen) return; // the renewal reminders pop-up is showing
       try {
         sessionStorage.setItem('ff_install_asked', '1');
@@ -11141,7 +11205,7 @@ function PushPrompt({
     if (pushAskedThisVisit_() || pushSnoozedUntil_() > Date.now()) return;
     let live = true;
     const t = setTimeout(() => {
-      if (window.ffPromoOpen || window.ffPushOpen) return;
+      if (window.ffPromoOpen || window.ffPushOpen || window.ffRenewPopOpen) return;
       pushState_().then(st => {
         if (!live || st !== 'off' && st !== 'ios-install') return;
         pushMarkAsked_();
@@ -11475,7 +11539,7 @@ function RefundChoice({
       });
       if (!first) return;
       const show = () => {
-        if (window.ffPromoOpen && !force) return setTimeout(show, 1500);
+        if ((window.ffPromoOpen || window.ffRenewPopOpen) && !force) return setTimeout(show, 1500);
         try {
           sessionStorage.setItem(seenKey(first.orderId), '1');
         } catch (e) {}
@@ -11737,6 +11801,617 @@ function RefundChoice({
     "data-ff": "refund-choice"
   }, body));
 }
+// ⏳ Renewal reminder pop-up (admin → 🚧 Maintenance → "⏳ Renewal reminder pop-up", on by default).
+// On app open, a logged-in customer whose plan ends within `before` India calendar days (default 7) or ended at most
+// `after` days ago (default 3) sees ONE friendly pop-up: countdown, renew price from the live catalog, early-renew
+// discount, a RENEW coupon, usable coins, and "Renew now" into the normal renew flow.
+// Everything between RR_PURE_START and RR_PURE_END is plain logic (no React, no DOM): test/renew-reminder.test.js runs it.
+// RR_PURE_START
+// ✏️ All pop-up wording lives here. Each list rotates by day, so the same customer sees different words on different days.
+// Placeholders: {hi} "Hi Asha" / "Hi there" · {name} "Asha" / "friend" · {service} · {plan} · {days}
+// {devices} " on both devices" / " on all 3 devices" / "" · {ago} "yesterday" / "2 days ago" · {profile} " and profile" / "" · {count}
+const RENEW_REMIND_TEXT_ = {
+  week: [{
+    title: '{hi}, {service} ends in {days} days',
+    body: 'Your {plan} plan{devices} is still running. Renew early, relax, and forget about it for a while.'
+  }, {
+    title: '{days} days of {service} left 🍿',
+    body: '{hi}! Your {plan} plan{devices} ends soon. Renew now and keep watching without a break.'
+  }, {
+    title: '{hi} 👋 chhota sa reminder',
+    body: 'Your {service} {plan} plan{devices} ends in {days} days. Renew abhi, tension-free raho.'
+  }],
+  soon: [{
+    title: '⏳ Only {days} days left on {service}',
+    body: '{hi}, your {plan} plan{devices} ends soon. Renew now so your show doesn\'t stop mid-episode.'
+  }, {
+    title: 'Bas {days} din bache hain, {name}!',
+    body: 'Your {service} {plan} plan{devices} ends in {days} days. Renew today and keep the same account.'
+  }, {
+    title: 'Almost renewal time, {name}',
+    body: 'Your {service} {plan} plan{devices} has {days} days left. A couple of taps and you\'re sorted.'
+  }],
+  tomorrow: [{
+    title: '{service} ends tomorrow ⏰',
+    body: '{hi}, your {plan} plan{devices} ends tomorrow. Renew today and keep watching without a break.'
+  }, {
+    title: 'Kal khatam ho raha hai, {name}!',
+    body: 'Your {service} {plan} plan{devices} ends tomorrow. Renew now, it takes just a minute.'
+  }, {
+    title: 'One more day of {service}',
+    body: '{hi}! Your {plan} plan{devices} ends tomorrow. Renew today so tomorrow\'s episode isn\'t cut short.'
+  }],
+  today: [{
+    title: '{service} ends today ⏰',
+    body: '{hi}, your {plan} plan{devices} ends today. Renew now and keep the same account.'
+  }, {
+    title: 'Aaj last day hai, {name}!',
+    body: 'Your {service} {plan} plan{devices} ends today. Renew now so your watching doesn\'t stop.'
+  }, {
+    title: 'Today is renewal day 🎬',
+    body: '{hi}! Your {service} {plan} plan{devices} ends today. Renew in a minute and carry on watching.'
+  }],
+  ended: [{
+    title: 'Your {service} plan ended {ago}',
+    body: '{hi}, renew now to keep the same account{profile}.'
+  }, {
+    title: 'We miss you on {service} 💜',
+    body: 'Your {plan} plan{devices} ended {ago}. Renew now to keep the same account{profile}.'
+  }, {
+    title: 'Wapas aa jao, {name}! 🍿',
+    body: 'Your {service} {plan} plan{devices} ended {ago}. Renew to keep the same account{profile}.'
+  }],
+  multi: [{
+    title: '{count} plans need a renewal',
+    body: '{hi}! Here is what ends soon. Renew the one you watch most first.'
+  }, {
+    title: 'Quick check, {name} 👀',
+    body: '{count} of your plans are ending soon or just ended. Renew them in a tap.'
+  }, {
+    title: '{count} plans ko renew karna hai',
+    body: '{hi}, pick a plan below and keep watching without a break.'
+  }],
+  perks: {
+    early: '🎉 Early-renew discount: ₹{amount} off',
+    coupon: '🎟️ Coupon {code} saves about ₹{amount}, we\'ll add it on the renew page',
+    coins: '🪙 You can use {coins} coins (₹{amount} off) when you pay',
+    credit: '💸 Your ₹{amount} refund credit can pay for this renewal',
+    noLoss: '📅 Renewing early adds the new days on top of your plan, no days lost',
+    sameAccount: '🔐 Renew now to keep the same account{profile}'
+  },
+  cta: 'Renew now',
+  later: 'Remind me later'
+};
+const RR_DAY_MS_ = 86400000;
+const RR_IST_MS_ = 19800000; // India is UTC+5:30 (no daylight saving)
+const RR_SEEN_GAP_MS_ = 12 * 3600000; // the same plan at most once every ~12 hours
+const RR_SNOOZE_MS_ = 24 * 3600000; // "Remind me later"
+const RR_KEY_ = 'ff_rr';
+function rrYmd_(ms) {
+  return new Date(ms + RR_IST_MS_).toISOString().slice(0, 10);
+}
+// Date text → milliseconds. No Date('YYYY-MM-DD HH:MM') parsing (Safari says Invalid Date): read the parts by hand.
+// No time zone in the text = India wall-clock time (how MySQL stores it); "…Z" / "+05:30" are honoured.
+function rrParseMs_(v) {
+  if (v == null || v === '') return null;
+  const m = String(v).trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i);
+  if (!m) return null;
+  const y = +m[1],
+    mo = +m[2],
+    d = +m[3];
+  const day = Date.UTC(y, mo - 1, d);
+  if (isNaN(day) || new Date(day).toISOString().slice(0, 10) !== m[1] + '-' + m[2] + '-' + m[3]) return null;
+  const ms = day + ((+m[4] || 0) * 3600 + (+m[5] || 0) * 60 + (+m[6] || 0)) * 1000;
+  if (!m[7]) return ms - RR_IST_MS_;
+  if (/^z$/i.test(m[7])) return ms;
+  const z = m[7].replace(':', '');
+  return ms - (z[0] === '-' ? -1 : 1) * (+z.slice(1, 3) * 60 + +z.slice(3, 5)) * 60000;
+}
+// Calendar days (India) from today to the expiry DATE; the time of day is ignored. Today 0, tomorrow 1, yesterday -1.
+function rrDaysLeft_(expiry, nowMs) {
+  const ms = rrParseMs_(expiry);
+  if (ms == null) return null;
+  return Math.round((Date.parse(rrYmd_(ms) + 'T00:00:00Z') - Date.parse(rrYmd_(nowMs) + 'T00:00:00Z')) / RR_DAY_MS_);
+}
+function rrHash_(s) {
+  let h = 7;
+  for (let i = 0; i < s.length; i++) h = h * 31 + s.charCodeAt(i) >>> 0;
+  return h;
+}
+function rrFill_(t, v) {
+  return String(t || '').replace(/\{(\w+)\}/g, (all, k) => v[k] != null ? String(v[k]) : '');
+}
+function rrBucket_(days) {
+  return days < 0 ? 'ended' : days === 0 ? 'today' : days === 1 ? 'tomorrow' : days <= 3 ? 'soon' : 'week';
+}
+function rrTone_(bucket) {
+  return bucket === 'ended' ? 't-ended' : bucket === 'week' ? 't-week' : bucket === 'soon' ? 't-soon' : 't-urgent';
+}
+function rrDevices_(sub) {
+  return Number(sub && sub.deviceCount) || Number((String(sub && sub.plan || '').match(/(\d+)\s*device/i) || [])[1]) || 1;
+}
+// Refunded / cancelled / removed plans never get a reminder.
+function rrSkipped_(sub, orders) {
+  const bad = /^(REFUNDED|CANCELLED|CANCELED|REMOVED|ERASED)$/;
+  if (bad.test(String(sub.status || '').trim().toUpperCase()) || bad.test(String(sub.fulfillmentStatus || '').trim().toUpperCase())) return true;
+  const oid = String(sub.orderId || '');
+  return !!oid && (orders || []).some(o => o && String(o.orderId || '') === oid && String(o.status || '').toUpperCase() === 'REFUNDED');
+}
+// Already renewed? A renewal moves THIS plan's expiry forward (fulfill.js), so it simply leaves the window. Two other
+// cases: a newer plan of the same service bought around this one's end (started at most 10 days before it ended and
+// ends later), or a renewal/new order for that service that is paid and still being delivered (last 3 days).
+function rrRenewed_(sub, all, orders, nowMs) {
+  const exp = rrParseMs_(sub.expiryDate);
+  if (exp == null) return false;
+  const svc = String(sub.service || '');
+  const newer = all.some(s2 => {
+    if (s2 === sub || String(s2.subId) === String(sub.subId) || String(s2.service || '') !== svc || rrSkipped_(s2, orders)) return false;
+    const e2 = rrParseMs_(s2.expiryDate),
+      st2 = rrParseMs_(s2.startDate);
+    return e2 != null && st2 != null && rrYmd_(e2) > rrYmd_(exp) && st2 >= exp - 10 * RR_DAY_MS_;
+  });
+  if (newer) return true;
+  return (orders || []).some(o => {
+    if (!o || String(o.service || '') !== svc || String(o.status || '').toUpperCase() !== 'PAID') return false;
+    if (!/^(|PENDING|PROCESSING)$/.test(String(o.fulfillmentStatus || '').toUpperCase())) return false;
+    const at = rrParseMs_(o.createdAt);
+    return at != null && at > nowMs - 3 * RR_DAY_MS_;
+  });
+}
+function rrStateRead_(ls) {
+  try {
+    const o = JSON.parse(ls && ls.getItem(RR_KEY_) || '{}');
+    return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+  } catch (e) {
+    return {};
+  }
+}
+function rrStateWrite_(ls, st, nowMs) {
+  const out = {};
+  Object.keys(st || {}).forEach(k => {
+    const x = st[k] || {};
+    if (Math.max(Number(x.seen) || 0, Number(x.snooze) || 0) > nowMs - 10 * RR_DAY_MS_) out[k] = x;
+  });
+  try {
+    ls && ls.setItem(RR_KEY_, JSON.stringify(out));
+  } catch (e) {}
+  return out;
+}
+function rrMark_(st, ids, field, value) {
+  const out = Object.assign({}, st || {});
+  (ids || []).forEach(id => {
+    out[id] = Object.assign({}, out[id] || {}, {
+      [field]: value
+    });
+  });
+  return out;
+}
+// Which plans to remind about (most urgent first, at most 4). o = { subs, orders, nowMs, before, after, state }
+function renewRemindPick_(o) {
+  const before = Math.min(14, Math.max(1, Math.floor(Number(o.before)) || 7));
+  const after = Math.min(5, Math.max(0, Number.isFinite(Number(o.after)) && o.after !== '' && o.after != null ? Math.floor(Number(o.after)) : 3));
+  const now = Number(o.nowMs) || Date.now();
+  const st = o.state || {};
+  const ids = {};
+  const all = (o.subs || []).filter(s => {
+    if (!s || !s.subId || ids[s.subId]) return false;
+    ids[s.subId] = 1;
+    return true;
+  });
+  const out = [];
+  all.forEach(s => {
+    if (s.showRenewButton === false) return;
+    const days = rrDaysLeft_(s.expiryDate, now);
+    if (days == null || days > before || days < -after) return;
+    if (days < 0 && String(s.renewEligibility || '').toUpperCase() === 'TOO_LATE') return;
+    if (rrSkipped_(s, o.orders) || rrRenewed_(s, all, o.orders, now)) return;
+    const k = st[s.subId] || {};
+    if (Number(k.snooze) > now || Number(k.seen) > now - RR_SEEN_GAP_MS_) return;
+    out.push({
+      sub: s,
+      days,
+      bucket: rrBucket_(days)
+    });
+  });
+  out.sort((a, b) => a.days - b.days || String(a.sub.service).localeCompare(String(b.sub.service)));
+  return out.slice(0, 4);
+}
+// The best RENEW coupon shown in the customer's profile (getActiveCouponsForCustomer). The renew page checks it again.
+function rrCoupon_(coupons, amount, nowMs) {
+  let best = null;
+  (coupons || []).forEach(c => {
+    if (!c || !c.code || String(c.scope || '').toUpperCase() !== 'RENEW' || c.remaining === 0) return;
+    const ex = rrParseMs_(c.expiry);
+    if (ex != null && ex < nowMs) return;
+    if (Number(c.minAmount) > amount) return;
+    const t = String(c.type || '').toUpperCase();
+    let d = t.indexOf('PERC') === 0 || t === 'PCT' || t === '%' ? amount * Number(c.value || 0) / 100 : Number(c.value || 0);
+    if (Number(c.maxDiscount) > 0) d = Math.min(d, Number(c.maxDiscount));
+    d = Math.round(Math.max(0, Math.min(d, amount)));
+    if (d > 0 && (!best || d > best.amount)) best = {
+      code: String(c.code).toUpperCase(),
+      amount: d
+    };
+  });
+  return best;
+}
+function rrFirstName_(name) {
+  const w = String(name || '').trim().split(/\s+/)[0] || '';
+  if (!/^[A-Za-z][A-Za-z.'-]{0,13}$/.test(w) || /^(customer|user|test|na|null)$/i.test(w)) return '';
+  return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+}
+// Words + numbers for the pop-up. o = { items, name, plans, coupons, coins, nowMs, before }
+function renewRemindCompose_(o) {
+  const T = o.texts || RENEW_REMIND_TEXT_;
+  const now = Number(o.nowMs) || Date.now();
+  const before = Math.min(14, Math.max(1, Math.floor(Number(o.before)) || 7));
+  const first = rrFirstName_(o.name);
+  const hi = first ? 'Hi ' + first : 'Hi there';
+  const name = first || 'friend';
+  const items = o.items || [];
+  const rot = Math.floor((now + RR_IST_MS_) / RR_DAY_MS_) + rrHash_(items.map(x => x.sub.subId).join('|'));
+  const rows = items.map(it => {
+    const s = it.sub;
+    const planObj = (o.plans || []).find(p => p && p.service === s.service && p.plan === s.plan);
+    const price = planObj ? Math.max(0, Number(planObj.price) || 0) : 0;
+    const early = it.days >= 0 && price > 0 ? Math.min(price, Math.max(0, Number(s.earlyRenewDiscountEligible) || 0)) : 0;
+    const dev = rrDevices_(s);
+    const days = it.days;
+    const ago = days === -1 ? 'yesterday' : -days + ' days ago';
+    const chip = days < 0 ? {
+      num: String(-days),
+      unit: days === -1 ? 'day ago' : 'days ago',
+      label: 'Ended ' + ago
+    } : days === 0 ? {
+      num: 'Today',
+      unit: 'last day',
+      label: 'Ends today',
+      word: true
+    } : {
+      num: String(days),
+      unit: days === 1 ? 'day left' : 'days left',
+      label: days === 1 ? 'Ends tomorrow' : days + ' days left'
+    };
+    return {
+      subId: String(s.subId),
+      sub: s,
+      days,
+      bucket: it.bucket || rrBucket_(days),
+      price,
+      early,
+      pay: Math.max(0, price - early),
+      chip,
+      vars: {
+        hi,
+        name,
+        service: s.service || 'your plan',
+        plan: s.plan || '',
+        days: Math.max(0, days),
+        // "Private 2 Devices 1M plan on both devices" says it twice: only when the plan name does not.
+        devices: /device/i.test(s.plan || '') ? '' : dev === 2 ? ' on both devices' : dev > 2 ? ' on all ' + dev + ' devices' : '',
+        ago,
+        profile: s.profileName || s.profileNumber ? ' and profile' : ''
+      }
+    };
+  });
+  const r0 = rows[0] || null;
+  const single = rows.length === 1;
+  const coupon = r0 && r0.pay > 0 ? rrCoupon_(o.coupons, r0.pay, now) : null;
+  let title = '',
+    body = '',
+    textKey = '';
+  if (r0) {
+    const list = single ? T[r0.bucket] : T.multi;
+    const i = rot % list.length;
+    const v = single ? r0.vars : {
+      hi,
+      name,
+      count: rows.length
+    };
+    title = rrFill_(list[i].title, v);
+    body = rrFill_(list[i].body, v);
+    textKey = (single ? r0.bucket : 'multi') + ':' + i;
+  }
+  const perks = [];
+  if (single && r0.early > 0) perks.push(rrFill_(T.perks.early, {
+    amount: r0.early
+  }));
+  if (coupon) perks.push(rrFill_(T.perks.coupon, coupon));
+  const q = o.coins;
+  if (q && q.ok !== false && q.enabled !== false) {
+    const cc = Number(q.coinCoins != null ? q.coinCoins : q.coins) || 0;
+    const cr = Number(q.coinRupees != null ? q.coinRupees : q.rupees) || 0;
+    if (Number(q.creditRupees) > 0) perks.push(rrFill_(T.perks.credit, {
+      amount: Number(q.creditRupees)
+    }));
+    if (cc > 0 && cr > 0) perks.push(rrFill_(T.perks.coins, {
+      coins: cc,
+      amount: cr
+    }));
+  }
+  // Verified in renewal.js computeRenewal: renewing on or before the expiry → new expiry = old expiry + plan days.
+  if (rows.some(r => r.days >= 0)) perks.push(T.perks.noLoss);
+  const endedRow = rows.find(r => r.days < 0);
+  if (endedRow) perks.push(rrFill_(T.perks.sameAccount, endedRow.vars));
+  const fraction = !r0 || r0.days < 0 ? 0 : r0.days === 0 ? 0.04 : Math.min(1, r0.days / before);
+  return {
+    title,
+    body,
+    textKey,
+    rows,
+    single,
+    perks,
+    coupon,
+    tone: r0 ? rrTone_(r0.bucket) : '',
+    ring: r0 ? Object.assign({
+      fraction
+    }, r0.chip) : null,
+    price: single && r0.price > 0 ? {
+      was: r0.price,
+      now: Math.max(0, r0.pay - (coupon ? coupon.amount : 0))
+    } : null,
+    cta: T.cta,
+    later: T.later
+  };
+}
+// RR_PURE_END
+const RR_SCREENS_ = {
+  home: 1,
+  dashboard: 1,
+  account: 1,
+  feed: 1,
+  buy1: 1
+};
+let rrShownThisOpen_ = false;
+// Another pop-up, sheet or chat is open (offers, refund choice, reminders, Olivia, comments, pickers…).
+function rrOtherDialogOpen_() {
+  if (window.ffPromoOpen || window.ffRefundOpen || window.ffPushOpen) return true;
+  try {
+    return Array.prototype.some.call(document.querySelectorAll('[role="dialog"], [aria-modal="true"]'), el => !el.closest('.ff-rr-bg') && el.getClientRects().length > 0);
+  } catch (e) {
+    return false;
+  }
+}
+function rrStorage_() {
+  try {
+    return window.localStorage;
+  } catch (e) {
+    return null;
+  }
+}
+function RenewReminder({
+  screen,
+  phone,
+  manageResp,
+  orders,
+  coupons,
+  couponsReady,
+  profile,
+  boot,
+  settings,
+  busy,
+  nav
+}) {
+  const [pop, setPop] = useState(null);
+  // Coupons load just after the plans; wait for them (at most 4 s) so a RENEW coupon can be offered.
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setWaited(true), 4000);
+    return () => clearTimeout(t);
+  }, []);
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
+  const dlgRef = useRef(null);
+  const ready = !!settings && settings.renewPopup !== false && !settings.paused && !!phone && !busy && !!RR_SCREENS_[screen] && !!(manageResp && manageResp._checked) && !!(boot && Array.isArray(boot.plans)) && (!!couponsReady || waited);
+  useEffect(() => {
+    if (!ready || pop || rrShownThisOpen_) return;
+    try {
+      if (sessionStorage.getItem('ff_rr_shown')) {
+        rrShownThisOpen_ = true;
+        return;
+      }
+    } catch (e) {}
+    let live = true,
+      t2 = null;
+    const t = setTimeout(() => {
+      if (!live || rrOtherDialogOpen_()) return;
+      const ls = rrStorage_();
+      const now = Date.now();
+      const items = renewRemindPick_({
+        subs: [...(manageResp.actionable || []), ...(manageResp.history || [])],
+        orders,
+        nowMs: now,
+        before: settings.renewPopupBefore,
+        after: settings.renewPopupAfter,
+        state: rrStateRead_(ls)
+      });
+      if (!items.length) return;
+      const input = {
+        items,
+        name: profile && profile.name,
+        plans: boot.plans,
+        coupons,
+        nowMs: now,
+        before: settings.renewPopupBefore
+      };
+      const base = renewRemindCompose_(input);
+      let done = false;
+      const show = q => {
+        if (done) return;
+        done = true;
+        clearTimeout(t2);
+        if (!live || rrShownThisOpen_ || !RR_SCREENS_[screenRef.current] || rrOtherDialogOpen_()) return;
+        rrShownThisOpen_ = true;
+        try {
+          sessionStorage.setItem('ff_rr_shown', '1');
+        } catch (e) {}
+        rrStateWrite_(ls, rrMark_(rrStateRead_(ls), items.map(x => String(x.sub.subId)), 'seen', now), now);
+        setPop(q && q.ok ? renewRemindCompose_({
+          ...input,
+          coins: q
+        }) : base);
+      };
+      // Usable coins follow the normal coin rules (coins.js quoteSpend), asked once, only when a reminder is due.
+      const amount = base.price ? base.price.now : base.rows[0].pay;
+      if (!(amount > 0)) return show(null);
+      t2 = setTimeout(() => show(null), 2500);
+      API.getCoinQuote(phone, amount, 'RENEW', r => show(r), () => show(null));
+    }, 1400);
+    return () => {
+      live = false;
+      clearTimeout(t);
+      clearTimeout(t2);
+    };
+  }, [ready, pop]);
+  // Open: Back closes it (history entry, same pattern as the feed comments sheet), Esc closes, focus moves inside.
+  useEffect(() => {
+    if (!pop) return;
+    window.ffRenewPopOpen = true;
+    let popped = false;
+    try {
+      window.history.pushState(Object.assign({}, window.history.state || {}, {
+        ffRenewPop: 1
+      }), '');
+    } catch (e) {}
+    const onPop = () => {
+      popped = true;
+      setPop(null);
+    };
+    const onKey = e => {
+      if (e.key === 'Escape') setPop(null);
+    };
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('keydown', onKey);
+    try {
+      dlgRef.current && dlgRef.current.focus({
+        preventScroll: true
+      });
+    } catch (e) {}
+    return () => {
+      window.ffRenewPopOpen = false;
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('keydown', onKey);
+      if (!popped) try {
+        if (window.history.state && window.history.state.ffRenewPop) window.history.back();
+      } catch (e) {}
+    };
+  }, [pop]);
+  useEffect(() => {
+    if (pop && !RR_SCREENS_[screen]) setPop(null);
+  }, [screen]);
+  if (!pop) return null;
+  const p = pop;
+  const close = () => setPop(null);
+  const later = () => {
+    const ls = rrStorage_(),
+      now = Date.now();
+    rrStateWrite_(ls, rrMark_(rrStateRead_(ls), p.rows.map(r => r.subId), 'snooze', now + RR_SNOOZE_MS_), now);
+    close();
+  };
+  const renew = row => {
+    close();
+    nav('renewStart', {
+      sub: row.sub,
+      renewCoupon: p.coupon ? p.coupon.code : ''
+    });
+  };
+  const C_ = 282.7;
+  const ring = p.ring;
+  return React.createElement("div", {
+    className: "ff-rr-bg",
+    onClick: e => {
+      if (e.target === e.currentTarget) close();
+    }
+  }, React.createElement("div", {
+    className: 'ff-rr ' + p.tone + (p.single ? '' : ' multi'),
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-labelledby": "ff-rr-title",
+    "aria-describedby": "ff-rr-body",
+    tabIndex: -1,
+    ref: dlgRef,
+    "data-ff": "renew-reminder",
+    "data-text": p.textKey
+  }, React.createElement("button", {
+    type: "button",
+    className: "ff-rr-x",
+    "aria-label": "Close",
+    onClick: close
+  }, "✕"), p.single && ring && React.createElement("div", {
+    className: "ff-rr-ring",
+    "aria-hidden": "true"
+  }, React.createElement("svg", {
+    viewBox: "0 0 104 104"
+  }, React.createElement("circle", {
+    className: "trk",
+    cx: "52",
+    cy: "52",
+    r: "45"
+  }), ring.fraction > 0 && React.createElement("circle", {
+    className: "val",
+    cx: "52",
+    cy: "52",
+    r: "45",
+    style: {
+      strokeDasharray: C_,
+      strokeDashoffset: C_ * (1 - ring.fraction)
+    }
+  })), React.createElement("div", {
+    className: "ff-rr-ring-in"
+  }, React.createElement("span", {
+    className: 'ff-rr-num' + (ring.word ? ' word' : '')
+  }, ring.num), React.createElement("span", {
+    className: "ff-rr-unit"
+  }, ring.unit))), React.createElement("h2", {
+    className: "ff-rr-title",
+    id: "ff-rr-title"
+  }, p.title), React.createElement("p", {
+    className: "ff-rr-body",
+    id: "ff-rr-body"
+  }, p.body), p.single && React.createElement("span", {
+    className: "ff-sr-only",
+    style: {
+      position: 'absolute',
+      width: 1,
+      height: 1,
+      overflow: 'hidden',
+      clip: 'rect(0 0 0 0)'
+    }
+  }, ring ? ring.label : ''), p.price && React.createElement("div", {
+    className: "ff-rr-price"
+  }, React.createElement("b", null, "₹", p.price.now), p.price.now < p.price.was && React.createElement("s", null, "₹", p.price.was), React.createElement("span", null, p.rows[0].sub.plan ? 'for ' + p.rows[0].sub.plan : 'to renew')), !p.single && React.createElement("ul", {
+    className: "ff-rr-list"
+  }, p.rows.map(r => React.createElement("li", {
+    key: r.subId,
+    className: "ff-rr-item"
+  }, React.createElement("span", {
+    className: 'ff-rr-chip ' + rrTone_(r.bucket),
+    "aria-hidden": "true"
+  }, React.createElement("b", null, r.chip.word ? '!' : r.chip.num), r.chip.word ? 'today' : r.chip.unit), React.createElement("span", {
+    className: "ff-rr-item-main"
+  }, React.createElement("div", {
+    className: "ff-rr-item-name"
+  }, r.sub.service, " ", r.sub.plan), React.createElement("div", {
+    className: "ff-rr-item-sub"
+  }, r.chip.label, r.vars.devices ? ' ·' + r.vars.devices.replace(/^ on/, '') : '', r.price > 0 ? ' · ₹' + r.pay : '', r.early > 0 ? ' (₹' + r.early + ' off early)' : '')), React.createElement("button", {
+    type: "button",
+    className: "ff-rr-item-btn",
+    onClick: () => renew(r),
+    "aria-label": 'Renew ' + r.sub.service + ' ' + r.sub.plan
+  }, "Renew")))), p.perks.length > 0 && React.createElement("ul", {
+    className: "ff-rr-perks"
+  }, p.perks.map((x, i) => React.createElement("li", {
+    key: i
+  }, x))), React.createElement("button", {
+    type: "button",
+    className: "ff-rr-cta",
+    onClick: () => renew(p.rows[0])
+  }, p.cta, p.single ? '' : ' · ' + p.rows[0].sub.service, " ›"), React.createElement("button", {
+    type: "button",
+    className: "ff-rr-later",
+    onClick: later
+  }, p.later)));
+}
 function PromoPopup({
   promos,
   screen,
@@ -11750,7 +12425,7 @@ function PromoPopup({
     if (!p) return;
     const t = setTimeout(() => {
       // A refunded order is waiting for the customer's choice (RefundChoice): that pop-up wins this visit.
-      if (window.ffRefundOpen) return;
+      if (window.ffRefundOpen || window.ffRenewPopOpen) return;
       promoMarkSeen_(p);
       promoEvent_(p.id, 'view');
       window.ffPromoOpen = true;
@@ -15433,7 +16108,8 @@ function App() {
     phone: d.phone || getFFSession().phone,
     setOrderData: setOrderData,
     setLoading: setLoading,
-    boot: boot
+    boot: boot,
+    renewCoupon: d.renewCoupon
   }), screen === 'account' && React.createElement(AccountScreen, {
     nav: nav,
     subs: d.subs || [...(d.manageResp?.actionable || []), ...(d.manageResp?.history || [])],
@@ -15516,6 +16192,18 @@ function App() {
     screen: screen,
     phone: sessionPhone,
     success: !!(d.verifyResult && d.verifyResult.found && d.verifyResult.fulfillment !== 'NO_STOCK')
+  }), !storeBlocked && sessionPhone && React.createElement(RenewReminder, {
+    screen: screen,
+    phone: sessionPhone,
+    manageResp: d.manageResp,
+    orders: d.orders,
+    coupons: couponCache[normPhone_(sessionPhone)] || d.coupons,
+    couponsReady: d.couponsLoadedForPhone === normPhone_(sessionPhone),
+    profile: d.profile,
+    boot: boot,
+    settings: storeStatus,
+    busy: !!(loadingMsg || restoring || showRecoverModal || showOtpModal || accountModal.open),
+    nav: nav
   }));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App, null));
