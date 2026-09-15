@@ -879,7 +879,7 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
 })();
 </script>
 <div id="root"></div>
-<noscript><div style="max-width:640px;margin:0 auto;padding:32px 16px;font-family:system-ui,sans-serif;color:#0f172a;line-height:1.55"><h1 style="font-size:26px;margin:0 0 10px">FluxFilm – streaming subscriptions at low prices</h1><p>Buy subscription plans for Netflix, Prime Video, JioHotstar, SonyLiv, Zee5, Crunchyroll and YouTube Premium. Pay by UPI and get your login instantly. Please turn on JavaScript to buy in the app.</p><p><a href="/plans">All plans &amp; prices</a> · <a href="/faq">FAQ</a> · <a href="/whats-new">What's new</a> · <a href="/about">About FluxFilm</a></p></div></noscript>
+<noscript><div style="max-width:640px;margin:0 auto;padding:32px 16px;font-family:system-ui,sans-serif;color:#0f172a;line-height:1.55"><h1 style="font-size:26px;margin:0 0 10px">FluxFilm – streaming subscriptions at low prices</h1><p>Buy subscription plans for Netflix, Prime Video, JioHotstar, SonyLiv, Zee5, Crunchyroll and YouTube Premium. Pay by UPI and get your login instantly. Please turn on JavaScript to buy in the app.</p><p><a href="/plans">All plans &amp; prices</a> · <a href="/faq">FAQ</a> · <a href="/whats-new">What's new</a> · <a href="/about">About FluxFilm</a> · <a href="/refund-policy">Refund policy</a></p></div></noscript>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script>
@@ -5344,7 +5344,9 @@ function DetailsScreen({
     variant: "primary",
     full: true,
     onClick: proceed
-  }, "✅ Confirm & Pay ₹", payable)))));
+  }, "✅ Confirm & Pay ₹", payable), React.createElement(RefundPolicyLink, {
+    lead: String(planObj?.fulfillmentMode || '').toUpperCase() === 'MANUAL' ? "Activated by our team within 48 hours" : "Instant delivery"
+  })))));
 }
 function ReviewScreen({
   nav,
@@ -7705,7 +7707,9 @@ function RenewStartScreen({
     full: true,
     disabled: working,
     onClick: startRenew
-  }, working ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), "Creating…") : '✅ Continue to Pay')))));
+  }, working ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), "Creating…") : '✅ Continue to Pay')), React.createElement(RefundPolicyLink, {
+    lead: "Instant delivery"
+  }))));
 }
 function DoneScreen({
   nav,
@@ -9303,7 +9307,30 @@ function AccountScreen({
   }), section === 'referral' && React.createElement(ReferralPanel, {
     phone: phone,
     name: name
-  }), !section && React.createElement("div", {
+  }), !section && React.createElement("nav", {
+    className: "ff-acc-policies",
+    "aria-label": "FluxFilm information",
+    style: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: '6px 16px',
+      marginTop: 18,
+      fontFamily: PJS,
+      fontSize: 13,
+      fontWeight: 700
+    }
+  }, [['/refund-policy', '📄 Refund policy'], ['/faq', '❓ FAQ'], ['/about', 'ℹ️ About FluxFilm']].map(([href, label]) => React.createElement("a", {
+    key: href,
+    href: href,
+    target: "_blank",
+    rel: "noopener",
+    style: {
+      color: C.muted,
+      textDecoration: 'none',
+      padding: '8px 4px'
+    }
+  }, label))), !section && React.createElement("div", {
     style: {
       marginTop: 18
     }
@@ -11032,7 +11059,10 @@ function RefundChoice({
     full: true,
     size: "sm",
     onClick: close
-  }, "Decide later"))];
+  }, "Decide later")), React.createElement(RefundPolicyLink, {
+    key: "rp",
+    lead: "Coins give you extra value; cash is the exact amount"
+  })];
   return React.createElement(ToolsSheet, {
     onClose: close
   }, React.createElement("div", {
@@ -11692,6 +11722,34 @@ function NeedHelpCard() {
     type: "button",
     onClick: ffOpenHelp_
   }, "Get help"));
+}
+// 📄 Refund policy (seo.js → /refund-policy). A small link, never a blocking checkbox. Opens in a new tab so a checkout,
+// a refund choice or the installed app is never lost. `lead` = short text before the link (e.g. "Instant delivery").
+function RefundPolicyLink({
+  lead,
+  style
+}) {
+  return React.createElement("div", {
+    className: "ff-refund-policy-link",
+    "data-ff": "refund-policy-link",
+    style: Object.assign({
+      textAlign: 'center',
+      marginTop: 10,
+      fontFamily: PJS,
+      fontSize: 12.5,
+      fontWeight: 600,
+      color: C.muted
+    }, style || {})
+  }, lead ? lead + ' · ' : '', React.createElement("a", {
+    href: "/refund-policy",
+    target: "_blank",
+    rel: "noopener",
+    style: {
+      color: C.muted,
+      textDecoration: 'underline',
+      fontWeight: 700
+    }
+  }, "See Refund Policy"));
 }
 function FeedStrip({
   nav

@@ -7,6 +7,7 @@
  *   GET /faq                   general questions + FAQPage JSON-LD
  *   GET /whats-new             live feed posts → /?post=<id>
  *   GET /about                 short brand page
+ *   GET /refund-policy         the owner's refund policy (15 Sep 2026); /refunds → 301 here
  *   GET /robots.txt, /sitemap.xml, /og-image.png (1200×630 link-preview picture)
  *
  * Everything shown comes from MySQL (catalog.getBootstrap / getStockLevels, feed.publicList), cached 5 minutes.
@@ -222,6 +223,7 @@ a.card{display:block;color:inherit;text-decoration:none}a.card:hover{border-colo
 .grid.plans{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}.plan{padding:14px 16px}.plan .ph{display:flex;justify-content:space-between;align-items:center;gap:8px}.plan h3{margin:0}.plan .price{margin:4px 0 2px}
 ul.ticks{padding:0;list-style:none;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}ul.ticks li{background:#fff;border:1px solid rgba(15,23,42,.08);border-radius:12px;padding:10px 12px}ul.ticks li::before{content:"✓ ";color:#16a34a;font-weight:800}
 ol.steps{padding-left:22px;margin:0}ol.steps li{margin:6px 0}
+.card.sum{background:#f0fdf4;border-color:rgba(22,163,74,.3)}.card.sum h2{margin:0 0 8px;font-size:19px}ul.list{padding-left:22px;margin:0}ul.list li{margin:8px 0}.rp .card p{margin:0 0 10px}.rp .card p:last-child{margin-bottom:0}
 details{background:#fff;border:1px solid rgba(15,23,42,.08);border-radius:14px;padding:0 16px;margin:10px 0}summary{cursor:pointer;font-weight:700;padding:14px 0;min-height:48px}details p{margin:0 0 14px;color:#334155}
 .post{display:flex;gap:14px;align-items:flex-start}.post img{width:92px;height:138px;object-fit:cover;border-radius:12px;background:#e2e8f0;flex-shrink:0}.post p{margin:6px 0;color:#334155;font-size:15px}
 .cta{margin:30px 0 0;text-align:center;background:#04140e;color:#fff;border-radius:22px;padding:26px 18px}.cta p{color:#c7e9d9;margin:0 0 16px}
@@ -250,7 +252,7 @@ function layout(o) {
     '<section class="hero"><div class="w">' + (o.crumbs ? '<div class="crumbs">' + o.crumbs + '</div>' : '') + '<h1>' + esc(o.h1) + '</h1>' + (o.lead ? '<p>' + esc(o.lead) + '</p>' : '') +
     (o.cta ? '<a class="btn" href="' + o.cta[0] + '">' + esc(o.cta[1]) + '</a>' : '') + '</div></section>\n' +
     '<main><div class="w">' + o.body + '</div></main>\n' +
-    '<footer><div class="w"><div class="links"><a href="/plans">All plans &amp; prices</a>' + footServices + '<a href="/faq">FAQ</a><a href="/whats-new">What\'s new</a><a href="/about">About</a></div>' +
+    '<footer><div class="w"><div class="links"><a href="/plans">All plans &amp; prices</a>' + footServices + '<a href="/faq">FAQ</a><a href="/whats-new">What\'s new</a><a href="/about">About</a><a href="/refund-policy">Refund policy</a></div>' +
     '<p>FluxFilm is an independent Indian store for streaming subscription plans. We are not the official Netflix, Amazon, JioHotstar, Sony, ZEE, Crunchyroll or YouTube website, and not affiliated with them. Brand names belong to their owners.</p>' +
     '<p>Prices in Indian rupees (₹). © ' + new Date().getFullYear() + ' FluxFilm · <a href="https://shop.fluxfilm.in/">shop.fluxfilm.in</a></p></div></footer>\n</body>\n</html>\n';
 }
@@ -301,7 +303,7 @@ function serviceFaqs(x) {
   if (x.deviceRule) q.push(['How many devices can I use?', x.deviceRule]);
   if (x.groupJoin) q.push(['Why do I need to join a WhatsApp group?', 'This offer is for FluxFilm group members. The app asks you to join our WhatsApp group before you pay.']);
   q.push(['Can I renew later?', 'Yes. Sign in to FluxFilm with your phone number and tap Renew on your plan. Some plans give a discount when you renew early.']);
-  q.push(['What if something does not work?', 'Use Recover access in the FluxFilm app to see your details again, or contact FluxFilm support on WhatsApp from the Help button.']);
+  q.push(['What if something does not work?', 'Use Recover access in the FluxFilm app to see your details again, or contact FluxFilm support from the Help button. If your login stops working we give you a replacement account — see our Refund policy.']);
   return q;
 }
 
@@ -350,12 +352,12 @@ const GENERAL_FAQ = [
   ['How do I renew?', 'Sign in with your phone number and tap Renew on your plan. On many plans renewing early gives a discount, shown on the Renew screen.'],
   ['The app asks me for an OTP. What do I do?', 'For plans that sign in with a phone number, open FluxFilm and use the Get OTP tool. It shows the code for your plan.'],
   ['I lost my login details. Can I get them again?', 'Yes. Use Recover access in the FluxFilm app — we verify you by email and show your details again.'],
-  ['What about refunds or problems with my plan?', 'Contact FluxFilm support on WhatsApp using the Help button in the app. Share your order details and we will help you.'],
+  ['What about refunds or problems with my plan?', 'If your login stops working, we give you a replacement account. If we cannot replace it, we refund you within 24 hours. Delivery is instant, so there is no refund for a change of mind after delivery. Tap Help in the app (WhatsApp support) or email support@fluxfilm.in with your order details. Full details are in our Refund policy.'],
   ['Is FluxFilm the official Netflix or Amazon website?', 'No. FluxFilm is an independent store that sells subscription plans. It is not run by or affiliated with Netflix, Amazon or the other streaming services.'],
 ];
 async function faqPage() {
   const services = servicesOf(await catalogData({ waitMs: 4000 }));
-  const body = faqHtml(GENERAL_FAQ) + '<h2>Service questions</h2><div class="grid">' + services.map((x) => '<a class="card" href="/plans/' + x.slug + '"><h3>' + esc(x.name) + '</h3><div class="muted">Plans, prices &amp; questions</div></a>').join('') + '</div>' +
+  const body = faqHtml(GENERAL_FAQ) + '<p class="muted">Replacements, refunds and price changes: read our <a href="/refund-policy">Refund policy</a>.</p><h2>Service questions</h2><div class="grid">' + services.map((x) => '<a class="card" href="/plans/' + x.slug + '"><h3>' + esc(x.name) + '</h3><div class="muted">Plans, prices &amp; questions</div></a>').join('') + '</div>' +
     '<div class="cta"><h2 style="margin-top:0">Still have a question?</h2><p>Open the app and tap Help to chat with us on WhatsApp.</p><a class="btn" href="/">Open FluxFilm</a></div>';
   return layout({
     path: '/faq', services,
@@ -423,6 +425,78 @@ async function aboutPage() {
   });
 }
 
+// ---------- refund policy (owner's policy, 15 Sep 2026) ----------
+// Plain HTML (no DB text). The refund methods describe refunds.js: refund credit ("coins", ₹1 = 1, pays up to the full
+// price), personal RF coupon (single use, this phone, 180 days), and a cash refund where the customer picks coins
+// +BONUS_PERCENT or a UPI ID (email code first). Keep this page, the FAQ answer and REFUND-POLICY.md saying the same.
+const REFUND_UPDATED = '15 Sep 2026';
+let refundsModForPolicy = null;
+function refundBonusPercent() {
+  if (refundsModForPolicy === null) { try { refundsModForPolicy = require('./refunds'); } catch (_) { refundsModForPolicy = false; } }
+  const n = refundsModForPolicy && Number(refundsModForPolicy.BONUS_PERCENT);
+  return n > 0 && n < 100 ? Math.round(n) : 0;
+}
+function refundPolicyBody() {
+  const bonus = refundBonusPercent();
+  const p = (t) => '<p>' + t + '</p>';
+  const section = (title, html) => '<h2>' + title + '</h2><div class="card">' + html + '</div>';
+  return '<div class="rp"><div class="card sum"><h2>In short</h2><ul class="list">' +
+      '<li>Delivery is instant, so there is no refund just because you changed your mind after delivery.</li>' +
+      '<li>Login not working? We give you a replacement. If we can’t replace it, we refund you within 24 hours.</li>' +
+      '<li>Plans that are not instant are delivered within 48 hours — or you can claim a full refund with no charge.</li>' +
+      '<li>Refunds are paid as coins or a coupon (extra value) or as cash to your UPI (the exact amount).</li>' +
+    '</ul></div>' +
+    section('Instant delivery',
+      p('Most FluxFilm plans are delivered instantly: your login appears on screen as soon as your UPI payment is confirmed, and we email you a copy.') +
+      p('Because you get your plan right away, we can’t give a refund just because you changed your mind after delivery.')) +
+    section('Account not working? We replace it',
+      p('If your login stops working, or there is any other problem with your account, tell us and we will give you a <b>replacement account</b>.') +
+      p('Only if we don’t have enough accounts to replace it, we <b>refund you within the next 24 hours</b>.')) +
+    section('Manual delivery (48 hours)',
+      p('Some plans are not instant — our team activates them for you. These plans are delivered <b>within 48 hours</b> of your payment.') +
+      p('If a manual plan is not delivered within 48 hours, you can claim a <b>full refund with no charge</b>.')) +
+    section('Refunds in the middle of a plan',
+      p('If your plan was delivered and you want a refund part-way through the period, you can ask for one.') +
+      p('Our team decides the refund amount based on how much of the plan you have used (a usage charge). We tell you the amount before we refund.')) +
+    section('Changes made by streaming services',
+      p('We only provide accounts that have an active subscription. What that subscription includes is set by the streaming service or subscription provider, and they can change it. For example, Netflix may lower Premium video quality or change features.') +
+      p('Changes like these are out of our hands, so they are <b>not a reason for a full refund</b>. If you want a refund because of such a change, it is handled like a refund in the middle of a plan (subject to a usage charge).')) +
+    section('Price changes',
+      p('Our prices can change. A price change <b>does not affect the period you have already paid for</b>.') +
+      p('The new price applies only when you renew, or when you buy again after your period ends.')) +
+    section('How refunds are paid',
+      '<ul class="list">' +
+        '<li><b>🪙 Coins (refund credit)</b> — added to your FluxFilm account. ₹1 = 1 coin, and refund credit can pay the full price of any plan or renewal.' + (bonus ? ' When we offer you a cash refund and you choose coins instead, you get <b>' + bonus + '% extra</b>.' : '') + '</li>' +
+        '<li><b>🎟️ Coupon</b> — a personal coupon for your phone number, used once, valid for 180 days. You find it in Account → Coupons.</li>' +
+        '<li><b>🏦 Cash to your UPI</b> — the exact refund amount, sent to the UPI ID you give us. No extra is added to cash refunds.</li>' +
+      '</ul>' +
+      p('Coins and coupons can give you more value than you paid; cash is always the exact refund amount.')) +
+    section('How to request a refund',
+      '<ol class="steps">' +
+        '<li>Open FluxFilm and tap <b>Help</b>, or email <a href="mailto:support@fluxfilm.in">support@fluxfilm.in</a>. Tell us your phone number, your order ID if you have it, and what went wrong.</li>' +
+        '<li>Our team checks your order and replies. Sometimes we start the refund ourselves — for example, when a plan can’t be delivered.</li>' +
+        '<li>For a cash refund, sign in to FluxFilm with your phone number. The app asks how you want it: ' + (bonus ? 'coins with ' + bonus + '% extra, ' : 'coins, ') + 'or money to your UPI ID.</li>' +
+        '<li>If you choose UPI, type your UPI ID when the app asks. For your safety we email you a 6-digit code first. We then send the refund and let you know.</li>' +
+      '</ol>') +
+    section('Contact',
+      p('Email <a href="mailto:support@fluxfilm.in">support@fluxfilm.in</a> or tap <b>Help</b> in the FluxFilm app.') +
+      p('<a href="/faq">Read the FAQ</a> · <a href="/">Open FluxFilm</a>')) +
+    '<p class="muted" style="margin-top:20px">Last updated ' + REFUND_UPDATED + '.</p></div>';
+}
+async function refundPolicyPage() {
+  let services = [];
+  try { services = servicesOf(await catalogData({ waitMs: 2500 })); } catch (_) { services = []; }
+  return layout({
+    path: '/refund-policy', services,
+    title: 'Refund Policy — Replacements & Refunds | FluxFilm',
+    description: 'FluxFilm refund policy: instant delivery, a replacement if your login stops working, refunds as coins, coupon or UPI cash, and how to ask for one.',
+    h1: 'Refund policy', lead: 'Simple rules for replacements and refunds on FluxFilm. Last updated ' + REFUND_UPDATED + '.',
+    crumbs: '<a href="/">Home</a> › Refund policy',
+    ld: [{ '@type': 'WebPage', '@id': SITE + '/refund-policy', name: 'FluxFilm refund policy', url: SITE + '/refund-policy', inLanguage: 'en-IN', dateModified: '2026-09-15', publisher: { '@id': SITE + '/#org' } }, breadcrumbLd([['Home', '/'], ['Refund policy', '/refund-policy']])],
+    body: refundPolicyBody(),
+  });
+}
+
 function robotsTxt() {
   return ['User-agent: *', 'Allow: /', 'Disallow: /panel', 'Disallow: /admin', 'Disallow: /api', 'Disallow: /profile-photo', 'Disallow: /version', 'Disallow: /__debug', 'Disallow: /clearcache', '', 'Sitemap: ' + SITE + '/sitemap.xml', ''].join('\n');
 }
@@ -432,7 +506,7 @@ async function sitemapXml() {
   const newest = (feed.posts || []).map((p) => s(p.date).slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().pop();
   const urls = [['/', STARTED, '1.0'], ['/plans', STARTED, '0.9']]
     .concat(services.map((x) => ['/plans/' + x.slug, STARTED, '0.8']))
-    .concat([['/faq', STARTED, '0.6'], ['/whats-new', newest && newest > STARTED ? newest : STARTED, '0.6'], ['/about', STARTED, '0.4']]);
+    .concat([['/faq', STARTED, '0.6'], ['/whats-new', newest && newest > STARTED ? newest : STARTED, '0.6'], ['/about', STARTED, '0.4'], ['/refund-policy', STARTED, '0.4']]);
   return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
     urls.map((u) => '  <url><loc>' + SITE + esc(u[0]) + '</loc><lastmod>' + u[1] + '</lastmod><priority>' + u[2] + '</priority></url>').join('\n') + '\n</urlset>\n';
 }
@@ -463,7 +537,7 @@ function mount(app) {
   };
   // Trailing slashes / capitals → the one canonical address.
   app.use((req, res, next) => {
-    const m = req.method === 'GET' || req.method === 'HEAD' ? req.path.match(/^\/(plans|faq|whats-new|about)(\/|\.html)$/i) : null;
+    const m = req.method === 'GET' || req.method === 'HEAD' ? req.path.match(/^\/(plans|faq|whats-new|about|refund-policy)(\/|\.html)$/i) : null;
     if (!m) return next();
     res.redirect(301, '/' + m[1].toLowerCase());
   });
@@ -471,6 +545,9 @@ function mount(app) {
   app.get('/faq', wrap(faqPage));
   app.get('/whats-new', wrap(whatsNewPage));
   app.get('/about', wrap(aboutPage));
+  app.get('/refund-policy', wrap(refundPolicyPage));
+  // Short / guessed addresses for the refund policy → the one canonical page (fixed target, input never echoed).
+  app.get(/^\/(refunds?|refund_policy|refundpolicy|return-policy|cancellation-policy)\/?$/i, (_req, res) => res.redirect(301, '/refund-policy'));
   app.get('/plans/:slug', async (req, res) => {
     const raw = String(req.params.slug || '');
     const slug = serviceSlug(raw);
@@ -493,6 +570,6 @@ function mount(app) {
 
 module.exports = {
   mount, decorateIndex, serviceSlug, servicesOf, indexDescription, robotsTxt, sitemapXml,
-  plansPage, servicePage, faqPage, whatsNewPage, aboutPage, clearCache, esc, ldJson, durationLabel, catalogData,
+  plansPage, servicePage, faqPage, whatsNewPage, aboutPage, refundPolicyPage, clearCache, esc, ldJson, durationLabel, catalogData,
   SITE, GENERAL_FAQ, _internal: { store, postImage, devicesOf, typeOf, monthly },
 };
