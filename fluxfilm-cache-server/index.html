@@ -13362,6 +13362,10 @@ function App() {
   }
   // Olivia's "Open My plans" button (olivia.js widget) uses the same path as the My plans tab.
   window.ffGoMyPlans = goLoggedHome;
+  // Olivia's "Open Buy page" button (2+ device plans): that service's plans, or the Buy screen.
+  window.ffGoBuy = service => service ? nav('buy2', {
+    service
+  }) : nav('buy1', {});
   function recoverFromCard(sub) {
     navReset('recover', {
       preSelectedSub: sub

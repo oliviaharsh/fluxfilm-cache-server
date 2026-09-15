@@ -435,6 +435,11 @@ app.get('/olivia-avatar.jpg', (_req, res) => {
   res.set('Cache-Control', 'public, max-age=604800');
   res.type('image/jpeg').sendFile(path.join(__dirname, 'olivia-avatar.jpg'));
 });
+// Olivia's full photo (900 px) for "tap the photo" in her profile.
+app.get('/olivia-photo.jpg', (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=604800');
+  res.type('image/jpeg').sendFile(path.join(__dirname, 'olivia-photo.jpg'));
+});
 // -- Installable app: manifests, service worker, icons (pwa.js) — before the storefront catch-all --
 try { require('./pwa').mount(app); } catch (e) { console.log('[pwa] not mounted:', e.message); }
 // SEO (seo.js): /robots.txt, /sitemap.xml, /og-image.png and the crawlable /plans, /plans/<service>, /faq, /whats-new, /about pages.

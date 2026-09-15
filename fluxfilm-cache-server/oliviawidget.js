@@ -15,7 +15,9 @@
   var API = '/api';
   var WA = 'https://wa.me/message/UWTAS2ZMVF4QJ1';
   var MIN_TYPING_MS = 500;
-  var st = { phone: '', enabled: false, checkedFor: '', wa: WA, convId: '', lang: '', messages: [], busy: false, typing: false, pollTimer: null, open: false };
+  var THEMES = { store: 'FluxFilm', whatsapp: 'WhatsApp' };
+  function themeNow() { try { var v = localStorage.getItem('ff_olivia_theme'); return THEMES[v] ? v : 'store'; } catch (e) { return 'store'; } }
+  var st = { theme: themeNow(), phone: '', enabled: false, checkedFor: '', wa: WA, convId: '', lang: '', messages: [], busy: false, typing: false, pollTimer: null, open: false };
 
   function phoneNow() {
     try {
@@ -101,7 +103,7 @@
     '.ffo-opt b{display:block;font-size:16px;color:#0f172a}.ffo-opt div>span{display:block;font-size:13px;color:#64748b;font-weight:600}.ffo-opt i{font-style:normal;font-size:30px}' +
     '.ffo-opt.ai{border-color:#25d366;background:#f0fdf4}' +
     // WhatsApp-style chat
-    '.ffo-panel{position:fixed;inset:0;bottom:auto;height:100%;height:100dvh;overscroll-behavior:contain;z-index:91;display:flex;flex-direction:column;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Plus Jakarta Sans",sans-serif;background-color:#efeae2;' +
+    '.ffo-panel{position:fixed;inset:0;bottom:auto;height:100%;height:100dvh;overscroll-behavior:contain;z-index:91;display:flex;flex-direction:column;font-family:"Plus Jakarta Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background-color:#efeae2;' +
       'background-image:radial-gradient(rgba(0,0,0,.035) 1.2px,transparent 1.3px),radial-gradient(rgba(0,0,0,.025) 1px,transparent 1.1px);background-size:22px 22px,34px 34px;background-position:0 0,11px 17px}' +
     '@media(min-width:700px){.ffo-panel{inset:auto 20px 20px auto;width:400px;height:min(700px,calc(100dvh - 40px));border-radius:18px;box-shadow:0 20px 60px rgba(15,23,42,.3);overflow:hidden}}' +
     '.ffo-top{display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 10px 8px;background:#008069;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.15)}' +
@@ -172,6 +174,48 @@
     '.ffo-pline i{font-style:normal;font-size:20px;width:26px;text-align:center;flex:none}.ffo-pline b{display:block;font-size:15.5px;font-weight:600;color:#111b21}.ffo-pline span{display:block;font-size:14px;color:#667781;line-height:1.4}' +
     '.ffo-pchips{display:flex;gap:8px;flex-wrap:wrap}.ffo-pchip{border:1px solid #d1d7db;background:#fff;color:#111b21;border-radius:18px;padding:8px 14px;font:inherit;font-size:14.5px;cursor:pointer}.ffo-pchip.on{background:#d9fdd3;border-color:#00a884;color:#005c4b;font-weight:600}' +
     '.ffo-pwa{border:0;background:#fff;color:#008069;border-radius:12px;padding:14px;font:inherit;font-size:15.5px;font-weight:600;cursor:pointer;box-shadow:0 1px .5px rgba(11,20,26,.13);margin-bottom:8px}' +
+    // FluxFilm store style (default): the shop's white cards, slate text and green buttons. WhatsApp style = no class.
+    '.ffo-panel.t-store{background:#f1f5f9;background-image:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%)}' +
+    '.t-store .ffo-top{background:#fff;color:#0f172a;box-shadow:0 1px 0 rgba(15,23,42,.08)}.t-store .ffo-top b{font-weight:800}.t-store .ffo-top small{color:#16a34a;font-weight:700}' +
+    '.t-store .ffo-top .av{background:linear-gradient(135deg,#dcfce7,#22c55e);box-shadow:0 0 0 2px #fff,0 0 0 3.5px #86efac}' +
+    '.t-store .ffo-x{background:#f1f5f9;color:#334155}.t-store .ffo-who:active{background:#f1f5f9}.t-store .ffo-ai{background:#dcfce7;color:#15803d}' +
+    '.t-store .ffo-day{background:#e2e8f0;color:#475569;box-shadow:none;border-radius:999px;font-weight:700;text-transform:none;letter-spacing:.01em}' +
+    '.t-store .ffo-m{border-radius:18px;padding:9px 13px 21px;line-height:1.5;color:#0f172a;box-shadow:0 2px 8px rgba(15,23,42,.06)}.t-store .ffo-m::before{display:none}' +
+    '.t-store .ffo-m.o{background:#fff;border:1px solid rgba(15,23,42,.06);border-top-left-radius:6px}' +
+    '.t-store .ffo-m.c{background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff;border-top-right-radius:6px;box-shadow:0 4px 12px rgba(34,197,94,.25)}' +
+    '.t-store .ffo-m.cont{border-radius:18px}.t-store .ffo-m b{font-weight:800}.t-store .ffo-meta{color:#94a3b8}' +
+    '.t-store .ffo-m.c .ffo-meta,.t-store .ffo-m.c .ffo-tick,.t-store .ffo-m.c .ffo-tick.read{color:rgba(255,255,255,.9)}' +
+    '.t-store .ffo-typing{border-radius:18px;border-top-left-radius:6px;border:1px solid rgba(15,23,42,.06);box-shadow:0 2px 8px rgba(15,23,42,.06)}.t-store .ffo-typing::before{display:none}.t-store .ffo-typing i{background:#94a3b8}' +
+    '.t-store .ffo-btns{gap:8px;margin:8px 0 6px}' +
+    '.t-store .ffo-b{border:1.5px solid #e2e8f0;border-radius:14px;color:#0f172a;font-weight:700;box-shadow:0 1px 2px rgba(15,23,42,.04)}.t-store .ffo-b:active{background:#f0fdf4;border-color:#86efac}' +
+    '.t-store .ffo-card{border-radius:18px;border:1px solid rgba(15,23,42,.06);box-shadow:0 2px 8px rgba(15,23,42,.06)}.t-store .ffo-amt{font-weight:800}' +
+    '.t-store .ffo-upi{background:linear-gradient(135deg,#16a34a,#22c55e);border-radius:14px;font-weight:800}.t-store .ffo-copy{background:#f0fdf4;color:#15803d}' +
+    '.t-store .ffo-foot{background:#fff;border-top:1px solid #e2e8f0;padding-top:8px}' +
+    '.t-store .ffo-in{background:#f8fafc;border:1.5px solid #e2e8f0;box-shadow:none;font-weight:500}.t-store .ffo-in:focus{border-color:#22c55e;background:#fff}' +
+    '.t-store .ffo-send{background:linear-gradient(135deg,#16a34a,#22c55e);box-shadow:0 6px 16px rgba(34,197,94,.35)}' +
+    '.t-store .ffo-menu{border-radius:16px;border:1px solid rgba(15,23,42,.08)}.t-store .ffo-menu button{color:#0f172a;font-weight:600}' +
+    '.t-store .ffo-back{color:#15803d;border:1px solid #e2e8f0;box-shadow:none;border-radius:999px}.t-store .ffo-viewbar b{font-weight:800;color:#0f172a}' +
+    '.t-store .ffo-hist,.t-store .ffo-empty{border-radius:18px;border:1px solid rgba(15,23,42,.06);box-shadow:0 2px 8px rgba(15,23,42,.05)}.t-store .ffo-chip.done{background:#dcfce7;color:#15803d}' +
+    '.t-store .ffo-plist{background:transparent}' +
+    '.t-store .ffo-prof,.t-store .ffo-psec,.t-store .ffo-pwa{border-radius:22px;border:1px solid rgba(15,23,42,.06);box-shadow:0 2px 10px rgba(15,23,42,.05)}' +
+    '.t-store .ffo-pname{font-weight:800}.t-store .ffo-ponline{color:#16a34a}.t-store .ffo-plabel{color:#15803d;font-weight:800}' +
+    '.t-store .ffo-pact{border-radius:16px;color:#15803d;font-weight:700}.t-store .ffo-pchip{font-weight:600}.t-store .ffo-pchip.on{background:#dcfce7;border-color:#22c55e;color:#15803d}.t-store .ffo-pwa{color:#15803d;font-weight:800}' +
+    // Chat style picker (profile)
+    '.ffo-styles{display:grid;grid-template-columns:1fr 1fr;gap:10px}' +
+    '.ffo-style{border:2px solid #e2e8f0;background:#fff;border-radius:16px;padding:8px;font:inherit;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:6px}' +
+    '.ffo-style.on{border-color:#22c55e;box-shadow:0 0 0 3px #dcfce7}.ffo-style>b{font-size:14px;color:#0f172a;display:flex;justify-content:space-between;align-items:center}.ffo-style>b i{font-style:normal;color:#16a34a}' +
+    '.ffo-mini{border-radius:10px;height:66px;padding:0 0 6px;display:flex;flex-direction:column;gap:4px;overflow:hidden}' +
+    '.ffo-mini s{display:block;height:12px;flex:none}.ffo-mini u{display:block;height:12px;border-radius:7px;width:58%;margin:0 7px}.ffo-mini u+u{align-self:flex-end;width:48%}' +
+    '.ffo-mini.store{background:#f1f5f9}.ffo-mini.store s{background:#fff;border-bottom:1px solid #e2e8f0}.ffo-mini.store u{background:#fff;border:1px solid #e2e8f0}.ffo-mini.store u+u{background:linear-gradient(135deg,#16a34a,#22c55e);border:0}' +
+    '.ffo-mini.wa{background:#efeae2}.ffo-mini.wa s{background:#008069}.ffo-mini.wa u{background:#fff;border-radius:4px}.ffo-mini.wa u+u{background:#d9fdd3}' +
+    // Full photo
+    '.ffo-pav{cursor:zoom-in;border:0;padding:0}' +
+    '.ffo-photo{position:fixed;inset:0;z-index:95;background:#0b141a;display:flex;flex-direction:column;font-family:"Plus Jakarta Sans",ui-sans-serif,system-ui,sans-serif;color:#fff}' +
+    '.ffo-photo-top{display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 12px 10px}.ffo-photo-top b{font-size:17px;font-weight:700;flex:1}' +
+    '.ffo-photo-top button{border:0;background:rgba(255,255,255,.12);color:#fff;width:42px;height:42px;border-radius:50%;font-size:24px;line-height:1;cursor:pointer}' +
+    '.ffo-photo-img{flex:1;min-height:0;display:grid;place-items:center;padding:12px}.ffo-photo-img img{max-width:100%;max-height:100%;width:auto;height:auto;border-radius:12px;display:block}' +
+    '.ffo-photo-cap{text-align:center;font-size:13px;color:#aebac1;padding:6px 16px calc(18px + env(safe-area-inset-bottom))}' +
+    '.ffo-photo[hidden]{display:none!important}' +
     '.ffo-menu[hidden],.ffo-foot[hidden]{display:none!important}' +
     '.ffo-panel[hidden],.ffo-bg[hidden]{display:none!important}';
   function injectCss() {
@@ -179,7 +223,8 @@
     var el = document.createElement('style'); el.id = 'ffo-css'; el.textContent = css; document.head.appendChild(el);
   }
   function h(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-  function openLink(kind) {
+  function openLink(kind, btn) {
+    if (kind === 'buysite') { closeChat(); if (typeof window.ffGoBuy === 'function') { try { window.ffGoBuy((btn && btn.service) || ''); } catch (e) {} } return; }
     if (kind === 'myplans') { closeChat(); if (typeof window.ffGoMyPlans === 'function') { try { window.ffGoMyPlans(); } catch (e) {} } return; }
     var url = kind === 'helper' ? (typeof NETFLIX_HOUSEHOLD_LINK !== 'undefined' ? NETFLIX_HOUSEHOLD_LINK : '') : st.wa; // eslint-disable-line no-undef
     if (!url) url = st.wa;
@@ -192,6 +237,7 @@
   }
   // Olivia's photo (AI-generated, 256 px, ~12 KB). If it cannot load, the robot emoji stays.
   var AVATAR = '/olivia-avatar.jpg?v=1';
+  var PHOTO = '/olivia-photo.jpg?v=1';
   function avatarEl(size) {
     var box = h('div', 'av' + (size === 'big' ? ' big' : ''), '\uD83E\uDD16');
     var img = h('img'); img.alt = 'Olivia'; img.width = 84; img.height = 84; img.decoding = 'async';
@@ -235,7 +281,7 @@
     st.phone = phoneNow(); load();
     audioCtx(); // opened by a tap: the browser now allows the reply sounds
     if (ui) { ui.panel.hidden = false; st.open = true; render(); return; }
-    var panel = h('div', 'ffo-panel'); panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Chat with Olivia');
+    var panel = h('div', 'ffo-panel' + (st.theme === 'store' ? ' t-store' : '')); panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Chat with Olivia');
     var top = h('div', 'ffo-top');
     var who = h('button', 'ffo-who'); who.type = 'button'; who.setAttribute('aria-label', 'Open Olivia\'s profile');
     who.appendChild(avatarEl());
@@ -307,7 +353,9 @@
   function renderProfile(list) {
     list.appendChild(viewBar('Profile', function () { st.view = 'chat'; render(); }));
     var head = h('div', 'ffo-prof');
-    var big = avatarEl(); big.className = 'av ffo-pav'; head.appendChild(big);
+    var big = avatarEl(); big.className = 'av ffo-pav'; big.setAttribute('role', 'button'); big.tabIndex = 0; big.setAttribute('aria-label', 'See Olivia\'s photo');
+    big.onclick = openPhoto; big.onkeydown = function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPhoto(); } };
+    head.appendChild(big);
     var nm = h('div', 'ffo-pname', 'Olivia'); nm.appendChild(aiTag()); head.appendChild(nm);
     head.appendChild(h('div', 'ffo-prole', 'FluxFilm store assistant'));
     head.appendChild(h('div', 'ffo-ponline', '\u25CF online'));
@@ -348,9 +396,49 @@
     langs.appendChild(chips);
     list.appendChild(langs);
 
+    var look = h('div', 'ffo-psec');
+    look.appendChild(h('div', 'ffo-plabel', 'Chat style'));
+    var grid = h('div', 'ffo-styles');
+    ['store', 'whatsapp'].forEach(function (k) {
+      var b = h('button', 'ffo-style' + (st.theme === k ? ' on' : '')); b.type = 'button'; b.setAttribute('aria-pressed', st.theme === k ? 'true' : 'false');
+      var mini = h('span', 'ffo-mini ' + (k === 'store' ? 'store' : 'wa')); mini.appendChild(h('s')); mini.appendChild(h('u')); mini.appendChild(h('u'));
+      b.appendChild(mini);
+      var lbl = h('b', null, THEMES[k]); if (st.theme === k) lbl.appendChild(h('i', null, '\u2713')); b.appendChild(lbl);
+      b.onclick = function () { setTheme(k); };
+      grid.appendChild(b);
+    });
+    look.appendChild(grid);
+    list.appendChild(look);
+
     var wa = h('button', 'ffo-pwa', '\uD83D\uDCAC WhatsApp our team'); wa.type = 'button'; wa.onclick = function () { openLink('whatsapp'); };
     list.appendChild(wa);
   }
+  function setTheme(k) {
+    st.theme = THEMES[k] ? k : 'store';
+    try { localStorage.setItem('ff_olivia_theme', st.theme); } catch (e) {}
+    if (ui) ui.panel.className = 'ffo-panel' + (st.theme === 'store' ? ' t-store' : '');
+    render();
+  }
+  /** Olivia's photo, full size (tap anywhere, the close button or Esc to go back). */
+  var photoEl = null;
+  function openPhoto() {
+    if (!photoEl) {
+      photoEl = h('div', 'ffo-photo'); photoEl.setAttribute('role', 'dialog'); photoEl.setAttribute('aria-label', 'Olivia\'s photo');
+      var bar = h('div', 'ffo-photo-top');
+      var nm = h('b', null, 'Olivia'); nm.appendChild(aiTag()); bar.appendChild(nm);
+      var x = h('button', null, '\u00D7'); x.type = 'button'; x.setAttribute('aria-label', 'Close photo'); bar.appendChild(x);
+      var box = h('div', 'ffo-photo-img');
+      var img = h('img'); img.alt = 'Olivia, FluxFilm AI assistant'; img.src = AVATAR;
+      var full = new Image(); full.onload = function () { img.src = full.src; }; full.src = PHOTO;
+      box.appendChild(img);
+      photoEl.appendChild(bar); photoEl.appendChild(box);
+      photoEl.appendChild(h('div', 'ffo-photo-cap', 'AI-generated photo \u00B7 Olivia is FluxFilm\'s AI assistant'));
+      photoEl.onclick = closePhoto;
+      document.body.appendChild(photoEl);
+    }
+    photoEl.hidden = false;
+  }
+  function closePhoto() { if (photoEl) photoEl.hidden = true; }
   function viewBar(title, onBack) {
     var bar = h('div', 'ffo-viewbar');
     var back = h('button', 'ffo-back', '\u2190 Back'); back.type = 'button'; back.onclick = onBack;
@@ -396,7 +484,11 @@
     ui.list.scrollTop = ui.list.scrollHeight;
   }
   if (window.visualViewport) { window.visualViewport.addEventListener('resize', fitToKeyboard); window.visualViewport.addEventListener('scroll', fitToKeyboard); }
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && st.open) closeChat(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (photoEl && !photoEl.hidden) return closePhoto();
+    if (st.open) closeChat();
+  });
 
   function copyBtn(value) {
     var b = h('button', 'ffo-copy', 'Copy'); b.type = 'button';
@@ -465,7 +557,7 @@
         m.buttons.forEach(function (b) {
           var el = h('button', 'ffo-b', b.label); el.type = 'button'; el.disabled = st.busy;
           el.onclick = function () {
-            if (b.link) return openLink(b.link);
+            if (b.link) return openLink(b.link, b);
             if (b.url) return openUrl(b.url);
             if (b.id.indexOf('lang:') === 0) { st.lang = b.id.slice(5); save(); }
             talk({ choice: b.id }, b.label);
