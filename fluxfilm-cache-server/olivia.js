@@ -185,9 +185,15 @@ function entities(text, plans) {
 function globalIntentOf(text) {
   const t = String(text || '').toLowerCase().trim();
   if (/^(in )?(english|hinglish|hindi|हिंदी)( (me|mein|please|pls|main))?( (baat|bolo|batao|karo))*$/.test(t)) return 'lang:' + (/hinglish/.test(t) ? 'hinglish' : /hindi|हिंदी/.test(t) ? 'hi' : 'en');
-  if (/coupon|cupon|coupan|promo|voucher|discount code|offer code|\bcode\b.*(apply|lagao|lagana|use|dalna|daalna|hai)|(apply|use|lagao|lagana).*\bcode\b/.test(t)) return 'coupon';
+  // After-sale help (training run 3). A TV / household code and a login OTP are not coupon codes.
+  const household = HOUSEHOLD_RE.test(t);
+  if (!household && /\b(otp|o\.t\.p)\b|ओटीपी/.test(t)) return 'otp';
+  if (!household && /coupon|cupon|coupan|promo|voucher|discount code|offer code|\bcode\b.*(apply|lagao|lagana|use|dalna|daalna|hai)|(apply|use|lagao|lagana).*\bcode\b/.test(t)) return 'coupon';
   // Refund (training run 2): never cancelled or promised by Olivia; the team decides on WhatsApp.
   if (/\brefund|rifund|paise? wapas|paisa wapas|money back|return (my|the) money|रिफंड|पैसे वापस/.test(t)) return 'refund';
+  // "Payment kar diya, login nahi mila" / "paise kat gaye": before the price words ("₹99 pay kiya") and the login words.
+  if (PAID_RE.test(t) && (NOT_GOT_RE.test(t) || /kat gay|kat gy|deduct|debit|कट गए|कट गये/.test(t))) return 'paidnotgot';
+  if (household) return 'household';
   if (/(change|badal|badlo|dusra|doosra|another|different|wrong|galat).{0,12}(plan|pack)|cancel|nahi chahiye|don'?t want/.test(t)) return 'change';
   if (/renew|रिन्यू/.test(t)) return 'renew';
   // Off-script questions from the team's chats (training run 2). "Band ho gaya" comes before the price words ("pehle chal raha
@@ -195,8 +201,8 @@ function globalIntentOf(text) {
   if (!/\b(pay|payment|upi|qr|gpay|g pay|paytm|phone ?pe|bhim|coupon|code|website|site|app|password|pasword|pass|login|log in|household|house hold)\b|tv code|not part of/.test(t) && /band ho|bnd ho|stop(ped)? working|not working|nahi chal (raha|rahi|rha)|nhi chal (raha|rahi|rha)|chal nahi (raha|rahi)|chal nhi (rha|rahi)|log ?out ho|logged out|signed out|kaam nahi kar|khul nahi (raha|rahi)|nahi khul|बंद हो गया|नहीं चल रहा/.test(t)) return 'stopped';
   if (/cheap|sasta|saste|kam (kar|price|daam)|discount|less price|best price|mehnga|mahanga|expensive|costly|earlier|pehle|before|last time|pichli baar|group offer|₹\s?\d+|\brs\.?\s?\d+|\d+\s?(rs|rupees|rupay)\b|kitne ka|kitna (hai|lagega)|price|rate|daam/.test(t)) return 'price';
   if (/\b(for|at|in|mein|me|mai|ka|ki|only|sirf|just)\s+\d{2,4}\b(?!\s*(months?|mahin|din|days?|years?|saal|device))/.test(t) || /\b\d{2,4}\s*(rs|rupees?|rupay|inr|ka|ki|mein|me|mai)\b/.test(t) || (/\b(bought|buy|liya|kharida|paid|mila)\b/.test(t) && /\b\d{2,4}\b(?!\s*(months?|mahin|din|days?|years?|saal|device))/.test(t))) return 'price';
-  if (/\b(password|pasword|passwrd|passwod|pass|login|log in|id pass|sign in)\b|पासवर्ड|लॉगिन/.test(t) && /bhul|bhool|forgot|forget|yaad nahi|nahi mil|nhi mil|not (working|opening)|wrong|galat|incorrect|chahiye|chaiye|\bdo\b|de do|dedo|send|bhejo|kya hai|kaha|kahan|nahi chal|nhi chal|kaam nahi|khul nahi|reset|new|naya|nahi ho|nhi ho|not able|can.?t|भूल|नहीं/.test(t)) return 'login';
-  if (/household|house hold|tv code|not part of|घर/.test(t)) return 'household';
+  if (/\b(password|pasword|passwrd|passwod|pass|login|log in|id pass|sign in|signin)\b|पासवर्ड|लॉगिन/.test(t) && /bhul|bhool|forgot|forget|yaad nahi|nahi mil|nhi mil|not (working|opening)|wrong|galat|glt|incorrect|invalid|chahiye|chaiye|\bdo\b|de do|dedo|send|bhejo|kya hai|kaha|kahan|nahi chal|nhi chal|kaam nahi|khul nahi|reset|new|naya|nahi ho|nhi ho|not able|unable|can.?t|problem|issue|error|भूल|नहीं|गलत/.test(t)) return 'login';
+  if (/घर/.test(t)) return 'household';
   // Buying questions the team answers every day on WhatsApp (training run 1): when the login comes, how to pay, TV.
   if (/\b(login|log in|id|id pass(word)?|password|details|credentials?)\b.{0,25}\b(kab|when|kitni der|kitne (der|time|min))\b|\b(kab|when|how (long|soon|fast)|kitni der)\b.{0,25}\b(login|id|password|details|credentials?)\b|लॉगिन कब/.test(t)) return 'whenlogin';
   if (!/nahi|nhi|not|fail|error|problem|issue|kat gay|deduct/.test(t) && (/\b(gpay|g pay|google ?pay|phone ?pe|paytm|bhim|upi|scanner)\b.{0,25}(chalega|chalta|hoga|ho jayega|accept|works?|le lete|lete ho|\?)|\b(payment|pay)\b.{0,20}\b(kaise|how|method|mode|options?|kis se|kisse)\b|\b(credit|debit) card\b|\bcard se\b|net ?banking/.test(t))) return 'paymethod';
@@ -270,6 +276,10 @@ function detectLang(text) {
   if (eng >= 2 && hing === 0) return 'en';
   return '';
 }
+// After-sale words (training run 3). Netflix household / TV code, "paid but the login did not come".
+const HOUSEHOLD_RE = /household|house ?hold|हाउसहोल्ड|tv code|not part of|(\btv\b|t\.v|टीवी).{0,25}\bcode\b|\bcode\b.{0,25}(\btv\b|टीवी)|travell?ing|watch temporarily/;
+const PAID_RE = /\b(paid|payment (ho gaya|ho gya|hogaya|hogya|kar diya|kr diya|kar di|kr di|kiya|kia|done)|pay (kar|kr) (diya|di|dia|chuka|chuki)|pay kiya|pay kia|paise? kat|paisa kat|money (deducted|debited|cut)|amount (deducted|debited|kat)|deducted|debited)|पेमेंट (कर दिया|हो गया|किया)|पे कर दिया|पैसे कट/;
+const NOT_GOT_RE = /(nahi|nhi|nahin|na) (mila|mili|aaya|aya|aayi|aai)|not (received|got|get|delivered|come|came)|did ?n.?t (get|receive|come)|have ?n.?t (got|received)|no login|नहीं (मिला|मिली|आया)/;
 const QUESTION_RE = /\?\s*$|^(does|do|is|are|can|will|how|what|why|when|which|kya|kaise|kyun|kyu|kab|kitna)\b/i;
 const PLAIN_PRICE_RE = /kitne ka|kitne ki|kitna (hai|lagega|padega|hoga)|kitne (rupay|rupaye|paise)|\bprice\b|\brate\b|\bdaam\b|\bcost\b|how much|कितने का|कीमत/i;
 const NOT_PLAIN_PRICE_RE = /cheap|sasta|saste|discount|\bkam\b|mehnga|mahanga|expensive|costly|earlier|pehle|before|last time|pichli|group|offer|\d/i;
@@ -310,7 +320,7 @@ async function logMsg(convId, role, intent, body, meta, ai) {
 // ── the decision: one turn ──
 function btn(id, lang, label) { return { id, label: label || words.buttonLabel(id, lang) }; }
 function urlBtn(id, lang, url) { return { id, label: words.buttonLabel(id, lang), url }; }
-const LINK_BUTTONS = { whatsapp: 'whatsapp', helper: 'helper', myplans: 'myplans', buysite: 'buysite' };
+const LINK_BUTTONS = { whatsapp: 'whatsapp', helper: 'helper', myplans: 'myplans', buysite: 'buysite', recover: 'recover', getotp: 'otp' };
 /** "2 devices", "3 screens", "do phone" → 2. 0 when the customer did not ask for more than one device. */
 function devicesWanted(text) {
   const DEV = '(devices?|dvices?|screens?|phones?|mobiles?|logins?|log ins?|डिवाइस|स्क्रीन|फ़ोन|फोन|मोबाइल)';
@@ -472,10 +482,74 @@ function advance(st, cat, lang, profile) {
 
 function menuReply(st, lang, name) {
   st.step = 'menu';
-  return { intent: 'GREET_MENU', facts: { name: firstName(name) }, buttons: ['buy', 'renew', 'household', 'other'].map((id) => btn(id, lang)) };
+  return { intent: 'GREET_MENU', facts: { name: firstName(name) }, buttons: ['buy', 'renew', 'support', 'household', 'other'].map((id) => btn(id, lang)) };
 }
 const firstName = (n) => s(n).split(/\s+/)[0].replace(/[^\p{L}.'-]/gu, '').slice(0, 20);
-function resetPurchase(st) { for (const k of ['service', 'variant', 'days', 'plan', 'extraValue', 'options', 'title', 'price', 'coupon', 'groupJoined', 'flow', 'renew', 'renewSubs', 'renewOptions', 'devices', 'deviceServices']) delete st[k]; }
+function resetPurchase(st) { for (const k of ['service', 'variant', 'days', 'plan', 'extraValue', 'options', 'title', 'price', 'coupon', 'groupJoined', 'flow', 'renew', 'renewSubs', 'renewOptions', 'devices', 'deviceServices', 'helpKind', 'helpServices', 'helpService']) delete st[k]; }
+
+// ── after-sale help (training run 3) ──
+// Sources: brain/procedures/access-recovery.md, netflix-household.md, service-interruption.md, payment-without-order-id.md.
+// Olivia never shows, fetches or asks for a login, password, OTP or household code: she sends the customer to the shop's own
+// self-service (My plans, Recover, Get OTP, Household Helper) or to the team. The only record she reads is the customer's own
+// plan list (the same read as My plans), for the one owner-approved rule: an expired plan is told it expired and offered renewal
+// (Harsh, 5 Sep 2026, access-recovery owner decision 2).
+const SUPPORT_KINDS = new Set(['login', 'household', 'stopped', 'otp', 'paidnotgot']);
+const famKey = (service) => familyOf(service).replace(/[^a-z0-9]/g, '');
+/** A service whose login is FluxFilm's phone number + OTP (its plan's own device rule says so, e.g. JioHotstar). */
+const isOtpService = (plans, service) => !!service && (plans || []).some((p) => p && famKey(p.service) === famKey(service) && /\botp\b/i.test(s(p.deviceRuleText)));
+const hasDays = (x) => x && x.daysLeft !== null && x.daysLeft !== undefined && x.daysLeft !== '' && Number.isFinite(Number(x.daysLeft));
+async function supportReplies(c, ctx, kind, service) {
+  const st = c.state; const lang = c.lang; const plans = ctx.cat.plans || [];
+  if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true;
+  if (!st.paused) st.step = 'info';
+  delete st.helpKind; delete st.helpServices; delete st.helpService;
+  const wa = btn('whatsapp', lang);
+  const reply = (r) => [Object.assign(r, { buttons: withBackToPay(st, lang, r.buttons.concat([btn('menu', lang)])) })];
+  let svc = service || '';
+  if (!svc && kind === 'household') svc = servicesOf(plans).find((x) => famKey(x) === 'netflix') || 'Netflix';
+  // 1. The team's silent check first: does this number have that plan, and is it still running? (Read-only, nothing is shown.)
+  if (kind !== 'paidnotgot') {
+    let r = null;
+    try { r = await tools().mySubscriptions(c.phone); } catch (e) { r = null; }
+    if (r && r.ok !== false && (Array.isArray(r.actionable) || Array.isArray(r.history))) {
+      const actionable = (r.actionable || []).filter((x) => x && s(x.service));
+      const subs = actionable.concat((r.history || []).filter((x) => x && s(x.service)));
+      ctx.meta.push({ tool: 'mySubscriptions', count: subs.length, for: kind });
+      const fams = [...new Set(subs.map((x) => famKey(x.service)))];
+      if (!svc && fams.length === 1) svc = subs[0].service;
+      if (!svc && fams.length > 1 && (kind === 'login' || kind === 'stopped')) {
+        // "Konsa subscription?" — the one question the team asks when a customer has more than one plan.
+        const names = fams.map((f) => subs.find((x) => famKey(x.service) === f).service.split(' (')[0]).slice(0, 6);
+        st.helpKind = kind; st.helpServices = names;
+        return reply({ intent: 'HELP_WHICH_PLAN', buttons: names.map((n, i) => btn('help:' + i, lang, n)).concat([wa]) });
+      }
+      if (svc) {
+        const name = svc.split(' (')[0];
+        const mine = subs.filter((x) => famKey(x.service) === famKey(svc));
+        if (!mine.length) return reply({ intent: 'NO_PLAN_ON_NUMBER', facts: { service: name }, buttons: [wa, btn('buy', lang)] });
+        if (mine.every((x) => hasDays(x) && Number(x.daysLeft) < 0)) {
+          const latest = mine.slice().sort((a, b) => Number(b.daysLeft) - Number(a.daysLeft))[0];
+          const renew = actionable.some((x) => famKey(x.service) === famKey(svc) && x.subId);
+          st.helpService = name;
+          return reply({ intent: 'PLAN_EXPIRED', facts: { service: name, days: -Number(latest.daysLeft), renew }, buttons: [btn(renew ? 'renew' : 'buy', lang), wa] });
+        }
+      }
+    }
+  }
+  // 2. The team's first step for this problem (self-service first, the team on WhatsApp after).
+  const name = svc ? svc.split(' (')[0] : '';
+  const netflix = famKey(svc) === 'netflix';
+  const otpSvc = isOtpService(plans, svc);
+  if (kind === 'paidnotgot') return reply({ intent: 'PAID_NOT_RECEIVED', buttons: [btn('myplans', lang), btn('recover', lang), wa] });
+  if (kind === 'household') return reply({ intent: 'HOUSEHOLD_HELPER', buttons: [btn('helper', lang), wa] });
+  if ((kind === 'otp' && (!svc || otpSvc)) || (kind === 'login' && otpSvc)) return reply({ intent: 'OTP_HELP', facts: { service: otpSvc ? name : '' }, buttons: [btn('getotp', lang), btn('myplans', lang), wa] });
+  if (kind === 'stopped') {
+    const hh = !svc || netflix;
+    return reply({ intent: 'STOPPED_WORKING', facts: { household: hh, otp: otpSvc }, buttons: [btn('myplans', lang), btn('recover', lang)].concat(hh ? [btn('helper', lang)] : [], otpSvc ? [btn('getotp', lang)] : [], [wa]) });
+  }
+  // Login / password problems (and "OTP" for a service that logs in with an ID + password, like Netflix).
+  return reply({ intent: 'LOGIN_HELP', facts: { service: name, household: netflix }, buttons: [btn('myplans', lang), btn('recover', lang)].concat(netflix ? [btn('helper', lang)] : [], [wa]) });
+}
 
 // Buttons that create, change or cancel an order: only an explicit tap or clear words, never an AI guess.
 const MONEY_BUTTONS = new Set(['pay', 'paid', 'change', 'rchange', 'cantpay', 'nocoupon', 'switch', 'twin', 'joined', 'normal']);
@@ -629,7 +703,7 @@ function factPack(st, ctx, lang) {
   const where = PAY_STEPS.has(st.step) ? 'The customer has an unpaid order of ' + words.rupees(st.amount) + ' open and is on the payment step.' : st.plan ? 'The customer is choosing ' + st.title + '.' : 'The customer has not chosen a plan yet.';
   return [
     'Live plans and prices:', lines.join('\n') || '- (not loaded)', where,
-    'Sharing = lowest price, you watch on a shared profile. Private = your own profile that only you use. Both play in the same quality. FluxFilm rules: payment is by UPI QR and is checked automatically from the bank; the login is delivered right after payment and emailed. Coupons can be applied before paying (tap "Apply coupon"). Group Offer plans are cheaper but need joining the FluxFilm WhatsApp group. Renewals: My plans → Renew. The exact end date of a plan is shown in My plans. Refunds, replacement accounts and extra days are decided only by the FluxFilm team. Netflix household or TV code problems: Household Helper. Olivia cannot see or share old passwords; use My plans or Recover. For anything else the FluxFilm team helps on WhatsApp.',
+    'Sharing = lowest price, you watch on a shared profile. Private = your own profile that only you use. Both play in the same quality. FluxFilm rules: payment is by UPI QR and is checked automatically from the bank; the login is delivered right after payment and emailed. Coupons can be applied before paying (tap "Apply coupon"). Group Offer plans are cheaper but need joining the FluxFilm WhatsApp group. Renewals: My plans → Renew. The exact end date of a plan is shown in My plans. Refunds, replacement accounts and extra days are decided only by the FluxFilm team. Netflix household or TV code problems: first "Update household" on the TV or phone, then the Household Helper. Olivia cannot see, share or ask for passwords, OTPs or codes; the latest login is in My plans → Recover (verified by a code sent to the customer\'s email). JioHotstar / Zee5 / SonyLiv login OTP: Get OTP tool. Paid but no login: My plans, then Recover, then the team on WhatsApp with the payment screenshot. For anything else the FluxFilm team helps on WhatsApp.',
   ].join('\n');
 }
 
@@ -754,8 +828,8 @@ async function turn(c, input, ctx) {
     else if (st.step === 'backup_name' && !g && !intentOf(text) && /^[\p{L} .'-]{2,60}$/u.test(text)) action = 'payer:' + text;
     // 2. Things that can be asked at any moment.
     else if (g === 'coupon') { action = 'coupon'; code = couponCodeIn(text, false); }
-    else if (!['change', 'renew', 'login', 'household', 'refund', 'stopped'].includes(g) && !PAY_STEPS.has(st.step) && (multi = devicesWanted(text)) >= 2) action = 'devices';
-    else if (g !== 'change' && g !== 'renew' && (priced = narrowToFamily(plansByPrice(text, ctx.cat.plans), st)).length) action = (priced.length === 1 && PICK_WORDS_RE.test(text) && !QUESTION_RE.test(text) && !/earlier|pehle|before|last time|bought|liya tha|kharida/i.test(text)) ? 'pricepick' : 'pricematch';
+    else if (!['change', 'renew', 'refund'].includes(g) && !SUPPORT_KINDS.has(g) && !PAY_STEPS.has(st.step) && (multi = devicesWanted(text)) >= 2) action = 'devices';
+    else if (g !== 'change' && g !== 'renew' && g !== 'refund' && !SUPPORT_KINDS.has(g) && (priced = narrowToFamily(plansByPrice(text, ctx.cat.plans), st)).length) action = (priced.length === 1 && PICK_WORDS_RE.test(text) && !QUESTION_RE.test(text) && !/earlier|pehle|before|last time|bought|liya tha|kharida/i.test(text)) ? 'pricepick' : 'pricematch';
     else if (g === 'change') action = 'change';
     else if (g === 'price') {
       ents = entities(text, ctx.cat.plans);
@@ -765,9 +839,12 @@ async function turn(c, input, ctx) {
       else if (plain && (ents.service || !currentPlan(st, ctx.cat))) action = 'pricefrom';
       else action = ents.service ? 'slots' : 'price';
     }
-    else if (g === 'renew' || g === 'household' || g === 'other' || g === 'login') { action = g; if (g === 'renew') ents = entities(text, ctx.cat.plans); }
+    else if (g === 'renew' || g === 'other') { action = g; if (g === 'renew') ents = entities(text, ctx.cat.plans); }
+    // After-sale help (training run 3). "Paid, login nahi mila" while this chat's own QR is open is simply a payment check.
+    else if (g === 'paidnotgot' && st.orderId && PAY_STEPS.has(st.step)) action = st.paused ? 'backpay_paid' : 'paid';
+    else if (SUPPORT_KINDS.has(g) && (g !== 'stopped' || !PAY_STEPS.has(st.step))) { action = g; ents = entities(text, ctx.cat.plans); }
     else if (g === 'whenlogin' || g === 'paymethod' || (g === 'tv' && st.step !== 'tv')) { action = g; ents = entities(text, ctx.cat.plans); }
-    else if (['validity', 'quality', 'devicecount', 'refund', 'trust'].includes(g) || (g === 'stopped' && !PAY_STEPS.has(st.step))) { action = g; ents = entities(text, ctx.cat.plans); }
+    else if (['validity', 'quality', 'devicecount', 'refund', 'trust'].includes(g)) { action = g; ents = entities(text, ctx.cat.plans); }
     // 3. The step's own answers.
     if (!action) {
       const it = intentOf(text);
@@ -830,9 +907,9 @@ async function turn(c, input, ctx) {
       const done = await paidAlready(c, ctx);
       if (done) return done;
       dropOrder(st);
-      return [{ intent: 'OLD_QR_CANCELLED' }].concat(await renewStart(c, ctx, ents.service));
+      return [{ intent: 'OLD_QR_CANCELLED' }].concat(await renewStart(c, ctx, ents.service || (choice && st.helpService)));
     }
-    return renewStart(c, ctx, ents.service);
+    return renewStart(c, ctx, ents.service || (choice && st.helpService)); // "Renew" after "your plan has ended": that plan
   }
   if (action.startsWith('rsub:')) { const x = (st.renewSubs || [])[Number(action.slice(5))]; if (!x) return renewStart(c, ctx); st.renew = Object.assign({}, x); delete st.coupon; return renewDurations(st, ctx, lang); }
   if (action.startsWith('rplan:')) {
@@ -876,22 +953,24 @@ async function turn(c, input, ctx) {
     st.step = 'devices_variant';
     return [{ intent: 'EXPLAIN_SHARING_VS_PRIVATE', facts: { sharing: one('sharing'), private: one('private') }, buttons: [btn('dvar:sharing', lang), btn('dvar:private', lang), btn('menu', lang)] }];
   }
-  if (action === 'household' || action === 'other' || action === 'login') {
+  if (action === 'other') {
     if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true;
-    const intent = action === 'household' ? 'HOUSEHOLD_HELPER' : action === 'login' ? 'LOGIN_HELP' : 'HANDOFF_TO_HUMAN';
-    const b = action === 'household' ? [btn('helper', lang), btn('whatsapp', lang)] : action === 'login' ? [btn('myplans', lang), btn('whatsapp', lang)] : [btn('whatsapp', lang)];
-    if (!st.paused) st.step = action === 'other' ? 'handoff' : 'info';
-    return [{ intent, buttons: withBackToPay(st, lang, b.concat([btn('menu', lang)])) }];
+    if (!st.paused) st.step = 'handoff';
+    return [{ intent: 'HANDOFF_TO_HUMAN', buttons: withBackToPay(st, lang, [btn('whatsapp', lang), btn('menu', lang)]) }];
   }
-  if (action === 'refund' || action === 'stopped') {
+  // After-sale help: login / password, household / TV code, "band ho gaya", OTP, paid but no login (menu: "Login / account problem").
+  if (SUPPORT_KINDS.has(action) || action === 'support') return supportReplies(c, ctx, action === 'support' ? 'login' : action, ents.service || '');
+  if (action.startsWith('help:')) {
+    const name = (st.helpServices || [])[Number(action.slice(5))];
+    const kind = SUPPORT_KINDS.has(st.helpKind) ? st.helpKind : 'login';
+    const svc = name ? ((ctx.cat.plans || []).map((p) => p.service).find((x) => famKey(x) === famKey(name)) || name) : '';
+    return supportReplies(c, ctx, kind, svc);
+  }
+  if (action === 'refund') {
     // Refunds, replacement accounts and extra days are never promised here: the team decides (brain/procedures/service-interruption.md).
-    // "Band ho gaya": the team's first step today is the latest login (the password changes) or the Netflix household steps.
     if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true;
-    const svc = ents.service || st.service || '';
-    const household = action === 'stopped' && (!svc || familyOf(svc) === 'netflix');
-    const b = action === 'refund' ? [btn('whatsapp', lang)] : [btn('myplans', lang)].concat(household ? [btn('helper', lang)] : [], [btn('whatsapp', lang)]);
-    if (!st.paused) st.step = action === 'refund' ? 'handoff' : 'info';
-    return [{ intent: action === 'refund' ? 'REFUND_TO_TEAM' : 'STOPPED_WORKING', facts: { household }, buttons: withBackToPay(st, lang, b.concat([btn('menu', lang)])) }];
+    if (!st.paused) st.step = 'handoff';
+    return [{ intent: 'REFUND_TO_TEAM', buttons: withBackToPay(st, lang, [btn('whatsapp', lang), btn('menu', lang)]) }];
   }
   if (action === 'trust') {
     // "Safe / legal / original hai?": no rule to answer from, so no AI claim either; the team answers on WhatsApp, buying can go on.

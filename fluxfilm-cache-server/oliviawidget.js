@@ -226,6 +226,9 @@
   function openLink(kind, btn) {
     if (kind === 'buysite') { closeChat(); if (typeof window.ffGoBuy === 'function') { try { window.ffGoBuy((btn && btn.service) || ''); } catch (e) {} } return; }
     if (kind === 'myplans') { closeChat(); if (typeof window.ffGoMyPlans === 'function') { try { window.ffGoMyPlans(); } catch (e) {} } return; }
+    // After-sale help (training run 3): the shop's own Recover screen and Get OTP tool (the customer verifies there, not in the chat).
+    if (kind === 'recover') { closeChat(); if (typeof window.ffGoRecover === 'function') { try { window.ffGoRecover(); } catch (e) {} } return; }
+    if (kind === 'otp') { closeChat(); if (typeof window.ffGoOtp === 'function') { try { window.ffGoOtp(); } catch (e) {} } return; }
     var url = kind === 'helper' ? (typeof NETFLIX_HOUSEHOLD_LINK !== 'undefined' ? NETFLIX_HOUSEHOLD_LINK : '') : st.wa; // eslint-disable-line no-undef
     if (!url) url = st.wa;
     try { var w = window.open(url, '_blank'); if (w) w.opener = null; else location.href = url; } catch (e) { location.href = url; }

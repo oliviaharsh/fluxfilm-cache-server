@@ -153,10 +153,12 @@ const T = {
     hinglish: () => 'Ji, renew ke liye My plans kholiye.\nApne plan par Renew dabaiye.',
     hi: () => 'जी, रिन्यू के लिए My plans खोलिए।\nअपने प्लान पर Renew दबाइए।',
   },
+  // Training run 3 (brain/procedures/netflix-household.md): the steps have an ORDER. The code only exists after the TV / phone asks
+  // Netflix for it, so the device step is said first ("pehle website pe jaoge toh code nahi milega").
   HOUSEHOLD_HELPER: {
-    en: () => 'No problem 🙏\nNetflix says "not part of your household", or the TV asks for a code?\nOpen the Household Helper and follow the steps.',
-    hinglish: () => 'Koi baat nahi ji 🙏\nNetflix "not part of your household" bol raha hai, ya TV code maang raha hai?\nHousehold Helper kholiye aur steps follow kijiye.',
-    hi: () => 'कोई बात नहीं जी 🙏\nNetflix "not part of your household" बोल रहा है, या TV कोड माँग रहा है?\nHousehold Helper खोलिए और स्टेप्स फॉलो कीजिए।',
+    en: () => 'No problem 🙏 This is Netflix\'s household check. Please do it in this order:\n1. On the TV or phone, first tap "Update household" (or "I\'m travelling / Watch temporarily"), then "Send email".\n2. Then open the Household Helper, get the code and type it on the TV or phone.\nIf you open the Helper first, it will not find the code.',
+    hinglish: () => 'Koi baat nahi ji 🙏 Yeh Netflix ka household check hai, is order mein kijiye:\n1. TV ya phone par pehle "Update household" (ya "I\'m travelling / Watch temporarily") dabaiye, phir "Send email".\n2. Uske baad Household Helper kholiye, code lijiye aur TV ya phone par daal dijiye.\nPehle Helper kholenge to code nahi milega.',
+    hi: () => 'कोई बात नहीं जी 🙏 यह Netflix का household चेक है, इसी क्रम में कीजिए:\n1. TV या फ़ोन पर पहले "Update household" (या "I\'m travelling / Watch temporarily") दबाइए, फिर "Send email"।\n2. उसके बाद Household Helper खोलिए, कोड लीजिए और TV या फ़ोन पर डाल दीजिए।\nपहले Helper खोलेंगे तो कोड नहीं मिलेगा।',
   },
   GROUP_JOIN: {
     en: (f) => (f.title ? 'Oh, the ' + rupees(f.price) + ' plan is our Group Offer 👥\n' + f.title : f.service + ' is our cheaper Group Offer 👥') + '\nThis price is only for members of the FluxFilm WhatsApp group.\nPlease join the group first (button below), then tap "I have joined".' + (f.normalPrice ? '\n\nDo not want to join? The normal plan is ' + rupees(f.normalPrice) + '.' : ''),
@@ -354,10 +356,41 @@ const T = {
     hinglish: (f) => 'Ji, payment UPI se hota hai.\nKisi bhi UPI app (Google Pay, PhonePe, Paytm, BHIM…) se QR scan kar lijiye.' + (f.card ? '\nKoi aur tareeka chahiye to WhatsApp par team se poochiye.' : '') + (f.paying ? '\nAapka QR upar hai.' : '\nPlan chunne ke baad main QR bhejti hoon.'),
     hi: (f) => 'जी, पेमेंट UPI से होता है।\nकिसी भी UPI ऐप (Google Pay, PhonePe, Paytm, BHIM…) से QR स्कैन कर लीजिए।' + (f.card ? '\nकोई और तरीका चाहिए तो WhatsApp पर टीम से पूछिए।' : '') + (f.paying ? '\nआपका QR ऊपर है।' : '\nप्लान चुनने के बाद मैं QR भेजती हूँ।'),
   },
+  // Training run 3 (brain/procedures/access-recovery.md): self-service first — My plans → Recover, verified by a code sent to the
+  // customer's own email. Olivia never shows, fetches or asks for a login in the chat.
   LOGIN_HELP: {
-    en: () => 'No problem 🙏 Your login is always saved in "My plans".\nOpen My plans and tap your plan to see it.\nIt is also in the email we sent after payment.\nStill not working? Our team will help you on WhatsApp.',
-    hinglish: () => 'Koi baat nahi ji 🙏 Aapka login hamesha "My plans" mein saved rehta hai.\nMy plans kholiye aur apne plan par tap kijiye.\nPayment ke baad wale email mein bhi hai.\nPhir bhi na chale to WhatsApp par team madad karegi.',
-    hi: () => 'कोई बात नहीं जी 🙏 आपका लॉगिन हमेशा "My plans" में सेव रहता है।\nMy plans खोलिए और अपने प्लान पर टैप कीजिए।\nपेमेंट के बाद वाले ईमेल में भी है।\nफिर भी न चले तो WhatsApp पर टीम मदद करेगी।',
+    en: (f) => 'Sorry for the trouble 🙏\n' + (f.service ? 'The ' + f.service + ' login' : 'The login') + ' can change sometimes.\nOpen My plans, tap Recover on your plan and type the code sent to your email: your latest login is shown there.' + (f.household ? '\nNetflix asking for a household or TV code? Open the Household Helper.' : '') + '\nStill not working? Our team will check it on WhatsApp.',
+    hinglish: (f) => 'Sorry ji, pareshani ke liye 🙏\n' + (f.service ? f.service + ' ka login' : 'Login') + ' kabhi-kabhi badalta hai.\nMy plans kholkar apne plan par Recover dabaiye aur email par aaya code daaliye: latest login wahin dikh jayega.' + (f.household ? '\nNetflix household ya TV code maang raha hai? Household Helper kholiye.' : '') + '\nPhir bhi na chale to WhatsApp par team check karegi.',
+    hi: (f) => 'माफ़ कीजिए जी, परेशानी के लिए 🙏\n' + (f.service ? f.service + ' का लॉगिन' : 'लॉगिन') + ' कभी-कभी बदलता है।\nMy plans खोलकर अपने प्लान पर Recover दबाइए और ईमेल पर आया कोड डालिए: नया लॉगिन वहीं दिख जाएगा।' + (f.household ? '\nNetflix household या TV कोड माँग रहा है? Household Helper खोलिए।' : '') + '\nफिर भी न चले तो WhatsApp पर टीम चेक करेगी।',
+  },
+  // JioHotstar / Zee5 / SonyLiv log in with FluxFilm's number + OTP: the shop's own Get OTP tool (Tools → Get OTP).
+  OTP_HELP: {
+    en: (f) => 'You can get the OTP yourself, anytime 😊\n1. In the ' + (f.service ? f.service + ' ' : '') + 'app, type your login number (forgot it? tap Recover in My plans).\n2. When the app asks for the OTP, open Get OTP here, pick your plan and tap "Get OTP".\nPlease do not send the OTP to anyone.',
+    hinglish: (f) => 'Ji, OTP aap khud kabhi bhi le sakte hain 😊\n1. ' + (f.service ? f.service + ' app' : 'App') + ' mein apna login number daaliye (bhool gaye? My plans mein Recover dabaiye).\n2. Jab app OTP maange, yahan Get OTP kholiye, apna plan chuniye aur "Get OTP" dabaiye.\nOTP kisi ko bhejiye mat.',
+    hi: (f) => 'जी, OTP आप खुद कभी भी ले सकते हैं 😊\n1. ' + (f.service ? f.service + ' ऐप' : 'ऐप') + ' में अपना लॉगिन नंबर डालिए (भूल गए? My plans में Recover दबाइए)।\n2. जब ऐप OTP माँगे, यहाँ Get OTP खोलिए, अपना प्लान चुनिए और "Get OTP" दबाइए।\nOTP किसी को भेजिए मत।',
+  },
+  // brain/procedures/payment-without-order-id.md: never "payment verified" from a chat; the website order first, then the team.
+  PAID_NOT_RECEIVED: {
+    en: () => 'Sorry for the trouble 🙏\nFirst open My plans: if your order is paid, the login is there (please check your email too).\nNot there? Tap Recover and verify with your phone number and email.\nStill nothing? Send the payment screenshot to our team on WhatsApp, the team will find your order and check it.',
+    hinglish: () => 'Sorry ji, pareshani ke liye 🙏\nPehle My plans kholiye: order paid hua hai to login wahin milega (email bhi dekh lijiye).\nWahan na dikhe to Recover dabakar phone number aur email se verify kijiye.\nPhir bhi na mile to WhatsApp par team ko payment ka screenshot bhejiye, team order dhoondhkar check karegi.',
+    hi: () => 'माफ़ कीजिए जी, परेशानी के लिए 🙏\nपहले My plans खोलिए: ऑर्डर पेड हुआ है तो लॉगिन वहीं मिलेगा (ईमेल भी देख लीजिए)।\nवहाँ न दिखे तो Recover दबाकर फ़ोन नंबर और ईमेल से वेरिफ़ाई कीजिए।\nफिर भी न मिले तो WhatsApp पर टीम को पेमेंट का स्क्रीनशॉट भेजिए, टीम ऑर्डर ढूँढकर चेक करेगी।',
+  },
+  // Owner rule (Harsh, 5 Sep 2026): the plan is checked silently; an expired one is told it expired and offered renewal.
+  PLAN_EXPIRED: {
+    en: (f) => 'I checked: your ' + f.service + ' plan ended ' + f.days + (f.days === 1 ? ' day' : ' days') + ' ago 🙏\nThat is why it is not working now.\nAlready renewed with our team? Please tell them on WhatsApp.' + (f.renew ? '\n\nShall we renew it?' : '\n\nWould you like to take a new plan?'),
+    hinglish: (f) => 'Ji, maine dekha: aapka ' + f.service + ' plan ' + f.days + ' din pehle khatam ho gaya hai 🙏\nIsliye abhi nahi chal raha.\nTeam se pehle hi renew karwa liya tha? To WhatsApp par bata dijiye.' + (f.renew ? '\n\nRenew kar dein?' : '\n\nNaya plan lena chahenge?'),
+    hi: (f) => 'जी, मैंने देखा: आपका ' + f.service + ' प्लान ' + f.days + ' दिन पहले खत्म हो गया है 🙏\nइसलिए अभी नहीं चल रहा।\nटीम से पहले ही रिन्यू करवा लिया था? तो WhatsApp पर बता दीजिए।' + (f.renew ? '\n\nरिन्यू कर दें?' : '\n\nनया प्लान लेना चाहेंगे?'),
+  },
+  // access-recovery owner decision 3a (Harsh, 5 Sep 2026): a number not on file → which number was it bought with.
+  NO_PLAN_ON_NUMBER: {
+    en: (f) => 'I cannot see a ' + f.service + ' plan on this phone number 🙏\nDid you buy it with another number? Then log in with that number and open My plans.\nOr tell our team on WhatsApp, they will help.',
+    hinglish: (f) => 'Ji, is number par ' + f.service + ' ka koi plan nahi dikh raha 🙏\nKisi aur number se liya tha? To us number se login karke My plans dekhiye.\nYa WhatsApp par team ko bataiye, team madad karegi.',
+    hi: (f) => 'जी, इस नंबर पर ' + f.service + ' का कोई प्लान नहीं दिख रहा 🙏\nकिसी और नंबर से लिया था? तो उस नंबर से लॉगिन करके My plans देखिए।\nया WhatsApp पर टीम को बताइए, टीम मदद करेगी।',
+  },
+  HELP_WHICH_PLAN: {
+    en: () => 'Sorry for the trouble 🙏\n\nWhich plan has the problem?',
+    hinglish: () => 'Sorry ji, pareshani ke liye 🙏\n\nKaunse plan mein problem hai?',
+    hi: () => 'माफ़ कीजिए जी, परेशानी के लिए 🙏\n\nकिस प्लान में समस्या है?',
   },
   // ── Training run 2: off-script questions the team gets every week, answered from the catalogue / fixed rules ──
   VALIDITY: {
@@ -381,9 +414,9 @@ const T = {
     hi: (f) => (f.service ? 'जी, ' + f.service + ' के प्लान में 4K नहीं लिखा है।' : 'जी, सर्विस बताइए, मैं उसका प्लान देख लेती हूँ।') + '\nक्वालिटी के लिए WhatsApp पर टीम पक्का कर देगी 🙏',
   },
   STOPPED_WORKING: {
-    en: (f) => 'Sorry for the trouble 🙏\nFirst open My plans and check your latest login (login details can change).' + (f.household ? '\nNetflix asks for household or a TV code? Use the Household Helper.' : '') + '\nStill not working? Our team will check it on WhatsApp.',
-    hinglish: (f) => 'Sorry ji, pareshani ke liye 🙏\nPehle My plans kholkar apna latest login dekh lijiye (login kabhi-kabhi badalta hai).' + (f.household ? '\nNetflix household ya TV code maang raha hai? Household Helper kholiye.' : '') + '\nPhir bhi na chale to WhatsApp par team check karegi.',
-    hi: (f) => 'माफ़ कीजिए जी, परेशानी के लिए 🙏\nपहले My plans खोलकर अपना नया लॉगिन देख लीजिए (लॉगिन कभी-कभी बदलता है)।' + (f.household ? '\nNetflix household या TV कोड माँग रहा है? Household Helper खोलिए।' : '') + '\nफिर भी न चले तो WhatsApp पर टीम चेक करेगी।',
+    en: (f) => 'Sorry for the trouble 🙏\nFirst open My plans and tap Recover on your plan to see your latest login (login details can change).' + (f.household ? '\nNetflix asks for household or a TV code? Use the Household Helper.' : '') + (f.otp ? '\nThe app asks for an OTP? Open Get OTP.' : '') + '\nStill not working? Our team will check it on WhatsApp.',
+    hinglish: (f) => 'Sorry ji, pareshani ke liye 🙏\nPehle My plans kholkar apne plan par Recover dabaiye, latest login wahin milega (login kabhi-kabhi badalta hai).' + (f.household ? '\nNetflix household ya TV code maang raha hai? Household Helper kholiye.' : '') + (f.otp ? '\nApp OTP maang raha hai? Get OTP kholiye.' : '') + '\nPhir bhi na chale to WhatsApp par team check karegi.',
+    hi: (f) => 'माफ़ कीजिए जी, परेशानी के लिए 🙏\nपहले My plans खोलकर अपने प्लान पर Recover दबाइए, नया लॉगिन वहीं मिलेगा (लॉगिन कभी-कभी बदलता है)।' + (f.household ? '\nNetflix household या TV कोड माँग रहा है? Household Helper खोलिए।' : '') + (f.otp ? '\nऐप OTP माँग रहा है? Get OTP खोलिए।' : '') + '\nफिर भी न चले तो WhatsApp पर टीम चेक करेगी।',
   },
   REFUND_TO_TEAM: {
     en: () => 'I understand 🙏\nRefunds are decided by our team, I cannot do it here.\nPlease message the team on WhatsApp with your order.',
@@ -449,6 +482,9 @@ const B = {
   myplans: { en: '🎬 Open My plans', hinglish: '🎬 My plans kholo', hi: '🎬 My plans खोलो' },
   whatsapp: { en: '💬 WhatsApp our team', hinglish: '💬 WhatsApp par team', hi: '💬 WhatsApp पर टीम' },
   helper: { en: '🏠 Open Household Helper', hinglish: '🏠 Household Helper kholo', hi: '🏠 Household Helper खोलो' },
+  support: { en: '🔐 Login / account problem', hinglish: '🔐 Login / account problem', hi: '🔐 लॉगिन / अकाउंट समस्या' },
+  recover: { en: '🔐 Open Recover', hinglish: '🔐 Recover kholo', hi: '🔐 Recover खोलो' },
+  getotp: { en: '📲 Open Get OTP', hinglish: '📲 Get OTP kholo', hi: '📲 Get OTP खोलो' },
 };
 function buttonLabel(id, lang, fallback) {
   const b = B[id];
