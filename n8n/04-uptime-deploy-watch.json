@@ -1,0 +1,929 @@
+{
+  "name": "FluxFilm · 04 Uptime + deploy watch",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🩺 FluxFilm uptime + deploy watch — SETUP\n**(a) Uptime** — every 5 minutes it calls `/n8n/api/health`. If the answer is not 200, takes over **5 s**, or the **database is down**, you get ONE alert. No more alerts until it is back; then a ✅ recovery message.\n**(b) Deploy watch** — when you push to `oliviaharsh/fluxfilm-cache-server` **main** (= merge a PR), it waits 4 min, then compares the sha256 of `server.js` + `index.html` at that commit with the fingerprint the live shop reports. Still different after 3 checks (12 min) → alert “Hostinger did not deploy — press Redeploy in hPanel”.\n\n1. Credentials: `FluxFilm n8n key` (Header Auth), `GitHub FluxFilm` (GitHub API, a token with repo read + webhook admin), `SMTP FluxFilm (Gmail app password)`. Optional: `Telegram FluxFilm bot`, `Pushover (optional)` then enable those nodes.\n2. Put your email in both **Email** nodes.\n3. GitHub webhook not possible (no admin rights / private network)? Disable **GitHub push to main** and enable the 3 nodes of **Poll GitHub every 10 min**.\n4. **Active** on. (The “already alerted” memory only works in active runs, not in manual test runs.)\nApp folder inside the repo is `fluxfilm-cache-server/` — change APP_DIR in **Commit info** if you move it.",
+        "height": 520,
+        "width": 560,
+        "color": 4
+      },
+      "id": "4e828999-3111-48a8-a649-cceafe96439f",
+      "name": "Setup: uptime and deploy watch",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -500,
+        -520
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "8ec8a2dd-cffc-4a3b-a69f-3e117dcaf1dc",
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { startedAt: Date.now() } }];"
+      },
+      "id": "698c6ec2-3f9f-46fd-ac9f-e4360dc3ecae",
+      "name": "Start timer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://shop.fluxfilm.in/n8n/api/health",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "11922f4f-2b93-4b91-a38b-79147921ee34",
+      "name": "Shop health",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "FluxFilm n8n key"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const ms = Date.now() - $('Start timer').first().json.startedAt;\nconst r = $input.first().json || {};\nconst code = Number(r.statusCode || 0);\nconst body = r.body || {};\nconst dbOk = !!(body.db && body.db.ok);\nlet problem = '';\nif (r.error || !code) problem = 'No answer (' + String((r.error && r.error.message) || r.error || 'timeout') + ')';\nelse if (code !== 200) problem = 'HTTP ' + code;\nelse if (!dbOk) problem = 'Database is DOWN' + (body.db && body.db.error ? ': ' + body.db.error : '');\nelse if (ms > 5000) problem = 'Very slow: ' + ms + ' ms';\nconst mem = $getWorkflowStaticData('global');\nconst wasDown = !!mem.down;\nconst down = !!problem;\nlet send = '';\nif (down && !wasDown) { mem.down = true; mem.since = new Date().toISOString(); send = 'down'; }\nif (!down && wasDown) { send = 'up'; mem.down = false; }\nconst since = mem.since || '';\nif (!down) mem.since = '';\nconst when = new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');\nconst text = send === 'down'\n  ? '🔴 FluxFilm shop problem (' + when + ' IST): ' + problem + '\\nhttps://shop.fluxfilm.in'\n  : '✅ FluxFilm shop is back (' + when + ' IST). Down since ' + since + '. Answer ' + ms + ' ms.';\nreturn [{ json: { send, problem, ms, code, dbOk, text } }];"
+      },
+      "id": "f86df38e-fc17-431f-a433-732a88ebb129",
+      "name": "Up or down?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "9718444c-8437-4b39-a519-dbe15f9827ac",
+              "leftValue": "={{ $json.send }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8768b665-0329-4ce3-a99d-df2e299aa2ff",
+      "name": "Alert needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "FluxFilm <REPLACE_WITH_SENDER@gmail.com>",
+        "toEmail": "REPLACE_WITH_OWNER_EMAIL@example.com",
+        "subject": "={{ $json.send === \"down\" ? \"🔴 FluxFilm shop DOWN\" : \"✅ FluxFilm shop back up\" }}",
+        "emailFormat": "html",
+        "html": "={{ $json.text }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "4802b700-b2bb-4f23-a614-bdffef1c791c",
+      "name": "Email: uptime alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1100,
+        -60
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_ME",
+          "name": "SMTP FluxFilm (Gmail app password)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "REPLACE_WITH_YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "e7e2b414-e2a9-415c-a57f-20420ed72d97",
+      "name": "Telegram: uptime alert (disabled)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        100
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Telegram FluxFilm bot"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "userKey": "REPLACE_WITH_PUSHOVER_USER_KEY",
+        "message": "={{ $json.text }}",
+        "priority": 1,
+        "additionalFields": {
+          "title": "FluxFilm uptime"
+        }
+      },
+      "id": "f68ecfef-86fb-4b1a-aace-94bcd35cf821",
+      "name": "Pushover: uptime alert (disabled)",
+      "type": "n8n-nodes-base.pushover",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        260
+      ],
+      "credentials": {
+        "pushoverApi": {
+          "id": "REPLACE_ME",
+          "name": "Pushover (optional)"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "owner": {
+          "__rl": true,
+          "mode": "name",
+          "value": "oliviaharsh"
+        },
+        "repository": {
+          "__rl": true,
+          "mode": "name",
+          "value": "fluxfilm-cache-server"
+        },
+        "events": [
+          "push"
+        ],
+        "options": {}
+      },
+      "id": "9a3101c0-dde1-401c-a6ea-de61df8857f1",
+      "name": "GitHub push to main",
+      "type": "n8n-nodes-base.githubTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        620
+      ],
+      "credentials": {
+        "githubApi": {
+          "id": "REPLACE_ME",
+          "name": "GitHub FluxFilm"
+        }
+      },
+      "webhookId": "752f5eb0-c8cf-40a8-a8a2-8f28ba86e84d"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cc978235-4263-4c6b-a3fa-c6768f4f05ef",
+              "leftValue": "={{ $json.body ? $json.body.ref : $json.ref }}",
+              "rightValue": "refs/heads/main",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5831c190-2216-4c07-a790-b891228299f5",
+      "name": "Is main branch?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        220,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/10 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "9b6d05c4-22fe-4fbb-a595-49360133c840",
+      "name": "Poll GitHub every 10 min (disabled)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        840
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/repos/oliviaharsh/fluxfilm-cache-server/commits/main",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      },
+      "id": "1a5b57b9-aee2-4bee-ae53-b63aa94adbb5",
+      "name": "Latest commit on main (disabled)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        840
+      ],
+      "credentials": {
+        "githubApi": {
+          "id": "REPLACE_ME",
+          "name": "GitHub FluxFilm"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const mem = $getWorkflowStaticData('global');\nconst sha = $input.first().json.sha;\nif (!sha || mem.lastSha === sha) return [];\nconst first = !mem.lastSha;\nmem.lastSha = sha;\nif (first) return []; // first run only remembers the current commit\nreturn [{ json: { after: sha, head_commit: { message: ($input.first().json.commit || {}).message || '' } } }];"
+      },
+      "id": "0653f620-2e3f-4584-adf1-f75d5e8cfe56",
+      "name": "New commit? (disabled)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        840
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Works for the GitHub trigger (body.after) and the polling path (after).\nconst APP_DIR = 'fluxfilm-cache-server/';\nconst j = $input.first().json;\nconst b = j.body || j;\nconst sha = String(b.after || '');\nif (!/^[0-9a-f]{40}$/.test(sha)) return [];\nconst message = String((b.head_commit && b.head_commit.message) || '').split('\\n')[0].slice(0, 120);\nreturn [{ json: { sha, short: sha.slice(0, 7), message, appDir: APP_DIR } }];"
+      },
+      "id": "0972763e-a76d-49d1-af75-b84e3addf557",
+      "name": "Commit info",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 4,
+        "unit": "minutes"
+      },
+      "id": "ed529e02-3d55-454e-aa4e-08f8bec2a7cd",
+      "name": "Wait 4 minutes",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        620
+      ],
+      "webhookId": "0a636b78-4484-4f5c-a766-487b8323a38f"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.github.com/repos/oliviaharsh/fluxfilm-cache-server/contents/' + $('Commit info').first().json.appDir + 'server.js?ref=' + $('Commit info').first().json.sha }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.raw"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "10177796-5af0-4987-ac81-6e8fc660b08f",
+      "name": "GitHub: server.js at commit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        620
+      ],
+      "credentials": {
+        "githubApi": {
+          "id": "REPLACE_ME",
+          "name": "GitHub FluxFilm"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "action": "hash",
+        "type": "SHA256",
+        "binaryData": true,
+        "binaryPropertyName": "data",
+        "dataPropertyName": "serverHash",
+        "encoding": "hex"
+      },
+      "id": "90fb6a67-059f-40c9-ad6e-7c0869d3d227",
+      "name": "sha256 server.js",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.github.com/repos/oliviaharsh/fluxfilm-cache-server/contents/' + $('Commit info').first().json.appDir + 'index.html?ref=' + $('Commit info').first().json.sha }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.raw"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "2e2ceea4-fa46-4bf5-abd6-edcd8a87e3d4",
+      "name": "GitHub: index.html at commit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        620
+      ],
+      "credentials": {
+        "githubApi": {
+          "id": "REPLACE_ME",
+          "name": "GitHub FluxFilm"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "action": "hash",
+        "type": "SHA256",
+        "binaryData": true,
+        "binaryPropertyName": "data",
+        "dataPropertyName": "indexHash",
+        "encoding": "hex"
+      },
+      "id": "3825b456-e2f2-4e71-a2bd-9961f2e6c34a",
+      "name": "sha256 index.html",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://shop.fluxfilm.in/n8n/api/health",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "449b475a-b02c-44fb-a6aa-bdcc74b2fc3b",
+      "name": "Live fingerprint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        620
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "FluxFilm n8n key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Commit info').first().json;\nconst want = { serverJs: String($('sha256 server.js').last().json.serverHash || '').slice(0, 12), indexHtml: String($('sha256 index.html').last().json.indexHash || '').slice(0, 12) };\nconst live = ($input.first().json && $input.first().json.build) || {};\nconst same = !!want.serverJs && want.serverJs === live.serverJs && want.indexHtml === live.indexHtml;\nconst tries = $runIndex + 1; // this node runs once per check (4, 8, 12 minutes)\nconst text = '⚠️ Hostinger did not deploy commit ' + c.short + ' (' + c.message + ') after ' + (tries * 4) + ' minutes.\\nGitHub server.js ' + want.serverJs + ' / index.html ' + want.indexHtml + '\\nLive     server.js ' + (live.serverJs || '?') + ' / index.html ' + (live.indexHtml || '?') + '\\n👉 Open hPanel → Websites → shop.fluxfilm.in → Node.js app → press Redeploy.';\nreturn [{ json: { same, tries, want, live, text, sha: c.sha } }];"
+      },
+      "id": "ec27d304-b252-4699-a30f-67270fd2a247",
+      "name": "Same build?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "8751a971-2cae-4282-af2b-fcf64e16b0ec",
+              "leftValue": "={{ $json.same }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d9e62b2c-58f9-4ebc-a54b-bd0f4b32671b",
+      "name": "Deployed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        620
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d10215f5-1f4f-4e56-a037-a66b7f397e86",
+      "name": "Deployed OK",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2640,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "d7fc99b8-9906-4003-ad30-5b15ad6c987c",
+              "leftValue": "={{ $json.tries }}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4a476134-d7f7-48b1-a09a-d3d82354ad53",
+      "name": "Check again?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 4,
+        "unit": "minutes"
+      },
+      "id": "f4b0d433-2485-405f-ad67-abda0688d22d",
+      "name": "Wait 4 more minutes",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2860,
+        880
+      ],
+      "webhookId": "bd19ce3b-3b47-4827-aa7c-d1146da2ed78"
+    },
+    {
+      "parameters": {
+        "fromEmail": "FluxFilm <REPLACE_WITH_SENDER@gmail.com>",
+        "toEmail": "REPLACE_WITH_OWNER_EMAIL@example.com",
+        "subject": "={{ '⚠️ FluxFilm: Hostinger did not deploy ' + $json.sha.slice(0, 7) }}",
+        "emailFormat": "html",
+        "html": "={{ '<pre style=\"font-family:system-ui;white-space:pre-wrap\">' + $json.text + '</pre>' }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "b8d829f8-d221-45fe-ae4d-01c1b9c4c211",
+      "name": "Email: deploy missing",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2860,
+        620
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_ME",
+          "name": "SMTP FluxFilm (Gmail app password)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "REPLACE_WITH_YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "28471aeb-840a-454e-aa02-35b7babd2c9e",
+      "name": "Telegram: deploy missing (disabled)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2860,
+        760
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Telegram FluxFilm bot"
+        }
+      },
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Every 5 minutes": {
+      "main": [
+        [
+          {
+            "node": "Start timer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start timer": {
+      "main": [
+        [
+          {
+            "node": "Shop health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shop health": {
+      "main": [
+        [
+          {
+            "node": "Up or down?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Up or down?": {
+      "main": [
+        [
+          {
+            "node": "Alert needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert needed?": {
+      "main": [
+        [
+          {
+            "node": "Email: uptime alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram: uptime alert (disabled)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Pushover: uptime alert (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub push to main": {
+      "main": [
+        [
+          {
+            "node": "Is main branch?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is main branch?": {
+      "main": [
+        [
+          {
+            "node": "Commit info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll GitHub every 10 min (disabled)": {
+      "main": [
+        [
+          {
+            "node": "Latest commit on main (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Latest commit on main (disabled)": {
+      "main": [
+        [
+          {
+            "node": "New commit? (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New commit? (disabled)": {
+      "main": [
+        [
+          {
+            "node": "Commit info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Commit info": {
+      "main": [
+        [
+          {
+            "node": "Wait 4 minutes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 4 minutes": {
+      "main": [
+        [
+          {
+            "node": "GitHub: server.js at commit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub: server.js at commit": {
+      "main": [
+        [
+          {
+            "node": "sha256 server.js",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sha256 server.js": {
+      "main": [
+        [
+          {
+            "node": "GitHub: index.html at commit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub: index.html at commit": {
+      "main": [
+        [
+          {
+            "node": "sha256 index.html",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sha256 index.html": {
+      "main": [
+        [
+          {
+            "node": "Live fingerprint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live fingerprint": {
+      "main": [
+        [
+          {
+            "node": "Same build?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Same build?": {
+      "main": [
+        [
+          {
+            "node": "Deployed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deployed?": {
+      "main": [
+        [
+          {
+            "node": "Deployed OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check again?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check again?": {
+      "main": [
+        [
+          {
+            "node": "Wait 4 more minutes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email: deploy missing",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram: deploy missing (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 4 more minutes": {
+      "main": [
+        [
+          {
+            "node": "GitHub: server.js at commit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "00aec46c-996c-4a9d-a24a-1a2e9429ab71",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

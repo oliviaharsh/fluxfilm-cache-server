@@ -16,11 +16,13 @@ const SCHEMA_MSG = 'Run db/schema-v14.sql in phpMyAdmin first.';
 // Paid but not delivered (refunded orders are REFUNDED, not PAID, so they drop out by themselves).
 const UNDELIVERED = "UPPER(o.status) = 'PAID' AND UPPER(COALESCE(o.fulfillment_status, '')) NOT IN ('FULFILLED', 'MANUAL_PENDING') AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.order_id = o.order_id) AND NOT (COALESCE(o.source, '') <> 'node' AND COALESCE(o.renew_sub_id, '') <> '' AND EXISTS (SELECT 1 FROM subscriptions r WHERE r.sub_id = o.renew_sub_id))";
 
-function mount(app, deps) {
-  const { db, auth, audit } = deps;
+/**
+ * The ✅ Today action list (items + open to-dos). Shared by GET /admin/api/today and the 📈 business summaries
+ * (reports.js "Pending" / stock / passwords), so both always show the same counts.
+ */
+async function buildToday(db, deps) {
+  deps = deps || {};
   const catalog = () => deps.catalog || require('./catalog');
-  const refunds = () => deps.refunds || require('./refunds');
-  const fail = (res, e) => res.status(missingTable(e) ? 409 : 500).json({ ok: false, needsSchema: missingTable(e), message: missingTable(e) ? SCHEMA_MSG : String((e && e.message) || e) });
   const one = async (sql, p) => { try { const r = await db.query(sql, p || []); return r[0] || {}; } catch (e) { return { error: e.message }; } };
   const many = async (sql, p) => { try { return await db.query(sql, p || []); } catch (e) { return []; } };
 
@@ -37,9 +39,6 @@ function mount(app, deps) {
     };
   };
 
-  app.get('/admin/api/today', async (req, res) => {
-    if (!auth(req, res)) return;
-    try {
       const [unpaid, undelivered, manual, ending, endingList, expiredOn, restock, unmatched, todos, stock, stuckList, upiRefunds, openOffers, manualLate, refundRequests] = await Promise.all([
         // Checkouts started on the new site in the last 3 days but not paid: worth a nudge.
         one("SELECT COUNT(*) n FROM orders WHERE UPPER(status) = 'CREATED' AND source = 'node' AND created_at_sheet > NOW() - INTERVAL 3 DAY"),
@@ -77,7 +76,7 @@ function mount(app, deps) {
       const out = Object.keys(levels).filter((k) => levels[k].stockLevel === 'OUT').map((k) => k.replace('|||', ' · '));
       const low = Object.keys(levels).filter((k) => levels[k].stockLevel === 'LOW').map((k) => k.replace('|||', ' · ') + ' (' + levels[k].stock + ')');
       const hasTodos = await db.query('SELECT 1 FROM admin_todos LIMIT 1').then(() => true, () => false);
-      res.json({
+      return ({
         ok: true,
         items: [
           { key: 'undelivered', icon: '⚠️', title: 'Paid but not delivered', count: +undelivered.n || 0, tone: 'bad', go: { view: 'orders', orders: 'undelivered' }, orders: Array.isArray(stuckList) ? stuckList : [] },
@@ -98,7 +97,16 @@ function mount(app, deps) {
         todos: hasTodos ? (todos || []) : null,
         needsSchema: !hasTodos,
       });
-    } catch (e) { fail(res, e); }
+}
+
+function mount(app, deps) {
+  const { db, auth, audit } = deps;
+  const refunds = () => deps.refunds || require('./refunds');
+  const fail = (res, e) => res.status(missingTable(e) ? 409 : 500).json({ ok: false, needsSchema: missingTable(e), message: missingTable(e) ? SCHEMA_MSG : String((e && e.message) || e) });
+
+  app.get('/admin/api/today', async (req, res) => {
+    if (!auth(req, res)) return;
+    try { res.json(await buildToday(db, deps)); } catch (e) { fail(res, e); }
   });
 
   app.get('/admin/api/todos', async (req, res) => {
@@ -194,4 +202,4 @@ function mount(app, deps) {
   });
 }
 
-module.exports = { mount };
+module.exports = { mount, buildToday };

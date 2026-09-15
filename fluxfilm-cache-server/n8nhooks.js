@@ -9,10 +9,10 @@
  *                         restart never sends the day twice; a missed 00:05 is caught up later that day)
  *   post.published        a What's new post became LIVE (published now, scheduled time reached, or TMDB auto-publish)
  *
- * Why a sweep and not a line inside every PAID update: there are five places that set PAID (order.js verify / free
- * checkout, credit.js, quickorders, admin order actions). One read-only sweep sees all of them and can never slow down,
- * block or break checkout. Overlap note: feat/owner-notifications-reports (admin push on paid orders) is not on main
- * yet; if it lands, both can keep their own "once" guards.
+ * Fired from the same "order became PAID" point as the owner push (order.js notifyOwnerPaid → ownernotify.js, and
+ * credit.js mark paid): that point only calls kick() (a sweep in ~3 s). The sweep reads orders.verified_at, keeps the
+ * once-per-order guard and also catches any PAID path that does not pass through that point. Nothing is awaited in
+ * checkout, so a slow or broken n8n can never block or break an order.
  *
  * Delivery: POST <webhook URL>/<event with - instead of .> (e.g. …/webhook/fluxfilm/order-paid), JSON body
  *   { eventId, event, createdAt, data }, headers X-FF-Event, X-FF-Event-Id, X-FF-Timestamp (unix s),
@@ -235,6 +235,18 @@ async function sweep(opts) {
 
 function status() { return { lastSweepAt: lastSweep.at, lastSweepError: lastSweep.error || undefined, eventsQueuedSinceStart: lastSweep.sent }; }
 
+// Called from the "order became PAID" point (order.js notifyOwnerPaid, next to ownernotify.js, and credit.js mark paid):
+// a sweep in ~3 s instead of up to 60 s. Only sets a timer (unref, debounced); never awaits, never throws.
+let kickTimer = null;
+function kick() {
+  try {
+    if (!timer || kickTimer) return false; // timers not started (tests, no DB) or a sweep is already coming
+    kickTimer = setTimeout(() => { kickTimer = null; sweep().catch(() => {}); }, 3000);
+    if (kickTimer.unref) kickTimer.unref();
+    return true;
+  } catch (_) { return false; }
+}
+
 let timer = null;
 function startTimer() {
   if (timer) return;
@@ -245,6 +257,6 @@ function startTimer() {
 }
 
 module.exports = {
-  send, sendTest, sweep, deliveries, status, startTimer, sign, eventUrl, STATE_KEY, LOG_KEY, RETRY_MS,
+  send, sendTest, sweep, kick, deliveries, status, startTimer, sign, eventUrl, STATE_KEY, LOG_KEY, RETRY_MS,
   _internal: { setTransport: (x) => { T = Object.assign({}, T, x); }, reset: () => { log = null; logDirty = false; logTimer = null; running = false; lastSweep.at = null; lastSweep.sent = 0; } },
 };

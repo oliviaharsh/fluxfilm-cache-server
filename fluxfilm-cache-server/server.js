@@ -692,6 +692,9 @@ try { if (feedMod && db.ENABLED) feedMod.startTimer({ audit: require('./audit').
 try { if (db.ENABLED) require('./subexpiry').startTimer(); } catch (e) { console.log('[subexpiry] not started:', e.message); }
 // Push renewal reminders (3 / 1 days before, expiry day, day after; 09:00-21:00 IST): every hour + 60 s after start.
 try { if (pushMod && db.ENABLED) require('./pushreminders').startTimer(); } catch (e) { console.log('[push] reminders not started:', e.message); }
+// 📊 Owner business summaries: daily 23:30 / weekly Sunday 23:45 / monthly last day 23:50 IST (times in admin), checked
+// every minute; a DB guard row per period stops double sends; missed by a restart → sent within 6 h, else skipped.
+try { if (db.ENABLED) require('./reports').startTimer(); } catch (e) { console.log('[reports] scheduler not started:', e.message); }
 // 📡 n8n webhooks (n8nhooks.js): order.paid / order.delivered / subscription.expired (00:05 IST) / post.published, every 60 s.
 // Sends nothing until a webhook URL is saved in admin → 🔗 Integrations; never touches the order flow.
 try { if (db.ENABLED) require('./n8nhooks').startTimer(); } catch (e) { console.log('[n8n hooks] not started:', e.message); }

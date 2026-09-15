@@ -309,6 +309,8 @@ function mount(app, deps) {
       if (!upd || upd.affectedRows !== 1) return res.status(409).json({ ok: false, changed: true, message: 'This credit changed meanwhile — reopen it and try again.' });
       let extra = {};
       if (r.action === 'PAID') extra = await afterPaid(deps, o, r.finalAmount);
+      // ✅ "Credit paid ₹X" on the owner's phones (ownernotify.js) — fire and forget, once per order.
+      if (r.action === 'PAID') { try { (deps.ownernotify || require('./ownernotify')).creditPaidLater(id, r.received); } catch (e) { console.log('[owner-alert] not loaded:', e.message); } try { require('./n8nhooks').kick(); } catch (_) {} }
       audit.record(req, { action: r.action === 'PAID' ? 'credit.paid' : 'credit.partial', entity: 'order', id, summary: r.message.replace(/^\W+\s*/, '') + ' · ' + s(o.service) + ' · ' + s(o.phone_norm), details: { amount: rupees(b.amount), method: s(b.method), ref: s(b.ref), mode: s(b.mode), note: s(b.note) } });
       res.json({ ok: true, orderId: id, status: r.status, received: r.received, left: r.left || 0, message: r.message, coins: extra.coins || null });
     } catch (e) { fail(res, e); }

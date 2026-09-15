@@ -1,0 +1,329 @@
+{
+  "name": "FluxFilm · 02 Win-back (email)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🎁 FluxFilm win-back — SETUP\n**Every day 11:00 India time** it asks the shop for customers whose last plan ended **15 days** ago and **30 days** ago (no active plan, not renewed, not emailed for that campaign in 60 days, not unsubscribed).\nThe shop makes each one a **personal one-use coupon** (only their phone, 7 days; % / ₹ set in admin → 🔗 Integrations) and gives a link that fills the coupon in.\n\n1. Same credentials as workflow 01: `FluxFilm n8n key` (Header Auth) + `SMTP FluxFilm (Gmail app password)`.\n2. Put your sender in **Send win-back email** → From.\n3. **Execute workflow** once (it creates real coupons for real customers and emails them — test first with the Send Email node pointed at your own address if you want). Then **Active** on.\n\nWhatsApp node is **disabled** (see README). Every email has an unsubscribe link (required for offers).",
+        "height": 440,
+        "width": 520,
+        "color": 4
+      },
+      "id": "155561b3-cfc9-47ba-a49b-99cc2a0f7d73",
+      "name": "Setup: win-back",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 11 * * *"
+            }
+          ]
+        }
+      },
+      "id": "c2f5e457-ad01-4532-a159-a868a95c9f0f",
+      "name": "Every day 11:00 IST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 15 days → WB15, 30 days → WB30 (different words + coupon).\nreturn [ { json: { afterDays: 15 } }, { json: { afterDays: 30 } } ];"
+      },
+      "id": "2fd4a9e3-657f-47ff-af24-5aada2b2d094",
+      "name": "Campaigns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://shop.fluxfilm.in/n8n/api/winback",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "afterDays",
+              "value": "={{ $json.afterDays }}"
+            },
+            {
+              "name": "windowDays",
+              "value": "3"
+            },
+            {
+              "name": "limit",
+              "value": "50"
+            }
+          ]
+        }
+      },
+      "id": "228db837-d9e2-4fda-aeac-f501c313dab3",
+      "name": "Get win-back customers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "FluxFilm n8n key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "items",
+        "options": {}
+      },
+      "id": "a31625c4-1b33-452c-a892-783da12ae9b3",
+      "name": "One item per customer",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "f9518c98-d260-490d-acd0-90a1f71aef4a",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e61e019c-be81-4f43-a59f-978fce166b58",
+      "name": "Has email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst esc = (v) => String(v == null ? '' : v).replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst button = (url, label) => '<p style=\"margin:22px 0\"><a href=\"' + esc(url) + '\" style=\"display:inline-block;background:#e11d48;color:#ffffff;text-decoration:none;padding:14px 26px;border-radius:12px;font-weight:700;font-size:16px\">' + esc(label) + '</a></p>';\nconst layout = (title, bodyHtml, unsubscribeUrl) =>\n  '<div style=\"font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:520px;margin:auto;color:#0f172a\">' +\n  '<h2 style=\"color:#e11d48;margin:0 0 6px\">' + esc(title) + '</h2>' + bodyHtml +\n  '<p style=\"color:#64748b;font-size:13px;margin-top:22px\">Need help? Just reply to this email or message us on WhatsApp. 💚<br>— Team FluxFilm</p>' +\n  (unsubscribeUrl ? '<p style=\"color:#94a3b8;font-size:11px;margin-top:18px\">Don\\'t want these emails? <a href=\"' + esc(unsubscribeUrl) + '\" style=\"color:#94a3b8\">Unsubscribe</a></p>' : '') +\n  '</div>';\n\nconst x = $json;\nconst name = esc(x.greetingName || 'there');\nconst svc = esc(x.lastService);\nlet subject, title, body;\nif (x.campaign === 'WB15') {\n  subject = '🎁 ' + (x.greetingName && x.greetingName !== 'there' ? x.greetingName + ', ' : '') + 'a little gift to come back — ' + x.offer;\n  title = 'Kaafi din ho gaye! 👋';\n  body = '<p>Hi ' + name + ',</p><p>Your <b>' + svc + '</b> plan ended on ' + esc(x.lastEndedText) + '. New shows and movies are waiting for you. 🍿</p>' +\n    '<p>Here is a <b>personal coupon</b> just for you: <b style=\"font-size:18px;letter-spacing:1px\">' + esc(x.couponCode) + '</b> — <b>' + esc(x.offer) + '</b>, valid till ' + esc(x.couponExpiryText) + '.</p>' +\n    '<p>Tap the button, the coupon is filled in for you.</p>';\n} else {\n  subject = '💜 We miss you at FluxFilm — ' + x.offer + ' inside';\n  title = 'Wapas aa jao! 🎬';\n  body = '<p>Hi ' + name + ',</p><p>It\\'s been a month since your <b>' + svc + '</b> plan ended. We saved a <b>bigger welcome-back offer</b> for you:</p>' +\n    '<p style=\"background:#fff1f2;border:1px dashed #e11d48;border-radius:12px;padding:12px 14px;font-size:15px\">🎟️ <b>' + esc(x.couponCode) + '</b> — ' + esc(x.offer) + '<br><span style=\"color:#64748b\">Only for your number · one use · till ' + esc(x.couponExpiryText) + '</span></p>' +\n    '<p>Works on any plan, new or renewal.</p>';\n}\nreturn { json: Object.assign({}, x, { subject, html: layout(title, body + button(x.buyUrl || x.shopUrl, 'Use my coupon'), x.unsubscribeUrl) }) };\n"
+      },
+      "id": "44d3a492-54b8-46e1-abb9-aff98e28fda0",
+      "name": "Write the email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "FluxFilm <REPLACE_WITH_SENDER@gmail.com>",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "3af87fe5-7edd-4fd0-abb7-d16d88cdefd6",
+      "name": "Send win-back email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1320,
+        -100
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_ME",
+          "name": "SMTP FluxFilm (Gmail app password)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.fluxfilm.in/n8n/api/winback-sent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ phone: $('Write the email').item.json.phone, campaign: $('Write the email').item.json.campaign }) }}",
+        "options": {}
+      },
+      "id": "138e7c20-ffc7-42a2-a4aa-173a8718858f",
+      "name": "Tell shop: win-back sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        -100
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "FluxFilm n8n key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "REPLACE_WITH_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $json.phone }}",
+        "messageType": "template",
+        "template": "REPLACE_TEMPLATE_NAME|en"
+      },
+      "id": "f4b4a291-2bbe-46d5-ae0d-78e6c6f6b953",
+      "name": "WhatsApp offer template (disabled)",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        160
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "REPLACE_ME",
+          "name": "WhatsApp Cloud API (later)"
+        }
+      },
+      "disabled": true,
+      "notes": "Disabled. Marketing templates on WhatsApp Cloud API cost per message and need opt-in. See docs/n8n/README.md.",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "Every day 11:00 IST": {
+      "main": [
+        [
+          {
+            "node": "Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaigns": {
+      "main": [
+        [
+          {
+            "node": "Get win-back customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get win-back customers": {
+      "main": [
+        [
+          {
+            "node": "One item per customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per customer": {
+      "main": [
+        [
+          {
+            "node": "Has email?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WhatsApp offer template (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has email?": {
+      "main": [
+        [
+          {
+            "node": "Write the email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the email": {
+      "main": [
+        [
+          {
+            "node": "Send win-back email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send win-back email": {
+      "main": [
+        [
+          {
+            "node": "Tell shop: win-back sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "ee953d93-a2f6-4ff7-a1c3-556ccdfe0b62",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

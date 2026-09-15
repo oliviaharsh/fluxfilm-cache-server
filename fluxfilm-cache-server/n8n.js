@@ -650,6 +650,14 @@ async function health() {
     ]);
     out.payments = { lastPaidOrderAt: paid.at || null, lastBankCreditAt: bank.at || null };
     out.pendingManualDeliveries = manual.n != null ? Number(manual.n) : null;
+    // 📊 Business summary scheduler (reports.js): the newest summary it saved (sent or failed).
+    try {
+      const rep = require('./reports');
+      if (rep && typeof rep.listSnapshots === 'function') {
+        const list = await rep.listSnapshots(db);
+        out.scheduler = { lastSummary: list && list[0] ? { id: list[0].id, kind: list[0].kind, label: list[0].label, manual: list[0].manual, savedAt: list[0].sentAt } : null };
+      }
+    } catch (_) { /* reports module missing or its table not ready: omitted */ }
   }
   try { out.webhooks = require('./n8nhooks').status(); } catch (_) {}
   out.build = buildFingerprint();

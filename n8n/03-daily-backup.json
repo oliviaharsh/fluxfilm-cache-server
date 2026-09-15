@@ -1,0 +1,369 @@
+{
+  "name": "FluxFilm · 03 Daily encrypted backup → Google Drive",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🔐 FluxFilm daily backup — SETUP\n**Every day 02:30 India time**: downloads an **encrypted** backup of the whole shop database (`fluxfilm-backup-YYYY-MM-DD.ffbak`), uploads it to the Google Drive folder **FluxFilm Backups**, and moves backups **older than 30 days** to the Drive bin. If anything fails you get an email.\n\n1. In admin → 🔗 Integrations set a **backup passphrase** (write it down! without it a backup cannot be opened).\n2. Credentials: `FluxFilm n8n key` (Header Auth), `Google Drive FluxFilm` (Google Drive OAuth2), `SMTP FluxFilm (Gmail app password)`.\n3. In Google Drive make a folder **FluxFilm Backups**. Open it, copy the id from the address (after `/folders/`) and paste it into **Upload to Drive** and **List old backups** (replace `REPLACE_WITH_FOLDER_ID`).\n4. Put your email in **Email owner: backup failed**.\n5. **Execute workflow** once, check the file is in Drive, then **Active** on.\n\nOpen a backup on your computer: `node scripts/restore-backup.js fluxfilm-backup-2026-09-17.ffbak out` (asks for the passphrase).\nBig database later? Use GET /n8n/api/backup/tables + /n8n/api/backup?table=<name> in a loop (README).",
+        "height": 500,
+        "width": 540,
+        "color": 4
+      },
+      "id": "2465dbbe-cc45-4ab8-ac8c-1f31a2b32df0",
+      "name": "Setup: daily backup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 2 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cf9d3693-0df5-4774-ae57-f217c5f1d155",
+      "name": "Every day 02:30 IST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://shop.fluxfilm.in/n8n/api/backup",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 170000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "860c6fc2-1524-4549-a2e4-03e9773cc0d1",
+      "name": "Download encrypted backup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "FluxFilm n8n key"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// The shop sends the name in Content-Disposition; build the same name if n8n lost it.\nconst d = new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);\nconst bin = $input.item.binary && $input.item.binary.data;\nif (!bin) throw new Error('No backup file came back');\nconst size = Number(bin.fileSize ? String(bin.fileSize).replace(/[^0-9.]/g, '') : 0);\nbin.fileName = 'fluxfilm-backup-' + d + '.ffbak';\nbin.mimeType = 'application/octet-stream';\nreturn { json: { fileName: bin.fileName, size: bin.fileSize || '' }, binary: { data: bin } };"
+      },
+      "id": "1b15ad52-58dd-4493-a594-72ed96f4aacd",
+      "name": "Name the file",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "name": "={{ $json.fileName }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_FOLDER_ID"
+        },
+        "options": {}
+      },
+      "id": "3f7758e7-67e2-42db-a110-966cdfe53f7a",
+      "name": "Upload to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        720,
+        -100
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REPLACE_ME",
+          "name": "Google Drive FluxFilm"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "'REPLACE_WITH_FOLDER_ID' in parents and name contains 'fluxfilm-backup-' and trashed = false",
+        "returnAll": true,
+        "filter": {},
+        "options": {
+          "fields": [
+            "id",
+            "name",
+            "createdTime"
+          ]
+        }
+      },
+      "id": "19bbdd0f-cfaf-4c35-a41d-5434307ae429",
+      "name": "List old backups",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        960,
+        -160
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REPLACE_ME",
+          "name": "Google Drive FluxFilm"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cutoff = Date.now() - 30 * 86400e3;\nconst old = $input.all().filter((i) => i.json.id && i.json.createdTime && Date.parse(i.json.createdTime) < cutoff);\n// Never delete the newest backups even if the clock is wrong: keep at least 7 files.\nconst all = $input.all().filter((i) => i.json.id).sort((a, b) => String(b.json.createdTime).localeCompare(String(a.json.createdTime)));\nconst keep = new Set(all.slice(0, 7).map((i) => i.json.id));\nreturn old.filter((i) => !keep.has(i.json.id)).map((i) => ({ json: { id: i.json.id, name: i.json.name } }));"
+      },
+      "id": "17ab367a-062c-4293-a2c2-fc9c005c484f",
+      "name": "Older than 30 days",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "deleteFile",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {
+          "deletePermanently": false
+        }
+      },
+      "id": "c49dcc57-3fff-4652-abda-7e82d526f97f",
+      "name": "Move old backup to bin",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1440,
+        -160
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REPLACE_ME",
+          "name": "Google Drive FluxFilm"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const err = $input.first().json.error || $input.first().json;\nconst msg = typeof err === 'string' ? err : (err.message || JSON.stringify(err).slice(0, 400));\nreturn [{ json: { subject: '❌ FluxFilm backup FAILED ' + new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 16).replace('T', ' '), text: 'The daily backup did not finish.\\n\\n' + msg + '\\n\\nCheck: backup passphrase set in admin → 🔗 Integrations, the n8n key, Google Drive login, and n8n Executions.' } }];"
+      },
+      "id": "e669e14e-cbd8-4dea-a7f3-cd4b7f926a05",
+      "name": "Failure message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "FluxFilm <REPLACE_WITH_SENDER@gmail.com>",
+        "toEmail": "REPLACE_WITH_OWNER_EMAIL@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ '<pre style=\"font-family:system-ui;white-space:pre-wrap\">' + $json.text.replace(/</g, '&lt;') + '</pre>' }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "dc6541fa-142a-4cd2-a774-0c0efd0c3c9f",
+      "name": "Email owner: backup failed",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        960,
+        140
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_ME",
+          "name": "SMTP FluxFilm (Gmail app password)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "REPLACE_WITH_YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.subject + '\\n' + $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "0dcce5ed-c0da-4763-a5b5-6564dc9868e3",
+      "name": "Telegram owner: backup failed (disabled)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        960,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Telegram FluxFilm bot"
+        }
+      },
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Every day 02:30 IST": {
+      "main": [
+        [
+          {
+            "node": "Download encrypted backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download encrypted backup": {
+      "main": [
+        [
+          {
+            "node": "Name the file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failure message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Name the file": {
+      "main": [
+        [
+          {
+            "node": "Upload to Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Drive": {
+      "main": [
+        [
+          {
+            "node": "List old backups",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failure message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List old backups": {
+      "main": [
+        [
+          {
+            "node": "Older than 30 days",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failure message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Older than 30 days": {
+      "main": [
+        [
+          {
+            "node": "Move old backup to bin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failure message": {
+      "main": [
+        [
+          {
+            "node": "Email owner: backup failed",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram owner: backup failed (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "8dce16bd-c1b9-41fe-a68a-3c5dfb192616",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

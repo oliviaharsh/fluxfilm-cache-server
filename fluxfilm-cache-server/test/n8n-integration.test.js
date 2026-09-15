@@ -557,14 +557,21 @@ async function call(base, method, pathQ, opts) {
   nothrow = true; try { sw = await hooks.sweep({ now: Date.UTC(2026, 8, 17, 2, 3) }); } catch (_) { nothrow = false; }
   T.failAll = false;
   ok('sweep with the DB down resolves { ok:false } (timer never crashes)', nothrow && sw.ok === false);
-  const orderSrc = fs.readFileSync(path.join(ROOT, 'order.js'), 'utf8') + fs.readFileSync(path.join(ROOT, 'fulfill.js'), 'utf8') + fs.readFileSync(path.join(ROOT, 'credit.js'), 'utf8');
-  ok('checkout / fulfilment / credit code does not call the webhooks (cannot block or break the order flow)', !/n8nhooks|n8n\b/.test(orderSrc));
+  const orderSrc = fs.readFileSync(path.join(ROOT, 'order.js'), 'utf8') + fs.readFileSync(path.join(ROOT, 'credit.js'), 'utf8');
+  const hookLines = orderSrc.split('\n').filter((l) => /n8nhooks/.test(l) && !/^\s*\/\//.test(l));
+  ok('order flow only calls kick() inside try/catch at the PAID point (no await, no send)', hookLines.length === 2 && hookLines.every((l) => /try \{ require\('\.\/n8nhooks'\)\.kick\(\); \} catch/.test(l) && !/await/.test(l)) && !/n8nhooks/.test(fs.readFileSync(path.join(ROOT, 'fulfill.js'), 'utf8')), hookLines);
   // No URL: idle, cursor moves.
   const stNo = await n8n.getSettings(true); stNo.webhookUrl = ''; await n8n.saveSettingsRaw(stNo);
   T.orders.push({ order_id: 'FFIDLE', service: 'Netflix', plan: 'x', final_amount: 1, order_type: 'NEW', name: 'x', status: 'PAID', verified_at: '2026-09-17 07:40:00' });
   sent.length = 0;
   sw = await hooks.sweep({ now: Date.UTC(2026, 8, 17, 2, 11) });
   ok('no webhook URL: sweep idles (no event queries), starting point moves on', sw.idle && sent.length === 0 && JSON.parse(T.settings.get('n8n_hook_state')).paidCursor === '2026-09-17 07:41:00', sw);
+  const origGet = n8n.getSettings;
+  ok('kick() before the timer started does nothing and never throws', hooks.kick() === false);
+  T.failAll = true; hooks.startTimer();
+  let kicked; nothrow = true; try { kicked = hooks.kick(); hooks.kick(); } catch (_) { nothrow = false; }
+  ok('kick() with the DB down: returns at once, debounced, never throws', nothrow && kicked === true);
+  T.failAll = false; void origGet;
 
   // ==================================================================== 8. admin routes + page
   section('admin → 🔗 Integrations: routes and page wiring');
@@ -630,8 +637,13 @@ async function call(base, method, pathQ, opts) {
     ok(f + ': no secrets (no keys, tokens, passwords, admin key)', !/ffn8n_[A-Za-z0-9_-]{20}|ffwh_[A-Za-z0-9_-]{20}|fluxfilm2026|EAA[A-Za-z0-9]{20}|ghp_[A-Za-z0-9]{20}|\d{8,10}:[A-Za-z0-9_-]{30,}/.test(txt));
     const creds = (wf.nodes || []).filter((n) => n.credentials).map((n) => Object.values(n.credentials)).flat();
     ok(f + ': credentials are named placeholders', creds.every((c) => c && c.name && /^(REPLACE|FluxFilm|Gmail|SMTP|Google|Telegram|GitHub|WhatsApp|Meta|Pushover)/i.test(c.name) && (!c.id || /^REPLACE/.test(c.id))), creds);
-    const wa = (wf.nodes || []).filter((n) => /whatsapp/i.test(n.name + n.type));
+    const wa = (wf.nodes || []).filter((n) => n.type !== 'n8n-nodes-base.stickyNote' && /whatsapp/i.test(n.name + n.type));
     ok(f + ': WhatsApp nodes (if any) are disabled', wa.every((n) => n.disabled === true));
+    let codeOk = true;
+    for (const n of wf.nodes.filter((x) => x.type === 'n8n-nodes-base.code')) { try { new Function('$input', '$json', '$', '$getWorkflowStaticData', '$runIndex', 'return (async () => {' + n.parameters.jsCode + '\n})'); } catch (e) { codeOk = false; console.log('   ' + f + ' / ' + n.name + ': ' + e.message); } }
+    ok(f + ': every Code node parses', codeOk);
+    const hosts = [...new Set(txt.match(/https:\/\/[a-z0-9.-]+/gi) || [])];
+    ok(f + ': only the shop / GitHub / Meta / example n8n hosts', hosts.every((u) => /^https:\/\/(shop\.fluxfilm\.in|api\.github\.com|graph\.facebook\.com|you\.app\.n8n\.cloud)$/i.test(u)), hosts);
   }
   const docs = path.join(ROOT, '..', 'n8n', 'README.md');
   ok('n8n/README.md is in the repo', fs.existsSync(docs) && /WhatsApp/.test(fs.readFileSync(docs, 'utf8')) && /restore-backup/.test(fs.readFileSync(docs, 'utf8')));

@@ -73,15 +73,13 @@ function periodRange(period, now) {
   return { period, from: from + ' 00:00:00', to: to + ' 00:00:00', days, months: days / 30.4375, label, today };
 }
 
-function mount(app, deps) {
-  const { db, auth } = deps;
-  const audit = deps.audit || { record: () => {} };
-  const fail = (res, e) => res.status(missingTable(e) ? 409 : 500).json({ ok: false, needsSchema: missingTable(e), message: missingTable(e) ? 'Run db/schema-v14.sql in phpMyAdmin first.' : String((e && e.message) || e) });
-
-  app.get('/admin/api/profit', async (req, res) => {
-    if (!auth(req, res)) return;
-    const range = periodRange(s(req.query.period));
-    try {
+/**
+ * The whole 💰 Profit page for one range { from, to ('YYYY-MM-DD 00:00:00', IST, to exclusive), months, … }.
+ * Shared by GET /admin/api/profit and the 📈 business summaries (reports.js), so both show the same numbers.
+ * deps { credit } optional.
+ */
+async function computeProfit(db, range, deps) {
+  deps = deps || {};
       const [orders, accounts, occ, trend] = await Promise.all([
         db.query(
           'SELECT o.order_id, o.service, o.plan, o.duration_days, o.final_amount, o.order_type, COALESCE(o.verified_at, o.created_at_sheet) AS paid_at, COALESCE(s1.inventory_ref, s2.inventory_ref) AS ref ' +
@@ -143,7 +141,7 @@ function mount(app, deps) {
       // 💳 Credit renewals (status CREDIT) are not PAID, so none of the numbers above include them — shown as a label.
       let creditDue = null;
       try { const cr = await (deps.credit || require('./credit')).receivables((sql, p) => db.query(sql, p)); creditDue = { total: cr.total, count: cr.count }; } catch (_) { creditDue = null; }
-      res.json({
+      return ({
         ok: true, range, costsReady, creditDue,
         totals: { revenue: r2(revenue), earned: r2(earnedTotal), paidAhead: r2(ahead), cost: r2(cost), monthlyCost: r2(monthlyTotal), profit: r2(earnedTotal - cost), margin: earnedTotal > 0 ? Math.round(((earnedTotal - cost) / earnedTotal) * 1000) / 10 : null, orders: orderCount, renewals, newOrders: orderCount - renewals, accountsWithoutCost: accRows.filter((a) => a.isActive && a.monthlyCost == null).length },
         services: [...bySvc.values()].map((x) => ({ family: x.family, services: [...x.services].sort(), revenue: r2(x.revenue), earned: r2(x.earned), orders: x.orders, renewals: x.renewals, cost: r2(x.cost), profit: r2(x.earned - x.cost), accounts: x.accounts, accountsWithoutCost: x.accountsWithoutCost })).sort((a, b) => b.revenue - a.revenue),
@@ -151,7 +149,17 @@ function mount(app, deps) {
         noAccount: { revenue: r2(noAccount.revenue), earned: r2(noAccount.earned), orders: noAccount.orders },
         trend: trend.map((t) => ({ month: s(t.ym), revenue: r2(num(t.revenue)), orders: num(t.n), renewals: num(t.renewals) })),
       });
-    } catch (e) { fail(res, e); }
+}
+
+function mount(app, deps) {
+  const { db, auth } = deps;
+  const audit = deps.audit || { record: () => {} };
+  const fail = (res, e) => res.status(missingTable(e) ? 409 : 500).json({ ok: false, needsSchema: missingTable(e), message: missingTable(e) ? 'Run db/schema-v14.sql in phpMyAdmin first.' : String((e && e.message) || e) });
+
+  app.get('/admin/api/profit', async (req, res) => {
+    if (!auth(req, res)) return;
+    const range = periodRange(s(req.query.period));
+    try { res.json(await computeProfit(db, range, deps)); } catch (e) { fail(res, e); }
   });
 
   app.post('/admin/api/profit/cost', async (req, res) => {
@@ -205,4 +213,4 @@ function mount(app, deps) {
   });
 }
 
-module.exports = { mount, periodRange, family, parseBilling, durationDays, orderSplit, istMs };
+module.exports = { mount, computeProfit, periodRange, family, parseBilling, durationDays, orderSplit, istMs };

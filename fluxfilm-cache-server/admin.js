@@ -142,6 +142,8 @@ function mountAdmin(app, deps) {
   require('./credit').mount(app, Object.assign({ db, auth, audit }, deps.credit || {}));
   // Order lookup + stock levels (adminlookup.js).
   require('./adminlookup').mount(app, Object.assign({ db, auth, audit }, deps.lookup || {}));
+  // 📤 Exports: orders list + customer profiles to Excel (.xlsx) / CSV, with filters, limits and change log (adminexports.js).
+  require('./adminexports').mount(app, Object.assign({ db, auth, audit }, deps.exports || {}));
   // Stuck orders: fulfil / re-fulfil, deliver manually, refund, erase (adminorderactions.js).
   require('./adminorderactions').mount(app, Object.assign({ db, auth, audit }, deps.orderActions || {}));
   // 🔁 Switch account on a live subscription (adminswitch.js). Mounted before adminexpired.js and the sub-removed
@@ -179,6 +181,8 @@ function mountAdmin(app, deps) {
   require('./adminfeed').mount(app, Object.assign({ db, auth, audit }, deps.feed || {}));
   // Push notifications: renewal reminders settings, test, send, broadcast (adminpush.js).
   require('./adminpush').mount(app, Object.assign({ db, auth, audit }, deps.push || {}));
+  // 📈 Reports + 🔔 owner alerts (new paid order push, daily / weekly / monthly summaries) (adminreports.js).
+  require('./adminreports').mount(app, Object.assign({ db, auth, audit }, deps.reports || {}));
   // Email sender check + test email (adminmail.js).
   require('./adminmail').mount(app, Object.assign({ auth, audit }, deps.mail || {}));
   // 🔗 Integrations → n8n: API key, webhook URL + signing secret, backup passphrase, win-back coupons (adminn8n.js).

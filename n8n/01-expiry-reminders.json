@@ -1,0 +1,431 @@
+{
+  "name": "FluxFilm · 01 Expiry reminders (email)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ⏳ FluxFilm expiry reminders — SETUP\n**Every day 10:00 India time** it asks the shop which plans end in **3 days**, **today**, or **ended 1–2 days ago**, emails each customer once, and tells the shop it was sent (so nobody gets the same reminder twice).\n\n1. Credentials → **Header Auth** named `FluxFilm n8n key`: Name `X-N8N-Key`, Value = the key from admin → 🔗 Integrations.\n2. Credentials → **SMTP** named `SMTP FluxFilm (Gmail app password)` (smtp.gmail.com, port 465, SSL, your Gmail + app password) — or swap the Send Email node for Gmail.\n3. In **Send reminder email** put your real sender in *From*.\n4. Click **Execute workflow** once and check Executions. Then switch **Active** on.\n\nThe shop already skips refunded / cancelled / removed / renewed plans and customers who unsubscribed from reminder emails (their `email` is empty).\n**Telegram** (owner summary) and **WhatsApp** nodes are *disabled*. WhatsApp: see docs/n8n/README.md before switching on (it needs the Cloud API and an approved template).",
+        "height": 460,
+        "width": 520,
+        "color": 4
+      },
+      "id": "390d12ab-dd26-45b5-a9d4-1fe8ec1b8190",
+      "name": "Setup: expiry reminders",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * *"
+            }
+          ]
+        }
+      },
+      "id": "a0b07ad2-38b3-469a-abfd-de72accb448d",
+      "name": "Every day 10:00 IST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// when/days sent to GET /n8n/api/expiring. Change the days here if you like.\nreturn [\n  { json: { when: 'before', days: 3 } },\n  { json: { when: 'today', days: 0 } },\n  { json: { when: 'after', days: 2 } },\n];"
+      },
+      "id": "71cb5e14-712e-4dd4-a4de-de5a744ddc6a",
+      "name": "Which reminders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://shop.fluxfilm.in/n8n/api/expiring",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "when",
+              "value": "={{ $json.when }}"
+            },
+            {
+              "name": "days",
+              "value": "={{ $json.days }}"
+            },
+            {
+              "name": "channel",
+              "value": "email"
+            },
+            {
+              "name": "unsent",
+              "value": "1"
+            }
+          ]
+        }
+      },
+      "id": "98a337fa-22c6-4b3b-a33a-f371f51718d8",
+      "name": "Get expiring plans",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "FluxFilm n8n key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "items",
+        "options": {}
+      },
+      "id": "d75834bb-1ac9-4504-aac4-67fa7510d262",
+      "name": "One item per plan",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "f9518c98-d260-490d-acd0-90a1f71aef4a",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "725b1437-1137-4dc7-a7f0-bebab02fd797",
+      "name": "Has email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst esc = (v) => String(v == null ? '' : v).replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst button = (url, label) => '<p style=\"margin:22px 0\"><a href=\"' + esc(url) + '\" style=\"display:inline-block;background:#e11d48;color:#ffffff;text-decoration:none;padding:14px 26px;border-radius:12px;font-weight:700;font-size:16px\">' + esc(label) + '</a></p>';\nconst layout = (title, bodyHtml, unsubscribeUrl) =>\n  '<div style=\"font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:520px;margin:auto;color:#0f172a\">' +\n  '<h2 style=\"color:#e11d48;margin:0 0 6px\">' + esc(title) + '</h2>' + bodyHtml +\n  '<p style=\"color:#64748b;font-size:13px;margin-top:22px\">Need help? Just reply to this email or message us on WhatsApp. 💚<br>— Team FluxFilm</p>' +\n  (unsubscribeUrl ? '<p style=\"color:#94a3b8;font-size:11px;margin-top:18px\">Don\\'t want these emails? <a href=\"' + esc(unsubscribeUrl) + '\" style=\"color:#94a3b8\">Unsubscribe</a></p>' : '') +\n  '</div>';\n\nconst x = $json;\nconst name = esc(x.greetingName || 'there');\nconst svc = esc(x.service); const plan = esc(x.plan);\nlet subject, title, body;\nif (x.kind === 'EXPIRY_DAY') {\n  subject = '⚠️ Your ' + x.service + ' plan ends today';\n  title = 'Aaj last day hai! ⏰';\n  body = '<p>Hi ' + name + ',</p><p>Your <b>' + svc + '</b> (' + plan + ') plan <b>ends today</b>. Renew now so your show doesn\\'t stop in the middle. 🍿</p><p>It takes about a minute, and you keep the same account.</p>';\n} else if (x.kind === 'AFTER') {\n  const ago = x.daysLeft === -1 ? 'yesterday' : Math.abs(x.daysLeft) + ' days ago';\n  subject = '😟 Your ' + x.service + ' plan ended ' + ago;\n  title = 'We miss you! 💜';\n  body = '<p>Hi ' + name + ',</p><p>Your <b>' + svc + '</b> (' + plan + ') plan ended <b>' + ago + '</b>.</p><p>Renew in the next few days to keep the <b>same account and profile</b>. Wapas aa jao! 🎬</p>';\n} else {\n  subject = '⏳ Your ' + x.service + ' plan ends in ' + x.daysLeft + ' days';\n  title = 'Chhota sa reminder 👋';\n  body = '<p>Hi ' + name + ',</p><p>Your <b>' + svc + '</b> (' + plan + ') plan ends on <b>' + esc(x.expiryText) + '</b> — ' + x.daysLeft + ' days left.</p><p>Renew early, tension-free raho. The new days are added <b>on top</b> of your plan, so you lose nothing.</p>';\n}\nreturn { json: Object.assign({}, x, { subject, html: layout(title, body + button(x.renewUrl, 'Renew now'), x.unsubscribeUrl) }) };\n"
+      },
+      "id": "43d98085-1437-4132-a617-a44bce0d5bfc",
+      "name": "Write the email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "FluxFilm <REPLACE_WITH_SENDER@gmail.com>",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "dd39d727-327c-470b-a3bd-24795b291d2d",
+      "name": "Send reminder email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1320,
+        -100
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_ME",
+          "name": "SMTP FluxFilm (Gmail app password)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.fluxfilm.in/n8n/api/reminder-sent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subId: $('Write the email').item.json.subId, kind: $('Write the email').item.json.kind, channel: 'email' }) }}",
+        "options": {}
+      },
+      "id": "be71e596-4bd1-4e4f-a740-57de50230202",
+      "name": "Tell shop: reminder sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        -100
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "FluxFilm n8n key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "REPLACE_WITH_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $json.phone }}",
+        "messageType": "template",
+        "template": "REPLACE_TEMPLATE_NAME|en"
+      },
+      "id": "ddb75d81-866b-46fa-aabc-5c6c9d507c10",
+      "name": "WhatsApp template (disabled)",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        160
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "REPLACE_ME",
+          "name": "WhatsApp Cloud API (later)"
+        }
+      },
+      "disabled": true,
+      "notes": "Disabled. Needs WhatsApp Cloud API + an approved template, e.g. renewal_reminder with {{1}} name, {{2}} service, {{3}} date, {{4}} link. See docs/n8n/README.md.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://shop.fluxfilm.in/n8n/api/reminder-sent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subId: $('One item per plan').item.json.subId, kind: $('One item per plan').item.json.kind, channel: 'whatsapp' }) }}",
+        "options": {}
+      },
+      "id": "03dfa5aa-d3cf-4f83-a875-e52b0fa2b24a",
+      "name": "Tell shop: WhatsApp sent (disabled)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        160
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "FluxFilm n8n key"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const n = $input.all().length;\nreturn [{ json: { text: '📬 FluxFilm reminders: ' + n + ' email(s) sent today.' } }];"
+      },
+      "id": "3e95559c-0b0a-4771-acfc-83da44375715",
+      "name": "Owner summary text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "REPLACE_WITH_YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "02eb82a0-e3c5-4d57-a15f-6933799dc20e",
+      "name": "Telegram owner summary (disabled)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1980,
+        -100
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Telegram FluxFilm bot"
+        }
+      },
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Every day 10:00 IST": {
+      "main": [
+        [
+          {
+            "node": "Which reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Which reminders": {
+      "main": [
+        [
+          {
+            "node": "Get expiring plans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get expiring plans": {
+      "main": [
+        [
+          {
+            "node": "One item per plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per plan": {
+      "main": [
+        [
+          {
+            "node": "Has email?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WhatsApp template (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has email?": {
+      "main": [
+        [
+          {
+            "node": "Write the email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write the email": {
+      "main": [
+        [
+          {
+            "node": "Send reminder email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send reminder email": {
+      "main": [
+        [
+          {
+            "node": "Tell shop: reminder sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tell shop: reminder sent": {
+      "main": [
+        [
+          {
+            "node": "Owner summary text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Owner summary text": {
+      "main": [
+        [
+          {
+            "node": "Telegram owner summary (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp template (disabled)": {
+      "main": [
+        [
+          {
+            "node": "Tell shop: WhatsApp sent (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "07188b87-0fa8-4eb0-a708-1c204a7125e2",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
