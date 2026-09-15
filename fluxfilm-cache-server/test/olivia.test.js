@@ -726,6 +726,10 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('live replay: "99 wala de dk" → Group Offer join step', last(r).intent === 'GROUP_JOIN', last(r));
   r = await say({ text: 'Mujhe pass do Netflix ka, bhul gaya' });
   ok('live replay: "Mujhe pass do Netflix ka, bhul gaya" → login help (was: Sharing or Private?)', last(r).intent === 'LOGIN_HELP' && ids(last(r)).includes('recover'), r.messages);
+  // Pay later / extra days (payment-deferral.md): always the team, never a yes, a no, a date or a number of days.
+  ok('pay-later intent: salary / baad mein / extra days; "payment nahi ho raha" stays a payment problem', ['salary aane par 139 pay karunga', 'baad me payment kar dunga', '4 din extra days de do', 'सैलरी आने पर पे करूँगा'].every((x) => G(x) === 'paylater') && G('payment nahi ho raha') !== 'paylater' && G('I want to extend my netflix, renew karna hai') === 'renew', ['salary aane par 139 pay karunga', '4 din extra days de do', 'payment nahi ho raha'].map((x) => x + '=' + G(x)));
+  r = await say({ text: 'salary aane par 139 pay karunga, tab tak chalu rakho' });
+  ok('"salary aane par pay karunga" → the team decides on WhatsApp; no promise, no refusal, no date, not read as the ₹139 plan', last(r).intent === 'PAY_LATER_TO_TEAM' && ids(last(r)).includes('whatsapp') && !/no problem|koi baat nahi|zaroor|sure|din|days?|₹/i.test(last(r).text), last(r));
   // A shop read that fails never blocks help.
   shop.subsFail = true;
   r = await say({ text: 'login nahi ho raha' });

@@ -387,6 +387,12 @@ const T = {
     hinglish: (f) => 'Ji, is number par ' + f.service + ' ka koi plan nahi dikh raha 🙏\nKisi aur number se liya tha? To us number se login karke My plans dekhiye.\nYa WhatsApp par team ko bataiye, team madad karegi.',
     hi: (f) => 'जी, इस नंबर पर ' + f.service + ' का कोई प्लान नहीं दिख रहा 🙏\nकिसी और नंबर से लिया था? तो उस नंबर से लॉगिन करके My plans देखिए।\nया WhatsApp पर टीम को बताइए, टीम मदद करेगी।',
   },
+  // brain/procedures/payment-deferral.md: warm, and empty of any indication of the answer (no date, no days, no "no problem").
+  PAY_LATER_TO_TEAM: {
+    en: () => 'Understood 🙏\nThis is decided by our team, I cannot do it here.\nPlease message the team on WhatsApp.',
+    hinglish: () => 'Ji, samajh gayi 🙏\nIska faisla hamari team karti hai, main yahan nahi kar sakti.\nWhatsApp par team se baat kijiye.',
+    hi: () => 'जी, समझ गई 🙏\nइसका फ़ैसला हमारी टीम करती है, मैं यहाँ नहीं कर सकती।\nWhatsApp पर टीम से बात कीजिए।',
+  },
   HELP_WHICH_PLAN: {
     en: () => 'Sorry for the trouble 🙏\n\nWhich plan has the problem?',
     hinglish: () => 'Sorry ji, pareshani ke liye 🙏\n\nKaunse plan mein problem hai?',

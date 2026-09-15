@@ -193,6 +193,9 @@ function globalIntentOf(text) {
   if (/\brefund|rifund|paise? wapas|paisa wapas|money back|return (my|the) money|रिफंड|पैसे वापस/.test(t)) return 'refund';
   // "Payment kar diya, login nahi mila" / "paise kat gaye": before the price words ("₹99 pay kiya") and the login words.
   if (PAID_RE.test(t) && (NOT_GOT_RE.test(t) || /kat gay|kat gy|deduct|debit|कट गए|कट गये/.test(t))) return 'paidnotgot';
+  // Pay later / extra days (brain/procedures/payment-deferral.md): always Harsh's decision, never a hint either way.
+  // Not "payment nahi ho raha" (that is the gateway, handled by the payment step).
+  if (/pay later|later pay|baad (me|mein|mai) (pay|payment|paise|de|dunga|dungi|kar)|(pay|payment|paise).{0,15}baad (me|mein|mai)|salary (aane|aayegi|aate|ke baad|milne)|kuch din (baad|ka time)|(din|days?) (ka )?(time|extra|aur) (do|de do|dedo|chahiye|dijiye)|extra (days?|din)|बाद में (पे|पेमेंट|पैसे)|सैलरी/.test(t)) return 'paylater';
   if (household) return 'household';
   if (/(change|badal|badlo|dusra|doosra|another|different|wrong|galat).{0,12}(plan|pack)|cancel|nahi chahiye|don'?t want/.test(t)) return 'change';
   if (/renew|रिन्यू/.test(t)) return 'renew';
@@ -829,7 +832,7 @@ async function turn(c, input, ctx) {
     // 2. Things that can be asked at any moment.
     else if (g === 'coupon') { action = 'coupon'; code = couponCodeIn(text, false); }
     else if (!['change', 'renew', 'refund'].includes(g) && !SUPPORT_KINDS.has(g) && !PAY_STEPS.has(st.step) && (multi = devicesWanted(text)) >= 2) action = 'devices';
-    else if (g !== 'change' && g !== 'renew' && g !== 'refund' && !SUPPORT_KINDS.has(g) && (priced = narrowToFamily(plansByPrice(text, ctx.cat.plans), st)).length) action = (priced.length === 1 && PICK_WORDS_RE.test(text) && !QUESTION_RE.test(text) && !/earlier|pehle|before|last time|bought|liya tha|kharida/i.test(text)) ? 'pricepick' : 'pricematch';
+    else if (g !== 'change' && g !== 'renew' && g !== 'refund' && g !== 'paylater' && !SUPPORT_KINDS.has(g) && (priced = narrowToFamily(plansByPrice(text, ctx.cat.plans), st)).length) action = (priced.length === 1 && PICK_WORDS_RE.test(text) && !QUESTION_RE.test(text) && !/earlier|pehle|before|last time|bought|liya tha|kharida/i.test(text)) ? 'pricepick' : 'pricematch';
     else if (g === 'change') action = 'change';
     else if (g === 'price') {
       ents = entities(text, ctx.cat.plans);
@@ -844,7 +847,7 @@ async function turn(c, input, ctx) {
     else if (g === 'paidnotgot' && st.orderId && PAY_STEPS.has(st.step)) action = st.paused ? 'backpay_paid' : 'paid';
     else if (SUPPORT_KINDS.has(g) && (g !== 'stopped' || !PAY_STEPS.has(st.step))) { action = g; ents = entities(text, ctx.cat.plans); }
     else if (g === 'whenlogin' || g === 'paymethod' || (g === 'tv' && st.step !== 'tv')) { action = g; ents = entities(text, ctx.cat.plans); }
-    else if (['validity', 'quality', 'devicecount', 'refund', 'trust'].includes(g)) { action = g; ents = entities(text, ctx.cat.plans); }
+    else if (['validity', 'quality', 'devicecount', 'refund', 'trust', 'paylater'].includes(g)) { action = g; ents = entities(text, ctx.cat.plans); }
     // 3. The step's own answers.
     if (!action) {
       const it = intentOf(text);
@@ -966,11 +969,12 @@ async function turn(c, input, ctx) {
     const svc = name ? ((ctx.cat.plans || []).map((p) => p.service).find((x) => famKey(x) === famKey(name)) || name) : '';
     return supportReplies(c, ctx, kind, svc);
   }
-  if (action === 'refund') {
-    // Refunds, replacement accounts and extra days are never promised here: the team decides (brain/procedures/service-interruption.md).
+  if (action === 'refund' || action === 'paylater') {
+    // Refunds, replacement accounts, pay later and extra days are never promised or refused here: the team decides
+    // (brain/procedures/service-interruption.md, payment-deferral.md — "the draft must not indicate which way it is going").
     if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true;
     if (!st.paused) st.step = 'handoff';
-    return [{ intent: 'REFUND_TO_TEAM', buttons: withBackToPay(st, lang, [btn('whatsapp', lang), btn('menu', lang)]) }];
+    return [{ intent: action === 'refund' ? 'REFUND_TO_TEAM' : 'PAY_LATER_TO_TEAM', buttons: withBackToPay(st, lang, [btn('whatsapp', lang), btn('menu', lang)]) }];
   }
   if (action === 'trust') {
     // "Safe / legal / original hai?": no rule to answer from, so no AI claim either; the team answers on WhatsApp, buying can go on.
