@@ -2606,7 +2606,7 @@ function fdJobCard() {
     '<div class="muted" style="font-size:.8rem;margin-top:4px">Last run: <b>' + (j.lastRun ? prNice(j.lastRun) : 'not yet') + '</b> · Next: <b>' + (j.nextRun ? prNice(j.nextRun) : '—') + '</b></div>' +
     (j.lastRun ? '<div class="muted" style="font-size:.8rem;margin-top:2px">Last run: ' + (x.imported || 0) + ' imported (' + (x.published || 0) + ' published, ' + (x.drafts || 0) + ' drafts) · ' + (x.refreshed || 0) + ' refreshed · ' + (x.skipped || 0) + ' skipped' + (x.notNew ? ' · ' + x.notNew + ' old titles left out' : '') + '</div>' : '') +
     (j.lastError ? '<div class="qnote bad">⚠️ Last error: ' + esc(j.lastError) + '</div>' : '') + (j.lastNote ? '<div class="qnote warn">' + esc(j.lastNote) + '</div>' : '') +
-    '<div class="row" style="margin-top:8px"><button class="btn sm ghost" id="fdclean">🧹 Hide old titles imported by mistake</button></div></div>';
+    '<div class="row" style="margin-top:8px"><button class="btn sm ghost" id="fddates">🔄 Refresh dates &amp; seasons</button><button class="btn sm ghost" id="fdclean">🧹 Hide old titles imported by mistake</button></div></div>';
 }
 // "Runs every 6 h · imports up to 5 new posts per day · Today: 3/5"
 function fdJobWhat(st, j) {
@@ -2648,7 +2648,7 @@ function fdRenderList() {
     var st = FD_STATUS[p.status] || [p.status, 'p-grey']; var img = fdImg(p, 'w185');
     return '<div class="card pr-item fd-item">' + (img ? '<img class="fd-thumb" src="' + esc(img) + '" alt="" loading="lazy"/>' : '<div class="fd-thumb">🍿</div>') +
       '<div class="grow" style="min-width:0"><div class="row" style="gap:6px"><b>' + esc(p.title) + '</b><span class="pill ' + st[1] + '">' + st[0] + '</span>' + (p.seasonLabel ? '<span class="pill p-blue">🆕 ' + esc(p.seasonLabel) + '</span>' : '') + (p.pinned ? '<span class="pill p-warn">📌 Pinned</span>' : '') + '</div>' +
-      '<div class="muted" style="font-size:.78rem;margin-top:4px">' + esc(p.brand || p.service || 'No platform') + (p.ctaService && p.ctaService !== p.brand ? ' → sells ' + esc(p.ctaService) : '') + ' · ' + fdType(p.type) + (p.publishAt ? ' · from ' + prNice(p.publishAt) : '') + (p.hideAfter ? ' · hides ' + prNice(p.hideAfter) : '') + (p.source === 'tmdb' ? ' · TMDB' : '') + '</div>' +
+      '<div class="muted" style="font-size:.78rem;margin-top:4px">' + esc(p.brand || p.service || 'No platform') + (p.ctaService && p.ctaService !== p.brand ? ' → sells ' + esc(p.ctaService) : '') + ' · ' + fdType(p.type) + (fdRelease(p) ? ' · ' + fdRelease(p) + (p.dateAuto ? ' (auto)' : '') : '') + (p.publishAt ? ' · from ' + prNice(p.publishAt) : '') + (p.hideAfter ? ' · hides ' + prNice(p.hideAfter) : '') + (p.source === 'tmdb' ? ' · TMDB' : '') + '</div>' +
       '<div class="muted" style="font-size:.78rem;margin-top:2px">👀 ' + p.views + ' views · ❤️ ' + p.likes + ' likes · 👆 ' + p.clicks + ' button taps · 📤 ' + p.shares + ' shares · ▶️ ' + (p.plays || 0) + ' plays' + (p.instagramUrl ? ' · 📸 Reel' + (p.hasThumb ? ' (thumbnail ✓)' : ' (no thumbnail)') : '') + (p.comments && (p.comments.visible || p.comments.pending) ? ' · 💬 ' + p.comments.visible + (p.comments.pending ? ' <b style="color:#b45309">+' + p.comments.pending + ' to check</b>' : '') : '') + '</div></div>' +
       '<div class="pr-actions"><button class="btn sm ' + (p.active ? 'ghost' : 'green') + '" data-tog="' + p.id + '">' + (p.active ? '⏸ Turn off' : '▶️ Turn on') + '</button><button class="btn sm ghost" data-pin="' + p.id + '">' + (p.pinned ? 'Unpin' : '📌 Pin') + '</button><button class="btn sm dark" data-ed="' + p.id + '">✏️ Edit</button><button class="btn sm ghost" data-dup="' + p.id + '">⧉ Copy</button><button class="btn sm ghost" data-cmp="' + p.id + '" aria-label="Comments">💬</button><button class="btn sm ghost" data-del="' + p.id + '" aria-label="Delete">🗑</button></div></div>';
   }).join('') + '</div>';
@@ -2659,6 +2659,8 @@ function fdRenderList() {
     var find = function (id) { return FD.list.filter(function (x) { return x.id === id; })[0]; };
     var quick = function (p, patch, msg) { b.disabled = true; post('/admin/api/feed/save', Object.assign({}, p, patch)).then(function (r) { toast(r.ok ? msg(r.post) : '⚠️ ' + (r.message || 'error')); fdLoad(); }); };
     if (b.id === 'fdclean') return fdCleanup();
+    // 📅 New season premiere + "Season N" / India release date for imported posts (posts you edited: only empty dates filled).
+    if (b.id === 'fddates') { b.disabled = true; b.textContent = '⏳ Checking dates…'; post('/admin/api/feed/dates/refresh', {}).then(function (r) { toast(r.ok ? (r.message || 'Done') : '⚠️ ' + (r.message || 'error')); fdLoad(); }); return; }
     if (b.id === 'fdrun') { b.disabled = true; b.textContent = '⏳ Importing…'; post('/admin/api/feed/run', {}).then(function (r) { var x = r.result || {}; toast(r.ok ? '🤖 Imported ' + (x.imported || 0) + ' (' + (x.published || 0) + ' published, ' + (x.drafts || 0) + ' drafts)' : '⚠️ ' + (r.message || 'error')); fdLoad(); }); return; }
     if (b.dataset.ed) fdEdit(find(b.dataset.ed));
     if (b.dataset.cmp) fdComments('all', b.dataset.cmp);
@@ -2709,7 +2711,7 @@ function fdEdit(p) {
     '<label>Sell button uses plan:<select class="inp" data-k="ctaService">' + fdPlanOpts(e.ctaService, e.brand) + '</select></label></div>' +
     '<label>Button<select class="inp" data-k="cta"><option value="service"' + (e.cta !== 'none' ? ' selected' : '') + '>“Get ' + esc(e.ctaService || 'plan') + ' from ₹…” → its plans</option><option value="none"' + (e.cta === 'none' ? ' selected' : '') + '>No button</option></select></label>' +
     '<label>Caption <span class="fd-count" id="fdcount"></span><textarea class="inp" data-k="caption" maxlength="600" rows="5" placeholder="What is it about? Why watch it?">' + esc(e.caption || '') + '</textarea></label>' +
-    '<div class="pr-two"><label>Release date <span class="muted">(optional)</span><input class="inp" type="date" data-k="releaseDate" value="' + esc(e.releaseDate || '') + '"/></label>' +
+    '<div class="pr-two"><label>Release date ' + (e.dateAuto && e.releaseDate ? '<span class="pill p-blue" title="Found automatically — change it if it is wrong">auto</span>' : '<span class="muted">(empty = found automatically on 💾 Save)</span>') + (e.type === 'series' && e.seasonLabel ? ' <span class="pill p-blue">🆕 ' + esc(e.seasonLabel) + '</span>' : '') + '<input class="inp" type="date" data-k="releaseDate" value="' + esc(e.releaseDate || '') + '"/>' + (e._dateNote ? '<span class="muted" id="fddatenote" style="font-size:.75rem">' + esc(e._dateNote) + '</span>' : '') + '</label>' +
     '<label>Trailer <span class="muted">(YouTube link, optional — plays inside the feed)</span><input class="inp" data-k="trailerUrl" value="' + esc(e.trailerUrl || '') + '" placeholder="https://www.youtube.com/watch?v=…"/></label></div>' +
     '<div><label>📸 Instagram Reel link <span class="muted">(optional)</span><input class="inp" data-k="instagramUrl" id="fdig" inputmode="url" autocomplete="off" value="' + esc(e.instagramUrl || '') + '" placeholder="https://www.instagram.com/reel/…"/></label>' +
     '<div class="muted" style="font-size:.75rem;margin-top:4px">Public posts only. The video stays on Instagram and is credited to its creator.</div><div id="fdigmsg"></div>' +
@@ -2732,6 +2734,8 @@ function fdEdit(p) {
     var k = el.dataset.k, v = el.type === 'checkbox' ? el.checked : el.value;
     if (k === 'publishAt' || k === 'hideAfter') v = el.value ? el.value + ':00+05:30' : '';
     FD.edit[k] = v;
+    // The owner typed / cleared the date: it is theirs now (no "auto"); a cleared date is looked up again on 💾 Save.
+    if (k === 'releaseDate') { FD.edit.dateAuto = false; if (!v) FD.edit.seasonLabel = ''; }
     // Brand ↔ plan: a new brand picks that brand's main plan (unless the plan already is that brand); the plan keeps service in step.
     if (k === 'brand' && fdBrandOf(FD.edit.ctaService) !== v) { FD.edit.ctaService = fdMainPlan(v); }
     if (k === 'ctaService' && v && !FD.edit.brand) FD.edit.brand = fdBrandOf(v);
@@ -2743,9 +2747,10 @@ function fdEdit(p) {
   $('#fdback').onclick = fdBack;
   $('#fdsave').onclick = function () {
     var body2 = Object.assign({}, FD.edit, { service: FD.edit.ctaService || '', languages: fdTags(FD.edit.languages), genres: fdTags(FD.edit.genres) });
-    delete body2._img;
+    delete body2._img; delete body2._dateNote;
     saveSettingsBtn(this, '/admin/api/feed/save', body2, rfStateSet, function (r) {
       r.changed = ['x']; var st = r.status; FD.edit = Object.assign({}, r.post);
+      if (r.autoDate && r.autoDate.message) { FD.edit._dateNote = r.autoDate.message; toast(r.autoDate.found ? '📅 Date filled automatically' : '📅 ' + r.autoDate.message); }
       if (r.thumb && r.thumb.message) toast(r.thumb.message);
       fdShrinkThumb(r.thumb, function () { fdLoad(function () { fdEdit(FD.edit); rfStateSet('ok', '✅ Saved — ' + ((FD_STATUS[st] || [st])[0])); }); });
     });
@@ -2762,12 +2767,14 @@ function fdEdit(p) {
   if ($('#fdthumbdel')) $('#fdthumbdel').onclick = function () { post('/admin/api/feed/thumb', { id: FD.edit.id, dataUrl: '' }).then(function (r) { if (r.ok) { FD.edit.hasThumb = false; FD.edit.thumbAt = ''; fdEdit(FD.edit); } else toast('⚠️ ' + (r.message || 'error')); }); };
   $('#fdai').onclick = function () {
     var b = this, out = $('#fdaimsg'); b.disabled = true; b.textContent = '⏳ Thinking…'; out.innerHTML = '';
-    post('/admin/api/feed/ai-fill', { title: FD.edit.title, caption: FD.edit.caption, sourceCaption: FD.edit.sourceCaption, type: FD.edit.type }).then(function (r) {
+    post('/admin/api/feed/ai-fill', { title: FD.edit.title, caption: FD.edit.caption, sourceCaption: FD.edit.sourceCaption, type: FD.edit.type, brand: FD.edit.brand, ctaService: FD.edit.ctaService }).then(function (r) {
       b.disabled = false; b.textContent = '✨ AI fill';
       if (!r.ok) { out.innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'; return; }
       var f = r.fields || {}, ed = FD.edit;
-      ['title', 'caption', 'releaseDate'].forEach(function (k) { if (f[k]) ed[k] = f[k]; });
+      ['title', 'caption'].forEach(function (k) { if (f[k]) ed[k] = f[k]; });
       if (f.type && ed.type !== 'announcement') ed.type = f.type;
+      // 📅 Date (+ "Season N" for a new season) marked "auto" — the owner can change it.
+      if (f.releaseDate) { ed.releaseDate = f.releaseDate; ed.dateAuto = true; ed.seasonLabel = ed.type === 'series' ? (f.seasonLabel || '') : ''; ed._dateNote = ''; }
       if (f.genres) ed.genres = f.genres; if (f.languages) ed.languages = f.languages;
       // Picture / trailer only when the post has none (never replaces the owner's choice).
       if (f.imageUrl && !ed.imageUrl && !ed.hasImage) ed.imageUrl = f.imageUrl;
@@ -2839,13 +2846,23 @@ function fdIgCheck() {
       '<a href="' + esc(n) + '" target="_blank" rel="noopener noreferrer" class="muted" style="font-size:.78rem">Open in Instagram ↗</a>';
   };
 }
+// Same release line as the storefront (index.html feedRelease_): "🆕 Season 5 · 20 Aug", "🎬 Released 3 Sept", "🗓️ Coming 25 Sept".
+function fdRelease(e) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(e.releaseDate || '')) return '';
+  var t = Date.parse(e.releaseDate + 'T00:00:00+05:30');
+  var yr = new Date(t + 330 * 60000).getUTCFullYear() !== new Date(Date.now() + 330 * 60000).getUTCFullYear();
+  var d = new Date(t).toLocaleDateString('en-IN', yr ? { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' } : { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
+  var season = e.type === 'series' && /^Season \d{1,3}$/.test(e.seasonLabel || '') ? e.seasonLabel : '';
+  if (t > Date.now()) return '🗓️ ' + (season ? season + ' · Coming ' : 'Coming ') + d;
+  return season ? '🆕 ' + season + ' · ' + d : (e.type === 'series' ? '📺 Released ' : '🎬 Released ') + d;
+}
 function fdPreview(e) {
   var ig = fdIgNorm(e.instagramUrl);
   var img = ig && e.hasThumb && e.id ? '/feed-img/' + e.id + 't?v=' + encodeURIComponent(e.thumbAt || '') : fdImg(e);
   var brand = e.brand || fdBrandOf(e.ctaService || e.service) || 'FluxFilm', plan = e.ctaService || e.service || '', gen = fdTags(e.genres), langs = fdTags(e.languages);
   var logo = ''; FD.serviceInfo.filter(function (x) { return fdBrandOf(x.service) === brand && x.logoUrl; }).sort(function (a, b) { return a.service.length - b.service.length; }).slice(0, 1).forEach(function (x) { logo = x.logoUrl; });
   var price = ''; FD.serviceInfo.forEach(function (x) { if (x.service === plan && x.minPrice) price = '₹' + x.minPrice; });
-  var rel = ''; if (/^\d{4}-\d{2}-\d{2}$/.test(e.releaseDate || '')) { var t = Date.parse(e.releaseDate + 'T00:00:00+05:30'); rel = (t > Date.now() ? '📅 Streaming from ' : (e.type === 'series' ? '📺 Out since ' : '🎬 Released ')) + prettyDate(e.releaseDate); }
+  var rel = fdRelease(e);
   return '<div class="fd-phone"><div class="ff-feed-post"><div class="ff-feed-head"><div class="ff-feed-av' + (logo ? ' logo' : '') + '">' + (logo ? '<img src="' + esc(logo) + '" alt=""/>' : '<span>' + esc(brand.charAt(0).toUpperCase()) + '</span>') + '</div><div class="ff-feed-name"><b>' + esc(brand) + '</b><span>' + fdType(e.type) + ' · just now</span></div>' + (e.pinned ? '<span class="ff-feed-pin">📌 Pinned</span>' : '') + '</div>' +
     '<div class="ff-feed-media">' + (img ? '<img src="' + esc(img) + '" alt=""/>' : '<div class="ff-feed-noimg">🍿</div>') +
     (ig ? '<span class="ff-feed-igchip">📸 Instagram</span><div class="ff-feed-ig"><b>▶️</b>' + (img ? '' : '<span>📸 Watch on Instagram</span>') + '</div>' : e.trailerUrl ? '<div class="ff-feed-ig yt"><b>▶️</b><span>Play trailer</span></div>' : '') + '</div>' +
@@ -2877,9 +2894,11 @@ function fdSettings() {
     '<div class="muted" style="font-size:.8rem;margin:12px 0 4px">Languages <span>(not used for Crunchyroll anime)</span></div><div class="row" style="gap:12px">' + Object.keys(st.languageNames || {}).map(function (c) { return '<label class="rf-tog" style="margin:0"><input type="checkbox" data-lang="' + c + '"' + ((st.languages || []).indexOf(c) >= 0 ? ' checked' : '') + '/> ' + esc(st.languageNames[c]) + '</label>'; }).join('') + '</div>' +
     '<h4 style="margin:16px 0 4px">🆕 Only new or upcoming titles</h4>' +
     '<div class="pr-two"><label class="fd-num">Released in last N days<input class="inp" type="number" min="1" max="90" id="fdreld" value="' + (st.releasedDays || 45) + '"/></label><label class="fd-num">Upcoming next M days (0 = none)<input class="inp" type="number" min="0" max="90" id="fdupd" value="' + (st.upcomingDays != null ? st.upcomingDays : 30) + '"/></label></div>' +
-    '<p class="muted" style="margin:4px 0 8px;font-size:.8rem">A movie is posted if it came out in the last N days, or comes out in the next M days (it shows “🗓️ Coming soon” and switches to “now streaming” by itself on the day).</p>' +
+    '<p class="muted" style="margin:4px 0 8px;font-size:.8rem">A movie is posted if it came out in the last N days, or comes out in the next M days (it shows “🗓️ Coming 25 Sept” and switches to “Released 25 Sept” by itself on the day).</p>' +
     '<label class="rf-tog"><input type="checkbox" id="fdsernew"' + (st.seriesNewOnly !== false ? ' checked' : '') + '/> <b>Series: new shows + new seasons only</b></label>' +
     '<p class="muted" style="margin:0 0 10px;font-size:.8rem">ON (recommended): a series is posted only when the show is brand new, or a new season starts in that time — the post says “🆕 Season 3”. Old shows that just release a weekly episode are left out. OFF: any show with an episode in that time.</p>' +
+    '<label class="rf-tog"><input type="checkbox" id="fdweekly"' + (st.skipWeeklyShows !== false ? ' checked' : '') + '/> <b>Leave out talk, news, reality &amp; soap shows</b></label>' +
+    '<p class="muted" style="margin:0 0 10px;font-size:.8rem">ON (recommended): weekly or daily shows like WWE Raw, talk shows and news are never posted as “new” — and 🧹 lists any already live.</p>' +
     '<div class="pr-two" style="margin-top:12px"><label class="fd-num">New posts per day (max)<input class="inp" type="number" min="0" max="50" id="fdmax" value="' + st.maxPerDay + '"/></label><label class="fd-num">Hide posts after (days, 0 = never)<input class="inp" type="number" min="0" max="365" id="fdhide" value="' + st.autoHideDays + '"/></label></div>' +
     '<div class="pr-two" style="margin-top:8px"><label class="fd-num">Min TMDB popularity<input class="inp" type="number" min="0" step="1" id="fdpop" value="' + st.minPopularity + '"/></label><label class="fd-num">Min TMDB votes<input class="inp" type="number" min="0" step="1" id="fdvotes" value="' + st.minVotes + '"/></label></div>' +
     '<h4 style="margin:20px 0 4px">🔌 Platform → TMDB provider ids (India)</h4><p class="muted" style="margin:0 0 6px;font-size:.8rem">A platform name containing the word on the left uses these ids (several ids: 2336|122). Use “Test + provider ids” to see TMDB\'s current list.</p>' +
@@ -2897,7 +2916,7 @@ function fdSettings() {
   };
   $('#fdsetsave').onclick = function () {
     var ticked = function (attr) { return $$('[data-' + attr + ']').filter(function (x) { return x.checked; }).map(function (x) { return x.getAttribute('data-' + attr); }); };
-    saveSettingsBtn(this, '/admin/api/feed/settings', { autoPublish: $('#fdauto').checked, platforms: ticked('plat'), languages: ticked('lang'), maxPerDay: $('#fdmax').value, autoHideDays: $('#fdhide').value, releasedDays: $('#fdreld').value, upcomingDays: $('#fdupd').value, seriesNewOnly: $('#fdsernew').checked, minPopularity: $('#fdpop').value, minVotes: $('#fdvotes').value, providerMap: parseMap() }, rfStateSet, function (r) { FD.settings = r.settings; });
+    saveSettingsBtn(this, '/admin/api/feed/settings', { autoPublish: $('#fdauto').checked, platforms: ticked('plat'), languages: ticked('lang'), maxPerDay: $('#fdmax').value, autoHideDays: $('#fdhide').value, releasedDays: $('#fdreld').value, upcomingDays: $('#fdupd').value, seriesNewOnly: $('#fdsernew').checked, skipWeeklyShows: $('#fdweekly').checked, minPopularity: $('#fdpop').value, minVotes: $('#fdvotes').value, providerMap: parseMap() }, rfStateSet, function (r) { FD.settings = r.settings; });
   };
 }
 // 💬 Comments: moderation queue (pending first) + every comment per post. Approve / hide / delete / block commenter.
