@@ -243,7 +243,6 @@ html.ff-lite .ff-slide { animation-duration: .2s; }
 @keyframes softPulse { 0%,100%{transform:scale(1);box-shadow:0 8px 24px rgba(22,163,74,.22)} 50%{transform:scale(1.04);box-shadow:0 14px 34px rgba(22,163,74,.34)} }
 @keyframes fadeSlide { from{transform:translateY(8px);opacity:0} to{transform:translateY(0);opacity:1} }
 button { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; }
-button:active { transform: scale(.98) !important; }
 input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; }
 
 /* ── Tools tiles (home + My plans) ── */
@@ -486,6 +485,49 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 @keyframes ffPromoBounce { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-6px) rotate(4deg); } }
 @keyframes ffPromoGlow { from { transform: translateX(0); opacity: .6; } to { transform: translateX(-30%); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ff-promo-pop, .ff-promo-big, .ff-promo-glow, .ff-promo-bg { animation: none; } }
+/* ⏳ Renewal reminder pop-up (RenewReminder). Fixed overlay = no layout shift; one small entrance + the ring filling. */
+.ff-rr-bg { position: fixed; inset: 0; z-index: 76; display: grid; place-items: center; padding: 16px; background: rgba(15,23,42,.5); animation: ffInstallFade .2s ease both; }
+.ff-rr { --rr: #7c3aed; --rr2: #a855f7; --rrbg: rgba(124,58,237,.12); position: relative; box-sizing: border-box; width: 100%; max-width: 380px; max-height: calc(100vh - 32px); overflow-y: auto; overscroll-behavior: contain; padding: 22px 18px 12px; border-radius: 26px; background: #fff; color: #0f172a; text-align: center; font-family: 'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif; box-shadow: 0 30px 70px rgba(15,23,42,.4); outline: none; animation: ffRrIn .34s cubic-bezier(.2,.9,.3,1.15) both; }
+.ff-rr::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 130px; border-radius: 26px 26px 0 0; background: linear-gradient(180deg, var(--rrbg), rgba(255,255,255,0)); pointer-events: none; }
+.ff-rr > * { position: relative; }
+.ff-rr.t-soon { --rr: #d97706; --rr2: #f59e0b; --rrbg: rgba(245,158,11,.16); }
+.ff-rr.t-urgent { --rr: #e11d48; --rr2: #f97316; --rrbg: rgba(225,29,72,.12); }
+.ff-rr.t-ended { --rr: #475569; --rr2: #7c3aed; --rrbg: rgba(71,85,105,.12); }
+.ff-rr-x { position: absolute; top: 8px; right: 8px; z-index: 2; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(15,23,42,.06); color: #334155; font-size: 20px; line-height: 1; cursor: pointer; }
+.ff-rr-ring { width: 104px; height: 104px; margin: 0 auto 10px; }
+.ff-rr-ring svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); }
+.ff-rr-ring circle { fill: none; stroke-width: 9; }
+.ff-rr-ring .trk { stroke: rgba(15,23,42,.08); }
+.ff-rr-ring .val { stroke: var(--rr); stroke-linecap: round; animation: ffRrRing .9s .15s ease-out both; }
+.ff-rr-ring-in { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+.ff-rr-num { font-size: 36px; font-weight: 900; color: var(--rr); font-variant-numeric: tabular-nums; }
+.ff-rr-num.word { font-size: 21px; }
+.ff-rr-unit { margin-top: 4px; font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #64748b; }
+.ff-rr-title { margin: 0 6px; font-size: 20px; font-weight: 900; line-height: 1.25; }
+.ff-rr-body { margin: 6px 0 0; font-size: 14.5px; font-weight: 600; line-height: 1.5; color: #334155; }
+.ff-rr-price { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 4px 8px; margin-top: 12px; }
+.ff-rr-price b { font-size: 28px; font-weight: 900; }
+.ff-rr-price s { font-size: 15px; font-weight: 700; color: #94a3b8; }
+.ff-rr-price span { font-size: 12.5px; font-weight: 700; color: #64748b; }
+.ff-rr-perks, .ff-rr-list { display: grid; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; text-align: left; }
+.ff-rr-perks li { padding: 8px 11px; border-radius: 12px; background: #f8fafc; font-size: 13px; font-weight: 650; line-height: 1.4; color: #334155; }
+.ff-rr-list { gap: 8px; }
+.ff-rr-item { display: flex; align-items: center; gap: 10px; padding: 9px; border: 1px solid rgba(15,23,42,.1); border-radius: 16px; }
+.ff-rr-chip { flex: none; width: 58px; padding: 6px 2px; border-radius: 12px; background: #7c3aed; color: #fff; text-align: center; font-size: 10.5px; font-weight: 800; line-height: 1.1; }
+.ff-rr-chip b { display: block; font-size: 20px; font-weight: 900; }
+.ff-rr-chip.t-soon { background: #d97706; } .ff-rr-chip.t-urgent { background: #e11d48; } .ff-rr-chip.t-ended { background: #475569; }
+.ff-rr-item-main { flex: 1; min-width: 0; }
+.ff-rr-item-name { font-size: 14px; font-weight: 800; line-height: 1.3; }
+.ff-rr-item-sub { margin-top: 2px; font-size: 12px; font-weight: 650; line-height: 1.35; color: #64748b; }
+.ff-rr-item-btn { flex: none; min-height: 40px; padding: 0 12px; border: 0; border-radius: 999px; background: #0f172a; color: #fff; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.ff-rr-cta { display: block; width: 100%; min-height: 52px; margin-top: 14px; border: 0; border-radius: 16px; background: linear-gradient(135deg, var(--rr), var(--rr2)); color: #fff; font: inherit; font-size: 17px; font-weight: 900; cursor: pointer; box-shadow: 0 10px 24px rgba(15,23,42,.18); }
+.ff-rr-later { display: block; min-height: 44px; margin: 4px auto 0; padding: 0 14px; border: 0; background: none; color: #475569; font: inherit; font-size: 14px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+@keyframes ffRrIn { from { transform: translateY(18px) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ffRrRing { from { stroke-dashoffset: 282.7; } }
+html.ff-lite .ff-rr { animation-duration: .18s; } html.ff-lite .ff-rr-ring .val { animation: none; }
+@media (prefers-reduced-motion: reduce) { .ff-rr, .ff-rr-bg, .ff-rr-ring .val { animation: none; } }
+.ff-rr.multi .ff-rr-title { margin: 0 34px; }
+@media (max-width: 340px) { .ff-rr { padding: 20px 12px 10px; } .ff-rr-title { font-size: 18px; } .ff-rr-ring { width: 90px; height: 90px; } .ff-rr-num { font-size: 30px; } .ff-rr-item { gap: 8px; padding: 8px; } .ff-rr-chip { width: 50px; } .ff-rr-item-btn { padding: 0 10px; } }
 /* ── 🍿 What's new feed — run 4 look: app-like posts (brand header, rounded 4:5 media, compact actions, comment previews,
    comments bottom sheet, sticky CTA pill, collapsible filters). Images keep a fixed 4:5 box so nothing jumps. ── */
 .ff-feed { max-width: 520px; margin: 0 auto; position: relative; }
@@ -727,6 +769,66 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-upd { position: fixed; left: 50%; top: calc(66px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 80; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px); background: #04140e; color: #fff; border-radius: 999px; padding: 6px 6px 6px 16px; font-size: 14px; font-weight: 600; box-shadow: 0 10px 30px rgba(4,20,14,.35); width: max-content; white-space: nowrap; }
 .ff-upd-btn { border: 0; border-radius: 999px; background: #34d399; color: #04140e; font: inherit; font-weight: 800; padding: 9px 16px; cursor: pointer; white-space: nowrap; }
 .ff-upd-x { border: 0; background: none; color: #a7f3d0; font-size: 16px; padding: 6px 8px; cursor: pointer; }
+
+/* ── 📱 App feel (customer feedback run 2): brand glow, greeting card, section headers, bottom menu, presses ──
+   Speed rules: no backdrop blur, no will-change; only the small greeting card moves (transform/opacity, 4 slow loops
+   then it rests, paused while the tab is hidden, still on html.ff-lite and reduced motion). The page glow is a static
+   background painted once — it scrolls with the page, so it costs nothing while scrolling. */
+html { background: radial-gradient(120% 460px at 0% -90px, rgba(52,211,153,.20), rgba(52,211,153,0) 70%) no-repeat, radial-gradient(90% 380px at 100% -70px, rgba(20,184,166,.13), rgba(20,184,166,0) 70%) no-repeat, #f3f6f9; }
+body { background: transparent; }
+/* Greeting card on My plans (lines: FF_GREETING_LINES in <head>). The stats cards below are unchanged. */
+.ff-hello { position: relative; isolation: isolate; overflow: hidden; display: flex; align-items: center; gap: 14px; margin: 16px 0 14px; padding: 18px 16px 16px 18px; border-radius: 22px; color: #ecfdf5; background: linear-gradient(140deg, #04140e 0%, #0b2a1f 55%, #11573a 100%); box-shadow: 0 10px 28px rgba(4,20,14,.22), inset 0 1px 0 rgba(255,255,255,.07); }
+.ff-hello-orb { position: absolute; z-index: -1; border-radius: 50%; pointer-events: none; }
+.ff-hello-orb.a { width: 190px; height: 190px; right: -64px; top: -86px; background: radial-gradient(closest-side, rgba(52,211,153,.42), rgba(52,211,153,0)); animation: ffHelloFloat 9s ease-in-out 4 alternate; }
+.ff-hello-orb.b { width: 160px; height: 160px; left: -56px; bottom: -96px; background: radial-gradient(closest-side, rgba(45,212,191,.26), rgba(45,212,191,0)); animation: ffHelloFloat 11s ease-in-out 4 alternate-reverse; }
+.ff-hello-txt { flex: 1; min-width: 0; }
+.ff-hello-kick { font-size: 11.5px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: #6ee7b7; animation: ffHelloIn .32s ease-out backwards; }
+.ff-hello-line { display: block; width: 100%; min-height: 2.44em; margin: 4px 0 0; padding: 0; border: 0; background: none; text-align: left; font: inherit; font-size: 20px; font-weight: 800; line-height: 1.22; letter-spacing: -.2px; color: #fff; cursor: pointer; }
+.ff-hello-end { white-space: nowrap; }
+.ff-hello-w { display: inline-block;animation: ffHelloWord .34s cubic-bezier(.2,.8,.3,1.2) backwards; }
+.ff-hello-emo { display: inline-block; transform-origin: 70% 80%; animation: ffHelloWave .6s ease-in-out .25s backwards; }
+.ff-hello-sub { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; font-weight: 600; color: #a7f3d0; }
+.ff-hello-refresh { display: inline-grid; place-items: center; flex-shrink: 0; width: 30px; height: 30px; padding: 0; border-radius: 10px; border: 1px solid rgba(167,243,208,.28); background: rgba(255,255,255,.08); font-size: 13px; cursor: pointer; }
+.ff-hello-refresh:disabled { opacity: .6; cursor: not-allowed; }
+.ff-hello-av { flex-shrink: 0; width: 56px; height: 56px; border-radius: 999px; display: grid; place-items: center; overflow: hidden; cursor: pointer; font-size: 21px; font-weight: 800; color: #04140e; background: linear-gradient(135deg,#a7f3d0,#34d399); box-shadow: 0 0 0 3px rgba(52,211,153,.28), 0 6px 18px rgba(0,0,0,.25); transition: transform .1s ease; }
+.ff-hello-av img { width: 100%; height: 100%; object-fit: cover; }
+@keyframes ffHelloFloat { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(-24px,18px,0) scale(1.15); } }
+@keyframes ffHelloIn { from { opacity: 0; transform: translate3d(0,4px,0); } to { opacity: 1; transform: none; } }
+@keyframes ffHelloWord { from { opacity: 0; transform: translate3d(0,.45em,0) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes ffHelloWave { 0% { opacity: 0; transform: scale(.4) rotate(-20deg); } 40% { opacity: 1; transform: scale(1.2) rotate(14deg); } 65% { transform: rotate(-10deg); } 85% { transform: rotate(6deg); } 100% { opacity: 1; transform: none; } }
+html.ff-hidden .ff-hello-orb { animation-play-state: paused; }
+html.ff-lite .ff-hello-orb, html.ff-lite .ff-hello-kick, html.ff-lite .ff-hello-w, html.ff-lite .ff-hello-emo { animation: none; }
+@media (max-width: 350px) { .ff-hello { gap: 10px; padding: 16px 12px 14px 14px; } .ff-hello-line { font-size: 18px; } .ff-hello-av { width: 46px; height: 46px; font-size: 18px; } }
+@media (min-width: 900px) { .ff-hello { padding: 24px 24px 22px 26px; } .ff-hello-line { font-size: 24px; } }
+/* Section headers: small brand bar */
+.ff-sechead h2 { display: flex; align-items: center; gap: 8px; }
+.ff-sechead h2::before { content: ''; flex: none; width: 4px; height: 16px; border-radius: 4px; background: linear-gradient(#34d399,#16a34a); }
+/* Bottom menu: the active pill grows in, the icon pops */
+.ff-bnav-btn { position: relative; isolation: isolate; transition: color .18s ease, transform .1s ease; }
+.ff-bnav-btn.on { background: none; }
+.ff-bnav-btn::before { content: ''; position: absolute; inset: 0 4px; z-index: -1; border-radius: 14px; background: rgba(22,163,74,.11); opacity: 0; transform: scale(.7); transition: opacity .18s ease, transform .24s cubic-bezier(.2,.9,.3,1.25); }
+.ff-bnav-btn.on::before { opacity: 1; transform: none; }
+.ff-bnav-btn.on .ff-bnav-ic { display: inline-block; animation: ffNavPop .34s cubic-bezier(.2,.8,.3,1.3) backwards; }
+@keyframes ffNavPop { from { transform: translate3d(0,3px,0) scale(.8); } to { transform: none; } }
+/* Presses feel like an app: no blue tap flash / focus box for touch + mouse (keyboard still gets a clear ring),
+   no accidental text selection on buttons (codes, logins and passwords stay selectable), quick press-in. */
+html { -webkit-tap-highlight-color: transparent; }
+a, button, input, select, textarea, label, summary, [role="button"], [role="tab"] { -webkit-tap-highlight-color: transparent; }
+:focus:not(:focus-visible) { outline: none; }
+a:focus-visible, button:focus-visible, summary:focus-visible, [role="button"]:focus-visible, [role="tab"]:focus-visible { outline: 3px solid rgba(22,163,74,.55); outline-offset: 2px; }
+button, [role="button"], [role="tab"], .ff-bnav-btn, .ff-tool, .ff-acard, .ff-arow, .ff-coin, .ff-feed-tile, .ff-tab { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+button { transition: transform .1s ease, filter .1s ease; }
+button:active { transform: scale(.96) !important; }
+button:active:where(:not(:disabled)) { filter: brightness(.94); }
+.ff-arow:active, .ff-feed-cta:active, .ff-hello-line:active, .ff-feed-play:active { transform: scale(.985) !important; }
+.ff-feed-play:active, .ff-hello-line:active, .ff-hello-refresh:active { filter: none; }
+.ff-feed-find button:active { transform: translateY(-50%) scale(.9) !important; }
+.ff-bnav-btn:active { transform: scale(.92) !important; filter: none; }
+.ff-acard:active, .ff-feed-tile:active, .ff-hello-av:active { transform: scale(.96); }
+@media (prefers-reduced-motion: reduce) {
+  .ff-hello-orb, .ff-hello-kick, .ff-hello-w, .ff-hello-emo, .ff-bnav-btn.on .ff-bnav-ic { animation: none !important; }
+  .ff-bnav-btn, .ff-bnav-btn::before, button { transition: none; }
+}
 </style>
 <script>
 // Low-end phone (≤2 CPU cores or ≤2 GB RAM): html.ff-lite trims the extra 3D flourishes (stagger, shine, rings).
@@ -825,6 +927,139 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
   window.ffSoundPrefs = { get: pref, set: setPref };
 })();
 </script>
+<script>
+// 😏 Greeting on My plans (customer feedback run 2). OWNER: edit the lines below freely.
+// Each line = [text, emoji] or [text, emoji, 'live']. {name} = first name, {service} = plan name, {days} = number of days.
+// 'live' = only shown when the customer has at least one active plan (for lines like "Plans are all good").
+// Dates and hours always use India time (Asia/Kolkata), not the phone clock.
+// Admin → 🚧 Maintenance → "Sassy greeting" OFF shows the plain "Welcome back, Name 👋" instead.
+window.FF_GREETING_LINES = {
+  first: [['Welcome to the club, {name}! Popcorn ready?', '🍿'], ['{name}, your binge era starts now', '✨'], ['Hi {name}! Shows are waiting, no pressure', '😌']],
+  ending: [["Your {service} ends in {days} days — don't leave me on read", '👀'], ['{name}, {service} is packing its bags in {days} days', '🧳'], ['{days} days of {service} left. Cliffhanger ka risk mat lo', '😬']],
+  ending1: [["Your {service} ends tomorrow — don't leave me on read", '👀'], ['{service} ends tomorrow, {name}. Renew before the cliffhanger', '😬']],
+  ending0: [["Your {service} ends today — don't leave me on read", '👀'], ['{service} ends today, {name}. Renew before the cliffhanger', '😬']],
+  renewed: [['Fresh plan, fresh binge. Sorted, {name}!', '😎'], ["All set, {name}! Shows won't watch themselves", '🎬'], ['Plan ready, {name}. Main character energy', '✨']],
+  away: [['Missed me?? Here we go again!!', '😏'], ['{days} days without me, {name}? I counted', '👀'], ['{name}! Kahan the aap? Shows missed you', '🥺']],
+  expired: [['Your plans are taking a little break, {name}. Renew anytime', '🍿'], ['Shows miss you, {name}! Renew when you are ready', '🎬']],
+  lateNight: [["Binge o'clock, {name}. One more episode?", '🌙'], ['Still awake, {name}? Same', '🦉'], ["Three episodes later… who's counting?", '🌙']],
+  morning: [['Rise and stream, {name}', '☀️'], ['Chai + one episode = perfect morning', '☕'], ['Good morning, {name}! Plans are all good', '🌤️', 'live']],
+  afternoon: [["Lunch break binge, {name}? We won't tell", '🤫'], ['Hey {name}! Quick episode break?', '🍿']],
+  evening: [['Sofa, snacks, shows. Ready, {name}?', '🛋️'], ['Shaam ho gayi, {name}. Binge time!', '🌆'], ['So {name}, what are we watching tonight?', '🎬']],
+  night: [['Remote in hand, {name}? Night shift begins', '📺'], ['Just one episode, {name}. Pakka?', '😴']],
+  weekend: [['Weekend = binge mode ON, {name}', '🛋️'], ['Weekend vibes, {name}. Full season marathon?', '🍿']],
+  plain: [['Welcome back, {name}', '👋']],
+  // Festivals: 'MM-DD' every year, or 'YYYY-MM-DD' for moving dates (add next year's Diwali / Holi here).
+  festivals: {
+    '01-01': ['Happy New Year, {name}! New year, new shows', '🎉'], '01-26': ['Happy Republic Day, {name}!', '🇮🇳'],
+    '08-15': ['Happy Independence Day, {name}!', '🇮🇳'], '10-31': ['Happy Halloween, {name}! Horror marathon?', '🎃'],
+    '12-25': ['Merry Christmas, {name}! Cosy movie night?', '🎄'], '2026-11-08': ['Happy Diwali, {name}! Lights, snacks, shows', '🪔'],
+    '2027-03-22': ['Happy Holi, {name}! Colours outside, shows inside', '🎨']
+  }
+};
+window.FF_GREETING_KICK = { first: 'Welcome', ending: 'Heads up', ending1: 'Heads up', ending0: 'Heads up', expired: 'Welcome back', renewed: 'Nice one', away: 'Welcome back', lateNight: "Binge o'clock", morning: 'Good morning', afternoon: 'Good afternoon', evening: 'Good evening', night: 'Late show', weekend: 'Weekend mode', festival: 'Festive mode', plain: 'My plans' };
+(function () {
+  var DAY = 86400000;
+  function firstName(n) {
+    var f = String(n || '').trim().split(/\s+/)[0] || '';
+    f = f.replace(/[<>{}]/g, '').slice(0, 14);
+    if (!f || /^user$/i.test(f)) return 'friend';
+    return f.charAt(0).toUpperCase() + f.slice(1);
+  }
+  function hash(s) { var h = 7; s = String(s); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function bucketOfHour(h) { return h < 5 ? 'lateNight' : h < 12 ? 'morning' : h < 17 ? 'afternoon' : h < 22 ? 'evening' : 'night'; }
+  // India time (no daylight saving, so +5:30 is an exact fallback when Intl is missing).
+  var IST_OFF = 330 * 60000, istFmt = null;
+  function ist(ms) {
+    try {
+      if (istFmt === null) istFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
+      var o = {}; istFmt.formatToParts(new Date(ms)).forEach(function (p) { o[p.type] = p.value; });
+      var y = Number(o.year), m = Number(o.month), d = Number(o.day), h = Number(o.hour) % 24;
+      if (y && m && d && !isNaN(h)) return { y: y, m: m, d: d, h: h };
+    } catch (e) { istFmt = false; }
+    var z = new Date(ms + IST_OFF);
+    return { y: z.getUTCFullYear(), m: z.getUTCMonth() + 1, d: z.getUTCDate(), h: z.getUTCHours() };
+  }
+  function dayNo(p) { return Math.round(Date.UTC(p.y, p.m - 1, p.d) / DAY); }
+  // Safari-safe date reader (no Date.parse on "YYYY-MM-DD HH:mm:ss"). No zone = India wall time.
+  // → { ms, y, m, d } (y/m/d = India calendar date) or null.
+  function readTs(v) {
+    var m = String(v == null ? '' : v).trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i);
+    if (!m) return null;
+    var y = +m[1], mo = +m[2], d = +m[3], dateOnly = m[4] == null;
+    var off = IST_OFF;
+    if (m[7]) off = /^z$/i.test(m[7]) ? 0 : (m[7].charAt(0) === '-' ? -1 : 1) * (Number(m[7].substr(1, 2)) * 60 + Number(m[7].replace(':', '').substr(3, 2))) * 60000;
+    var ms = dateOnly ? Date.UTC(y, mo - 1, d + 1) - IST_OFF : Date.UTC(y, mo - 1, d, +m[4], +m[5], +(m[6] || 0)) - off;
+    if (isNaN(ms)) return null;
+    if (m[7] && !dateOnly) { var p = ist(ms); return { ms: ms, y: p.y, m: p.m, d: p.d }; }
+    return { ms: ms, y: y, m: mo, d: d };
+  }
+  // Calendar days left in India (0 = ends today) + whether the plan is still running.
+  function planDays(s, t, todayNo) {
+    var e = readTs(s.expiryDate || s.expiry_date || s.expiry);
+    if (e) return { days: dayNo(e) - todayNo, live: e.ms > t };
+    var n = Number(s.daysLeft);
+    if (s.daysLeft == null || s.daysLeft === '' || !isFinite(n)) return null;
+    return { days: Math.round(n), live: n > 0 };
+  }
+  // ctx: { name, subs:[{service, expiryDate, daysLeft, startDate}], lastSeen (ms or null), isNew (never bought anything),
+  //        now (Date), sassy (default true), seed, skip }
+  // → { key, kick, text, emoji }. Same inputs → same line (no flicker on re-render); skip = taps on the greeting.
+  function pick(ctx) {
+    ctx = ctx || {};
+    var L = window.FF_GREETING_LINES, K = window.FF_GREETING_KICK;
+    var now = ctx.now instanceof Date && !isNaN(ctx.now) ? ctx.now : new Date();
+    var t = now.getTime(), name = firstName(ctx.name), subs = Array.isArray(ctx.subs) ? ctx.subs : [];
+    var today = ist(t), todayNo = dayNo(today);
+    var vars = { name: name, service: '', days: '' }, key = 'plain', pool = L.plain, hasLive = false;
+    if (ctx.sassy !== false) {
+      var live = [];
+      subs.forEach(function (s) { var p = s && planDays(s, t, todayNo); if (p && p.live) live.push({ s: s, days: Math.max(0, p.days) }); });
+      hasLive = live.length > 0;
+      var ending = live.filter(function (x) { return x.days <= 3; }).sort(function (a, b) { return a.days - b.days; })[0];
+      var renewed = live.some(function (x) { var st = readTs(x.s.startDate); return st && t - st.ms >= -DAY && t - st.ms <= 2 * DAY; });
+      var away = ctx.lastSeen ? Math.floor((t - Number(ctx.lastSeen)) / DAY) : 0;
+      var md = pad(today.m) + '-' + pad(today.d);
+      var fest = L.festivals && (L.festivals[today.y + '-' + md] || L.festivals[md]);
+      var wd = new Date(Date.UTC(today.y, today.m - 1, today.d)).getUTCDay();
+      var hour = bucketOfHour(today.h), wkend = wd === 0 || wd === 6;
+      if (ending) { key = ending.days === 0 ? 'ending0' : ending.days === 1 ? 'ending1' : 'ending'; vars.service = String(ending.s.service || 'plan').trim().slice(0, 24) || 'plan'; vars.days = String(ending.days); }
+      else if (renewed) key = 'renewed';
+      else if (fest) { key = 'festival'; pool = [fest]; }
+      else if (ctx.isNew === true) key = 'first';
+      else if (ctx.lastSeen != null && away >= 3) { key = 'away'; vars.days = String(away); }
+      else if (!hasLive && subs.length) key = 'expired';
+      else if (wkend && hash(ctx.seed + '|' + md) % 2 === 0 && hour !== 'lateNight') key = 'weekend';
+      else key = hour;
+      if (key !== 'festival') {
+        pool = (L[key] || []).filter(function (l) { return l && (hasLive || l[2] !== 'live'); });
+        if (!pool.length) pool = L.plain;
+      }
+    }
+    var day = today.y + '-' + today.m + '-' + today.d;
+    var line = pool[(hash((ctx.seed || '') + '|' + day + '|' + key) + (Number(ctx.skip) || 0)) % pool.length] || L.plain[0];
+    var text = String(line[0]).replace(/\{(name|service|days)\}/g, function (_, k) { return vars[k]; });
+    return { key: key, kick: K[key] || '', text: text, emoji: String(line[1] || '') };
+  }
+  // Last visit on this phone: read once per browser session, then remember "now" for next time.
+  function visit(now) {
+    var t = now || Date.now(), prev = null;
+    try {
+      var s = sessionStorage.getItem('ff_hello_prev');
+      if (s == null) { s = localStorage.getItem('ff_last_seen') || 'none'; sessionStorage.setItem('ff_hello_prev', s); }
+      prev = s === 'none' ? null : (Number(s) || null);
+      localStorage.setItem('ff_last_seen', String(t));
+    } catch (e) { prev = t; }
+    return { lastSeen: prev };
+  }
+  window.ffGreeting = function (ctx) { try { return pick(ctx); } catch (e) { return { key: 'plain', kick: '', text: 'Welcome back, ' + firstName(ctx && ctx.name), emoji: '👋' }; } };
+  window.ffGreetingVisit = visit;
+  // App feel: iOS only shows :active press states when the page listens to touches (passive: never blocks scrolling).
+  // Hidden tab → pause the greeting card's floating shapes.
+  try { document.addEventListener('touchstart', function () {}, { passive: true }); } catch (e) {}
+  try { document.addEventListener('visibilitychange', function () { document.documentElement.classList.toggle('ff-hidden', document.hidden); }); } catch (e) {}
+})();
+</script>
 </head>
 <body>
 <div id="ff-splash" hidden aria-hidden="true"><div class="ff-sp-streaks"><i style="transform:rotate(0deg)"><b style="background:#a7f3d0;animation-delay:1.52s"></b></i><i style="transform:rotate(27deg)"><b style="background:#6ee7b7;animation-delay:1.54s"></b></i><i style="transform:rotate(54deg)"><b style="background:#34d399;animation-delay:1.56s"></b></i><i style="transform:rotate(60deg)"><b style="background:#2dd4bf;animation-delay:1.58s"></b></i><i style="transform:rotate(87deg)"><b style="background:#bef264;animation-delay:1.60s"></b></i><i style="transform:rotate(114deg)"><b style="background:#ffffff;animation-delay:1.52s"></b></i><i style="transform:rotate(120deg)"><b style="background:#5eead4;animation-delay:1.54s"></b></i><i style="transform:rotate(147deg)"><b style="background:#a7f3d0;animation-delay:1.56s"></b></i><i style="transform:rotate(174deg)"><b style="background:#6ee7b7;animation-delay:1.58s"></b></i><i style="transform:rotate(180deg)"><b style="background:#34d399;animation-delay:1.60s"></b></i><i style="transform:rotate(207deg)"><b style="background:#2dd4bf;animation-delay:1.52s"></b></i><i style="transform:rotate(234deg)"><b style="background:#bef264;animation-delay:1.54s"></b></i><i style="transform:rotate(240deg)"><b style="background:#ffffff;animation-delay:1.56s"></b></i><i style="transform:rotate(267deg)"><b style="background:#5eead4;animation-delay:1.58s"></b></i><i style="transform:rotate(294deg)"><b style="background:#a7f3d0;animation-delay:1.60s"></b></i><i style="transform:rotate(300deg)"><b style="background:#6ee7b7;animation-delay:1.52s"></b></i><i style="transform:rotate(327deg)"><b style="background:#34d399;animation-delay:1.54s"></b></i><i style="transform:rotate(354deg)"><b style="background:#2dd4bf;animation-delay:1.56s"></b></i></div><div class="ff-sp-stage"><div class="ff-sp-rib"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="ff-sp-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="ffsp-bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#12382a"/><stop offset="1" stop-color="#04140e"/></linearGradient><radialGradient id="ffsp-hi" cx="143" cy="61" r="460" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset=".55" stop-color="#ffffff" stop-opacity="0"/></radialGradient><linearGradient id="ffsp-mk" x1="0" y1="96" x2="0" y2="416" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#a7f3d0"/><stop offset="1" stop-color="#34d399"/></linearGradient><filter id="ffsp-sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity=".45"/></filter><mask id="ffsp-f" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect width="512" height="512" fill="#fff"/><g fill="#000"><rect x="198" y="186" width="36" height="148" rx="6"/><rect x="198" y="186" width="98" height="32" rx="6"/><rect x="198" y="244" width="78" height="30" rx="6"/></g></mask></defs><rect width="512" height="512" rx="112" fill="url(#ffsp-bg)"/><rect width="512" height="512" rx="112" fill="url(#ffsp-hi)"/><g filter="url(#ffsp-sh)"><path transform="translate(8 0)" d="M170 128V384L392 256Z" fill="url(#ffsp-mk)" stroke="url(#ffsp-mk)" stroke-width="64" stroke-linejoin="round" mask="url(#ffsp-f)"/></g></svg></div></div></div>
@@ -900,7 +1135,7 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
 })();
 </script>
 <div id="root"></div>
-<noscript><div style="max-width:640px;margin:0 auto;padding:32px 16px;font-family:system-ui,sans-serif;color:#0f172a;line-height:1.55"><h1 style="font-size:26px;margin:0 0 10px">FluxFilm – streaming subscriptions at low prices</h1><p>Buy subscription plans for Netflix, Prime Video, JioHotstar, SonyLiv, Zee5, Crunchyroll and YouTube Premium. Pay by UPI and get your login instantly. Please turn on JavaScript to buy in the app.</p><p><a href="/plans">All plans &amp; prices</a> · <a href="/faq">FAQ</a> · <a href="/whats-new">What's new</a> · <a href="/about">About FluxFilm</a></p></div></noscript>
+<noscript><div style="max-width:640px;margin:0 auto;padding:32px 16px;font-family:system-ui,sans-serif;color:#0f172a;line-height:1.55"><h1 style="font-size:26px;margin:0 0 10px">FluxFilm – streaming subscriptions at low prices</h1><p>Buy subscription plans for Netflix, Prime Video, JioHotstar, SonyLiv, Zee5, Crunchyroll and YouTube Premium. Pay by UPI and get your login instantly. Please turn on JavaScript to buy in the app.</p><p><a href="/plans">All plans &amp; prices</a> · <a href="/faq">FAQ</a> · <a href="/whats-new">What's new</a> · <a href="/about">About FluxFilm</a> · <a href="/refund-policy">Refund policy</a></p></div></noscript>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script>
@@ -1251,7 +1486,10 @@ function Input({
   disabled = false,
   readOnly = false,
   style = {},
-  autoFocus = false
+  autoFocus = false,
+  inputMode,
+  autoComplete,
+  maxLength
 }) {
   const locked = disabled || readOnly;
   return React.createElement("div", {
@@ -1285,6 +1523,9 @@ function Input({
   }, prefix), React.createElement("input", {
     autoFocus: autoFocus,
     type: type,
+    inputMode: inputMode,
+    autoComplete: autoComplete,
+    maxLength: maxLength,
     placeholder: placeholder,
     value: value || '',
     onChange: onChange,
@@ -1470,6 +1711,7 @@ function SectionHead({
   right
 }) {
   return React.createElement("div", {
+    className: "ff-sechead",
     style: {
       display: 'flex',
       alignItems: 'center',
@@ -2579,6 +2821,132 @@ function AccountCreateModal({
     onClick: submit
   }, loading ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), " Creating…") : '✅ Create Account'))));
 }
+// 🔒 Profile email lock (emaillock.js). mode 'confirm' = code to the email on file (checkout, when needed);
+// mode 'change' = [code from an old email when a plan is active] → code to the new email → save.
+// The server re-checks everything; this sheet only guides the customer.
+function EmailLockSheet({
+  open,
+  phone,
+  mode,
+  onClose,
+  onDone
+}) {
+  const E = React.createElement;
+  const [st, setSt] = useState(null);
+  const [step, setStep] = useState('load');
+  const [newEmail, setNewEmail] = useState('');
+  const [target, setTarget] = useState('');
+  const [code, setCode] = useState('');
+  const [sent, setSent] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [resendAt, setResendAt] = useState(0);
+  const [, setTick] = useState(0);
+  const oldToken = useRef('');
+  const ph = normPhone_(phone || '');
+  const changeStart = r => r && r.activePlan ? r.oldOptions && r.oldOptions.length ? 'old' : 'help' : 'new';
+  useEffect(() => {
+    if (!open) return;
+    setSt(null); setStep('load'); setNewEmail(''); setCode(''); setSent(''); setMsg(''); setResendAt(0); setBusy(false);
+    oldToken.current = '';
+    API.emailLockStatus(ph, '', r => {
+      if (!r || !r.ok) { setMsg(r?.message || 'Could not load. Please try again.'); setStep('error'); return; }
+      setSt(r);
+      if (r.oldOptions && r.oldOptions[0]) setTarget(r.oldOptions[0].id);
+      setStep(mode === 'confirm' && r.hasEmail ? 'confirm' : changeStart(r));
+    }, () => { setMsg('No internet? Please try again.'); setStep('error'); });
+  }, [open, ph, mode]);
+  const left = Math.max(0, Math.ceil((resendAt - Date.now()) / 1000));
+  useEffect(() => {
+    if (!left) return;
+    const t = setInterval(() => setTick(x => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [resendAt, left > 0]);
+  if (!open) return null;
+  const purpose = step === 'confirm' ? 'confirm' : step === 'old' ? 'old' : 'new';
+  const goStep = s => { setStep(s); setCode(''); setSent(''); setMsg(''); setResendAt(0); };
+  function send() {
+    if (busy || left > 0) return;
+    if (purpose === 'new' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail.trim())) return setMsg('Please type a full email, like name@gmail.com.');
+    setBusy(true); setMsg('');
+    API.emailSendCode(ph, purpose, newEmail.trim(), target, r => {
+      setBusy(false);
+      if (!r || !r.ok) { setMsg(r?.message || 'Could not send the code. Please try again.'); return; }
+      setSent(r.maskedEmail || 'your email');
+      setResendAt(Date.now() + Number(r.waitSeconds || 30) * 1000);
+      setMsg(r.message || '');
+    }, () => { setBusy(false); setMsg('No internet? Please try again.'); });
+  }
+  function verify() {
+    const c = code.replace(/\D/g, '');
+    if (busy) return;
+    if (c.length !== 6) return setMsg('Enter the 6-digit code from the email.');
+    setBusy(true); setMsg('');
+    API.emailVerifyCode(ph, purpose, c, newEmail.trim(), target, r => {
+      if (!r || !r.ok) {
+        setBusy(false); setMsg(r?.message || 'That code did not work.');
+        if (r && r.expired) { setSent(''); setCode(''); setResendAt(0); }
+        return;
+      }
+      if (purpose === 'confirm') { setBusy(false); onDone && onDone({ verified: true }); return; }
+      if (purpose === 'old') { setBusy(false); oldToken.current = r.token || ''; goStep('new'); return; }
+      API.changeProfileEmail({ phone: ph, email: newEmail.trim(), emailToken: r.token || '', oldEmailToken: oldToken.current }, s => {
+        setBusy(false);
+        if (!s || !s.ok) { setMsg(s?.message || 'Could not change the email. Please try again, or tap Help.'); return; }
+        onDone && onDone({ changed: true, email: newEmail.trim().toLowerCase(), profile: s.profile || null });
+      }, () => { setBusy(false); setMsg('No internet? Please try again.'); });
+    }, () => { setBusy(false); setMsg('No internet? Please try again.'); });
+  }
+  const txt = (t, extra) => E("div", { style: Object.assign({ fontFamily: PJS, fontSize: 14.5, fontWeight: 600, color: C.muted, lineHeight: 1.55, marginBottom: 12 }, extra || {}) }, t);
+  const link = (label, fn) => E("button", { type: "button", onClick: fn, style: { background: 'none', border: 0, padding: '8px 2px', color: '#2563eb', fontFamily: PJS, fontSize: 14, fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' } }, label);
+  const helpBtn = E(Btn, { variant: "ghost", full: true, onClick: () => API.openWhatsApp() }, "💬 Help");
+  const codeBox = E(React.Fragment, null, E("label", { htmlFor: "ff-email-code", style: { display: 'block', fontFamily: PJS, fontSize: 13, fontWeight: 800, color: C.text, marginBottom: 6 } }, "6-digit code sent to ", sent),
+    E("input", { id: "ff-email-code", type: "text", inputMode: "numeric", autoComplete: "one-time-code", pattern: "[0-9]*", maxLength: 6, autoFocus: true, value: code, placeholder: "••••••",
+      onChange: e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6)), onKeyDown: e => { if (e.key === 'Enter') verify(); },
+      style: { width: '100%', boxSizing: 'border-box', padding: '14px 10px', fontFamily: PJS, fontSize: 24, fontWeight: 800, letterSpacing: 8, textAlign: 'center', color: C.text, background: '#fafafa', border: `1.5px solid ${C.border}`, borderRadius: 14, outline: 'none' } }),
+    E("div", { style: { marginTop: 12 } }, E(Btn, { variant: "primary", full: true, disabled: busy || code.length !== 6, onClick: verify }, busy ? E(React.Fragment, null, E(Spinner, null), " Checking…") : '✅ Confirm code')),
+    E("div", { style: { display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 4, marginTop: 6 } },
+      left > 0 ? E("span", { style: { fontFamily: PJS, fontSize: 13.5, fontWeight: 700, color: C.muted, padding: '8px 2px' } }, "Send a new code in ", left, " s") : link('Send a new code', send),
+      purpose === 'new' ? link('Wrong email? Change', () => goStep('new')) : purpose === 'confirm' ? link('Wrong email? Change', () => goStep(changeStart(st))) : null));
+  const sendBtn = label => E(Btn, { variant: "primary", full: true, disabled: busy, onClick: send }, busy ? E(React.Fragment, null, E(Spinner, null), " Sending…") : label);
+  let title = '', body = null;
+  if (step === 'load') { title = '🔒 Your email'; body = txt(E(React.Fragment, null, E(Spinner, null), " Loading…")); }
+  else if (step === 'error') { title = '🔒 Your email'; body = helpBtn; }
+  else if (step === 'confirm') {
+    title = '🔒 Confirm your email';
+    body = E(React.Fragment, null, txt(E(React.Fragment, null, "Login details will be sent to ", E("b", { style: { color: C.text } }, st && st.maskedEmail), ". For your safety, we'll email a 6-digit code to check it's yours.")),
+      sent ? codeBox : E(React.Fragment, null, sendBtn('📧 Send code'), E("div", { style: { marginTop: 6 } }, link('Wrong email? Change', () => goStep(changeStart(st))))));
+  } else if (step === 'old') {
+    const opts = st && st.oldOptions || [];
+    title = '🔒 First, confirm it’s you';
+    body = E(React.Fragment, null, txt('Your plan is active, so we need a code from an email you already use with FluxFilm.'),
+      !sent && E("div", { role: "radiogroup", style: { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 } }, opts.map(o => E("button", { key: o.id, type: "button", role: "radio", "aria-checked": target === o.id, onClick: () => setTarget(o.id),
+        style: { textAlign: 'left', padding: '13px 14px', borderRadius: 14, border: `2px solid ${target === o.id ? '#16a34a' : C.border}`, background: target === o.id ? 'rgba(22,163,74,.06)' : '#fff', fontFamily: PJS, fontSize: 15, fontWeight: 800, color: C.text, cursor: 'pointer', overflowWrap: 'anywhere' } }, (target === o.id ? '🔘 ' : '⚪ ') + o.maskedEmail))),
+      sent ? codeBox : sendBtn('📧 Send code'),
+      txt('Can’t open these emails any more? Tap Help and our team will change it for you.', { marginTop: 14, marginBottom: 8, fontSize: 13 }), helpBtn);
+  } else if (step === 'new') {
+    title = '✉️ Your new email';
+    body = E(React.Fragment, null, txt('We’ll send a 6-digit code to the new email to check it’s yours.'),
+      sent ? codeBox : E(React.Fragment, null, E("input", { type: "email", inputMode: "email", autoComplete: "email", autoFocus: true, value: newEmail, placeholder: "name@gmail.com", "aria-label": "New email",
+        onChange: e => setNewEmail(e.target.value), onKeyDown: e => { if (e.key === 'Enter') send(); },
+        style: { width: '100%', boxSizing: 'border-box', padding: '14px', fontFamily: PJS, fontSize: 16, fontWeight: 700, color: C.text, background: '#fafafa', border: `1.5px solid ${C.border}`, borderRadius: 14, outline: 'none', marginBottom: 12 } }), sendBtn('📧 Send code')));
+  } else if (step === 'help') {
+    title = '🔒 Change email';
+    body = E(React.Fragment, null, txt('For your safety, this email can’t be changed here right now. Tap Help and our team will change it for you.'), helpBtn);
+  }
+  return ReactDOM.createPortal(E("div", {
+    onClick: busy ? undefined : onClose,
+    style: { position: 'fixed', inset: 0, zIndex: 95, background: 'rgba(15,23,42,.50)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0 10px 10px' }
+  }, E("div", {
+    role: "dialog", "aria-modal": true, "aria-label": title,
+    onClick: e => e.stopPropagation(),
+    style: { width: 'min(520px,100%)', boxSizing: 'border-box', background: '#fff', borderRadius: '24px 24px 18px 18px', padding: '16px 16px 18px', boxShadow: '0 -8px 46px rgba(15,23,42,.25)', maxHeight: 'calc(100dvh - 20px)', overflowY: 'auto', animation: 'slideUp .22s ease' }
+  }, E("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 } },
+    E("div", { style: { fontFamily: PJS, fontSize: 18, fontWeight: 900, color: C.text, minWidth: 0 } }, title),
+    E("button", { type: "button", onClick: onClose, disabled: busy, "aria-label": "Close", style: { flexShrink: 0, width: 40, height: 40, borderRadius: 999, border: `1px solid ${C.border}`, background: '#f1f5f9', fontSize: 16, fontWeight: 800, color: C.muted, cursor: 'pointer' } }, "✕")),
+    body,
+    msg && E("div", { role: "status", style: { marginTop: 12, padding: '11px 13px', borderRadius: 14, background: '#f8fafc', border: `1px solid ${C.border}`, color: C.text, fontFamily: PJS, fontSize: 13.5, fontWeight: 700, lineHeight: 1.5 } }, msg))), document.body);
+}
 function RecoverPickerModal({
   subs,
   onSelect,
@@ -3253,11 +3621,13 @@ function SubCard({
     subId
   } = sub;
   const dl = Number(daysLeft || 0);
-  const tone = dl <= 0 ? 'bad' : dl <= 7 ? 'warn' : 'ok';
+  // daysLeft = calendar days (India) from the expiry date: 0 = expires today (still active), below 0 = ended.
+  const ended = daysLeft == null || daysLeft === '' || dl < 0;
+  const tone = ended ? 'bad' : dl <= 7 ? 'warn' : 'ok';
   const dur = Number(durationDays || 30);
   const pct = dur > 0 ? Math.min(100, Math.max(0, Math.round(dl / dur * 100))) : 0;
-  const barColor = dl <= 0 ? '#ef4444' : dl <= 7 ? '#f59e0b' : '#22c55e';
-  const accentBd = dl <= 0 ? 'rgba(239,68,68,.20)' : dl <= 7 ? 'rgba(245,158,11,.22)' : C.border;
+  const barColor = ended ? '#ef4444' : dl <= 7 ? '#f59e0b' : '#22c55e';
+  const accentBd = ended ? 'rgba(239,68,68,.20)' : dl <= 7 ? 'rgba(245,158,11,.22)' : C.border;
   function fmtDate(d) {
     try {
       if (!d) return '-';
@@ -3362,7 +3732,7 @@ function SubCard({
     }
   }, "Sub: ", subId))), React.createElement(Badge, {
     tone: tone
-  }, dl <= 0 ? '🔴 Expired' : dl <= 7 ? '⚠️ Expiring' : '🟢 Active')), dl > 0 && React.createElement("div", {
+  }, ended ? '🔴 Expired' : dl === 0 ? '⚠️ Expires today' : dl <= 7 ? '⚠️ Expiring' : '🟢 Active')), !ended && React.createElement("div", {
     style: {
       marginBottom: 12
     }
@@ -3386,7 +3756,7 @@ function SubCard({
       fontWeight: 800,
       color: dl <= 7 ? C.amber : C.green
     }
-  }, dl, " days")), React.createElement("div", {
+  }, dl === 0 ? 'Ends today' : dl + ' days')), React.createElement("div", {
     style: {
       height: 5,
       borderRadius: 999,
@@ -3442,7 +3812,7 @@ function SubCard({
     variant: "primary",
     full: true,
     onClick: () => onRenew(sub)
-  }, dl <= 0 ? '🔄 Reactivate' : '⚡ Renew'), React.createElement(Btn, {
+  }, ended ? '🔄 Reactivate' : '⚡ Renew'), React.createElement(Btn, {
     variant: "purple",
     onClick: () => onRecover(sub),
     style: {
@@ -3464,7 +3834,8 @@ function DashboardScreen({
   onRecoverCard,
   onOtpClick,
   boot,
-  autoOpenOtp
+  autoOpenOtp,
+  sassy = true
 }) {
   const [dashData, setDashData] = useState(data || {});
   const [tab, setTab] = useState('subs');
@@ -3580,17 +3951,40 @@ function DashboardScreen({
   const actionable = dashData?.actionable || [];
   const history = dashData?.history || [];
   const allSubs = [...actionable, ...history];
-  const isLiveSub = s => Number(s.daysLeft) > 0;
+  // daysLeft 0 = expires today: still active.
+  const isLiveSub = s => s.daysLeft != null && s.daysLeft !== '' && Number(s.daysLeft) >= 0;
   const liveSubs = allSubs.filter(isLiveSub);
   const expiredSubs = allSubs.filter(s => !isLiveSub(s));
   const filteredSubs = subFilter === 'active' ? liveSubs : subFilter === 'expired' ? expiredSubs : null;
   const active = actionable.filter(s => Number(s.daysLeft || 0) > 7).length;
   const expiring = actionable.filter(s => {
     const d = Number(s.daysLeft || 0);
-    return d > 0 && d <= 7;
+    return s.daysLeft != null && d >= 0 && d <= 7;
   }).length;
   const name = profile?.name || '';
   const first = name ? name.split(' ')[0] : 'User';
+  // 😏 Greeting (lines + rules: FF_GREETING_LINES in <head>). Last visit read once per session; tap = next line.
+  const [helloVisit] = useState(() => window.ffGreetingVisit ? window.ffGreetingVisit() : {
+    lastSeen: null
+  });
+  const [helloTap, setHelloTap] = useState(0);
+  // "New customer" comes from their data (no plans and no orders ever), never from this phone's storage.
+  const helloPhone = normPhone_(phone || '');
+  const helloIsNew = !!dashData?._checked && allSubs.length === 0 && !!helloPhone && ordersPhone === helloPhone && !ordersLoading && orders.length === 0;
+  const hello = window.ffGreeting ? window.ffGreeting({
+    name,
+    subs: allSubs,
+    lastSeen: helloVisit.lastSeen,
+    isNew: helloIsNew,
+    sassy,
+    seed: normPhone_(phone || ''),
+    skip: helloTap
+  }) : {
+    key: 'plain',
+    kick: '',
+    text: 'Welcome back, ' + first,
+    emoji: '👋'
+  };
   const quickActions = [{
     icon: '🛒',
     label: 'Buy',
@@ -3620,95 +4014,79 @@ function DashboardScreen({
       paddingBottom: 90
     }
   }, React.createElement("div", {
-    style: {
-      padding: '20px 0 18px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 12
-    }
-  }, React.createElement("div", null, React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 23,
-      fontWeight: 800,
-      color: C.text,
-      lineHeight: 1.1
-    }
-  }, "Welcome back,", React.createElement("br", null), first, " 👋"), React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      marginTop: 6
-    }
+    className: "ff-hello",
+    "data-greet": hello.key
+  }, React.createElement("i", {
+    className: "ff-hello-orb a",
+    "aria-hidden": "true"
+  }), React.createElement("i", {
+    className: "ff-hello-orb b",
+    "aria-hidden": "true"
+  }), React.createElement("div", {
+    className: "ff-hello-txt"
   }, React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 13,
-      color: C.muted,
-      fontWeight: 500
-    }
-  }, "Manage your subscriptions."), React.createElement("button", {
+    className: "ff-hello-kick"
+  }, hello.kick), React.createElement("button", {
+    type: "button",
+    className: "ff-hello-line",
+    "aria-live": "polite",
+    title: sassy ? 'Tap for another line' : undefined,
+    onClick: () => sassy && setHelloTap(n => n + 1)
+  }, React.createElement("span", {
+    key: helloTap + '|' + hello.text,
+    className: "ff-hello-words"
+  }, (() => {
+    // Words rise in one by one (≤ 0.8 s in total); the last word + emoji never wrap apart.
+    const words = hello.text.split(' ');
+    const word = (w, i) => React.createElement("span", {
+      key: 'w' + i,
+      className: "ff-hello-w",
+      style: {
+        animationDelay: Math.min(i * 45, 450) + 'ms'
+      }
+    }, w);
+    return words.slice(0, -1).map((w, i) => [word(w, i), ' ']).concat([React.createElement("span", {
+      key: 'end',
+      className: "ff-hello-end"
+    }, word(words[words.length - 1], words.length - 1), ' ', React.createElement("span", {
+      className: "ff-hello-emo",
+      "aria-hidden": "true"
+    }, hello.emoji))]);
+  })())), React.createElement("div", {
+    className: "ff-hello-sub"
+  }, React.createElement("span", null, "Manage your subscriptions."), React.createElement("button", {
+    type: "button",
+    className: "ff-hello-refresh",
     onClick: handleRefresh,
     disabled: refreshing,
     title: "Refresh subscriptions & orders",
-    style: {
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      width: 28,
-      height: 28,
-      borderRadius: 8,
-      border: `1px solid ${C.border}`,
-      background: refreshing ? 'rgba(37,99,235,.08)' : '#f8fafc',
-      cursor: refreshing ? 'not-allowed' : 'pointer',
-      padding: 0,
-      flexShrink: 0,
-      transition: 'background .15s, border-color .15s',
-      boxShadow: '0 1px 3px rgba(15,23,42,.06)'
-    },
-    onMouseEnter: e => {
-      if (!refreshing) {
-        e.currentTarget.style.background = 'rgba(37,99,235,.08)';
-        e.currentTarget.style.borderColor = 'rgba(37,99,235,.22)';
-      }
-    },
-    onMouseLeave: e => {
-      if (!refreshing) {
-        e.currentTarget.style.background = '#f8fafc';
-        e.currentTarget.style.borderColor = C.border;
-      }
-    }
+    "aria-label": "Refresh subscriptions & orders"
   }, React.createElement("span", {
     style: {
-      fontSize: 13,
       display: 'inline-block',
       animation: refreshing ? 'spin .7s linear infinite' : 'none',
       lineHeight: 1
     }
   }, "🔄")))), React.createElement("div", {
+    className: "ff-hello-av",
+    role: "button",
+    tabIndex: 0,
+    "aria-label": "Open my account",
     onClick: () => nav('account', {
       subs: allSubs,
       phone,
       manageResp: dashData,
       profile
     }),
-    style: {
-      width: 52,
-      height: 52,
-      borderRadius: 999,
-      background: 'linear-gradient(135deg,#34d399,#16a34a)',
-      display: 'grid',
-      placeItems: 'center',
-      fontFamily: PJS,
-      fontSize: 20,
-      fontWeight: 800,
-      color: '#fff',
-      flexShrink: 0,
-      boxShadow: '0 4px 14px rgba(22,163,74,.22)',
-      overflow: 'hidden',
-      cursor: 'pointer'
+    onKeyDown: e => {
+      if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+      e.preventDefault();
+      nav('account', {
+        subs: allSubs,
+        phone,
+        manageResp: dashData,
+        profile
+      });
     }
   }, profile?.profilePicUrl ? React.createElement("img", {
     // ✨ creator avatars wink for 3 days after a plan starts or is renewed
@@ -4918,6 +5296,14 @@ function DetailsScreen({
       phone: normPhone_(phone || profile?.phone || f.phone || '')
     }));
   }, [phone, profile?.name, profile?.email, profile?.phone]);
+  // 🔒 Email lock: where the login goes, and whether it needs a code first (checked early so Pay stays one tap).
+  const [emailLock, setEmailLock] = useState(null);
+  const [emailSheet, setEmailSheet] = useState('');
+  const emailOk = useRef(false);
+  useEffect(() => {
+    if (!locked || !form.phone) return;
+    API.emailLockStatus(form.phone, '', r => setEmailLock(r && r.ok ? r : null), () => {});
+  }, [locked, form.phone]);
   function applyCoupon() {
     if (!form.phone.trim()) return alert('Enter phone first.');
     if (!form.coupon.trim()) return alert('Enter coupon code.');
@@ -4978,6 +5364,21 @@ function DetailsScreen({
       if (!isPrimeDev && !form.extraVal.trim()) return alert('Please fill: ' + (planObj.extraFieldLabel || 'Required field'));
     }
     if (planObj?.loginChoice && !form.loginMode) return alert('Please choose: the same login on all devices, or a separate login for each device.');
+    // 🔒 Email lock: verified / unchanged email → straight on. Unverified + recently changed (or not the last paid
+    // order's email) → a 6-digit code first. The server refuses the order without it anyway.
+    if (locked && !emailOk.current) {
+      const decide = r => {
+        if (r && r.ok && r.needsCode) {
+          setEmailLock(r);
+          setEmailSheet('confirm');
+          return;
+        }
+        emailOk.current = true;
+        proceed();
+      };
+      if (emailLock) return decide(emailLock);
+      return API.emailLockStatus(form.phone, '', decide, () => decide(null));
+    }
     if (form.coupon.trim() && !couponState.applied) {
       if (!confirm('You entered a coupon but did not apply it.\nContinue without applying?')) return;
     }
@@ -5101,11 +5502,53 @@ function DetailsScreen({
       color: C.muted,
       gridColumn: '1 / -1'
     }
-  }, "Email", React.createElement("br", null), React.createElement("b", {
+  }, "📧 Login details will be sent to", React.createElement("br", null), React.createElement("span", {
     style: {
-      color: C.text
+      display: 'inline-flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      columnGap: 6
     }
-  }, maskEmail_(form.email))))), React.createElement(Card, null, React.createElement("div", {
+  }, React.createElement("b", {
+    style: {
+      color: C.text,
+      overflowWrap: 'anywhere'
+    }
+  }, maskEmail_(form.email)), React.createElement("span", null, "—"), React.createElement("button", {
+    type: "button",
+    className: "ff-email-change",
+    onClick: () => setEmailSheet('change'),
+    style: {
+      background: 'none',
+      border: 0,
+      padding: '6px 2px',
+      color: '#2563eb',
+      fontFamily: PJS,
+      fontSize: 14,
+      fontWeight: 800,
+      textDecoration: 'underline',
+      cursor: 'pointer'
+    }
+  }, "Change")))), React.createElement(EmailLockSheet, {
+    open: !!emailSheet,
+    phone: form.phone,
+    mode: emailSheet,
+    onClose: () => setEmailSheet(''),
+    onDone: r => {
+      const wasConfirm = emailSheet === 'confirm' && r && r.verified;
+      setEmailSheet('');
+      if (r && r.changed) {
+        setForm(f => ({ ...f, email: r.email }));
+        emailOk.current = false;
+        API.emailLockStatus(form.phone, '', s => setEmailLock(s && s.ok ? s : null), () => setEmailLock(null));
+      }
+      if (wasConfirm) {
+        setEmailLock(s => s ? { ...s, needsCode: false, verified: true } : s);
+        emailOk.current = true;
+        setTimeout(proceed, 0);
+      }
+    }
+  })), React.createElement(Card, null, React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 17,
@@ -5365,7 +5808,9 @@ function DetailsScreen({
     variant: "primary",
     full: true,
     onClick: proceed
-  }, "✅ Confirm & Pay ₹", payable)))));
+  }, "✅ Confirm & Pay ₹", payable), React.createElement(RefundPolicyLink, {
+    lead: String(planObj?.fulfillmentMode || '').toUpperCase() === 'MANUAL' ? "Activated by our team within 48 hours" : "Instant delivery"
+  })))));
 }
 function ReviewScreen({
   nav,
@@ -6998,13 +7443,35 @@ function VerifyScreen({
     onClick: manualRetry
   }, "🔁 Check Again"))))));
 }
+// Renewal plan rules — a copy of renewrules.js (planVariant / planDevices / renewPlanChoices); test/final-check checks they match.
+function renewPlanVariant_(plan) {
+  return String(plan || '').toLowerCase().replace(/(\d+)\s*devices?\b/g, '$1 devices').replace(/\b\d+\s*-?\s*(?:m|mo|mos|mon|mth|mths|month|months|d|day|days|w|wk|wks|week|weeks|y|yr|yrs|year|years)\b/g, ' ').replace(/\b(?:half[\s-]*yearly|monthly|yearly|annual|annually|quarterly|weekly|daily)\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function renewPlanDevices_(plan) {
+  return Number((String(plan || '').match(/(\d+)\s*device/i) || [])[1]) || 1;
+}
+function renewPlanChoices_(subPlan, planNames) {
+  const names = [];
+  for (const p of planNames || []) {
+    const n = String(p == null ? '' : p).trim();
+    if (n && !names.includes(n)) names.push(n);
+  }
+  const v = renewPlanVariant_(subPlan);
+  const same = names.filter(n => renewPlanVariant_(n) === v);
+  if (same.length) return same;
+  const dev = renewPlanDevices_(subPlan);
+  const byDevices = names.filter(n => renewPlanDevices_(n) === dev);
+  if (byDevices.length) return byDevices;
+  return names;
+}
 function RenewStartScreen({
   nav,
   sub,
   phone,
   setOrderData,
   setLoading,
-  boot
+  boot,
+  renewCoupon
 }) {
   const [working, setWorking] = useState(false);
   const submitting = useRef(false);
@@ -7012,13 +7479,31 @@ function RenewStartScreen({
     on: false,
     q: null
   });
-  const [couponCode, setCouponCode] = useState(getPromoCoupon_);
+  const [couponCode, setCouponCode] = useState(() => renewCoupon || getPromoCoupon_());
   const [couponState, setCouponState] = useState({
     applied: false,
     discount: 0,
     loading: false,
     msg: ''
   });
+  // ⏳ Opened from the renewal reminder pop-up with a RENEW coupon: apply it once, quietly (server checks it as usual).
+  const applyCouponRef = useRef(null);
+  useEffect(() => {
+    if (!renewCoupon || !sub) return;
+    const t = setTimeout(() => applyCouponRef.current && applyCouponRef.current(true), 60);
+    return () => clearTimeout(t);
+  }, []);
+  // 🔒 Email lock: renewals never need a code — the server sends the login to the trusted profile email, or else to
+  // this plan's own email. Show where, with "Change".
+  const [renewLock, setRenewLock] = useState(null);
+  const [renewEmailSheet, setRenewEmailSheet] = useState(false);
+  const lockPhone = normPhone_(phone || sub?.phone || '');
+  const lockSubId = String(sub?.subId || '');
+  const loadRenewLock = () => {
+    if (!lockPhone || !lockSubId) return;
+    API.emailLockStatus(lockPhone, lockSubId, r => setRenewLock(r && r.ok ? r : null), () => {});
+  };
+  useEffect(loadRenewLock, [lockPhone, lockSubId]);
   if (!sub) return React.createElement(Slide, null, React.createElement("div", {
     style: {
       paddingBottom: 90
@@ -7053,19 +7538,26 @@ function RenewStartScreen({
   const currentPlan = String(sub.plan || '');
   const subId = String(sub.subId || '');
   const dl = Number(sub.daysLeft || 0);
-  const servicePlans = (boot?.plans || []).filter(p => p.service === service);
+  // A renewal keeps the same account and devices, so only the duration can change. Same list as the server
+  // (renewrules.js renewPlanChoices): old plan names of unknown kind get same-device plans, else all — never none.
+  const allServicePlans = (boot?.plans || []).filter(p => p.service === service);
+  const renewAllowed_ = renewPlanChoices_(currentPlan, allServicePlans.map(p => p.plan));
+  const servicePlans = allServicePlans.filter(p => renewAllowed_.includes(p.plan));
   const defaultPlanObj = servicePlans.find(p => p.plan === currentPlan) || servicePlans[0] || null;
   const [selectedPlan, setSelectedPlan] = useState(defaultPlanObj?.plan || currentPlan);
   const chosenPlanObj = servicePlans.find(p => p.plan === selectedPlan) || defaultPlanObj;
   const isSamePlan = selectedPlan === currentPlan;
-  const isExpired = dl <= 0;
-  const earlyDisc = !isExpired && isSamePlan ? Number(sub.earlyRenewDiscountEligible || 0) || Math.max(Number(sub.earlyDiscount8Plus || 0), Number(sub.earlyDiscount7to2 || 0)) || 0 : 0;
+  // daysLeft = calendar days (India) from the expiry date: 0 = expires today (still active), below 0 = ended.
+  const isExpired = dl < 0;
+  // Only the discount the server will really give (reads.js earlyRenewDiscountEligible) — the old fallback to the
+  // plan's biggest tier showed ₹ off that the pay screen then did not take.
+  const earlyDisc = !isExpired && isSamePlan ? Number(sub.earlyRenewDiscountEligible || 0) || 0 : 0;
   const tier = !isExpired && isSamePlan ? sub.earlyRenewDiscountTier === '8PLUS' ? '8+ days early' : sub.earlyRenewDiscountTier === '7TO2' ? '2–7 days early' : '' : '';
   const basePrice = Number(chosenPlanObj?.price || 0);
   const finalPrice = Math.max(0, basePrice - earlyDisc - (couponState.applied ? couponState.discount : 0));
   const coinRupees = coinSel.on && coinSel.q && coinSel.q.coins > 0 ? Math.min(finalPrice, Number(coinSel.q.rupees || 0)) : 0;
-  function applyCoupon() {
-    if (!couponCode.trim()) return alert('Enter a coupon code.');
+  function applyCoupon(quiet) {
+    if (!couponCode.trim()) return quiet === true ? null : alert('Enter a coupon code.');
     setCouponState(s => ({
       ...s,
       loading: true,
@@ -7080,6 +7572,18 @@ function RenewStartScreen({
       scope: 'RENEW'
     }, res => {
       if (!res || !res.ok) {
+        if (quiet === true) {
+          // Reminder coupon no longer fits (used up, other plan…): clear it silently, the customer can still type one.
+          setCouponState(s => ({
+            ...s,
+            loading: false,
+            applied: false,
+            discount: 0,
+            msg: ''
+          }));
+          setCouponCode(getPromoCoupon_());
+          return;
+        }
         setCouponState(s => ({
           ...s,
           loading: false,
@@ -7104,6 +7608,7 @@ function RenewStartScreen({
       msg: '❌ Coupon check failed.'
     })));
   }
+  applyCouponRef.current = applyCoupon;
   function startRenew() {
     if (submitting.current) return;
     if (!subId) return alert('Subscription ID missing.');
@@ -7226,7 +7731,7 @@ function RenewStartScreen({
     value: subId || '-'
   }), React.createElement(KV, {
     label: "Days Left",
-    value: isExpired ? `Expired (${dl} days)` : String(dl)
+    value: isExpired ? `Expired (${dl} days)` : dl === 0 ? 'Expires today' : String(dl)
   })), servicePlans.length > 1 && React.createElement(Card, {
     style: {
       marginTop: 10
@@ -7710,7 +8215,49 @@ function RenewStartScreen({
     tone: "plain"
   }, "ℹ️ Your subscription has expired. Renewing will start a fresh period.") : !isSamePlan ? React.createElement(Hint, {
     tone: "blue"
-  }, "ℹ️ You are switching to a different plan. Early discount applies only on same-plan renewal.") : React.createElement(Hint, null, "ℹ️ No early renewal discount available right now."), React.createElement("div", {
+  }, "ℹ️ You are switching to a different plan. Early discount applies only on same-plan renewal.") : React.createElement(Hint, null, "ℹ️ No early renewal discount available right now."), renewLock && renewLock.renewMaskedEmail && React.createElement("div", {
+    className: "ff-renew-email",
+    style: {
+      marginTop: 12,
+      padding: '11px 14px',
+      borderRadius: 14,
+      background: '#f8fafc',
+      border: `1px solid ${C.border}`,
+      fontFamily: PJS,
+      fontSize: 13.5,
+      fontWeight: 650,
+      color: C.muted,
+      lineHeight: 1.5,
+      overflowWrap: 'anywhere'
+    }
+  }, "📧 Login details will be sent to ", React.createElement("b", {
+    style: {
+      color: C.text
+    }
+  }, renewLock.renewMaskedEmail), " — ", React.createElement("button", {
+    type: "button",
+    onClick: () => setRenewEmailSheet(true),
+    style: {
+      background: 'none',
+      border: 0,
+      padding: '4px 2px',
+      color: '#2563eb',
+      fontFamily: PJS,
+      fontSize: 14,
+      fontWeight: 800,
+      textDecoration: 'underline',
+      cursor: 'pointer'
+    }
+  }, "Change")), React.createElement(EmailLockSheet, {
+    open: renewEmailSheet,
+    phone: lockPhone,
+    mode: "change",
+    onClose: () => setRenewEmailSheet(false),
+    onDone: () => {
+      setRenewEmailSheet(false);
+      loadRenewLock();
+    }
+  }), React.createElement("div", {
     style: {
       display: 'flex',
       gap: 10,
@@ -7726,7 +8273,9 @@ function RenewStartScreen({
     full: true,
     disabled: working,
     onClick: startRenew
-  }, working ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), "Creating…") : '✅ Continue to Pay')))));
+  }, working ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), "Creating…") : '✅ Continue to Pay')), React.createElement(RefundPolicyLink, {
+    lead: "Instant delivery"
+  }))));
 }
 function DoneScreen({
   nav,
@@ -7900,6 +8449,8 @@ function DoneScreen({
     onClick: () => nav(homeTarget, homeData)
   }, "🏠 Back to Home")))));
 }
+// Same words as recover.js NO_ACTIVE: one answer for no plan, wrong email, ended, refunded and removed.
+const RECOVER_NO_ACTIVE_ = 'No active plan found for this number and email. If your plan ended, renew it from My plans. Need help? Tap Help.';
 function RecoverScreen({
   nav,
   preSelectedSub,
@@ -7909,7 +8460,13 @@ function RecoverScreen({
   const resolvedPhone = savedPhone || preSelectedSub?.phone || '';
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState(resolvedPhone || '');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    try {
+      return localStorage.getItem('ff_recover_email') || '';
+    } catch (_) {
+      return '';
+    }
+  });
   const [otp, setOtp] = useState('');
   const [token, setToken] = useState('');
   const [subs, setSubs] = useState([]);
@@ -7919,8 +8476,16 @@ function RecoverScreen({
     text: '',
     ok: true
   });
+  const [sentTo, setSentTo] = useState('');
+  const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const [needHelp, setNeedHelp] = useState(false);
+  const [renewHint, setRenewHint] = useState(false);
+  const busy = useRef(false);
   const phoneLocked = !!resolvedPhone;
   const activePhone = normPhone_(phone || resolvedPhone);
+  const cleanEmail = String(email || '').replace(/\s+/g, '').toLowerCase();
+  const resendLeft = Math.max(0, Math.ceil((resendAt - now) / 1000));
   useEffect(() => {
     if (!setGlobalLoading) return;
     setGlobalLoading(loading || null, loading ? 'Please wait' : null);
@@ -7929,82 +8494,127 @@ function RecoverScreen({
   useEffect(() => {
     if (resolvedPhone) setPhone(resolvedPhone);
   }, [resolvedPhone]);
-  function showMsg(text, ok) {
+  // Resend countdown: ticks only while a countdown is running.
+  useEffect(() => {
+    if (resendLeft <= 0) return;
+    const t = setTimeout(() => setNow(Date.now()), 1000);
+    return () => clearTimeout(t);
+  }, [resendLeft, now]);
+  function showMsg(text, ok, help) {
     setMsg({
       text,
       ok
     });
+    setNeedHelp(!!help);
+    setRenewHint(false);
+  }
+  function backToStart(text) {
+    setStep(1);
+    setOtp('');
+    setToken('');
+    setSubs([]);
+    showMsg(text || '', !text);
   }
   function sendOtp() {
-    if (!activePhone) return alert('Enter phone.');
-    if (!email.trim()) return alert('Enter email.');
-    setLoading('📩 Sending OTP…');
-    API.recoverSendOtp(activePhone, email.trim(), r => {
+    if (activePhone.length !== 10) return showMsg('Enter your 10-digit phone number (the one you bought with).', false);
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(cleanEmail)) return showMsg('Enter the email you used when buying, like name@gmail.com.', false);
+    if (busy.current) return;
+    busy.current = true;
+    setLoading('📩 Sending code…');
+    API.recoverSendOtp(activePhone, cleanEmail, r => {
+      busy.current = false;
       setLoading('');
-      if (!r || r.ok === false) {
-        showMsg(r?.message || 'Failed to send OTP.', false);
+      if (r && r.wait) {
+        setResendAt(Date.now() + r.wait * 1000);
+        setNow(Date.now());
+        if (r.email) setSentTo(r.email);
+        showMsg(r.message, true);
+        setStep(2);
         return;
       }
-      showMsg((r.message || 'OTP sent.') + ' Sent to: ' + (r.email || ''), true);
+      if (!r || r.ok === false) {
+        showMsg(r?.message || 'Could not send the code. Please try again.', false, r?.noActive);
+        if (r?.noActive) setRenewHint(true);
+        return;
+      }
+      try {
+        localStorage.setItem('ff_recover_email', cleanEmail);
+      } catch (_) {}
+      setSentTo(r.email || '');
+      setResendAt(Date.now() + (Number(r.resendInSec) || 30) * 1000);
+      setNow(Date.now());
+      setOtp('');
+      showMsg(r.message || 'We sent a 6-digit code to your email. Check Spam too.', true);
       setStep(2);
     }, err => {
+      busy.current = false;
       setLoading('');
-      showMsg(err?.message || String(err), false);
+      showMsg(err?.message || 'No internet? Please try again.', false);
     });
   }
-  function verifyOtp() {
-    if (!otp.trim()) return alert('Enter OTP.');
-    setLoading('✅ Verifying OTP…');
-    API.recoverVerifyOtp(activePhone, email.trim(), otp.trim(), r => {
+  function verifyOtp(code) {
+    const c = String(code == null ? otp : code).replace(/\D/g, '');
+    if (c.length !== 6) return showMsg('Enter the 6-digit code from the email.', false);
+    if (busy.current) return;
+    busy.current = true;
+    setLoading('✅ Checking code…');
+    API.recoverVerifyOtp(activePhone, cleanEmail, c, r => {
+      busy.current = false;
       setLoading('');
       if (!r || r.ok === false) {
-        showMsg(r?.message || 'OTP verify failed.', false);
+        if (r?.expired) setResendAt(0);
+        setOtp('');
+        showMsg(r?.message || 'That code did not work. Please try again.', false);
         return;
       }
       const tk = String(r.recoverToken || '');
       if (!tk) {
-        showMsg('Token missing from server.', false);
+        showMsg('Something went wrong. Please send a new code.', false);
         return;
       }
       setToken(tk);
-      showMsg(r.message || 'Verified.', true);
       loadSubs(tk);
     }, err => {
+      busy.current = false;
       setLoading('');
-      showMsg(err?.message || String(err), false);
+      showMsg(err?.message || 'No internet? Please try again.', false);
     });
   }
   function loadSubs(tk) {
-    setLoading('🎬 Loading subscriptions…');
-    API.recoverListSubscriptionsSafe(activePhone, email.trim(), tk, r => {
+    setLoading('🎬 Loading your plans…');
+    API.recoverListSubscriptionsSafe(activePhone, cleanEmail, tk, r => {
       setLoading('');
       let data = r;
       if (data?.ok === true && data.subscriptions === undefined && data.data) data = data.data;
       if (data?.ok === false) {
-        showMsg(data.message || 'Failed to load.', false);
+        if (data.sessionExpired) return backToStart(data.message);
+        showMsg(data.message || 'Could not load your plans. Please try again.', false, data.noActive);
+        if (data.noActive) setRenewHint(true);
         return;
       }
       const list = Array.isArray(data?.subscriptions) ? data.subscriptions : [];
       setSubs(list);
-      if (preSelectedSub) {
-        const preId = String(preSelectedSub.orderId || preSelectedSub.subId || '');
-        const match = list.find(s => String(s.orderId || s.subId || '') === preId);
-        if (match) setSelectedOid(String(match.orderId || match.subId || ''));
-      }
+      const preId = String(preSelectedSub?.orderId || preSelectedSub?.subId || '');
+      const match = preId && list.find(s => String(s.orderId || s.subId || '') === preId);
+      if (match) setSelectedOid(String(match.orderId || match.subId || ''));else if (list.length === 1) setSelectedOid(String(list[0].orderId || list[0].subId || ''));
       setStep(3);
-      showMsg(list.length ? `Found ${list.length} subscription(s).` : 'No active subscriptions found.', list.length > 0);
+      showMsg(list.length ? '✅ Verified. Pick the plan you need the login for.' : RECOVER_NO_ACTIVE_, list.length > 0, !list.length);
+      if (!list.length) setRenewHint(true);
     }, err => {
+      busy.current = false;
       setLoading('');
-      showMsg(err?.message || String(err), false);
+      showMsg(err?.message || 'No internet? Please try again.', false);
     });
   }
   function revealAccess() {
-    if (!selectedOid) return alert('Select a subscription first.');
-    setLoading('🔓 Revealing access…');
-    API.recoverGetAccess(selectedOid, activePhone, email.trim(), token, r => {
+    if (!selectedOid) return showMsg('Tap a plan first.', false);
+    setLoading('🔓 Opening your login…');
+    API.recoverGetAccess(selectedOid, activePhone, cleanEmail, token, r => {
       setLoading('');
       if (!r || r.ok === false) {
-        showMsg(r?.message || 'Recover failed.', false);
+        if (r?.sessionExpired) return backToStart(r.message);
+        showMsg(r?.message || 'Could not open this login. Please try again.', false, r?.noActive);
+        if (r?.noActive) setRenewHint(true);
         return;
       }
       const rawAccess = r.access || r.data?.access || r || {};
@@ -8024,10 +8634,22 @@ function RecoverScreen({
         service: svcLabel
       });
     }, err => {
+      busy.current = false;
       setLoading('');
-      showMsg(err?.message || String(err), false);
+      showMsg(err?.message || 'No internet? Please try again.', false);
     });
   }
+  const linkBtn = {
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    color: '#2563eb',
+    fontFamily: PJS,
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: 'pointer',
+    textDecoration: 'underline'
+  };
   return React.createElement(Slide, null, React.createElement("div", {
     style: {
       paddingBottom: 90
@@ -8052,6 +8674,7 @@ function RecoverScreen({
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'flex-start',
+      gap: 8,
       marginBottom: 14
     }
   }, React.createElement("div", null, React.createElement("div", {
@@ -8062,7 +8685,15 @@ function RecoverScreen({
       color: C.text,
       marginBottom: 4
     }
-  }, "🔐 Recover Access"), preSelectedSub && React.createElement("div", {
+  }, "🔐 Recover Access"), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12.5,
+      color: C.muted,
+      fontWeight: 600,
+      marginBottom: preSelectedSub ? 6 : 0
+    }
+  }, step === 1 ? 'Get your login back with a code sent to your email.' : step === 2 ? 'Enter the code from your email.' : 'Pick a plan to see its login.'), preSelectedSub && React.createElement("div", {
     style: {
       display: 'inline-flex',
       alignItems: 'center',
@@ -8079,6 +8710,7 @@ function RecoverScreen({
   }, "🎬 ", preSelectedSub.service)), React.createElement(Badge, {
     tone: "info"
   }, "Step ", step, "/3")), msg.text && React.createElement("div", {
+    role: msg.ok ? 'status' : 'alert',
     style: {
       marginBottom: 12,
       padding: '10px 13px',
@@ -8088,9 +8720,27 @@ function RecoverScreen({
       fontFamily: PJS,
       fontSize: 13,
       fontWeight: 600,
+      lineHeight: 1.5,
       color: msg.ok ? '#15803d' : C.red
     }
-  }, msg.text), step === 1 && React.createElement("div", {
+  }, msg.text, (needHelp || renewHint) && React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 8,
+      flexWrap: 'wrap',
+      marginTop: 10
+    }
+  }, renewHint && React.createElement(Btn, {
+    size: "sm",
+    variant: "primary",
+    onClick: () => window.ffGoMyPlans ? window.ffGoMyPlans() : nav('dashboard', {
+      phone: activePhone
+    })
+  }, "🔁 Renew in My plans"), needHelp && React.createElement(Btn, {
+    size: "sm",
+    variant: "ghost",
+    onClick: ffOpenHelp_
+  }, "💬 Help"))), step === 1 && React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
@@ -8119,33 +8769,45 @@ function RecoverScreen({
       marginTop: 3
     }
   }, "📱 ", activePhone)) : React.createElement(Input, {
-    label: "Phone Number",
+    label: "Phone number you bought with",
     type: "tel",
-    placeholder: "+91 XXXXX XXXXX",
+    inputMode: "tel",
+    autoComplete: "tel",
+    placeholder: "10-digit mobile number",
     prefix: "📱",
     value: phone,
     onChange: e => setPhone(e.target.value)
   }), React.createElement(Input, {
-    label: "Email Address",
+    label: "Email you bought with",
     type: "email",
-    placeholder: "Registered email",
+    inputMode: "email",
+    autoComplete: "email",
+    placeholder: "name@gmail.com",
     value: email,
     onChange: e => setEmail(e.target.value)
-  }), React.createElement(Hint, null, "📧 OTP will be sent to your registered email. Use the same email you used when buying."), React.createElement(Btn, {
+  }), React.createElement(Hint, null, "📧 We email you a 6-digit code. Use the same email you typed when buying — it is in your FluxFilm order email. Only plans that are still active can be recovered."), React.createElement(Btn, {
     variant: "purple",
     full: true,
     onClick: sendOtp
-  }, "📩 Send OTP")), step === 2 && React.createElement("div", {
+  }, "📩 Send code")), step === 2 && React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
       gap: 12
     }
   }, React.createElement(Input, {
-    label: "Enter OTP",
-    placeholder: "6-digit code from email",
+    label: sentTo ? 'Code sent to ' + sentTo : 'Enter the code',
+    type: "text",
+    inputMode: "numeric",
+    autoComplete: "one-time-code",
+    maxLength: 6,
+    placeholder: "6-digit code",
     value: otp,
-    onChange: e => setOtp(e.target.value),
+    onChange: e => {
+      const v = String(e.target.value || '').replace(/\D/g, '').slice(0, 6);
+      setOtp(v);
+      if (v.length === 6) verifyOtp(v);
+    },
     autoFocus: true
   }), React.createElement("div", {
     style: {
@@ -8154,18 +8816,32 @@ function RecoverScreen({
     }
   }, React.createElement(Btn, {
     variant: "ghost",
-    onClick: () => {
-      setStep(1);
-      setMsg({
-        text: '',
-        ok: true
-      });
-    }
+    onClick: () => backToStart('')
   }, "⬅️ Back"), React.createElement(Btn, {
     variant: "purple",
     full: true,
-    onClick: verifyOtp
-  }, "✅ Verify OTP"))), step === 3 && React.createElement("div", null, subs.length === 0 && React.createElement("div", {
+    onClick: () => verifyOtp()
+  }, "✅ Verify code")), React.createElement("div", {
+    style: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: 10,
+      flexWrap: 'wrap',
+      fontFamily: PJS,
+      fontSize: 13,
+      color: C.muted,
+      fontWeight: 600
+    }
+  }, resendLeft > 0 ? React.createElement("span", null, "Send a new code in ", resendLeft, " s") : React.createElement("button", {
+    type: "button",
+    style: linkBtn,
+    onClick: sendOtp
+  }, "🔄 Send a new code"), React.createElement("button", {
+    type: "button",
+    style: linkBtn,
+    onClick: () => backToStart('')
+  }, "Wrong email? Change it")), React.createElement(Hint, null, "No email? Check Spam / Promotions, and search for \"FluxFilm\". It can take a minute.")), step === 3 && React.createElement("div", null, subs.length === 0 && React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 13.5,
@@ -8173,7 +8849,7 @@ function RecoverScreen({
       fontWeight: 600,
       padding: '12px 0'
     }
-  }, "No active subscriptions found for this phone + email."), React.createElement("div", {
+  }, RECOVER_NO_ACTIVE_), React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
@@ -8183,9 +8859,22 @@ function RecoverScreen({
   }, subs.map((s, i) => {
     const oid = String(s.orderId || s.subId || '');
     const sel = selectedOid === oid;
+    const ended = s.daysLeft != null && s.daysLeft < 0;
     return React.createElement("div", {
-      key: i,
-      onClick: () => setSelectedOid(oid),
+      key: oid || i,
+      role: "button",
+      tabIndex: 0,
+      "aria-pressed": sel,
+      onClick: () => {
+        setSelectedOid(oid);
+        setRenewHint(false);
+      },
+      onKeyDown: e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setSelectedOid(oid);
+        }
+      },
       style: {
         padding: '13px 14px',
         borderRadius: 16,
@@ -8195,9 +8884,15 @@ function RecoverScreen({
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
+        gap: 10,
+        opacity: s.refunded ? .6 : 1,
         transition: '.14s'
       }
-    }, React.createElement("div", null, React.createElement("div", {
+    }, React.createElement("div", {
+      style: {
+        minWidth: 0
+      }
+    }, React.createElement("div", {
       style: {
         fontFamily: PJS,
         fontSize: 15,
@@ -8215,19 +8910,28 @@ function RecoverScreen({
     }, s.plan), s.daysLeft != null && React.createElement("div", {
       style: {
         fontFamily: PJS,
-        fontSize: 11,
-        color: C.muted,
-        fontWeight: 600,
-        marginTop: 2
+        fontSize: 11.5,
+        color: s.refunded ? C.muted : ended ? C.red : s.daysLeft <= 3 ? '#b45309' : '#15803d',
+        fontWeight: 700,
+        marginTop: 3
       }
-    }, s.daysLeft > 0 ? `${s.daysLeft} days left` : 'Expired')), React.createElement(Badge, {
+    }, s.refunded ? 'Refunded' : ended ? `Ended${s.expiryText ? ' ' + s.expiryText : ''}` : s.daysLeft === 0 ? `Expires today${s.expiryText ? ' · ' + s.expiryText : ''}` : `${s.daysLeft} day${s.daysLeft === 1 ? '' : 's'} left${s.expiryText ? ' · till ' + s.expiryText : ''}`)), React.createElement(Badge, {
       tone: sel ? 'ok' : 'plain'
-    }, sel ? '✅ Selected' : '☑️ Select'));
+    }, sel ? '✅ Selected' : 'Select'));
   })), selectedOid && React.createElement(Btn, {
     variant: "primary",
     full: true,
     onClick: revealAccess
-  }, "🔓 Reveal Password")))));
+  }, "🔓 Show my login"), React.createElement("div", {
+    style: {
+      marginTop: 12,
+      textAlign: 'center'
+    }
+  }, React.createElement("button", {
+    type: "button",
+    style: linkBtn,
+    onClick: () => backToStart('')
+  }, "⬅️ Start again with another email"))))));
 }
 // Account → 🔊 Sounds / 📳 Vibration switches (this device only; the sound module is in <head>).
 function SoundRows() {
@@ -8625,9 +9329,9 @@ function AccountScreen({
   const active = allSubs.filter(s => Number(s.daysLeft || 0) > 7).length;
   const expiring = allSubs.filter(s => {
     const d = Number(s.daysLeft || 0);
-    return d > 0 && d <= 7;
+    return s.daysLeft != null && d >= 0 && d <= 7;
   }).length;
-  const expired = allSubs.filter(s => Number(s.daysLeft || 0) <= 0).length;
+  const expired = allSubs.filter(s => s.daysLeft == null || Number(s.daysLeft) < 0).length;
   const [profile, setProfile] = useState(passedProfile || null);
   const [profLoading, setProfLoading] = useState(!passedProfile);
   const [coupons, setCoupons] = useState([]);
@@ -8638,6 +9342,9 @@ function AccountScreen({
   const [pendingPhoto, setPendingPhoto] = useState('');
   const [photoMsg, setPhotoMsg] = useState(null);
   const [showCreator, setShowCreator] = useState(false);
+  // 🔒 Account → Profile → Change email (codes; see EmailLockSheet / emaillock.js).
+  const [emailSheetOpen, setEmailSheetOpen] = useState(false);
+  const [emailMsg, setEmailMsg] = useState('');
   // Account → Notifications row (renewal reminders on this device).
   const [pushSt, setPushSt] = useState('off');
   useEffect(() => {
@@ -9063,6 +9770,43 @@ function AccountScreen({
   }), React.createElement(KV, {
     label: "Email",
     value: profile?.email ? maskEmail_(profile.email) : '-'
+  }), profile?.email && React.createElement("div", {
+    style: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+      padding: '6px 0 10px'
+    }
+  }, React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12.5,
+      fontWeight: 650,
+      color: C.muted,
+      flex: '1 1 160px'
+    }
+  }, emailMsg || 'Your login details are sent to this email.'), React.createElement(Btn, {
+    variant: "ghost",
+    size: "sm",
+    onClick: () => setEmailSheetOpen(true)
+  }, "✏️ Change email")), React.createElement(EmailLockSheet, {
+    open: emailSheetOpen,
+    phone: phone,
+    mode: "change",
+    onClose: () => setEmailSheetOpen(false),
+    onDone: r => {
+      setEmailSheetOpen(false);
+      if (r && r.changed) {
+        setProfile(p => ({
+          ...(p || {}),
+          ...(r.profile || {}),
+          email: r.profile?.email || r.email
+        }));
+        setEmailMsg('✅ Email changed. We told your old email too.');
+      }
+    }
   }), React.createElement(KV, {
     label: "Member Since",
     value: profile?.memberSince ? fmtDate(profile.memberSince) : '-'
@@ -9326,7 +10070,30 @@ function AccountScreen({
     name: name
   }), !section && React.createElement(RefundRequestButton, {
     phone: phone
-  }), !section && React.createElement("div", {
+    }), !section && React.createElement("nav", {
+    className: "ff-acc-policies",
+    "aria-label": "FluxFilm information",
+    style: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: '6px 16px',
+      marginTop: 18,
+      fontFamily: PJS,
+      fontSize: 13,
+      fontWeight: 700
+    }
+  }, [['/refund-policy', '📄 Refund policy'], ['/faq', '❓ FAQ'], ['/about', 'ℹ️ About FluxFilm']].map(([href, label]) => React.createElement("a", {
+    key: href,
+    href: href,
+    target: "_blank",
+    rel: "noopener",
+    style: {
+      color: C.muted,
+      textDecoration: 'none',
+      padding: '8px 4px'
+    }
+  }, label))), !section && React.createElement("div", {
     style: {
       marginTop: 18
     }
@@ -10245,7 +11012,7 @@ function InstallPrompt({
     if (seen || installHiddenUntil_() > Date.now()) return;
     if (!ready && !isIos_()) return;
     const t = setTimeout(() => {
-      if (window.ffPromoOpen) return; // an offer pop-up is showing — ask on the next screen instead
+      if (window.ffPromoOpen || window.ffRenewPopOpen) return; // an offer / renewal reminder pop-up is showing — ask on the next screen instead
       if (window.ffPushOpen) return; // the renewal reminders pop-up is showing
       try {
         sessionStorage.setItem('ff_install_asked', '1');
@@ -10488,7 +11255,7 @@ function PushPrompt({
     if (pushAskedThisVisit_() || pushSnoozedUntil_() > Date.now()) return;
     let live = true;
     const t = setTimeout(() => {
-      if (window.ffPromoOpen || window.ffPushOpen) return;
+      if (window.ffPromoOpen || window.ffPushOpen || window.ffRenewPopOpen) return;
       pushState_().then(st => {
         if (!live || st !== 'off' && st !== 'ios-install') return;
         pushMarkAsked_();
@@ -10863,7 +11630,7 @@ function RefundChoice({
       });
       if (!first) return;
       const show = () => {
-        if (window.ffPromoOpen) return setTimeout(show, 1500);
+        if ((window.ffPromoOpen || window.ffRenewPopOpen) && !force) return setTimeout(show, 1500);
         try {
           sessionStorage.setItem(seenKey(first.orderId), '1');
         } catch (e) {}
@@ -11176,13 +11943,16 @@ function RefundChoice({
     full: true,
     size: "sm",
     onClick: close
-  }, "Decide later")), React.createElement("p", {
+  }, "Decide later")), isOffer &&   React.createElement("p", {
     key: "fine",
     style: {
       fontSize: 12,
       marginTop: 12
     }
-  }, isOffer ? 'When you take the refund, this plan stops working.' : 'Coins and the coupon get extra value; UPI is the exact amount.')];
+  }, 'When you take the refund, this plan stops working.'), React.createElement(RefundPolicyLink, {
+    key: "rp",
+    lead: "Coins and the coupon get extra value; UPI is the exact amount"
+  })];
   return React.createElement(ToolsSheet, {
     onClose: close
   }, React.createElement("div", {
@@ -11478,6 +12248,617 @@ function RefundRequestSheet({
     }
   }, body));
 }
+// ⏳ Renewal reminder pop-up (admin → 🚧 Maintenance → "⏳ Renewal reminder pop-up", on by default).
+// On app open, a logged-in customer whose plan ends within `before` India calendar days (default 7) or ended at most
+// `after` days ago (default 3) sees ONE friendly pop-up: countdown, renew price from the live catalog, early-renew
+// discount, a RENEW coupon, usable coins, and "Renew now" into the normal renew flow.
+// Everything between RR_PURE_START and RR_PURE_END is plain logic (no React, no DOM): test/renew-reminder.test.js runs it.
+// RR_PURE_START
+// ✏️ All pop-up wording lives here. Each list rotates by day, so the same customer sees different words on different days.
+// Placeholders: {hi} "Hi Asha" / "Hi there" · {name} "Asha" / "friend" · {service} · {plan} · {days}
+// {devices} " on both devices" / " on all 3 devices" / "" · {ago} "yesterday" / "2 days ago" · {profile} " and profile" / "" · {count}
+const RENEW_REMIND_TEXT_ = {
+  week: [{
+    title: '{hi}, {service} ends in {days} days',
+    body: 'Your {plan} plan{devices} is still running. Renew early, relax, and forget about it for a while.'
+  }, {
+    title: '{days} days of {service} left 🍿',
+    body: '{hi}! Your {plan} plan{devices} ends soon. Renew now and keep watching without a break.'
+  }, {
+    title: '{hi} 👋 chhota sa reminder',
+    body: 'Your {service} {plan} plan{devices} ends in {days} days. Renew abhi, tension-free raho.'
+  }],
+  soon: [{
+    title: '⏳ Only {days} days left on {service}',
+    body: '{hi}, your {plan} plan{devices} ends soon. Renew now so your show doesn\'t stop mid-episode.'
+  }, {
+    title: 'Bas {days} din bache hain, {name}!',
+    body: 'Your {service} {plan} plan{devices} ends in {days} days. Renew today and keep the same account.'
+  }, {
+    title: 'Almost renewal time, {name}',
+    body: 'Your {service} {plan} plan{devices} has {days} days left. A couple of taps and you\'re sorted.'
+  }],
+  tomorrow: [{
+    title: '{service} ends tomorrow ⏰',
+    body: '{hi}, your {plan} plan{devices} ends tomorrow. Renew today and keep watching without a break.'
+  }, {
+    title: 'Kal khatam ho raha hai, {name}!',
+    body: 'Your {service} {plan} plan{devices} ends tomorrow. Renew now, it takes just a minute.'
+  }, {
+    title: 'One more day of {service}',
+    body: '{hi}! Your {plan} plan{devices} ends tomorrow. Renew today so tomorrow\'s episode isn\'t cut short.'
+  }],
+  today: [{
+    title: '{service} ends today ⏰',
+    body: '{hi}, your {plan} plan{devices} ends today. Renew now and keep the same account.'
+  }, {
+    title: 'Aaj last day hai, {name}!',
+    body: 'Your {service} {plan} plan{devices} ends today. Renew now so your watching doesn\'t stop.'
+  }, {
+    title: 'Today is renewal day 🎬',
+    body: '{hi}! Your {service} {plan} plan{devices} ends today. Renew in a minute and carry on watching.'
+  }],
+  ended: [{
+    title: 'Your {service} plan ended {ago}',
+    body: '{hi}, renew now to keep the same account{profile}.'
+  }, {
+    title: 'We miss you on {service} 💜',
+    body: 'Your {plan} plan{devices} ended {ago}. Renew now to keep the same account{profile}.'
+  }, {
+    title: 'Wapas aa jao, {name}! 🍿',
+    body: 'Your {service} {plan} plan{devices} ended {ago}. Renew to keep the same account{profile}.'
+  }],
+  multi: [{
+    title: '{count} plans need a renewal',
+    body: '{hi}! Here is what ends soon. Renew the one you watch most first.'
+  }, {
+    title: 'Quick check, {name} 👀',
+    body: '{count} of your plans are ending soon or just ended. Renew them in a tap.'
+  }, {
+    title: '{count} plans ko renew karna hai',
+    body: '{hi}, pick a plan below and keep watching without a break.'
+  }],
+  perks: {
+    early: '🎉 Early-renew discount: ₹{amount} off',
+    coupon: '🎟️ Coupon {code} saves about ₹{amount}, we\'ll add it on the renew page',
+    coins: '🪙 You can use {coins} coins (₹{amount} off) when you pay',
+    credit: '💸 Your ₹{amount} refund credit can pay for this renewal',
+    noLoss: '📅 Renewing early adds the new days on top of your plan, no days lost',
+    sameAccount: '🔐 Renew now to keep the same account{profile}'
+  },
+  cta: 'Renew now',
+  later: 'Remind me later'
+};
+const RR_DAY_MS_ = 86400000;
+const RR_IST_MS_ = 19800000; // India is UTC+5:30 (no daylight saving)
+const RR_SEEN_GAP_MS_ = 12 * 3600000; // the same plan at most once every ~12 hours
+const RR_SNOOZE_MS_ = 24 * 3600000; // "Remind me later"
+const RR_KEY_ = 'ff_rr';
+function rrYmd_(ms) {
+  return new Date(ms + RR_IST_MS_).toISOString().slice(0, 10);
+}
+// Date text → milliseconds. No Date('YYYY-MM-DD HH:MM') parsing (Safari says Invalid Date): read the parts by hand.
+// No time zone in the text = India wall-clock time (how MySQL stores it); "…Z" / "+05:30" are honoured.
+function rrParseMs_(v) {
+  if (v == null || v === '') return null;
+  const m = String(v).trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i);
+  if (!m) return null;
+  const y = +m[1],
+    mo = +m[2],
+    d = +m[3];
+  const day = Date.UTC(y, mo - 1, d);
+  if (isNaN(day) || new Date(day).toISOString().slice(0, 10) !== m[1] + '-' + m[2] + '-' + m[3]) return null;
+  const ms = day + ((+m[4] || 0) * 3600 + (+m[5] || 0) * 60 + (+m[6] || 0)) * 1000;
+  if (!m[7]) return ms - RR_IST_MS_;
+  if (/^z$/i.test(m[7])) return ms;
+  const z = m[7].replace(':', '');
+  return ms - (z[0] === '-' ? -1 : 1) * (+z.slice(1, 3) * 60 + +z.slice(3, 5)) * 60000;
+}
+// Calendar days (India) from today to the expiry DATE; the time of day is ignored. Today 0, tomorrow 1, yesterday -1.
+function rrDaysLeft_(expiry, nowMs) {
+  const ms = rrParseMs_(expiry);
+  if (ms == null) return null;
+  return Math.round((Date.parse(rrYmd_(ms) + 'T00:00:00Z') - Date.parse(rrYmd_(nowMs) + 'T00:00:00Z')) / RR_DAY_MS_);
+}
+function rrHash_(s) {
+  let h = 7;
+  for (let i = 0; i < s.length; i++) h = h * 31 + s.charCodeAt(i) >>> 0;
+  return h;
+}
+function rrFill_(t, v) {
+  return String(t || '').replace(/\{(\w+)\}/g, (all, k) => v[k] != null ? String(v[k]) : '');
+}
+function rrBucket_(days) {
+  return days < 0 ? 'ended' : days === 0 ? 'today' : days === 1 ? 'tomorrow' : days <= 3 ? 'soon' : 'week';
+}
+function rrTone_(bucket) {
+  return bucket === 'ended' ? 't-ended' : bucket === 'week' ? 't-week' : bucket === 'soon' ? 't-soon' : 't-urgent';
+}
+function rrDevices_(sub) {
+  return Number(sub && sub.deviceCount) || Number((String(sub && sub.plan || '').match(/(\d+)\s*device/i) || [])[1]) || 1;
+}
+// Refunded / cancelled / removed plans never get a reminder.
+function rrSkipped_(sub, orders) {
+  const bad = /^(REFUNDED|CANCELLED|CANCELED|REMOVED|ERASED)$/;
+  if (bad.test(String(sub.status || '').trim().toUpperCase()) || bad.test(String(sub.fulfillmentStatus || '').trim().toUpperCase())) return true;
+  const oid = String(sub.orderId || '');
+  return !!oid && (orders || []).some(o => o && String(o.orderId || '') === oid && String(o.status || '').toUpperCase() === 'REFUNDED');
+}
+// Already renewed? A renewal moves THIS plan's expiry forward (fulfill.js), so it simply leaves the window. Two other
+// cases: a newer plan of the same service bought around this one's end (started at most 10 days before it ended and
+// ends later), or a renewal/new order for that service that is paid and still being delivered (last 3 days).
+function rrRenewed_(sub, all, orders, nowMs) {
+  const exp = rrParseMs_(sub.expiryDate);
+  if (exp == null) return false;
+  const svc = String(sub.service || '');
+  const newer = all.some(s2 => {
+    if (s2 === sub || String(s2.subId) === String(sub.subId) || String(s2.service || '') !== svc || rrSkipped_(s2, orders)) return false;
+    const e2 = rrParseMs_(s2.expiryDate),
+      st2 = rrParseMs_(s2.startDate);
+    return e2 != null && st2 != null && rrYmd_(e2) > rrYmd_(exp) && st2 >= exp - 10 * RR_DAY_MS_;
+  });
+  if (newer) return true;
+  return (orders || []).some(o => {
+    if (!o || String(o.service || '') !== svc || String(o.status || '').toUpperCase() !== 'PAID') return false;
+    if (!/^(|PENDING|PROCESSING)$/.test(String(o.fulfillmentStatus || '').toUpperCase())) return false;
+    const at = rrParseMs_(o.createdAt);
+    return at != null && at > nowMs - 3 * RR_DAY_MS_;
+  });
+}
+function rrStateRead_(ls) {
+  try {
+    const o = JSON.parse(ls && ls.getItem(RR_KEY_) || '{}');
+    return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+  } catch (e) {
+    return {};
+  }
+}
+function rrStateWrite_(ls, st, nowMs) {
+  const out = {};
+  Object.keys(st || {}).forEach(k => {
+    const x = st[k] || {};
+    if (Math.max(Number(x.seen) || 0, Number(x.snooze) || 0) > nowMs - 10 * RR_DAY_MS_) out[k] = x;
+  });
+  try {
+    ls && ls.setItem(RR_KEY_, JSON.stringify(out));
+  } catch (e) {}
+  return out;
+}
+function rrMark_(st, ids, field, value) {
+  const out = Object.assign({}, st || {});
+  (ids || []).forEach(id => {
+    out[id] = Object.assign({}, out[id] || {}, {
+      [field]: value
+    });
+  });
+  return out;
+}
+// Which plans to remind about (most urgent first, at most 4). o = { subs, orders, nowMs, before, after, state }
+function renewRemindPick_(o) {
+  const before = Math.min(14, Math.max(1, Math.floor(Number(o.before)) || 7));
+  const after = Math.min(5, Math.max(0, Number.isFinite(Number(o.after)) && o.after !== '' && o.after != null ? Math.floor(Number(o.after)) : 3));
+  const now = Number(o.nowMs) || Date.now();
+  const st = o.state || {};
+  const ids = {};
+  const all = (o.subs || []).filter(s => {
+    if (!s || !s.subId || ids[s.subId]) return false;
+    ids[s.subId] = 1;
+    return true;
+  });
+  const out = [];
+  all.forEach(s => {
+    if (s.showRenewButton === false) return;
+    const days = rrDaysLeft_(s.expiryDate, now);
+    if (days == null || days > before || days < -after) return;
+    if (days < 0 && String(s.renewEligibility || '').toUpperCase() === 'TOO_LATE') return;
+    if (rrSkipped_(s, o.orders) || rrRenewed_(s, all, o.orders, now)) return;
+    const k = st[s.subId] || {};
+    if (Number(k.snooze) > now || Number(k.seen) > now - RR_SEEN_GAP_MS_) return;
+    out.push({
+      sub: s,
+      days,
+      bucket: rrBucket_(days)
+    });
+  });
+  out.sort((a, b) => a.days - b.days || String(a.sub.service).localeCompare(String(b.sub.service)));
+  return out.slice(0, 4);
+}
+// The best RENEW coupon shown in the customer's profile (getActiveCouponsForCustomer). The renew page checks it again.
+function rrCoupon_(coupons, amount, nowMs) {
+  let best = null;
+  (coupons || []).forEach(c => {
+    if (!c || !c.code || String(c.scope || '').toUpperCase() !== 'RENEW' || c.remaining === 0) return;
+    const ex = rrParseMs_(c.expiry);
+    if (ex != null && ex < nowMs) return;
+    if (Number(c.minAmount) > amount) return;
+    const t = String(c.type || '').toUpperCase();
+    let d = t.indexOf('PERC') === 0 || t === 'PCT' || t === '%' ? amount * Number(c.value || 0) / 100 : Number(c.value || 0);
+    if (Number(c.maxDiscount) > 0) d = Math.min(d, Number(c.maxDiscount));
+    d = Math.round(Math.max(0, Math.min(d, amount)));
+    if (d > 0 && (!best || d > best.amount)) best = {
+      code: String(c.code).toUpperCase(),
+      amount: d
+    };
+  });
+  return best;
+}
+function rrFirstName_(name) {
+  const w = String(name || '').trim().split(/\s+/)[0] || '';
+  if (!/^[A-Za-z][A-Za-z.'-]{0,13}$/.test(w) || /^(customer|user|test|na|null)$/i.test(w)) return '';
+  return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+}
+// Words + numbers for the pop-up. o = { items, name, plans, coupons, coins, nowMs, before }
+function renewRemindCompose_(o) {
+  const T = o.texts || RENEW_REMIND_TEXT_;
+  const now = Number(o.nowMs) || Date.now();
+  const before = Math.min(14, Math.max(1, Math.floor(Number(o.before)) || 7));
+  const first = rrFirstName_(o.name);
+  const hi = first ? 'Hi ' + first : 'Hi there';
+  const name = first || 'friend';
+  const items = o.items || [];
+  const rot = Math.floor((now + RR_IST_MS_) / RR_DAY_MS_) + rrHash_(items.map(x => x.sub.subId).join('|'));
+  const rows = items.map(it => {
+    const s = it.sub;
+    const planObj = (o.plans || []).find(p => p && p.service === s.service && p.plan === s.plan);
+    const price = planObj ? Math.max(0, Number(planObj.price) || 0) : 0;
+    const early = it.days >= 0 && price > 0 ? Math.min(price, Math.max(0, Number(s.earlyRenewDiscountEligible) || 0)) : 0;
+    const dev = rrDevices_(s);
+    const days = it.days;
+    const ago = days === -1 ? 'yesterday' : -days + ' days ago';
+    const chip = days < 0 ? {
+      num: String(-days),
+      unit: days === -1 ? 'day ago' : 'days ago',
+      label: 'Ended ' + ago
+    } : days === 0 ? {
+      num: 'Today',
+      unit: 'last day',
+      label: 'Ends today',
+      word: true
+    } : {
+      num: String(days),
+      unit: days === 1 ? 'day left' : 'days left',
+      label: days === 1 ? 'Ends tomorrow' : days + ' days left'
+    };
+    return {
+      subId: String(s.subId),
+      sub: s,
+      days,
+      bucket: it.bucket || rrBucket_(days),
+      price,
+      early,
+      pay: Math.max(0, price - early),
+      chip,
+      vars: {
+        hi,
+        name,
+        service: s.service || 'your plan',
+        plan: s.plan || '',
+        days: Math.max(0, days),
+        // "Private 2 Devices 1M plan on both devices" says it twice: only when the plan name does not.
+        devices: /device/i.test(s.plan || '') ? '' : dev === 2 ? ' on both devices' : dev > 2 ? ' on all ' + dev + ' devices' : '',
+        ago,
+        profile: s.profileName || s.profileNumber ? ' and profile' : ''
+      }
+    };
+  });
+  const r0 = rows[0] || null;
+  const single = rows.length === 1;
+  const coupon = r0 && r0.pay > 0 ? rrCoupon_(o.coupons, r0.pay, now) : null;
+  let title = '',
+    body = '',
+    textKey = '';
+  if (r0) {
+    const list = single ? T[r0.bucket] : T.multi;
+    const i = rot % list.length;
+    const v = single ? r0.vars : {
+      hi,
+      name,
+      count: rows.length
+    };
+    title = rrFill_(list[i].title, v);
+    body = rrFill_(list[i].body, v);
+    textKey = (single ? r0.bucket : 'multi') + ':' + i;
+  }
+  const perks = [];
+  if (single && r0.early > 0) perks.push(rrFill_(T.perks.early, {
+    amount: r0.early
+  }));
+  if (coupon) perks.push(rrFill_(T.perks.coupon, coupon));
+  const q = o.coins;
+  if (q && q.ok !== false && q.enabled !== false) {
+    const cc = Number(q.coinCoins != null ? q.coinCoins : q.coins) || 0;
+    const cr = Number(q.coinRupees != null ? q.coinRupees : q.rupees) || 0;
+    if (Number(q.creditRupees) > 0) perks.push(rrFill_(T.perks.credit, {
+      amount: Number(q.creditRupees)
+    }));
+    if (cc > 0 && cr > 0) perks.push(rrFill_(T.perks.coins, {
+      coins: cc,
+      amount: cr
+    }));
+  }
+  // Verified in renewal.js computeRenewal: renewing on or before the expiry → new expiry = old expiry + plan days.
+  if (rows.some(r => r.days >= 0)) perks.push(T.perks.noLoss);
+  const endedRow = rows.find(r => r.days < 0);
+  if (endedRow) perks.push(rrFill_(T.perks.sameAccount, endedRow.vars));
+  const fraction = !r0 || r0.days < 0 ? 0 : r0.days === 0 ? 0.04 : Math.min(1, r0.days / before);
+  return {
+    title,
+    body,
+    textKey,
+    rows,
+    single,
+    perks,
+    coupon,
+    tone: r0 ? rrTone_(r0.bucket) : '',
+    ring: r0 ? Object.assign({
+      fraction
+    }, r0.chip) : null,
+    price: single && r0.price > 0 ? {
+      was: r0.price,
+      now: Math.max(0, r0.pay - (coupon ? coupon.amount : 0))
+    } : null,
+    cta: T.cta,
+    later: T.later
+  };
+}
+// RR_PURE_END
+const RR_SCREENS_ = {
+  home: 1,
+  dashboard: 1,
+  account: 1,
+  feed: 1,
+  buy1: 1
+};
+let rrShownThisOpen_ = false;
+// Another pop-up, sheet or chat is open (offers, refund choice, reminders, Olivia, comments, pickers…).
+function rrOtherDialogOpen_() {
+  if (window.ffPromoOpen || window.ffRefundOpen || window.ffPushOpen) return true;
+  try {
+    return Array.prototype.some.call(document.querySelectorAll('[role="dialog"], [aria-modal="true"]'), el => !el.closest('.ff-rr-bg') && el.getClientRects().length > 0);
+  } catch (e) {
+    return false;
+  }
+}
+function rrStorage_() {
+  try {
+    return window.localStorage;
+  } catch (e) {
+    return null;
+  }
+}
+function RenewReminder({
+  screen,
+  phone,
+  manageResp,
+  orders,
+  coupons,
+  couponsReady,
+  profile,
+  boot,
+  settings,
+  busy,
+  nav
+}) {
+  const [pop, setPop] = useState(null);
+  // Coupons load just after the plans; wait for them (at most 4 s) so a RENEW coupon can be offered.
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setWaited(true), 4000);
+    return () => clearTimeout(t);
+  }, []);
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
+  const dlgRef = useRef(null);
+  const ready = !!settings && settings.renewPopup !== false && !settings.paused && !!phone && !busy && !!RR_SCREENS_[screen] && !!(manageResp && manageResp._checked) && !!(boot && Array.isArray(boot.plans)) && (!!couponsReady || waited);
+  useEffect(() => {
+    if (!ready || pop || rrShownThisOpen_) return;
+    try {
+      if (sessionStorage.getItem('ff_rr_shown')) {
+        rrShownThisOpen_ = true;
+        return;
+      }
+    } catch (e) {}
+    let live = true,
+      t2 = null;
+    const t = setTimeout(() => {
+      if (!live || rrOtherDialogOpen_()) return;
+      const ls = rrStorage_();
+      const now = Date.now();
+      const items = renewRemindPick_({
+        subs: [...(manageResp.actionable || []), ...(manageResp.history || [])],
+        orders,
+        nowMs: now,
+        before: settings.renewPopupBefore,
+        after: settings.renewPopupAfter,
+        state: rrStateRead_(ls)
+      });
+      if (!items.length) return;
+      const input = {
+        items,
+        name: profile && profile.name,
+        plans: boot.plans,
+        coupons,
+        nowMs: now,
+        before: settings.renewPopupBefore
+      };
+      const base = renewRemindCompose_(input);
+      let done = false;
+      const show = q => {
+        if (done) return;
+        done = true;
+        clearTimeout(t2);
+        if (!live || rrShownThisOpen_ || !RR_SCREENS_[screenRef.current] || rrOtherDialogOpen_()) return;
+        rrShownThisOpen_ = true;
+        try {
+          sessionStorage.setItem('ff_rr_shown', '1');
+        } catch (e) {}
+        rrStateWrite_(ls, rrMark_(rrStateRead_(ls), items.map(x => String(x.sub.subId)), 'seen', now), now);
+        setPop(q && q.ok ? renewRemindCompose_({
+          ...input,
+          coins: q
+        }) : base);
+      };
+      // Usable coins follow the normal coin rules (coins.js quoteSpend), asked once, only when a reminder is due.
+      const amount = base.price ? base.price.now : base.rows[0].pay;
+      if (!(amount > 0)) return show(null);
+      t2 = setTimeout(() => show(null), 2500);
+      API.getCoinQuote(phone, amount, 'RENEW', r => show(r), () => show(null));
+    }, 1400);
+    return () => {
+      live = false;
+      clearTimeout(t);
+      clearTimeout(t2);
+    };
+  }, [ready, pop]);
+  // Open: Back closes it (history entry, same pattern as the feed comments sheet), Esc closes, focus moves inside.
+  useEffect(() => {
+    if (!pop) return;
+    window.ffRenewPopOpen = true;
+    let popped = false;
+    try {
+      window.history.pushState(Object.assign({}, window.history.state || {}, {
+        ffRenewPop: 1
+      }), '');
+    } catch (e) {}
+    const onPop = () => {
+      popped = true;
+      setPop(null);
+    };
+    const onKey = e => {
+      if (e.key === 'Escape') setPop(null);
+    };
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('keydown', onKey);
+    try {
+      dlgRef.current && dlgRef.current.focus({
+        preventScroll: true
+      });
+    } catch (e) {}
+    return () => {
+      window.ffRenewPopOpen = false;
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('keydown', onKey);
+      if (!popped) try {
+        if (window.history.state && window.history.state.ffRenewPop) window.history.back();
+      } catch (e) {}
+    };
+  }, [pop]);
+  useEffect(() => {
+    if (pop && !RR_SCREENS_[screen]) setPop(null);
+  }, [screen]);
+  if (!pop) return null;
+  const p = pop;
+  const close = () => setPop(null);
+  const later = () => {
+    const ls = rrStorage_(),
+      now = Date.now();
+    rrStateWrite_(ls, rrMark_(rrStateRead_(ls), p.rows.map(r => r.subId), 'snooze', now + RR_SNOOZE_MS_), now);
+    close();
+  };
+  const renew = row => {
+    close();
+    nav('renewStart', {
+      sub: row.sub,
+      renewCoupon: p.coupon ? p.coupon.code : ''
+    });
+  };
+  const C_ = 282.7;
+  const ring = p.ring;
+  return React.createElement("div", {
+    className: "ff-rr-bg",
+    onClick: e => {
+      if (e.target === e.currentTarget) close();
+    }
+  }, React.createElement("div", {
+    className: 'ff-rr ' + p.tone + (p.single ? '' : ' multi'),
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-labelledby": "ff-rr-title",
+    "aria-describedby": "ff-rr-body",
+    tabIndex: -1,
+    ref: dlgRef,
+    "data-ff": "renew-reminder",
+    "data-text": p.textKey
+  }, React.createElement("button", {
+    type: "button",
+    className: "ff-rr-x",
+    "aria-label": "Close",
+    onClick: close
+  }, "✕"), p.single && ring && React.createElement("div", {
+    className: "ff-rr-ring",
+    "aria-hidden": "true"
+  }, React.createElement("svg", {
+    viewBox: "0 0 104 104"
+  }, React.createElement("circle", {
+    className: "trk",
+    cx: "52",
+    cy: "52",
+    r: "45"
+  }), ring.fraction > 0 && React.createElement("circle", {
+    className: "val",
+    cx: "52",
+    cy: "52",
+    r: "45",
+    style: {
+      strokeDasharray: C_,
+      strokeDashoffset: C_ * (1 - ring.fraction)
+    }
+  })), React.createElement("div", {
+    className: "ff-rr-ring-in"
+  }, React.createElement("span", {
+    className: 'ff-rr-num' + (ring.word ? ' word' : '')
+  }, ring.num), React.createElement("span", {
+    className: "ff-rr-unit"
+  }, ring.unit))), React.createElement("h2", {
+    className: "ff-rr-title",
+    id: "ff-rr-title"
+  }, p.title), React.createElement("p", {
+    className: "ff-rr-body",
+    id: "ff-rr-body"
+  }, p.body), p.single && React.createElement("span", {
+    className: "ff-sr-only",
+    style: {
+      position: 'absolute',
+      width: 1,
+      height: 1,
+      overflow: 'hidden',
+      clip: 'rect(0 0 0 0)'
+    }
+  }, ring ? ring.label : ''), p.price && React.createElement("div", {
+    className: "ff-rr-price"
+  }, React.createElement("b", null, "₹", p.price.now), p.price.now < p.price.was && React.createElement("s", null, "₹", p.price.was), React.createElement("span", null, p.rows[0].sub.plan ? 'for ' + p.rows[0].sub.plan : 'to renew')), !p.single && React.createElement("ul", {
+    className: "ff-rr-list"
+  }, p.rows.map(r => React.createElement("li", {
+    key: r.subId,
+    className: "ff-rr-item"
+  }, React.createElement("span", {
+    className: 'ff-rr-chip ' + rrTone_(r.bucket),
+    "aria-hidden": "true"
+  }, React.createElement("b", null, r.chip.word ? '!' : r.chip.num), r.chip.word ? 'today' : r.chip.unit), React.createElement("span", {
+    className: "ff-rr-item-main"
+  }, React.createElement("div", {
+    className: "ff-rr-item-name"
+  }, r.sub.service, " ", r.sub.plan), React.createElement("div", {
+    className: "ff-rr-item-sub"
+  }, r.chip.label, r.vars.devices ? ' ·' + r.vars.devices.replace(/^ on/, '') : '', r.price > 0 ? ' · ₹' + r.pay : '', r.early > 0 ? ' (₹' + r.early + ' off early)' : '')), React.createElement("button", {
+    type: "button",
+    className: "ff-rr-item-btn",
+    onClick: () => renew(r),
+    "aria-label": 'Renew ' + r.sub.service + ' ' + r.sub.plan
+  }, "Renew")))), p.perks.length > 0 && React.createElement("ul", {
+    className: "ff-rr-perks"
+  }, p.perks.map((x, i) => React.createElement("li", {
+    key: i
+  }, x))), React.createElement("button", {
+    type: "button",
+    className: "ff-rr-cta",
+    onClick: () => renew(p.rows[0])
+  }, p.cta, p.single ? '' : ' · ' + p.rows[0].sub.service, " ›"), React.createElement("button", {
+    type: "button",
+    className: "ff-rr-later",
+    onClick: later
+  }, p.later)));
+}
 function PromoPopup({
   promos,
   screen,
@@ -11491,7 +12872,7 @@ function PromoPopup({
     if (!p) return;
     const t = setTimeout(() => {
       // A refunded order is waiting for the customer's choice (RefundChoice): that pop-up wins this visit.
-      if (window.ffRefundOpen) return;
+      if (window.ffRefundOpen || window.ffRenewPopOpen) return;
       promoMarkSeen_(p);
       promoEvent_(p.id, 'view');
       window.ffPromoOpen = true;
@@ -12131,6 +13512,34 @@ function NeedHelpCard() {
     type: "button",
     onClick: ffOpenHelp_
   }, "Get help"));
+}
+// 📄 Refund policy (seo.js → /refund-policy). A small link, never a blocking checkbox. Opens in a new tab so a checkout,
+// a refund choice or the installed app is never lost. `lead` = short text before the link (e.g. "Instant delivery").
+function RefundPolicyLink({
+  lead,
+  style
+}) {
+  return React.createElement("div", {
+    className: "ff-refund-policy-link",
+    "data-ff": "refund-policy-link",
+    style: Object.assign({
+      textAlign: 'center',
+      marginTop: 10,
+      fontFamily: PJS,
+      fontSize: 12.5,
+      fontWeight: 600,
+      color: C.muted
+    }, style || {})
+  }, lead ? lead + ' · ' : '', React.createElement("a", {
+    href: "/refund-policy",
+    target: "_blank",
+    rel: "noopener",
+    style: {
+      color: C.muted,
+      textDecoration: 'underline',
+      fontWeight: 700
+    }
+  }, "See Refund Policy"));
 }
 function FeedStrip({
   nav
@@ -13582,7 +14991,7 @@ function OtpPickerModal({
     }
   }, "Supported: JioHotstar, Zee5, SonyLIV")), otpSubs.map((sub, i) => {
     const dl = Number(sub.daysLeft || 0);
-    const isActive = dl > 0;
+    const isActive = sub.daysLeft != null && dl >= 0; // 0 = expires today, still active
     return React.createElement("button", {
       key: sub.subId || i,
       onClick: isActive ? () => onSelect(sub) : undefined,
@@ -15061,6 +16470,7 @@ function App() {
     onNeedAccount: openAccountModal
   }), screen === 'dashboard' && React.createElement(DashboardScreen, {
     nav: nav,
+    sassy: !(storeStatus && storeStatus.sassy === false),
     data: d.manageResp,
     phone: d.phone,
     profile: d.profile,
@@ -15173,7 +16583,8 @@ function App() {
     phone: d.phone || getFFSession().phone,
     setOrderData: setOrderData,
     setLoading: setLoading,
-    boot: boot
+    boot: boot,
+    renewCoupon: d.renewCoupon
   }), screen === 'account' && React.createElement(AccountScreen, {
     nav: nav,
     subs: d.subs || [...(d.manageResp?.actionable || []), ...(d.manageResp?.history || [])],
@@ -15256,6 +16667,18 @@ function App() {
     screen: screen,
     phone: sessionPhone,
     success: !!(d.verifyResult && d.verifyResult.found && d.verifyResult.fulfillment !== 'NO_STOCK')
+  }), !storeBlocked && sessionPhone && React.createElement(RenewReminder, {
+    screen: screen,
+    phone: sessionPhone,
+    manageResp: d.manageResp,
+    orders: d.orders,
+    coupons: couponCache[normPhone_(sessionPhone)] || d.coupons,
+    couponsReady: d.couponsLoadedForPhone === normPhone_(sessionPhone),
+    profile: d.profile,
+    boot: boot,
+    settings: storeStatus,
+    busy: !!(loadingMsg || restoring || showRecoverModal || showOtpModal || accountModal.open),
+    nav: nav
   }));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App, null));
@@ -15327,6 +16750,19 @@ const API = {
   },
   createOrUpdateCustomerProfile(payload, onSuccess, onFailure) {
     apiCall_('createOrUpdateCustomerProfile', [payload], onSuccess, onFailure);
+  },
+  // 🔒 Profile email lock (emaillock.js). purpose = 'new' | 'old' | 'confirm'; target = an oldOptions id.
+  emailLockStatus(phone, subId, onSuccess, onFailure) {
+    apiCall_('emailLockStatus', [phone, subId || ''], onSuccess, onFailure);
+  },
+  emailSendCode(phone, purpose, email, target, onSuccess, onFailure) {
+    apiCall_('emailSendCode', [phone, purpose, email || '', target || ''], onSuccess, onFailure);
+  },
+  emailVerifyCode(phone, purpose, code, email, target, onSuccess, onFailure) {
+    apiCall_('emailVerifyCode', [phone, purpose, code, email || '', target || ''], onSuccess, onFailure);
+  },
+  changeProfileEmail(payload, onSuccess, onFailure) {
+    apiCall_('changeProfileEmail', [payload], onSuccess, onFailure);
   },
   updateCustomerProfilePic(phone, url, onSuccess, onFailure) {
     apiCall_('updateCustomerProfilePic', [phone, url], onSuccess, onFailure);

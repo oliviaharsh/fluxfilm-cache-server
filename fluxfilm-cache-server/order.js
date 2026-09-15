@@ -10,9 +10,12 @@ const pay = require('./payments');
 const referrals = require('./referrals');
 const coins = require('./coins');
 const deviceLogins = require('./devicelogins');
+const emaillock = require('./emaillock');
 
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
-const asNum = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+const asNum = (v) => { const n = parseFloat(v); return isNaN(n) || !isFinite(n) ? 0 : n; };
+// Most devices one order may hold when a plan sells extra devices (ExtraDevicePrice > 0).
+const MAX_EXTRA_DEVICES = 6;
 function rawOf(v) { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (_) { return {}; } }
 function genOrderId() {
   const ts = String(Date.now()).slice(-5);
@@ -35,6 +38,19 @@ async function freeOrderId() {
 // fulfill.js checks it before returning login credentials.
 function newAccessToken() { return crypto.randomBytes(18).toString('hex'); }
 function hashAccessToken(t) { return crypto.createHash('sha256').update(String(t || '')).digest('hex'); }
+
+// "Sharing 2 Devices 3M" → "sharing 2 devices": the plan name without its duration. Two plans with the same
+// variant differ only in duration, which is the only thing a renewal may change. Shared with reads.js and
+// index.html (renewrules.js), including old imported names ("1 Month", "Yearly", "30 Days", "12M").
+const renewRules = require('./renewrules');
+const planVariant = renewRules.planVariant;
+// ACTIVE or EXPIRED subscriptions that were not refunded / cancelled / never delivered (legacy rows have no fulfillment_status).
+function renewableStatus(sub) {
+  const st = String(sub.status || '').trim().toUpperCase();
+  const fs = String(sub.fulfillment_status || '').trim().toUpperCase();
+  if (st && st !== 'ACTIVE' && st !== 'EXPIRED') return false;
+  return !['REFUNDED', 'CANCELLED', 'FAILED', 'NO_STOCK'].includes(fs);
+}
 
 function serviceAllowed(service) {
   // Kept as an exported compatibility helper for old tests/callers. All plans
@@ -62,7 +78,13 @@ async function couponDiscount(code, phone, baseAmount, ctx) {
   }
   if (!raw) return { ok: false, message: 'Invalid coupon.' };
   if (String(raw.Active || '').toUpperCase() !== 'TRUE') return { ok: false, message: 'Coupon is not active.' };
-  if (raw.Expiry) { const ex = new Date(String(raw.Expiry).replace(' ', 'T')); if (!isNaN(ex.getTime()) && ex.getTime() < Date.now()) return { ok: false, message: 'Coupon expired.' }; }
+  if (raw.Expiry) {
+    // A date without a time (the admin form saves "YYYY-MM-DD") is valid until the END of that day in India.
+    // new Date("2026-12-31") alone is UTC midnight = 05:30 IST, so the coupon died ~18 hours early.
+    const ev = String(raw.Expiry).trim();
+    const ex = /^\d{4}-\d{2}-\d{2}$/.test(ev) ? new Date(ev + 'T23:59:59+05:30') : new Date(ev.replace(' ', 'T'));
+    if (!isNaN(ex.getTime()) && ex.getTime() < Date.now()) return { ok: false, message: 'Coupon expired.' };
+  }
   const allowed = raw.AllowedPhones != null ? String(raw.AllowedPhones).trim() : 'ALL';
   if (allowed && allowed.toUpperCase() !== 'ALL') {
     const list = allowed.split(',').map((x) => norm(x)).filter(Boolean);
@@ -122,7 +144,7 @@ async function createOrder(p, opts) {
   const service = String(p.service || '').trim();
   const plan = String(p.plan || '').trim();
   const name = String(p.name || '').trim();
-  const email = String(p.email || '').trim();
+  let email = String(p.email || '').trim();
   const phone = norm(p.phone);
   const couponCode = String(p.couponCode || '').trim().toUpperCase();
   const notes = String(p.notes || '').trim();
@@ -133,6 +155,15 @@ async function createOrder(p, opts) {
   if (!service || !plan) return { ok: false, message: 'Select service and plan.' };
   if (!phone) return { ok: false, message: 'Phone number is required.' };
   if (!name) return { ok: false, message: 'Full name is required.' };
+  // 🔒 Email lock (emaillock.js): the storefront / Olivia may only send the login to the profile email, and only once
+  // it is safe (verified, or unchanged since the last paid order); otherwise { emailCheck } / { emailChangeRequired }
+  // and no order is made. Admin quick orders (amountOverride, server-only) and renewals (createRenewOrder picks the
+  // email itself and sets the server-only emailChecked) skip this.
+  if (!(opts.amountOverride != null && opts.amountOverride !== '') && opts.emailChecked !== true) {
+    const chk = await emaillock.orderEmail(phone, email);
+    if (!chk.ok) return chk;
+    email = chk.email;
+  }
   if (!email && !opts.allowNoEmail) return { ok: false, message: 'Email is required.' };
 
   const planRows = await db.query('SELECT price, duration_days, is_active, raw_json FROM plans WHERE service = ? AND plan = ? LIMIT 1', [service, plan]);
@@ -151,8 +182,15 @@ async function createOrder(p, opts) {
   // baked into the plan name (e.g. "2 Devices 1M" → 2); a caller may still override
   // via p.deviceCount. tvCount = how many are TV (Prime only).
   const planDevices = (String(plan).match(/(\d+)\s*device/i) || [])[1];
-  // Never fewer devices than the plan name says (a lower count would under-reserve slots).
-  const deviceCount = Math.max(Number(planDevices) || 1, Math.floor(asNum(p.deviceCount)) || 0);
+  // Never fewer devices than the plan name says (a lower count would under-reserve slots). MORE devices than
+  // the plan name only when they are paid for (plan ExtraDevicePrice > 0, up to MAX_EXTRA_DEVICES) or on an admin
+  // quick order — before, a tampered request got 6 devices for the 2-device price.
+  const planDevCount = Number(planDevices) || 1;
+  const askedDevices = Math.floor(asNum(p.deviceCount)) || 0;
+  const extraDevicesSold = asNum(praw.ExtraDevicePrice) > 0 || (opts.amountOverride != null && opts.amountOverride !== '');
+  const deviceCount = extraDevicesSold
+    ? Math.min(Math.max(planDevCount, askedDevices), Math.max(planDevCount, MAX_EXTRA_DEVICES))
+    : planDevCount;
   let tvCount = (p.tvCount != null && p.tvCount !== '') ? Math.max(0, Math.floor(asNum(p.tvCount))) : null;
   // Back-compat: a single-device Prime order that only sent the old TV/NON_TV flag.
   if (tvCount == null) {
@@ -175,6 +213,21 @@ async function createOrder(p, opts) {
       const chk = await require('./fulfill').checkDeviceLogins({ policy: praw.AllocationPolicy, service, plan, durationDays, deviceCount: deviceCount, tvCount: tvCount || 0, mode: loginMode });
       if (!chk.ok) return { ok: false, outOfStock: true, message: deviceLogins.MESSAGES.outOfStock(deviceCount) };
       loginNotice = chk.message || '';
+    }
+  }
+
+  // Out of stock → no payable order (the Buy button was only disabled in the browser, so a stale page or a
+  // direct API call still took money for a plan that could not be delivered). New orders only: renewals keep
+  // their own account (R1 decides), admin quick orders are the owner's call. A stock read error never blocks
+  // a sale — fulfilment still refuses NO_STOCK as before.
+  if (orderType === 'NEW' && !loginMode && !(opts.amountOverride != null && opts.amountOverride !== '')) {
+    let level = null;
+    try {
+      const levels = await require('./stock').computeStockLevels([{ service, plan, price: prow.price, duration_days: prow.duration_days, raw_json: prow.raw_json }]);
+      level = levels[service + '|||' + plan] || null;
+    } catch (e) { console.log('[order] stock check skipped for', service, plan, e.message); }
+    if (level && level.stock != null && Number(level.stock) < 1) { // stock = purchases of this plan that can still be delivered
+      return { ok: false, outOfStock: true, message: 'Sorry, ' + service + ' ' + plan + ' is out of stock right now. Please pick another plan or check again later.' };
     }
   }
 
@@ -402,12 +455,30 @@ async function renewQuote(subId, planOverride) {
   const sid = String(subId || '').trim();
   if (!sid) return { ok: false, message: 'Missing subscription id.' };
   const subs = await db.query(
-    'SELECT sub_id, service, plan, phone, email, expiry_date, source, status FROM subscriptions WHERE sub_id = ? LIMIT 1', [sid]);
+    'SELECT sub_id, service, plan, phone, email, expiry_date, source, status, fulfillment_status FROM subscriptions WHERE sub_id = ? LIMIT 1', [sid]);
   const sub = subs[0];
   if (!sub) return { ok: false, message: 'Subscription not found.' };  // MySQL is master; no Sheet fallback
-  // Refunds v3: a refunded plan (refund offer accepted) can't be renewed — the customer buys a new plan instead.
+  // Refunds v3: a refunded plan (refund offer accepted) can’t be renewed — the customer buys a new plan instead.
   if (String(sub.status || '').trim().toUpperCase() === 'REFUNDED') return { ok: false, renewBlocked: true, refunded: true, message: 'This plan was refunded, so it can’t be renewed. Please buy a new plan instead.' };
+  // A refunded / cancelled row used to renew "in place" and come out FULFILLED again (no login, no owner task).
+  if (!renewableStatus(sub)) return { ok: false, renewBlocked: true, message: 'This plan cannot be renewed online. Please contact WhatsApp support.' };
   const plan = String(planOverride || '').trim() || String(sub.plan || '').trim();
+  const samePlan = plan === String(sub.plan || '').trim();
+  // A renewal extends the SAME account/profile and keeps its device count, so it may only change the DURATION.
+  // Before: "2 Devices 1M" renewed as "1 Month" paid the 1-device price and kept 2 devices; a Netflix Private
+  // profile renewed at the Sharing price kept the private profile.
+  // The allowed plans are exactly the ones the renew page lists (renewrules.renewPlanChoices over the active plans of
+  // the service): same kind when it is known; for an old plan name of unknown kind, same device count, else any.
+  if (!samePlan) {
+    const svcRows = await db.query('SELECT plan, is_active, raw_json FROM plans WHERE service = ?', [sub.service]);
+    const activeNames = (svcRows || []).filter((r) => {
+      const a = (r.is_active != null && r.is_active !== '') ? r.is_active : rawOf(r.raw_json).IsActive;
+      return String(a == null ? '' : a).trim().toUpperCase() === 'TRUE';
+    }).map((r) => String(r.plan || '').trim());
+    if (!renewRules.renewPlanChoices(sub.plan, activeNames).includes(plan)) {
+      return { ok: false, renewBlocked: true, message: 'A renewal can only change the duration of your plan. To change devices or Private/Sharing, please buy a new plan.' };
+    }
+  }
 
   const planRows = await db.query('SELECT price, raw_json FROM plans WHERE service = ? AND plan = ? LIMIT 1', [sub.service, plan]);
   const prow = planRows[0];
@@ -417,16 +488,17 @@ async function renewQuote(subId, planOverride) {
   // R1: check the account can still serve this customer BEFORE they pay.
   const renewal = await require('./fulfill').planRenewal(sid, plan);
 
-  // days left from current expiry -> tiered early-renew discount
-  let daysLeft = null;
-  if (sub.expiry_date) { const ex = new Date(sub.expiry_date); if (!isNaN(ex.getTime())) daysLeft = Math.ceil((ex.getTime() - Date.now()) / 86400000); }
+  // days left from current expiry -> tiered early-renew discount. The SAME calendar-day count (India, expiry date)
+  // as My plans (reads.js), so the renew page and this price always agree.
+  const daysLeft = renewRules.daysLeftIst(sub.expiry_date);
   let earlyDiscount = 0;
-  if (daysLeft != null) {
+  // The early-renew discount is for renewing the SAME plan (that is what the renew page shows and promises).
+  if (daysLeft != null && samePlan) {
     if (daysLeft >= 8) earlyDiscount = asNum(praw.EarlyRenewDiscount);
     else if (daysLeft >= 2) earlyDiscount = asNum(praw.EarlyRenewDiscount_7to2);
   }
   const price = asNum(prow.price);
-  return { ok: true, sub, plan, price, daysLeft, earlyDiscount, amount: Math.max(0, price - earlyDiscount), renewal };
+  return { ok: true, sub, plan, price, daysLeft, renewEligibility: renewRules.renewEligibility(daysLeft), earlyDiscount, amount: Math.max(0, price - earlyDiscount), renewal };
 }
 
 /**
@@ -443,7 +515,11 @@ async function createRenewOrder(subId, planOverride, couponCode, opts) {
   // (no spaces, 3-20 chars) is treated as a coupon, not a plan override.
   let cc = String(couponCode || '').trim().toUpperCase();
   let po = String(planOverride || '').trim();
-  if (!cc && po && /^[A-Z0-9_-]{3,20}$/.test(po.toUpperCase())) { cc = po.toUpperCase(); po = ''; }
+  // …unless it is a real plan of this subscription's service (live "YouTube Premium" plan "1Year" has no space).
+  if (!cc && po && /^[A-Z0-9_-]{3,20}$/.test(po.toUpperCase())) {
+    const isPlan = await db.query('SELECT 1 AS x FROM plans p JOIN subscriptions s ON s.service = p.service WHERE s.sub_id = ? AND p.plan = ? LIMIT 1', [String(subId || '').trim(), po]).catch(() => []);
+    if (!(isPlan && isPlan.length)) { cc = po.toUpperCase(); po = ''; }
+  }
 
   const q = await renewQuote(subId, po);
   if (!q.ok) return q;
@@ -453,14 +529,18 @@ async function createRenewOrder(subId, planOverride, couponCode, opts) {
 
   const cust = await db.query('SELECT name FROM customers WHERE phone_norm = ? LIMIT 1', [norm(sub.phone)]);
   const name = (cust[0] && cust[0].name) || 'Customer';
+  // 🔒 Email lock: the trusted profile email (verified / unchanged since the last paid order), otherwise the email on
+  // this plan, which already received its login. Never a fresh unverified change, and never a code step.
+  let renewTo = sub.email;
+  try { renewTo = (await emaillock.renewEmail(sub.phone, sub.email)) || sub.email; } catch (e) { console.log('[email-lock] renew email check failed, using the plan email:', e.message); }
 
   const out = await createOrder({
-    service: sub.service, plan, name, email: sub.email, phone: sub.phone,
+    service: sub.service, plan, name, email: renewTo, phone: sub.phone,
     couponCode: cc, notes: opts.notes || ('RENEW:' + sub.sub_id), useCoins: opts.useCoins === true,
   }, {
     // F1: a purchase with separate logins always renews through its first row, so every row renews together.
     action: 'RENEW', renewSubId: renewal.leadSubId || sub.sub_id, discountOverride: q.earlyDiscount,
-    amountOverride: opts.amountOverride, allowNoEmail: true, rawExtra: opts.rawExtra,
+    amountOverride: opts.amountOverride, allowNoEmail: true, rawExtra: opts.rawExtra, emailChecked: true,
   });
   if (out && out.ok) {
     out.renew = true; out.renewSubId = renewal.leadSubId || sub.sub_id;
@@ -624,4 +704,5 @@ async function adminMarkPaid(orderId, txnRef) {
   return { ok: true };
 }
 
-module.exports = { createOrder, createRenewOrder, renewQuote, adminMarkPaid, verifyPayment, verifyPaymentByRef, validateCoupon, confirmFreeOrder, serviceAllowed, hashAccessToken, _internal: { genOrderId, freeOrderId, couponDiscount, flagRefundCouponOveruse } };
+module.exports = {
+  planVariant, renewableStatus, createOrder, createRenewOrder, renewQuote, adminMarkPaid, verifyPayment, verifyPaymentByRef, validateCoupon, confirmFreeOrder, serviceAllowed, hashAccessToken, _internal: { genOrderId, freeOrderId, couponDiscount, flagRefundCouponOveruse } };

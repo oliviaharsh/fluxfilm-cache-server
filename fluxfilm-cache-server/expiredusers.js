@@ -14,6 +14,17 @@
  *   - Netflix / Prime Video and any other PROFILE / CAPACITY service are the main list. Whole-account / OTP services
  *     (Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube) are a separate, collapsed section with their own counts.
  *
+ *
+ * WHEN to change the password (owner, 15 Sep): the only way to log someone out is a new password, which disturbs the
+ * active customers, so batch it. Every listed login gets an `advice` (adviceFor):
+ *   NOW       "🔑 Change password now": nobody active, OR inactive ≥ rules.minInactive AND the next active expiry is
+ *             ≥ rules.minDays IST calendar days away.
+ *   WAIT_DATE "⏳ Wait — change on 17 Sep": the next active expiry is sooner than minDays. The date (plan) is the first
+ *             active expiry day on which the rule above holds (two expiries a few days apart = one change, not two).
+ *   WAIT_FEW  "⏳ Wait — only 1 inactive": fewer inactive than minInactive and the next expiry is far; plan = the day
+ *             it becomes worth it.
+ * The thresholds are owner-editable in admin (app_settings 'remove_users_rules', loadRules / saveRules).
+ *
  * compute() is pure (tested against an anonymised copy of the live data); load() reads MySQL and calls it.
  */
 const { loginKey } = require('./logins');
@@ -53,6 +64,77 @@ function toMs(v) {
   return Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)) - 5.5 * 3600e3;
 }
 
+/* ---------- password-change timing ---------- */
+const RULES_KEY = 'remove_users_rules';
+const DEFAULT_RULES = Object.freeze({ minInactive: 3, minDays: 10 });
+const RULE_LIMITS = { minInactive: [1, 50], minDays: [0, 60] };
+function validateRules(input, prev) {
+  const inb = input || {}; const errors = [];
+  const out = Object.assign({}, DEFAULT_RULES, prev || {});
+  for (const k of Object.keys(RULE_LIMITS)) {
+    if (inb[k] === undefined || inb[k] === null || s(inb[k]) === '') continue;
+    const n = Number(inb[k]); const [lo, hi] = RULE_LIMITS[k];
+    if (!Number.isInteger(n) || n < lo || n > hi) errors.push((k === 'minInactive' ? 'Min inactive users' : 'Min days until next expiry') + ' must be a whole number from ' + lo + ' to ' + hi + '.');
+    else out[k] = n;
+  }
+  return { ok: !errors.length, rules: out, errors };
+}
+/** Saved thresholds (any problem → defaults, so the list always loads). q = db.query-style. */
+async function loadRules(q) {
+  try {
+    const rows = await q('SELECT value FROM app_settings WHERE setting_key = ? LIMIT 1', [RULES_KEY]);
+    if (!Array.isArray(rows) || !rows.length || !rows[0] || typeof rows[0].value !== 'string') return Object.assign({}, DEFAULT_RULES);
+    const v = validateRules(JSON.parse(rows[0].value));
+    return v.ok ? v.rules : Object.assign({}, DEFAULT_RULES);
+  } catch (_) { return Object.assign({}, DEFAULT_RULES); }
+}
+async function saveRules(q, input) {
+  const before = await loadRules(q);
+  const v = validateRules(input, before);
+  if (!v.ok) return { ok: false, message: v.errors.join(' '), errors: v.errors };
+  await q('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [RULES_KEY, JSON.stringify(v.rules)]);
+  const changed = Object.keys(DEFAULT_RULES).filter((k) => before[k] !== v.rules[k]);
+  return { ok: true, rules: v.rules, before, changed };
+}
+
+/** IST calendar day number (days since 1970-01-01, India time). */
+const istDay = (ms) => Math.floor((ms + 5.5 * 3600e3) / 86400e3);
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function dayInfo(day, today) {
+  const d = new Date(day * 86400e3);
+  const days = day - today;
+  return { date: d.toISOString().slice(0, 10), label: d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()], days, when: days <= 0 ? 'today' : days === 1 ? 'tomorrow' : 'in ' + days + ' days' };
+}
+
+/**
+ * The recommendation for one login. inactive = expired, not removed, not renewed (the listed people);
+ * actives = [{ ms, name }] for each ACTIVE subscription on the login (isActive, the same rule as the list).
+ */
+function adviceFor(inactive, actives, now, rules) {
+  const r = validateRules(rules).rules;
+  if (!(inactive > 0)) return { kind: 'NONE', inactive: 0 };
+  const today = istDay(now);
+  const list = (actives || []).map((a) => ({ day: istDay(a.ms), name: s(a.name) })).filter((x) => isFinite(x.day)).sort((a, b) => a.day - b.day);
+  if (!list.length) return { kind: 'NOW', reason: 'NOBODY', inactive, active: 0, nextExpiry: null, plan: null };
+  const first = list[0].day;
+  const sharing = list.filter((x) => x.day === first);
+  const nextExpiry = Object.assign(dayInfo(first, today), { count: sharing.length, name: sharing[0].name });
+  const days = first - today;
+  if (inactive >= r.minInactive && days >= r.minDays) return { kind: 'NOW', reason: 'READY', inactive, active: list.length, nextExpiry, plan: null };
+  // Plan: the first active expiry day after which the rule holds (everyone ending that day counts as inactive).
+  let plan = null;
+  const distinct = [...new Set(list.map((x) => x.day))];
+  for (let i = 0; i < distinct.length && !plan; i++) {
+    const d = distinct[i];
+    const endedBy = list.filter((x) => x.day <= d).length;
+    const left = list.length - endedBy;
+    const next = distinct[i + 1];
+    if (!left || (inactive + endedBy >= r.minInactive && next - d >= r.minDays)) plan = Object.assign(dayInfo(d, today), { inactive: inactive + endedBy, activeLeft: left, nextAfter: next == null ? null : dayInfo(next, today) });
+  }
+  return { kind: days < r.minDays ? 'WAIT_DATE' : 'WAIT_FEW', inactive, active: list.length, nextExpiry, plan };
+}
+const ADVICE_ORDER = { NOW: 0, WAIT_DATE: 1, WAIT_FEW: 2, NONE: 3 };
+
 const isRemoved = (x) => Number(x.removed) === 1 || x.removed === true || up(x.removed) === 'TRUE';
 const isActive = (x, now) => up(x.status) === 'ACTIVE' && toMs(x.expiry_date) > now;
 // Refunds v3: a DELIVERED plan refunded through a refund offer (refunds.js) ended early but the customer may still be
@@ -88,6 +170,7 @@ function compute(input) {
   const inp = input || {};
   const now = inp.now == null ? Date.now() : (inp.now instanceof Date ? inp.now.getTime() : Number(inp.now));
   const policyOf = inp.policyOf || {};
+  const rules = validateRules(inp.rules).rules;
   const accLogin = new Map(), accLoginRaw = new Map(), accService = new Map();
   for (const a of inp.accounts || []) {
     const id = s(a.account_id); if (!id) continue;
@@ -118,6 +201,7 @@ function compute(input) {
 
   const out = {
     now: new Date(now).toISOString(),
+    rules,
     main: { pending: 0, accountsToFix: 0, safeAccounts: 0, safeOldUsers: 0, byFamily: {}, groups: [] },
     other: { pending: 0, accountsToFix: 0, safeAccounts: 0, safeOldUsers: 0, byFamily: {}, groups: [] },
     byAccount: {},
@@ -132,31 +216,38 @@ function compute(input) {
     const hasActive = g.active.length > 0;
     pending.sort((a, b) => toMs(b.expiry_date) - toMs(a.expiry_date));
     const people = pending.map((x) => ({ subId: s(x.sub_id), orderId: s(x.order_id), name: nameOf(x), phone: s(x.phone_norm), service: s(x.service), plan: s(x.plan), expiry: s(x.expiry_date instanceof Date ? x.expiry_date.toISOString() : x.expiry_date), daysAgo: Math.max(0, Math.floor((now - toMs(x.expiry_date)) / 86400e3)), accountRef: s(x.inventory_ref), accountId: accountOfRef(x.inventory_ref) || s(x.account_id), slot: slotOf(x) }));
+    const advice = adviceFor(pending.length, g.active.map((a) => ({ ms: toMs(a.expiry_date), name: nameOf(a) })), now, rules);
+    const blank = () => ({ pending: 0, oldUsers: 0, hasActive: false, advice: 'NONE', changeOn: '' });
     for (const p of people) {
-      const b = out.byAccount[p.accountId] || (out.byAccount[p.accountId] = { pending: 0, oldUsers: 0, hasActive: false });
+      const b = out.byAccount[p.accountId] || (out.byAccount[p.accountId] = blank());
       if (hasActive) b.pending++; else b.oldUsers++;
     }
     for (const id of g.accountIds) {
-      const b = out.byAccount[id] || (out.byAccount[id] = { pending: 0, oldUsers: 0, hasActive: false });
+      const b = out.byAccount[id] || (out.byAccount[id] = blank());
       if (hasActive) b.hasActive = true;
+      if (pending.length) { b.advice = advice.kind; b.changeOn = advice.plan ? advice.plan.label : ''; }
     }
     if (!pending.length) continue;
-    const row = { key: g.key, family: g.family, login: g.login, loginLabel: g.loginLabel || g.login, accountIds: [...g.accountIds].sort(), accountServices: Object.fromEntries([...g.accountIds].map((id) => [id, accService.get(id) || [...g.services][0] || ''])), services: [...g.services].sort(), activeCount: g.active.length, count: pending.length, action: hasActive ? 'REMOVE' : 'SAFE', people };
+    const row = { key: g.key, family: g.family, login: g.login, loginLabel: g.loginLabel || g.login, accountIds: [...g.accountIds].sort(), accountServices: Object.fromEntries([...g.accountIds].map((id) => [id, accService.get(id) || [...g.services][0] || ''])), services: [...g.services].sort(), activeCount: g.active.length, count: pending.length, action: hasActive ? 'REMOVE' : 'SAFE', advice, people };
     sec.groups.push(row);
     if (hasActive) {
       sec.pending += pending.length; sec.accountsToFix++;
       sec.byFamily[g.family] = (sec.byFamily[g.family] || 0) + pending.length;
     } else { sec.safeAccounts++; sec.safeOldUsers += pending.length; }
   }
-  const order = (a, b) => (a.action === b.action ? 0 : a.action === 'REMOVE' ? -1 : 1) || a.family.localeCompare(b.family) || String(a.accountIds[0] || a.login).localeCompare(String(b.accountIds[0] || b.login));
+  // 🔑 Change now first (most inactive first), then ⏳ Wait by planned date, then the rest by the day it becomes worth it.
+  const planDay = (g) => (g.advice.plan ? g.advice.plan.date : '9999');
+  const order = (a, b) => (ADVICE_ORDER[a.advice.kind] - ADVICE_ORDER[b.advice.kind]) ||
+    (a.advice.kind === 'NOW' ? b.count - a.count : planDay(a).localeCompare(planDay(b))) ||
+    a.family.localeCompare(b.family) || String(a.accountIds[0] || a.login).localeCompare(String(b.accountIds[0] || b.login));
   out.main.groups.sort(order); out.other.groups.sort(order);
   return out;
 }
 
-/** One line per account for the Today card: "NFLX-D3 · remove 2: Ashu C, Saumil A". */
+/** One line per "change now" account for the Today card: "NFLX-D3 · 5 active, 3 inactive: Ashu C, Saumil A". */
 function todayNames(result, max) {
-  return result.main.groups.filter((g) => g.action === 'REMOVE').slice(0, max || 50)
-    .map((g) => (g.accountIds.join('/') || g.login) + ' · remove ' + g.count + ': ' + g.people.map((p) => p.name).join(', '));
+  return result.main.groups.filter((g) => g.advice && g.advice.kind === 'NOW').slice(0, max || 50)
+    .map((g) => (g.accountIds.join('/') || g.login) + ' · ' + (g.activeCount ? g.activeCount + ' active, ' : 'nobody active, ') + g.count + ' inactive: ' + g.people.map((p) => p.name).join(', '));
 }
 
 /**
@@ -165,20 +256,36 @@ function todayNames(result, max) {
  *   accounts   = how many account logins those customers are on (a login under two IDs counts once)
  *   safeAccounts / safeUsers = logins nobody active uses (reset the password) and their old users (not counted)
  *   other      = the same for whole-account / OTP services (Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube)
+ *   changeNow  = { accounts, inactive, nobodyActive }  logins to change the password on NOW (the Today "to do" number)
+ *   wait       = { accounts, inactive, next: {date,label} }  logins waiting for a planned date (soonest date)
+ *   later      = { accounts, inactive }  too few inactive for now, next expiry far
  */
 function summarize(result) {
   const r = result || {};
   const part = (sec) => {
     const x = sec || {}; const byFamily = {};
+    const changeNow = { accounts: 0, inactive: 0, nobodyActive: 0 }, wait = { accounts: 0, inactive: 0, next: null }, later = { accounts: 0, inactive: 0 };
     for (const g of x.groups || []) {
+      const kind = (g.advice && g.advice.kind) || (g.action === 'SAFE' ? 'NOW' : 'WAIT_FEW');
+      if (kind === 'NOW') { changeNow.accounts++; changeNow.inactive += g.count; if (!g.activeCount) changeNow.nobodyActive++; }
+      else if (kind === 'WAIT_DATE') {
+        wait.accounts++; wait.inactive += g.count;
+        const p = g.advice.plan; if (p && (!wait.next || p.date < wait.next.date)) wait.next = { date: p.date, label: p.label };
+      } else if (kind === 'WAIT_FEW') { later.accounts++; later.inactive += g.count; }
       if (g.action !== 'REMOVE') continue;
       const f = byFamily[g.family] || (byFamily[g.family] = { customers: 0, accounts: 0 });
       f.customers += g.count; f.accounts++;
     }
-    return { customers: Number(x.pending) || 0, accounts: Number(x.accountsToFix) || 0, safeAccounts: Number(x.safeAccounts) || 0, safeUsers: Number(x.safeOldUsers) || 0, byFamily };
+    return { customers: Number(x.pending) || 0, accounts: Number(x.accountsToFix) || 0, safeAccounts: Number(x.safeAccounts) || 0, safeUsers: Number(x.safeOldUsers) || 0, byFamily, changeNow, wait, later };
   };
   const main = part(r.main);
-  return Object.assign({}, main, { other: part(r.other) });
+  return Object.assign({}, main, { todo: todoLine(main), other: part(r.other), rules: validateRules(r.rules).rules });
+}
+
+/** "3 accounts to change now · 5 waiting (next 17 Sep)" — the one sentence Today and Stock both show. */
+function todoLine(c) {
+  const x = c || {}; const now = (x.changeNow && x.changeNow.accounts) || 0; const w = x.wait || {};
+  return now + ' account' + (now === 1 ? '' : 's') + ' to change now' + (w.accounts ? ' · ' + w.accounts + ' waiting' + (w.next ? ' (next ' + w.next.label + ')' : '') : '');
 }
 
 // Only rows that can matter: active ones (to know who is still on a login) and expired rows not yet ticked removed.
@@ -191,12 +298,13 @@ const SUBS_SQL =
 /** Read MySQL and apply the rule. q = db.query-style (sql, params) → rows. */
 async function load(q, opts) {
   const o = opts || {};
-  const [subs0, accounts, plans, offers] = await Promise.all([
+  const [subs0, accounts, plans, offers, rules] = await Promise.all([
     q(SUBS_SQL, []),
     q('SELECT account_id, login_id, service FROM inventory_accounts', []).catch(() => []),
     q('SELECT service, raw_json FROM plans', []).catch(() => []),
     // Refunds v3: subscriptions whose access ended by an accepted refund offer ([] before db/schema-v26.sql).
     Promise.resolve().then(() => q("SELECT sub_ids FROM refund_offers WHERE status IN ('UPI_REQUESTED', 'DONE') AND COALESCE(sub_ids, '') <> ''", [])).catch(() => []),
+    o.rules ? Promise.resolve(o.rules) : loadRules(q),
   ]);
   let subs = Array.isArray(subs0) ? subs0 : [];
   const endedIds = [...new Set((Array.isArray(offers) ? offers : []).flatMap((r) => s(r.sub_ids).split(',').map(s).filter(Boolean)))].slice(0, 500);
@@ -210,9 +318,9 @@ async function load(q, opts) {
     const k = s(p.service).toLowerCase(); const pol = up(rawOf(p.raw_json).AllocationPolicy);
     if (k && pol && !policyOf[k]) policyOf[k] = pol;
   }
-  return compute({ subs, accounts: Array.isArray(accounts) ? accounts : [], policyOf, now: o.now });
+  return compute({ subs, accounts: Array.isArray(accounts) ? accounts : [], policyOf, rules, now: o.now });
 }
 // Refunded-by-offer rows still on an account and not ticked removed (their expiry date may still be in the future).
 const REFUND_ENDED_SQL = SUBS_SQL.slice(0, SUBS_SQL.indexOf('AND ((')) + "AND UPPER(s.status) = 'REFUNDED' AND COALESCE(s.removed, 0) = 0";
 
-module.exports = { compute, load, summarize, todayNames, slotOf, familyOf, sectionOf, toMs, SUBS_SQL, REFUND_ENDED_SQL, OTHER_SERVICES };
+module.exports = { compute, load, summarize, todayNames, todoLine, adviceFor, istDay, validateRules, loadRules, saveRules, DEFAULT_RULES, RULES_KEY, slotOf, familyOf, sectionOf, toMs, SUBS_SQL, REFUND_ENDED_SQL, OTHER_SERVICES };

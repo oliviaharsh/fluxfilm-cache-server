@@ -6,6 +6,8 @@ let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x) : '')); } };
 const section = (t) => console.log('\n=== ' + t + ' ===');
 
+// India-time 'YYYY-MM-DD HH:MM:SS' two days from now (how the database stores dates).
+const IN_2_DAYS = new Date(Date.now() + 2 * 86400e3 + 5.5 * 3600e3).toISOString().slice(0, 19).replace('T', ' ');
 let schema = true;
 const calls = [];
 const todos = [];
@@ -23,8 +25,13 @@ const mockDb = {
     if (/MANUAL_PENDING' AND UPPER\(status\) = 'ACTIVE'/.test(sql)) return [{ n: 2 }];
     if (/^SELECT COUNT\(\*\) n FROM subscriptions WHERE UPPER\(status\) = 'ACTIVE' AND expiry_date BETWEEN/.test(sql)) return [{ n: 3 }];
     if (/^SELECT sub_id, phone_norm, service, plan, expiry_date FROM subscriptions WHERE UPPER\(status\) = 'ACTIVE' AND expiry_date BETWEEN/.test(sql)) return [{ sub_id: 'S1', phone_norm: '9876543210', service: 'Netflix', plan: 'Private 1M', expiry_date: '2026-09-16 10:00:00' }];
-    // expiredusers.js: NF-A has an active customer (2 expired to remove); NF-B has nobody active (safe, not counted).
+    // expiredusers.js: NF-A has an active customer far away + 2 inactive (wait: too few); NF-B has nobody active
+    // (change now); NF-C has 3 inactive but its active customer ends in 2 days (wait: change on that date).
     if (/FROM subscriptions s WHERE/.test(sql)) return [
+      { sub_id: 'A3', phone_norm: '9000000031', name: 'Soon Ending', service: 'Netflix', status: 'ACTIVE', expiry_date: IN_2_DAYS, inventory_ref: 'NF-C#P1', login_id: 'c@x', removed: 0 },
+      { sub_id: 'E5', phone_norm: '9000000032', name: 'C Five', service: 'Netflix', status: 'EXPIRED', expiry_date: '2020-01-01 00:00:00', inventory_ref: 'NF-C#P2', login_id: 'c@x', removed: 0 },
+      { sub_id: 'E6', phone_norm: '9000000033', name: 'C Six', service: 'Netflix', status: 'EXPIRED', expiry_date: '2020-01-01 00:00:00', inventory_ref: 'NF-C#P3', login_id: 'c@x', removed: 0 },
+      { sub_id: 'E7', phone_norm: '9000000034', name: 'C Seven', service: 'Netflix', status: 'EXPIRED', expiry_date: '2020-01-01 00:00:00', inventory_ref: 'NF-C#P4', login_id: 'c@x', removed: 0 },
       { sub_id: 'A1', phone_norm: '9000000001', name: 'Active One', service: 'Netflix', status: 'ACTIVE', expiry_date: '2099-01-01 00:00:00', inventory_ref: 'NF-A#P1', login_id: 'a@x', removed: 0 },
       { sub_id: 'E1', phone_norm: '9000000002', name: 'Old Two', service: 'Netflix', status: 'EXPIRED', expiry_date: '2020-01-01 00:00:00', inventory_ref: 'NF-A#P1', login_id: 'a@x', removed: 0 },
       { sub_id: 'E2', phone_norm: '9000000003', name: 'Old Three', service: 'Netflix', status: 'EXPIRED', expiry_date: '2020-02-01 00:00:00', inventory_ref: 'NF-A#P2', login_id: 'a@x', removed: 0 },
@@ -67,12 +74,14 @@ const catalog = { getStockLevels: async () => ({ ok: true, levels: { 'SonyLiv Pr
   section('Today');
   let r = await get('/admin/api/today');
   const item = (k) => r.body.items.find((i) => i.key === k);
-  ok('lists what needs doing with counts', r.body.ok && item('undelivered').count === 1 && item('manual').count === 2 && item('ending').count === 3 && item('expired').count === 2 && item('restock').count === 4 && item('unpaid').count === 5, r.body.items);
-  ok('expired: only the account still in use counts, named with who to remove', item('expired').names.length === 1 && /^NF-A · remove 2: Old Three, Old Two$/.test(item('expired').names[0]), item('expired'));
-  ok('🚪 card: title "Customers to log out", count = customers (2), subtitle = accounts ("on 1 account")', item('expired').title === 'Customers to log out' && item('expired').count === 2 && item('expired').sub === 'on 1 account' && item('expired').accounts === 1, item('expired'));
+  ok('lists what needs doing with counts', r.body.ok && item('undelivered').count === 1 && item('manual').count === 2 && item('ending').count === 3 && item('expired').count === 1 && item('restock').count === 4 && item('unpaid').count === 5, r.body.items);
+  ok('password card: only "change now" logins are named (nobody active on NF-B)', item('expired').names.length === 1 && item('expired').names[0] === 'NF-B · nobody active, 1 inactive: Idle Four', item('expired'));
+  const nextLabel = (() => { const d = new Date(Date.parse(IN_2_DAYS.replace(' ', 'T') + 'Z')); return d.getUTCDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()]; })();
+  ok('password card: count = accounts to change now (1), subtitle "1 account to change now · 1 waiting (next <date>)", shown even when 0', item('expired').title === 'Account passwords to change' && item('expired').count === 1 && item('expired').sub === '1 account to change now · 1 waiting (next ' + nextLabel + ')' && item('expired').accounts === 1 && item('expired').waiting === 1 && item('expired').showSub === true, item('expired'));
   ok('🚪 card opens the 🚪 Remove users screen, not Stock', item('expired').go.view === 'removeusers' && !item('expired').go.stock, item('expired').go);
   const ru = await get('/admin/api/remove-users');
-  ok('Today count and subtitle = GET /admin/api/remove-users counts (one source)', ru.body.ok && ru.body.counts.customers === item('expired').count && ru.body.counts.accounts === item('expired').accounts && ru.body.counts.safeAccounts === 1 && ru.body.counts.safeUsers === 1, ru.body.counts);
+  ok('Today count and subtitle = GET /admin/api/remove-users counts (one source: summarize)', ru.body.ok && ru.body.counts.changeNow.accounts === item('expired').count && ru.body.counts.todo === item('expired').sub && ru.body.counts.wait.accounts === 1 && ru.body.counts.later.accounts === 1 && ru.body.counts.safeAccounts === 1 && ru.body.counts.customers === 5, ru.body.counts);
+  ok('remove-users rows carry the advice (NF-C waits for its expiry date with 4 inactive by then)', (() => { const g = ru.body.main.groups.find((x) => x.accountIds[0] === 'NF-C'); return g && g.advice.kind === 'WAIT_DATE' && g.advice.plan.inactive === 4 && g.advice.plan.label === nextLabel && g.advice.nextExpiry.name === 'Soon Ending'; })(), ru.body.main.groups);
   ok('unmatched payments: since go-live (2026-09-14 21:00) only, opens 🏦 Bank payments', item('unmatched').count === 2 && item('unmatched').go.view === 'bank', item('unmatched'));
   ok('out of stock / low plans named', item('out').names[0] === 'SonyLiv Premium · 1 Month' && item('low').names[0] === 'JioHotstar · 1 Month (2)');
   ok('each item says where to go', item('undelivered').go.orders === 'undelivered' && item('restock').go.table === 'restock_requests');

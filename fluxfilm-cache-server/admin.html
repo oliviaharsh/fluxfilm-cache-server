@@ -410,6 +410,10 @@ textarea.inp{resize:vertical}
 .ru-chip{border:1px solid var(--line);background:#fff;border-radius:14px;padding:10px 14px;font-size:.84rem;line-height:1.35;text-align:left;cursor:pointer;color:var(--ink);flex:1 1 220px}
 .ru-chip b{font-size:1.05rem}.ru-chip.warn{border-color:#fcd34d;background:#fffbeb}.ru-chip.ok{border-color:#bbf7d0;background:#f0fdf4}
 .ru-acc{padding:12px 14px;margin-bottom:10px}
+.ru-acc.ru-now{border-left:4px solid #ef4444}.ru-acc.ru-wait_date{border-left:4px solid #f59e0b}
+.ru-help{font-size:.82rem;line-height:1.45;margin:0 0 10px;color:var(--ink)}
+.ru-counts{font-size:.86rem;margin-top:3px}.ru-active{font-size:.95rem}
+.ru-note{font-size:.78rem;margin:6px 0 2px;line-height:1.4;color:var(--ink)}
 .ru-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}
 .ru-person{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f4f8;flex-wrap:wrap}.ru-person:last-child{border-bottom:0}
 .ru-person .grow{flex:1;min-width:170px}
@@ -450,6 +454,15 @@ textarea.inp{resize:vertical}
 @keyframes ffSpStreak { 0% { opacity: 0; transform: translateX(10px) scaleX(.2); } 25% { opacity: 1; } 100% { opacity: 0; transform: translateX(150px) scaleX(4); } }
 @keyframes ffSplashOut { to { opacity: 0; visibility: hidden; } }
 @media (prefers-reduced-motion: reduce) { #ff-splash { display: none !important; } }
+/* 📱 App-like presses (feedback run 2): no blue tap flash / mouse focus box (keyboard keeps a ring), no text selection on buttons, quick press-in */
+html{-webkit-tap-highlight-color:transparent}
+a,button,input,select,textarea,label,summary,.btn,[role="button"],[onclick]{-webkit-tap-highlight-color:transparent}
+:focus:not(:focus-visible){outline:none}
+a:focus-visible,button:focus-visible,summary:focus-visible,.btn:focus-visible,[role="button"]:focus-visible{outline:3px solid rgba(225,29,72,.45);outline-offset:2px}
+button,.btn,[role="button"]{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+button,.btn{transition:transform .1s ease,filter .1s ease}
+:where(button,.btn):active:not(:disabled){transform:scale(.96);filter:brightness(.94)}
+@media (prefers-reduced-motion: reduce){button,.btn{transition:none}}
 </style></head><body>
 <div id="ff-splash" hidden aria-hidden="true"><div class="ff-sp-streaks"><i style="transform:rotate(0deg)"><b style="background:#fecdd3;animation-delay:1.52s"></b></i><i style="transform:rotate(27deg)"><b style="background:#fb7185;animation-delay:1.54s"></b></i><i style="transform:rotate(54deg)"><b style="background:#f43f5e;animation-delay:1.56s"></b></i><i style="transform:rotate(60deg)"><b style="background:#fda4af;animation-delay:1.58s"></b></i><i style="transform:rotate(87deg)"><b style="background:#fbbf24;animation-delay:1.60s"></b></i><i style="transform:rotate(114deg)"><b style="background:#ffffff;animation-delay:1.52s"></b></i><i style="transform:rotate(120deg)"><b style="background:#fca5a5;animation-delay:1.54s"></b></i><i style="transform:rotate(147deg)"><b style="background:#fecdd3;animation-delay:1.56s"></b></i><i style="transform:rotate(174deg)"><b style="background:#fb7185;animation-delay:1.58s"></b></i><i style="transform:rotate(180deg)"><b style="background:#f43f5e;animation-delay:1.60s"></b></i><i style="transform:rotate(207deg)"><b style="background:#fda4af;animation-delay:1.52s"></b></i><i style="transform:rotate(234deg)"><b style="background:#fbbf24;animation-delay:1.54s"></b></i><i style="transform:rotate(240deg)"><b style="background:#ffffff;animation-delay:1.56s"></b></i><i style="transform:rotate(267deg)"><b style="background:#fca5a5;animation-delay:1.58s"></b></i><i style="transform:rotate(294deg)"><b style="background:#fecdd3;animation-delay:1.60s"></b></i><i style="transform:rotate(300deg)"><b style="background:#fb7185;animation-delay:1.52s"></b></i><i style="transform:rotate(327deg)"><b style="background:#f43f5e;animation-delay:1.54s"></b></i><i style="transform:rotate(354deg)"><b style="background:#fda4af;animation-delay:1.56s"></b></i></div><div class="ff-sp-stage"><div class="ff-sp-rib"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="ff-sp-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="ffasp-bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#3f0f20"/><stop offset="1" stop-color="#12040a"/></linearGradient><radialGradient id="ffasp-hi" cx="143" cy="61" r="460" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset=".55" stop-color="#ffffff" stop-opacity="0"/></radialGradient><linearGradient id="ffasp-mk" x1="0" y1="96" x2="0" y2="416" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fecdd3"/><stop offset="1" stop-color="#fb7185"/></linearGradient><filter id="ffasp-sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity=".45"/></filter><mask id="ffasp-f" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect width="512" height="512" fill="#fff"/><g fill="#000"><rect x="198" y="186" width="36" height="148" rx="6"/><rect x="198" y="186" width="98" height="32" rx="6"/><rect x="198" y="244" width="78" height="30" rx="6"/></g></mask></defs><rect width="512" height="512" rx="112" fill="url(#ffasp-bg)"/><rect width="512" height="512" rx="112" fill="url(#ffasp-hi)"/><g filter="url(#ffasp-sh)"><path transform="translate(8 0)" d="M170 128V384L392 256Z" fill="url(#ffasp-mk)" stroke="url(#ffasp-mk)" stroke-width="64" stroke-linejoin="round" mask="url(#ffasp-f)"/></g></svg></div></div></div>
 <script>
@@ -2012,7 +2025,7 @@ function renderStock() {
   var ru = d.removeUsers;
   var h = '<div class="kpis"><div class="kpi"><div class="ic">🔴</div><div><div class="n">' + counts.OUT + '</div><div class="l">Plans out of stock</div></div></div><div class="kpi"><div class="ic">🟡</div><div><div class="n">' + counts.LOW + '</div><div class="l">Plans running low</div></div></div>' +
     '<div class="kpi"><div class="ic">🧱</div><div><div class="n">' + nFull + '</div><div class="l">Accounts full</div></div></div></div>' +
-    '<div class="row" style="margin:-6px 0 10px"><a href="#removeusers" class="chip" data-kru="" onclick="event.preventDefault()">🚪 Remove users' + (ru && ru.customers ? ' · ' + ru.customers + ' customers on ' + ru.accounts + ' accounts' : '') + ' →</a></div>';
+    '<div class="row" style="margin:-6px 0 10px"><a href="#removeusers" class="chip" data-kru="" onclick="event.preventDefault()">🚪 Remove users' + (ru && ru.todo && (ru.changeNow.accounts || ru.wait.accounts) ? ' · ' + esc(ru.todo) : '') + ' →</a></div>';
   h += '<div class="subhead"><h3>Plans</h3></div><div class="kgrid">' + services.map(function (sv) {
     var list = byService[sv].slice().sort(function (a, b) { return (a.durationDays || 0) - (b.durationDays || 0); });
     return '<div class="card kcard ' + worst(list).toLowerCase() + '"><div class="row" style="justify-content:space-between;margin-bottom:8px"><b>' + svcIcon(sv) + ' ' + esc(sv) + '</b></div>' +
@@ -2045,7 +2058,7 @@ function renderAccounts() {
     var rows = groups[sv], open = expandAll || K.open[sv];
     var used = rows.reduce(function (n, a) { return n + (a.used || 0); }, 0), cap = rows.reduce(function (n, a) { return n + (a.isActive && a.cap ? a.cap : 0); }, 0);
     return '<div class="card" style="padding:0;margin-bottom:10px;overflow:hidden"><button class="ksvc" data-ksvc="' + esc(sv) + '"><span>' + (open ? '▾' : '▸') + ' ' + svcIcon(sv) + ' <b>' + esc(sv) + '</b> <span class="muted">· ' + rows.length + ' accounts' + (cap ? ' · ' + used + ' / ' + cap + ' ' + esc(rows[0].unit || '') + ' used' : '') + '</span></span>' +
-      '<span>' + (rows.some(function (a) { return a.status === 'FULL' || a.status === 'TV_FULL'; }) ? '<span class="pill p-warn">has full</span> ' : '') + (function () { var seen = {}, n = rows.reduce(function (t, a) { if (seen[a.accountId]) return t; seen[a.accountId] = 1; return t + (a.expiredOnAccount || 0); }, 0); return n ? '<span class="pill p-bad">🚪 ' + n + ' to log out</span>' : ''; })() + '</span></button>' +
+      '<span>' + (rows.some(function (a) { return a.status === 'FULL' || a.status === 'TV_FULL'; }) ? '<span class="pill p-warn">has full</span> ' : '') + (function () { var seen = {}, n = rows.reduce(function (t, a) { if (seen[a.accountId]) return t; seen[a.accountId] = 1; return t + (a.expiredOnAccount || 0); }, 0); var seenNow = {}, now = rows.filter(function (a) { if (a.removeAdvice !== 'NOW' || seenNow[a.accountId]) return false; seenNow[a.accountId] = 1; return true; }).length; return (now ? '<span class="pill p-bad">🔑 ' + now + ' to change now</span> ' : '') + (n ? '<span class="pill p-grey">🚪 ' + n + ' inactive</span>' : ''); })() + '</span></button>' +
       (open ? '<div class="list" style="padding:0 14px 8px">' + rows.map(accountRow).join('') + '</div>' : '') + '</div>';
   }).join('') : '<div class="card muted">No accounts match.</div>');
 }
@@ -2055,7 +2068,7 @@ function accountRow(a) {
   return '<div class="li"><div class="grow"><b style="font-family:Consolas,monospace">' + esc(a.accountId) + '</b> ' + pill + (a.plan ? ' <span class="pill p-blue">' + esc(a.plan) + '</span>' : '') +
     '<div class="muted" style="font-size:.72rem">' + esc(a.login || '(no login)') + (a.notes ? ' · ' + esc(a.notes) : '') + '</div>' +
     (a.cap ? '<div class="bar' + (pct >= 100 ? ' b' : pct >= 75 ? ' w' : '') + '" style="margin-top:6px;max-width:320px"><i style="width:' + pct + '%"></i></div><div class="muted" style="font-size:.7rem;margin-top:3px">' + a.used + ' / ' + a.cap + ' ' + esc(a.unit) + (a.tvCap != null ? ' · TV ' + a.tvUsed + ' / ' + a.tvCap : '') + '</div>' : '') + '</div>' +
-    '<div class="row" style="gap:6px"><button class="chip" data-see="' + esc(a.accountId) + '">👥 ' + a.activeSubs + ' active</button>' + (a.expiredOnAccount ? '<button class="chip clear" data-kru="' + esc(a.accountId) + '" title="Open 🚪 Remove users for this account">🚪 ' + a.expiredOnAccount + ' to log out</button>' : '') + (a.expiredOldUsers ? '<span class="pill p-grey" title="Nobody active on this login: safe to reset devices / change the password">🧹 ' + a.expiredOldUsers + ' old users</span>' : '') + '</div></div>';
+    '<div class="row" style="gap:6px"><button class="chip" data-see="' + esc(a.accountId) + '">👥 ' + a.activeSubs + ' active</button>' + (a.expiredOnAccount || a.expiredOldUsers ? '<button class="chip clear" data-kru="' + esc(a.accountId) + '" title="Open 🚪 Remove users for this account">' + (a.removeAdvice === 'NOW' ? '🔑 Change now' : a.removeAdvice === 'WAIT_DATE' ? '⏳ Change on ' + esc(a.removeOn) : '⏳ Wait') + ' · ' + (a.expiredOnAccount || a.expiredOldUsers) + ' inactive' + (a.expiredOnAccount ? '' : ' (nobody active)') + '</button>' : '') + '</div></div>';
 }
 
 /* ================= Today (action list + to-dos) ================= */
@@ -2114,7 +2127,7 @@ function renderTodayItems() {
       if (it.list && it.list.length) extra = '<div class="tnames">' + it.list.map(function (s) { return svcIcon(s.service) + ' ' + esc(s.service) + ' · ' + esc(s.phone_norm) + ' · ' + prettyDate(s.expiry_date, true); }).join('<br>') + '</div>';
       // Paid but not delivered: each stuck order opens straight into its actions (Fulfil / Refund / Erase).
       if (it.orders && it.orders.length && it.count > 0) extra = '<span class="tnames">' + it.orders.filter(function (o) { return o && o.order_id; }).map(function (o) { return '<span class="tstuck" role="button" data-toid="' + esc(o.order_id) + '">' + svcIcon(o.service) + ' <b>' + esc(o.order_id) + '</b> · ' + esc(o.name || '') + ' · ' + esc(o.service) + ' ' + esc(o.plan) + ' · ' + money(o.final_amount) + ' ' + statusPill(o.fulfillment_status || 'PENDING') + ' <u>Fix ›</u></span>'; }).join('') + '</span>';
-      return '<button class="tcard ' + (it.count > 0 ? it.tone : 'clear') + '" data-i="' + i + '"><span class="tic">' + it.icon + '</span><span class="tbody"><b>' + esc(it.title) + '</b>' + (it.sub && it.count > 0 ? ' <span class="muted tsub">' + esc(it.sub) + '</span>' : '') + extra + '</span><span class="tcount">' + (it.count > 0 ? it.count : '✓') + '</span></button>';
+      return '<button class="tcard ' + (it.count > 0 ? it.tone : 'clear') + '" data-i="' + i + '"><span class="tic">' + it.icon + '</span><span class="tbody"><b>' + esc(it.title) + '</b>' + (it.sub && (it.count > 0 || it.showSub) ? ' <span class="muted tsub">' + esc(it.sub) + '</span>' : '') + extra + '</span><span class="tcount">' + (it.count > 0 ? it.count : '✓') + '</span></button>';
     }).join('') + '</div>';
   $('#titems').onclick = function (e) { var so = e.target.closest('[data-toid]'); if (so) { openOrder(so.getAttribute('data-toid')); return; } var b = e.target.closest('.tcard'); if (b) todayGo(items[+b.getAttribute('data-i')].go); };
 }
@@ -3530,7 +3543,22 @@ function renderMaintenance() {
     '<label>Back by <span class="muted">(optional, e.g. "in 30 minutes", "by 6 pm")</span><input class="inp" id="mtback" maxlength="60" value="' + esc(s.backText) + '" placeholder="in 30 minutes"/></label></div>' +
     '<div class="rf-save"><button class="btn green" id="mtsave">💾 Save message</button><span class="rf-state" id="mtstate"></span></div></div>' +
     '<div class="card"><h3>💬 Help bubble</h3><label class="rf-tog"><input type="checkbox" id="mthelp"' + (s.helpBubble !== false ? ' checked' : '') + '/> <b>Show the small floating 💬 Help bubble</b></label>' +
-    '<p class="muted" style="margin:4px 0 0;font-size:.84rem">On Home, My plans and Account, above the bottom menu (it hides while the customer scrolls down, never on checkout or payment). The Help button at the top right always stays. Saves at once.</p><span class="rf-state" id="mthelpstate"></span></div>';
+    '<p class="muted" style="margin:4px 0 0;font-size:.84rem">On Home, My plans and Account, above the bottom menu (it hides while the customer scrolls down, never on checkout or payment). The Help button at the top right always stays. Saves at once.</p><span class="rf-state" id="mthelpstate"></span></div>' +
+    '<div class="card"><h3>⏳ Renewal reminder pop-up</h3><label class="rf-tog"><input type="checkbox" id="mtrenew"' + (s.renewPopup !== false ? ' checked' : '') + '/> <b>Remind customers to renew when they open the website</b></label>' +
+    '<p class="muted" style="margin:4px 0 0;font-size:.84rem">A friendly pop-up with their plan, the renew price, early-renew discount, coupon and coins. At most once per visit and once every 12 hours per plan; "Remind me later" waits 24 hours. Never on checkout, payment or Recover. Saves at once.</p><span class="rf-state" id="mtrenewstate"></span>' +
+    '<div class="mt-f" style="margin-top:10px"><label>Days before expiry <span class="muted">(1–14)</span><input class="inp" id="mtrrbefore" type="number" inputmode="numeric" min="1" max="14" value="' + esc(s.renewPopupBefore != null ? s.renewPopupBefore : 7) + '"/></label>' +
+    '<label>Days after expiry <span class="muted">(0–5, renew is allowed up to 5)</span><input class="inp" id="mtrrafter" type="number" inputmode="numeric" min="0" max="5" value="' + esc(s.renewPopupAfter != null ? s.renewPopupAfter : 3) + '"/></label></div>' +
+    '<div class="rf-save"><button class="btn green" id="mtrrsave">💾 Save days</button><span class="rf-state" id="mtrrstate"></span></div></div>' +
+    '<div class="card"><h3>😏 Greeting on My plans</h3><label class="row" style="gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="mtsass"' + (s.sassyGreeting !== false ? ' checked' : '') + ' style="width:22px;height:22px;flex:none;margin-top:2px"/>' +
+    '<span><b>Sassy greeting</b><br><span class="muted">ON: a fun line that changes with the time, the day and the customer\'s plans (e.g. "Missed me?? Here we go again!! 😏", "Your Netflix ends in 2 days — don\'t leave me on read 👀"). OFF: plain "Welcome back, Name 👋". Saves at once.</span></span></label></div>';
+  $('#mtsass').onchange = function () {
+    var box = this, on = box.checked; box.disabled = true;
+    post('/admin/api/store', { sassyGreeting: on }).then(function (r) {
+      box.disabled = false;
+      if (!r.ok) { box.checked = !on; toast('⚠️ Not changed: ' + (r.message || 'error')); return; }
+      MT.s = r.settings; toast(on ? '😏 Sassy greeting ON — live now' : '👋 Plain greeting — live now');
+    });
+  };
   var st = function (k, x) { var el = $('#mtstate'); if (el) { el.className = 'rf-state ' + k; el.textContent = x; } };
   $('#mthelp').onchange = function () {
     var on = this.checked, box = this, el = $('#mthelpstate'); box.disabled = true;
@@ -3540,6 +3568,16 @@ function renderMaintenance() {
       MT.s = r.settings; if (el) { el.className = 'rf-state ok'; el.textContent = on ? '✅ Bubble on — live now' : '✅ Bubble off — live now'; }
     });
   };
+  $('#mtrenew').onchange = function () {
+    var on = this.checked, box = this, el = $('#mtrenewstate'); box.disabled = true;
+    post('/admin/api/store', { renewPopup: on }).then(function (r) {
+      box.disabled = false;
+      if (!r.ok) { box.checked = !on; toast('⚠️ Not changed: ' + (r.message || 'error')); return; }
+      MT.s = r.settings; if (el) { el.className = 'rf-state ok'; el.textContent = on ? '✅ Reminder on — live now' : '✅ Reminder off — live now'; }
+    });
+  };
+  var rrst = function (k, x) { var el = $('#mtrrstate'); if (el) { el.className = 'rf-state ' + k; el.textContent = x; } };
+  $('#mtrrsave').onclick = function () { saveSettingsBtn(this, '/admin/api/store', { renewPopupBefore: $('#mtrrbefore').value, renewPopupAfter: $('#mtrrafter').value }, rrst, function (r) { MT.s = r.settings; }); };
   var body = function (extra) { return Object.assign({ message: $('#mtmsg').value, backText: $('#mtback').value }, extra || {}); };
   $('#mtsave').onclick = function () { saveSettingsBtn(this, '/admin/api/store', body(), st, function (r) { MT.s = r.settings; refreshPauseBar(r.settings); }); };
   $('#mttog').onclick = function () {
@@ -3873,7 +3911,7 @@ function bankClick(e) {
 // the old Sheet DASHBOARD rule). Units are always spelled out: customers (people to log out) vs accounts (logins).
 var RU = { data: null, q: '', fam: 'all', open: {} };
 function removeUsersView() {
-  $('#view').innerHTML = '<div class="ph"><div><h1>🚪 Remove users</h1><p>Expired customers still on an account that other customers use — log them out, then tap ✅ Removed</p></div><button class="btn ghost" id="ruref">⟳ Refresh</button></div><div id="rubody"><p class="muted">Loading…</p></div>';
+  $('#view').innerHTML = '<div class="ph"><div><h1>🚪 Remove users</h1><p>Inactive customers still on a shared login — change the password when it is worth it, then tap ✅ Removed</p></div><button class="btn ghost" id="ruref">⟳ Refresh</button></div><div id="rubody"><p class="muted">Loading…</p></div>';
   $('#ruref').onclick = function () { RU.data = null; removeUsersView(); };
   if (RU.data) return renderRemoveUsers();
   api('/admin/api/remove-users').then(function (r) {
@@ -3884,11 +3922,17 @@ function removeUsersView() {
 }
 function ruPlural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
 // Same numbers as the server's summarize(), worked out again after a local ✅ Removed tick.
+// Recommendation per login from the server (expiredusers.js adviceFor): NOW / WAIT_DATE / WAIT_FEW.
+function ruKind(g) { return (g.advice && g.advice.kind) || (g.action === 'SAFE' ? 'NOW' : 'WAIT_FEW'); }
 function ruCount(sec) {
-  var c = { customers: 0, accounts: 0, safeAccounts: 0, safeUsers: 0, byFamily: {} };
+  var c = { customers: 0, accounts: 0, safeAccounts: 0, safeUsers: 0, byFamily: {}, changeNow: { accounts: 0, inactive: 0, nobodyActive: 0 }, wait: { accounts: 0, inactive: 0, next: null }, later: { accounts: 0, inactive: 0 } };
   ((sec && sec.groups) || []).forEach(function (g) {
     if (g.action === 'REMOVE') { c.customers += g.count; c.accounts++; var f = c.byFamily[g.family] || (c.byFamily[g.family] = { customers: 0, accounts: 0 }); f.customers += g.count; f.accounts++; }
     else { c.safeAccounts++; c.safeUsers += g.count; }
+    var k = ruKind(g), p = g.advice && g.advice.plan;
+    if (k === 'NOW') { c.changeNow.accounts++; c.changeNow.inactive += g.count; if (!g.activeCount) c.changeNow.nobodyActive++; }
+    else if (k === 'WAIT_DATE') { c.wait.accounts++; c.wait.inactive += g.count; if (p && (!c.wait.next || p.date < c.wait.next.date)) c.wait.next = { date: p.date, label: p.label }; }
+    else { c.later.accounts++; c.later.inactive += g.count; }
   });
   return c;
 }
@@ -3911,58 +3955,94 @@ function ruPerson(p, g) {
     '<div class="muted" style="font-size:.74rem">' + esc(p.plan || p.service) + (p.slot ? ' · ' + esc(p.slot) : '') + ' · <b style="color:var(--bad)">' + ago + '</b> (' + prettyDate(p.expiry) + ')' + (p.orderId ? ' · <a href="#" data-ruorder="' + esc(p.orderId) + '">' + esc(p.orderId) + '</a>' : '') + '</div></div>' +
     '<button class="btn ghost sm" data-rurm="' + esc(p.subId) + '" data-runame="' + esc(p.name) + '">✅ Removed</button></div>';
 }
+function ruRules() { return (RU.data && RU.data.rules) || (RU.data && RU.data.counts && RU.data.counts.rules) || { minInactive: 3, minDays: 10 }; }
+// "Next expiry: 17 Sep (in 2 days) — Rahul" (soonest expiry among the login's ACTIVE customers, IST calendar days).
+function ruNextLine(g) {
+  var n = g.advice && g.advice.nextExpiry;
+  if (!g.activeCount || !n) return 'Next expiry: <b>nobody active</b>';
+  return 'Next expiry: <b>' + esc(n.label) + '</b> (' + esc(n.when) + ') — ' + (n.count > 1 ? n.count + ' customers' : esc(n.name || '1 customer'));
+}
+function ruAdvice(g) {
+  var a = g.advice || {}, r = ruRules(), p = a.plan, n = a.nextExpiry, k = ruKind(g);
+  if (k === 'NOW' && !g.activeCount) return { pill: '<span class="pill p-ok">🔑 Change password now (nobody active)</span>', note: '✅ Safe to reset: nobody active uses this login, so a new password disturbs no one.' };
+  if (k === 'NOW') return { pill: '<span class="pill p-bad">🔑 Change password now</span>', note: g.count + ' inactive (' + r.minInactive + '+ needed) and the next expiry is ' + esc(n ? n.when : '') + ' (' + r.minDays + '+ days needed) — nobody will need another change soon.' };
+  if (k === 'WAIT_DATE') return { pill: '<span class="pill p-warn">⏳ Wait — change on ' + esc(p ? p.label : n ? n.label : '?') + '</span>', note: p ? 'Change once on ' + esc(p.label) + ' (' + esc(p.when) + '): by then <b>' + p.inactive + ' inactive</b> (' + g.count + ' now + ' + (p.inactive - g.count) + ' ending). ' + (p.activeLeft ? 'Next expiry after that: ' + esc(p.nextAfter ? p.nextAfter.label : '?') + '.' : 'Nobody active after that.') : 'The next expiry is soon — change after it.' };
+  return { pill: '<span class="pill p-grey">⏳ Wait — only ' + g.count + ' inactive</span>', note: 'Next expiry is ' + esc(n ? n.when : '?') + '. ' + (p ? 'Worth changing on ' + esc(p.label) + ' (' + p.inactive + ' inactive by then' + (p.activeLeft ? '' : ', nobody active') + ').' : '') };
+}
 function ruGroup(g, m) {
-  var ids = g.accountIds.length ? g.accountIds : [g.login];
+  var ids = g.accountIds.length ? g.accountIds : [g.login], k = ruKind(g), adv = ruAdvice(g);
   var head = '<div class="ru-head"><div><b style="font-family:Consolas,monospace">' + svcIcon(g.services[0] || g.family) + ' ' + esc(ids.join(' / ')) + '</b>' +
-    '<div class="muted" style="font-size:.74rem;word-break:break-all">' + esc(g.loginLabel || g.login || '(no login)') + ' · ' + ruPlural(g.activeCount, 'active customer') + '</div></div>';
-  if (g.action === 'REMOVE') {
-    return '<div class="card ru-acc">' + head + '<span class="pill p-bad">⚠️ Log out ' + g.count + '</span></div>' +
-      (m.people.length < g.people.length ? '<div class="muted" style="font-size:.72rem;margin-top:4px">Showing ' + m.people.length + ' of ' + g.count + ' (search)</div>' : '') +
-      '<div>' + m.people.map(function (p) { return ruPerson(p, g); }).join('') + '</div>' +
-      (g.count > 1 ? '<button class="btn dark sm ru-all" data-ruall="' + esc(g.key) + '">✅ Remove all ' + g.count + ' on this account</button>' : '') + '</div>';
-  }
-  // Nobody active on this login: change the password (the 🔑 tool ticks everyone removed and covers every ID on the login).
-  return '<div class="card ru-acc">' + head + '<span class="pill p-ok">✅ Safe → reset password</span></div>' +
-    '<div class="muted" style="font-size:.76rem;margin:6px 0">' + ruPlural(g.count, 'old user') + ': ' + g.people.map(function (p) { return esc(p.name); }).join(', ') + '</div>' +
-    '<div class="row" style="gap:6px;flex-wrap:wrap">' + ids.slice(0, 1).map(function (id) { return'<button class="btn ghost sm" data-rupw="' + esc(id) + '" data-rusvc="' + esc((g.accountServices && g.accountServices[id]) || g.services[0] || g.family) + '">🔑 Change password' + (ids.length > 1 ? ' (all ' + ids.length + ' IDs)' : '') + '</button>'; }).join('') + '</div></div>';
+    '<div class="muted" style="font-size:.74rem;word-break:break-all">' + esc(g.loginLabel || g.login || '(no login)') + '</div>' +
+    '<div class="ru-counts"><b class="ru-active">' + ruPlural(g.activeCount, 'active customer') + '</b> · ' + g.count + ' inactive, not removed</div>' +
+    '<div class="muted" style="font-size:.76rem">' + ruNextLine(g) + '</div></div>' + adv.pill + '</div>' +
+    (adv.note ? '<div class="ru-note">' + adv.note + '</div>' : '');
+  var people = (m.people.length < g.people.length ? '<div class="muted" style="font-size:.72rem;margin-top:4px">Showing ' + m.people.length + ' of ' + g.count + ' (search)</div>' : '') +
+    '<div>' + m.people.map(function (p) { return ruPerson(p, g); }).join('') + '</div>';
+  // Waiting logins keep their list folded: nothing to do today.
+  if (k !== 'NOW') people = '<details' + (RU.q ? ' open' : '') + ' style="margin-top:6px"><summary style="cursor:pointer;font-size:.8rem">👥 ' + ruPlural(g.count, 'inactive customer') + '</summary>' + people + '</details>';
+  // 🔑 Change password = the existing tool (ticks everyone removed and covers every ID on the login).
+  var acts = '<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:6px">' + ids.slice(0, 1).map(function (id) { return '<button class="btn ' + (k === 'NOW' ? 'dark' : 'ghost') + ' sm" data-rupw="' + esc(id) + '" data-rusvc="' + esc((g.accountServices && g.accountServices[id]) || g.services[0] || g.family) + '">🔑 Change password' + (k === 'NOW' ? '' : ' anyway') + (ids.length > 1 ? ' (all ' + ids.length + ' IDs)' : '') + '</button>'; }).join('') +
+    (g.count > 1 ? '<button class="btn ghost sm ru-all" data-ruall="' + esc(g.key) + '">✅ Tick all ' + g.count + ' removed</button>' : '') + '</div>';
+  return '<div class="card ru-acc ru-' + k.toLowerCase() + '">' + head + people + acts + '</div>';
+}
+function ruSettingsBox() {
+  var r = ruRules();
+  return '<details class="card" id="ruset" style="padding:10px 14px;margin-bottom:10px"' + (RU.open.ruset ? ' open' : '') + '><summary style="cursor:pointer">⚙️ <b>When to change the password</b> <span class="muted">— ' + r.minInactive + '+ inactive and next expiry ' + r.minDays + '+ days away</span></summary>' +
+    '<div class="row" style="gap:10px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">' +
+    '<label style="font-size:.8rem">Min inactive users<br><input class="inp" type="number" min="1" max="50" step="1" id="ruminin" value="' + r.minInactive + '" style="width:110px"/></label>' +
+    '<label style="font-size:.8rem">Min days until next expiry<br><input class="inp" type="number" min="0" max="60" step="1" id="rumindays" value="' + r.minDays + '" style="width:110px"/></label>' +
+    '<button class="btn sm" data-rusave="1">💾 Save</button></div>' +
+    '<p class="muted" style="font-size:.74rem;margin:6px 0 0">A login with nobody active is always "change now". Defaults: 3 inactive, 10 days. Saved in the change log.</p></details>';
 }
 function renderRemoveUsers() {
   var el = $('#rubody'); if (!el || !RU.data) return;
   var d = RU.data, c = ruCounts(), o = c.other || { customers: 0, accounts: 0, safeAccounts: 0, safeUsers: 0 };
   var main = (d.main && d.main.groups) || [], other = (d.other && d.other.groups) || [];
-  var fams = Object.keys(c.byFamily || {}).sort();
+  var now = c.changeNow || { accounts: 0, inactive: 0, nobodyActive: 0 }, wait = c.wait || { accounts: 0, inactive: 0 }, later = c.later || { accounts: 0, inactive: 0 }, r = ruRules();
+  var ow = o.changeNow || { accounts: 0 }, owa = o.wait || { accounts: 0 };
+  // Family chips count the logins listed (every recommendation), not only the ones to change now.
+  var famN = {}; main.forEach(function (g) { famN[g.family] = (famN[g.family] || 0) + 1; });
+  var fams = Object.keys(famN).sort();
   if (RU.fam !== 'all' && fams.indexOf(RU.fam) < 0) RU.fam = 'all';
-  var famLine = fams.map(function (f) { return esc(f) + ' ' + c.byFamily[f].customers + ' on ' + c.byFamily[f].accounts; }).join(' · ');
-  var h = '<div class="ru-chips">' +
-    '<button class="ru-chip warn" data-rujump="rua">⚠️ <b>' + ruPlural(c.customers, 'customer') + '</b> on <b>' + ruPlural(c.accounts, 'account') + '</b> to log out' + (famLine ? '<br><span class="muted" style="font-size:.74rem">' + famLine + '</span>' : '') + '</button>' +
-    '<button class="ru-chip ok" data-rujump="rub">✅ <b>' + ruPlural(c.safeAccounts, 'account') + '</b> safe to reset<br><span class="muted" style="font-size:.74rem">' + ruPlural(c.safeUsers, 'old user') + ' · nobody active</span></button>' +
-    '<button class="ru-chip" data-rujump="ruc">📺 Other services: <b>' + ruPlural(o.customers, 'customer') + '</b><br><span class="muted" style="font-size:.74rem">on ' + ruPlural(o.accounts, 'account') + ' · Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube</span></button></div>' +
+  var h = '<p class="ru-help">A login is shared, so the only way to log out an inactive customer is a <b>new password</b> — and that disturbs the active ones. Change it only when it is worth it: <b>nobody active</b> (✅ Safe to reset), or <b>' + r.minInactive + '+ inactive</b> and the next expiry <b>' + r.minDays + '+ days</b> away. Otherwise wait and change once on the date shown.</p>' +
+    '<div class="ru-chips">' +
+    '<button class="ru-chip warn" data-rujump="rua">🔑 <b>' + ruPlural(now.accounts, 'account') + '</b> to change now<br><span class="muted" style="font-size:.74rem">' + ruPlural(now.inactive, 'inactive customer') + (now.nobodyActive ? ' · ' + now.nobodyActive + ' with nobody active' : '') + '</span></button>' +
+    '<button class="ru-chip" data-rujump="ruw">⏳ <b>' + ruPlural(wait.accounts, 'account') + '</b> waiting<br><span class="muted" style="font-size:.74rem">' + (wait.next ? 'next change ' + esc(wait.next.label) : 'no date yet') + ' · ' + ruPlural(wait.inactive || 0, 'inactive customer') + '</span></button>' +
+    '<button class="ru-chip ok" data-rujump="rub">💤 <b>' + ruPlural(later.accounts, 'account') + '</b> not worth it yet<br><span class="muted" style="font-size:.74rem">fewer than ' + r.minInactive + ' inactive · next expiry far</span></button>' +
+    '<button class="ru-chip" data-rujump="ruc">📺 Other services: <b>' + ow.accounts + '</b> to change now<br><span class="muted" style="font-size:.74rem">' + owa.accounts + ' waiting · Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube</span></button></div>' +
+    ruSettingsBox() +
     '<div class="search" style="margin-bottom:10px"><input class="inp" id="ruq" placeholder="🔎 Name, phone, order or account…" value="' + esc(RU.q) + '" autocomplete="off"/></div>' +
-    '<div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">' + [['all', 'All (' + c.customers + ')']].concat(fams.map(function (f) { return [f, f + ' (' + c.byFamily[f].customers + ')']; })).map(function (f) { return '<button class="chip' + (RU.fam === f[0] ? ' on' : '') + '" data-rufam="' + esc(f[0]) + '">' + esc(f[1]) + '</button>'; }).join('') + '</div>' +
+    '<div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">' + [['all', 'All (' + main.length + ')']].concat(fams.map(function (f) { return [f, f + ' (' + famN[f] + ')']; })).map(function (f) { return '<button class="chip' + (RU.fam === f[0] ? ' on' : '') + '" data-rufam="' + esc(f[0]) + '">' + esc(f[1]) + '</button>'; }).join('') + '</div>' +
     '<div id="ruparts"></div>';
   el.innerHTML = h;
   renderRuParts();
   var t; $('#ruq').addEventListener('input', function () { RU.q = $('#ruq').value.trim(); clearTimeout(t); t = setTimeout(renderRuParts, 200); });
+  $('#ruset').addEventListener('toggle', function () { RU.open.ruset = $('#ruset').open; });
   el.onclick = ruClick;
 }
 function renderRuParts() {
   var box = $('#ruparts'); if (!box) return;
   var d = RU.data, main = (d.main && d.main.groups) || [], other = (d.other && d.other.groups) || [];
-  var pick = function (list, action, famOnly) {
-    return list.filter(function (g) { return g.action === action && (!famOnly || RU.fam === 'all' || g.family === RU.fam); }).map(function (g) { return { g: g, m: ruMatch(g) }; }).filter(function (x) { return x.m.show; });
+  var pick = function (list, kind, famOnly) {
+    return list.filter(function (g) { return ruKind(g) === kind && (!famOnly || RU.fam === 'all' || g.family === RU.fam); }).map(function (g) { return { g: g, m: ruMatch(g) }; }).filter(function (x) { return x.m.show; });
   };
-  var rem = pick(main, 'REMOVE', true), safe = pick(main, 'SAFE', true), oth = other.map(function (g) { return { g: g, m: ruMatch(g) }; }).filter(function (x) { return x.m.show; });
+  var planDate = function (x) { var p = x.g.advice && x.g.advice.plan; return p ? p.date : '9999'; };
+  var byDate = function (a, b) { return planDate(a) < planDate(b) ? -1 : planDate(a) > planDate(b) ? 1 : 0; };
+  var rem = pick(main, 'NOW', true), wait = pick(main, 'WAIT_DATE', true).sort(byDate), later = pick(main, 'WAIT_FEW', true).sort(byDate), oth = other.map(function (g) { return { g: g, m: ruMatch(g) }; }).filter(function (x) { return x.m.show; });
   var draw = function (list) { return list.map(function (x) { return ruGroup(x.g, x.m); }).join(''); };
   var searching = !!RU.q;
   box.innerHTML =
-    '<div class="subhead" id="rua" style="margin-top:6px"><h3>⚠️ Log these customers out (' + rem.reduce(function (n, x) { return n + x.m.people.length; }, 0) + ')</h3></div>' +
-    '<p class="muted" style="font-size:.78rem;margin:-4px 0 10px">Their plan ended but they are still on an account other customers use. Remove the profile / sign the device out, then tap ✅ Removed. Same rule as the old Sheet dashboard (no day limit; renewals are skipped).</p>' +
-    (rem.length ? draw(rem) : '<div class="card muted" style="margin-bottom:8px">' + (searching ? 'No match.' : '🎉 Nobody to log out.') + '</div>') +
-    '<details class="card" id="rub" style="padding:10px 14px;margin:14px 0 8px"' + (searching || RU.open.rub ? ' open' : '') + '><summary style="cursor:pointer"><b>✅ Safe to reset (' + safe.length + ' accounts)</b> <span class="muted">— nobody active: change the password, old users are ticked removed</span></summary>' +
-    (safe.length ? draw(safe) : '<p class="muted">None.</p>') + '</details>' +
+    '<div class="subhead" id="rua" style="margin-top:6px"><h3>🔑 Change now (' + rem.length + ')</h3></div>' +
+    '<p class="muted" style="font-size:.78rem;margin:-4px 0 10px">Change the password with 🔑, give the new one to the active customers, then tick the inactive ones ✅ Removed. ✅ Safe to reset = nobody active on that login, so nobody is disturbed. Same list rule as the old Sheet dashboard (no day limit; renewals are skipped).</p>' +
+    (rem.length ? draw(rem) : '<div class="card muted" style="margin-bottom:8px">' + (searching ? 'No match.' : '🎉 No password to change today.') + '</div>') +
+    '<div class="subhead" id="ruw" style="margin-top:14px"><h3>⏳ Wait — change on a date (' + wait.length + ')</h3></div>' +
+    '<p class="muted" style="font-size:.78rem;margin:-4px 0 10px">Someone else\'s plan ends soon. Change once on that date instead of today and again then.</p>' +
+    (wait.length ? draw(wait) : '<div class="card muted" style="margin-bottom:8px">' + (searching ? 'No match.' : 'None.') + '</div>') +
+    '<details class="card" id="rub" style="padding:10px 14px;margin:14px 0 8px"' + (searching || RU.open.rub ? ' open' : '') + '><summary style="cursor:pointer"><b>💤 Not worth it yet (' + ruPlural(later.length, 'account') + ')</b> <span class="muted">— too few inactive and the next expiry is far</span></summary>' +
+    (later.length ? draw(later) : '<p class="muted">None.</p>') + '</details>' +
     '<details class="card" id="ruc" style="padding:10px 14px;margin-bottom:8px"' + (searching || RU.open.ruc ? ' open' : '') + '><summary style="cursor:pointer"><b>📺 Other services (whole-account / OTP)</b> <span class="muted">— Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube</span></summary>' +
     (oth.length ? draw(oth) : '<p class="muted">None.</p>') + '</details>';
-  $$('#ruparts details').forEach(function (dt) { dt.addEventListener('toggle', function () { RU.open[dt.id] = dt.open; }); });
+  $$('#ruparts details[id]').forEach(function (dt) { dt.addEventListener('toggle', function () { RU.open[dt.id] = dt.open; }); });
 }
 function ruFind(key) {
   var d = RU.data, all = [].concat((d.main && d.main.groups) || [], (d.other && d.other.groups) || []);
@@ -3978,9 +4058,22 @@ function ruDrop(subIds) {
   });
   RU.data.recount = true; K.data = null; T.data = null;
   renderRemoveUsers();
+  // Fewer inactive can change the recommendation: fetch the server's answer quietly and redraw.
+  api('/admin/api/remove-users').then(function (r) { if (r && r.ok && $('#rubody')) { RU.data = r; renderRemoveUsers(); } });
 }
 function ruClick(e) {
   var j = e.target.closest('[data-rujump]'); if (j) { var tg = $('#' + j.getAttribute('data-rujump')); if (tg) { if (tg.tagName === 'DETAILS') { tg.open = true; RU.open[tg.id] = true; } tg.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
+  var sv = e.target.closest('[data-rusave]');
+  if (sv) {
+    var body = { minInactive: $('#ruminin').value, minDays: $('#rumindays').value };
+    sv.disabled = true;
+    post('/admin/api/remove-users/settings', body).then(function (r) {
+      sv.disabled = false;
+      if (!r.ok) { toast('⚠️ ' + (r.message || 'failed')); return; }
+      toast('⚙️ Saved: ' + r.rules.minInactive + '+ inactive, ' + r.rules.minDays + '+ days'); RU.data = null; K.data = null; T.data = null; removeUsersView();
+    });
+    return;
+  }
   var f = e.target.closest('[data-rufam]'); if (f) { RU.fam = f.getAttribute('data-rufam'); $$('#rubody [data-rufam]').forEach(function (x) { x.classList.toggle('on', x === f); }); renderRuParts(); return; }
   var ord = e.target.closest('[data-ruorder]'); if (ord) { e.preventDefault(); openOrder(ord.getAttribute('data-ruorder')); return; }
   var pw = e.target.closest('[data-rupw]'); if (pw) { PW.q = ''; PW.accounts = null; PW.result = null; PW.showAll = {}; PW.impact = null; PW.pick = { service: pw.getAttribute('data-rusvc'), accountId: pw.getAttribute('data-rupw') }; nav('password'); loadImpact(); return; }

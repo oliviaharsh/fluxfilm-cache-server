@@ -145,12 +145,39 @@ function checkPage(name, html, pathName) {
   ok('/whats-new: links to the plan page of the platform', wn.includes('href="/plans/jiohotstar">JioHotstar plans from ₹69'));
   checkPage('/about', await seo.aboutPage(), '/about');
 
+  section('refund policy (/refund-policy, owner 15 Sep 2026)');
+  const rp = await seo.refundPolicyPage();
+  r = checkPage('/refund-policy', rp, '/refund-policy');
+  ok('/refund-policy: title + BreadcrumbList + WebPage JSON-LD', /^Refund Policy/.test(r.title) && types(r.ld).includes('BreadcrumbList') && types(r.ld).includes('WebPage') && !types(r.ld).includes('FAQPage'));
+  const rpText = decode(rp.replace(/<style>[\s\S]*?<\/style>/, '').replace(/<script[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ');
+  const heads = tagAll(rp, /<h2>([^<]+)<\/h2>/g).map((m) => decode(m[1]));
+  ok('/refund-policy: sections in the owner\'s order', JSON.stringify(heads) === JSON.stringify(['In short', 'Instant delivery', 'Account not working? We replace it', 'Manual delivery (48 hours)', 'Refunds in the middle of a plan', 'Changes made by streaming services', 'Price changes', 'How refunds are paid', 'How to request a refund', 'Contact']), heads);
+  ok('/refund-policy: summary box has 4 bullets', (rp.match(/<div class="card sum">[\s\S]*?<\/ul>/) || [''])[0].split('<li>').length - 1 === 4);
+  ok('/refund-policy: owner\'s rules (no change-of-mind refund, replacement, 24 h, 48 h full refund, usage charge, price change only on renewal)',
+    /no refund just because you changed your mind after delivery/.test(rpText) && /replacement account/.test(rpText) && /refund you within the next 24 hours/.test(rpText) &&
+    /within 48 hours/.test(rpText) && /full refund with no charge/.test(rpText) && /usage charge/.test(rpText) && /tell you the amount before we refund/.test(rpText) &&
+    /Netflix may lower Premium video quality/.test(rpText) && /not a reason for a full refund/.test(rpText) && /does not affect the period you have already paid for/.test(rpText) && /only when you renew, or when you buy again/.test(rpText));
+  ok('/refund-policy: methods match refunds.js (coins +BONUS_PERCENT, 180-day coupon, UPI exact amount, email code)',
+    rpText.includes(require('../refunds').BONUS_PERCENT + '% extra') && /180 days/.test(rpText) && /Account → Coupons/.test(rpText) && /exact refund amount/.test(rpText) && /No extra is added to cash refunds/.test(rpText) && /6-digit code/.test(rpText) && /UPI ID/.test(rpText));
+  ok('/refund-policy: contact support@fluxfilm.in + Help, last updated 15 Sep 2026', /mailto:support@fluxfilm\.in/.test(rp) && /tap Help/.test(rpText) && /Last updated 15 Sep 2026/.test(rpText));
+  ok('/refund-policy: no TMDB, no formulas, no invented promises', !/tmdb/i.test(rp) && !/\d+\s*%\s*(usage|charge|deduct)|per day|pro-?rata|guarantee|legal/i.test(rpText));
+  ok('footer on every public page links the refund policy', [plansHtml, faq, wn, rp].every((h) => h.includes('<a href="/refund-policy">Refund policy</a>')));
+  ok('/faq refund answer matches the policy and links the page', /replacement account/.test(faq) && /within 24 hours/.test(faq) && faq.includes('<a href="/refund-policy">Refund policy</a>') && seo.GENERAL_FAQ.some((q) => /refund/i.test(q[0]) && /support@fluxfilm\.in/.test(q[1])));
+  ok('index.html: refund policy linked at checkout (Details + Renew), Account, refund choice and <noscript>',
+    /"✅ Confirm & Pay ₹", payable\), React\.createElement\(RefundPolicyLink, \{\s*lead: String\(planObj\?\.fulfillmentMode \|\| ''\)\.toUpperCase\(\) === 'MANUAL' \? "Activated by our team within 48 hours" : "Instant delivery"\s*\}\)/.test(store) &&
+    /'✅ Continue to Pay'\)\), React\.createElement\(RefundPolicyLink, \{\s*lead: "Instant delivery"\s*\}\)/.test(store) &&
+    /function RefundPolicyLink\([\s\S]{0,700}href: "\/refund-policy",\s*target: "_blank",\s*rel: "noopener"/.test(store) &&
+    /\['\/refund-policy', '📄 Refund policy'\], \['\/faq', '❓ FAQ'\], \['\/about', 'ℹ️ About FluxFilm'\]/.test(store) &&
+    /"Decide later"\)\), React\.createElement\(RefundPolicyLink, \{\s*key: "rp"/.test(store) &&
+    /<noscript>[\s\S]*href="\/refund-policy"[\s\S]*<\/noscript>/.test(store));
+  ok('index.html: the checkout policy line is a link, not a blocking checkbox', !/type: "checkbox"[\s\S]{0,300}[Rr]efund/.test(store));
+
   section('robots.txt + sitemap.xml');
   const robots = seo.robotsTxt();
   ok('robots: allow all, block private areas, sitemap line', /^User-agent: \*\nAllow: \//.test(robots) && ['/panel', '/admin', '/api', '/profile-photo', '/version'].every((p) => robots.includes('Disallow: ' + p + '\n')) && robots.includes('Sitemap: https://shop.fluxfilm.in/sitemap.xml') && !/Disallow: \/plans|Disallow: \/\n/.test(robots));
   const sm = await seo.sitemapXml();
   const locs = tagAll(sm, /<loc>([^<]+)<\/loc>/g).map((m) => m[1]);
-  ok('sitemap: home, /plans, each service, /faq, /whats-new, /about with lastmod', /^<\?xml version="1\.0" encoding="UTF-8"\?>\n<urlset xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/.test(sm) && ['/', '/plans', '/plans/netflix', '/plans/prime-video', '/plans/sonyliv', '/faq', '/whats-new', '/about'].every((p) => locs.includes('https://shop.fluxfilm.in' + p)) && tagAll(sm, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/g).length === locs.length && !locs.some((l) => /[<>"]/.test(l)), locs);
+  ok('sitemap: home, /plans, each service, /faq, /whats-new, /about with lastmod', /^<\?xml version="1\.0" encoding="UTF-8"\?>\n<urlset xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/.test(sm) && ['/', '/plans', '/plans/netflix', '/plans/prime-video', '/plans/sonyliv', '/faq', '/whats-new', '/about', '/refund-policy'].every((p) => locs.includes('https://shop.fluxfilm.in' + p)) && tagAll(sm, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/g).length === locs.length && !locs.some((l) => /[<>"]/.test(l)), locs);
 
   section('routes (express)');
   const express = require('express');
@@ -180,7 +207,18 @@ function checkPage(name, html, pathName) {
     ok('unknown slug -> 301 /plans (input never echoed)', res.status === 301 && res.headers.get('location') === '/plans' && !/script/i.test(await res.text()));
     res = await get('/faq/');
     ok('/faq/ -> 301 /faq; /plans/ -> 301 /plans', res.status === 301 && res.headers.get('location') === '/faq' && (await get('/plans/')).headers.get('location') === '/plans');
-    for (const p of ['/faq', '/whats-new', '/about']) { res = await get(p); ok(p + ': 200 html', res.status === 200 && /text\/html/.test(res.headers.get('content-type'))); }
+    for (const p of ['/faq', '/whats-new', '/about', '/refund-policy']) { res = await get(p); ok(p + ': 200 html', res.status === 200 && /text\/html/.test(res.headers.get('content-type'))); }
+    res = await get('/refund-policy');
+    const rpBody = await res.text();
+    ok('/refund-policy: 200, 5-min cache, canonical, no tmdb', res.status === 200 && res.headers.get('cache-control') === 'public, max-age=300' && rpBody.includes('<link rel="canonical" href="https://shop.fluxfilm.in/refund-policy">') && !/tmdb/i.test(rpBody));
+    for (const p of ['/refunds', '/refunds/', '/refund', '/Refunds', '/refund-policy/', '/refund-policy.html', '/return-policy']) {
+      res = await get(p);
+      ok(p + ' -> 301 /refund-policy', res.status === 301 && res.headers.get('location') === '/refund-policy', [res.status, res.headers.get('location')]);
+    }
+    res = await get('/refunds/%3Cscript%3E');
+    ok('/refunds/<junk> is not redirected with the input (reaches the storefront catch-all)', res.status === 200 && !/script/i.test(res.headers.get('location') || ''));
+    res = await get('/sitemap.xml');
+    ok('/sitemap.xml lists /refund-policy', (await res.text()).includes('<loc>https://shop.fluxfilm.in/refund-policy</loc>'));
     res = await get('/og-image.png');
     const buf = Buffer.from(await res.arrayBuffer());
     ok('/og-image.png: 1200×630 PNG, long cache, small file', res.status === 200 && res.headers.get('content-type') === 'image/png' && /max-age=2592000/.test(res.headers.get('cache-control')) && buf.slice(1, 4).toString() === 'PNG' && buf.readUInt32BE(16) === 1200 && buf.readUInt32BE(20) === 630 && buf.length < 150000, buf.length);
@@ -192,6 +230,7 @@ function checkPage(name, html, pathName) {
     ok('DB down, no cache: service page 503 (not a redirect away)', res.status === 503);
     res = await get('/plans');
     ok('DB down: /plans 503 no-store (no empty page cached or indexed); /faq still works', res.status === 503 && res.headers.get('cache-control') === 'no-store' && (await get('/faq')).status === 200);
+    ok('DB down: /refund-policy still works', (await get('/refund-policy')).status === 200);
     ok('DB down: storefront head left as it is', (await seo.decorateIndex(store)) === store);
     dbDown = false; seo.clearCache();
     ok('DB back: prices return', /from ₹39/.test(await seo.decorateIndex(store)));

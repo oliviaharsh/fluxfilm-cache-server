@@ -94,6 +94,12 @@ const DB_STOREFRONT = Object.assign(
     getOrderStatus: (a) => account.getOrderStatus(a[0]),
     getResumePaymentByPhone: (a) => account.getResumePaymentByPhone(a[0]),
     submitRestockRequest: (a) => account.submitRestockRequest(a[0]),
+    // 🔒 Profile email lock (emaillock.js). a = [phone, subId?] / [phone, purpose, email, target] / [phone, purpose, code, email, target].
+    emailLockStatus: (a) => require('./emaillock').status(a[0], a[1]),
+    emailSendCode: (a) => require('./emaillock').sendCode(a[0], String(a[1] || ''), { email: a[2], target: a[3] }),
+    emailVerifyCode: (a) => require('./emaillock').verifyCode(a[0], String(a[1] || ''), a[2], { email: a[3], target: a[4] }),
+    // a = [{ phone, email, emailToken, oldEmailToken }] — only the email changes (name kept).
+    changeProfileEmail: (a) => account.changeProfileEmail(a[0]),
   } : {},
   // Own profile photo (Account → Profile). a = [phone, dataUrl] / [phone, avatarUrlToGoBackTo].
   photosMod ? {
@@ -160,12 +166,19 @@ const LIMITS = {
   pushSubscribe: security.rateLimiter(20, TEN_MIN),
   pushUnsubscribe: security.rateLimiter(20, TEN_MIN),
   setProfilePhoto: security.rateLimiter(10, TEN_MIN),
+  // Email lock: the real caps (per phone + per email per hour, 5 tries per code, 30 s resend) live in emaillock.js /
+  // app_settings so they survive a restart; these per-IP limits only stop floods.
+  emailLockStatus: security.rateLimiter(120, TEN_MIN),
+  emailSendCode: security.rateLimiter(12, 60 * 60e3),
+  emailVerifyCode: security.rateLimiter(40, 15 * 60e3),
+  changeProfileEmail: security.rateLimiter(20, TEN_MIN),
   any: security.rateLimiter(3000, TEN_MIN),
 };
 const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setAvatar', 'removeProfilePhoto', 'submitRestockRequest']);
 // Per-phone limits (independent of IP) for actions that email or reveal codes.
 const PHONE_LIMITS = {
-  recoverSendOtp: security.rateLimiter(3, 15 * 60e3),
+  // 6 (was 3): a wrong-email try also counts, and recover.js already waits 30 s between real code emails.
+  recoverSendOtp: security.rateLimiter(6, 15 * 60e3),
   getLatestOtp: security.rateLimiter(15, TEN_MIN),
   otpSendCode: security.rateLimiter(4, 60 * 60e3),
   otpVerifyCode: security.rateLimiter(12, 15 * 60e3),
@@ -173,6 +186,8 @@ const PHONE_LIMITS = {
   setProfilePhoto: security.rateLimiter(6, 60 * 60e3),
   removeProfilePhoto: security.rateLimiter(10, 60 * 60e3),
   setAvatar: security.rateLimiter(20, 60 * 60e3),
+  emailSendCode: security.rateLimiter(8, 60 * 60e3),
+  emailVerifyCode: security.rateLimiter(20, 15 * 60e3),
 };
 function rateLimited(req, action, args) {
   const ip = security.clientIp(req);
@@ -212,6 +227,8 @@ const DB_WRITES = order ? {
 } : {};
 const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
 const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setProfilePhoto', 'removeProfilePhoto', 'setAvatar', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent', 'getPushKey', 'pushSubscribe', 'pushUnsubscribe']);
+// 🔒 Profile email lock (emaillock.js): status, email codes, change email.
+['emailLockStatus', 'emailSendCode', 'emailVerifyCode', 'changeProfileEmail'].forEach((a) => DB_STOREFRONT_ACTIONS.add(a));
 const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota', 'otpSendCode', 'otpVerifyCode']);
 const DB_WRITE_ACTIONS = new Set(['createOrder', 'createRenewOrder', 'validateCoupon', 'verifyPayment', 'verifyPaymentByRef', 'fulfillAndGetAccess']);
 const DB_NOT_YET_PORTED = new Set(['recoverReassignAccount']);
@@ -401,7 +418,7 @@ app.post('/api', async (req, res) => {
   const limited = rateLimited(req, action, a);
   if (limited) {
     res.set('Retry-After', String(limited.retryAfterSec));
-    return res.status(429).json({ ok: false, rateLimited: true, message: 'Too many requests — please wait ' + Math.ceil(limited.retryAfterSec / 60) + ' min and try again.' });
+    return res.status(429).json({ ok: false, rateLimited: true, message: (action === 'recoverSendOtp' ? 'Too many tries for this number — please wait ' + Math.ceil(limited.retryAfterSec / 60) + ' min. A code we already emailed still works for 10 minutes.' : 'Too many requests — please wait ' + Math.ceil(limited.retryAfterSec / 60) + ' min and try again.') });
   }
   const dbUnavailable = () => res.status(503).json({ ok: false, message: 'The FluxFilm database is temporarily unavailable. No order or update was sent to the old system.' });
   const dbError = (label, e) => {
