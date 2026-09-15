@@ -710,7 +710,7 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-reels.out { opacity: 0; transition: opacity .18s ease-in; }
 .ff-reels-list { position: absolute; inset: 0; max-width: 520px; margin: 0 auto; overflow-x: hidden; overflow-y: auto; scroll-snap-type: y mandatory; overscroll-behavior: contain; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .ff-reels-list::-webkit-scrollbar { display: none; }
-.ff-reel { position: relative; height: 100%; overflow: hidden; background: #000; scroll-snap-align: start; scroll-snap-stop: always; }
+.ff-reel { position: relative; height: 100%; overflow: hidden; contain: paint; isolation: isolate; background: #000; scroll-snap-align: start; scroll-snap-stop: always; }
 .ff-reel-stage { position: absolute; inset: 0; overflow: hidden; cursor: pointer; touch-action: pan-y; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
 .ff-reel-bg { position: absolute; left: -24px; top: -24px; width: calc(100% + 48px); height: calc(100% + 48px); object-fit: cover; filter: blur(22px) brightness(.42); }
 .ff-reel-poster { position: absolute; left: 0; top: 50%; width: 100%; max-height: 100%; object-fit: contain; transform: translateY(-50%); }
@@ -748,11 +748,23 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-reel-note { position: absolute; left: 50%; top: calc(62px + env(safe-area-inset-top)); z-index: 7; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 28px); padding: 7px 8px 7px 14px; border-radius: 999px; background: rgba(15,23,42,.92); font-size: 13px; font-weight: 700; white-space: nowrap; transform: translateX(-50%); box-sizing: border-box; }
 .ff-reel-note span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ff-reel-note button { flex: none; min-height: 30px; padding: 0 10px; border: 0; border-radius: 999px; background: #16a34a; color: #fff; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
-.ff-reel-ig { position: absolute; left: 0; top: calc(56px + env(safe-area-inset-top)); z-index: 3; width: 100%; height: calc(100% - 120px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border: 0; background: #fff; }
-.ff-reel.ig-on .ff-reel-info, .ff-reel.ig-on .ff-reel-rail, .ff-reel.ig-on .ff-reel-stage::after { display: none; }
-.ff-reel-igbar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 8px; height: calc(64px + env(safe-area-inset-bottom)); padding: 0 10px env(safe-area-inset-bottom); box-sizing: border-box; background: #000; }
-.ff-reel-igbar > button:first-child { flex: none; min-height: 44px; padding: 0 12px; border: 0; border-radius: 999px; background: rgba(255,255,255,.14); color: #fff; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
-.ff-reel-igbar .ff-reel-cta { flex: 1; min-width: 0; margin: 0; min-height: 44px; }
+/* 🎬 Players inside a reel. .ff-reel-crop = overflow:hidden box the size of the slot; the iframe inside is sized / moved by
+   feedIgCrop_ / feedShortCrop_ so only the video shows (Instagram's header, "View more on Instagram" bar and footer, and
+   YouTube's title bar, sit outside the box: hidden and not tappable). */
+.ff-reel-crop { position: absolute; inset: 0; z-index: 3; overflow: hidden; contain: strict; background: #000; }
+.ff-reel-crop iframe { position: absolute; display: block; max-width: none; border: 0; background: #000; }
+.ff-reel-crop.short { z-index: 1; }
+.ff-reel-igcrop iframe { pointer-events: auto; }
+.ff-reel.ig-on .ff-reel-cap, .ff-reel.ig-on .ff-reel-tags, .ff-reel.ig-on .ff-reel-rel, .ff-reel.ig-on .ff-reel-more, .ff-reel.ig-on .ff-reel-stage::after { display: none; }
+.ff-reel.ig-on .ff-reel-info { background: linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.6) 40%); padding-top: 24px; }
+.ff-reel-video { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: cover; background: #000; }
+.ff-reel-prog { position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; height: 3px; background: rgba(255,255,255,.22); pointer-events: none; }
+.ff-reel-prog i { display: block; height: 100%; background: #fff; transform-origin: 0 50%; transform: scaleX(0); transition: transform .25s linear; }
+.ff-reel-mute { position: absolute; right: 10px; top: calc(62px + env(safe-area-inset-top)); z-index: 6; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.45); color: #fff; font-size: 19px; cursor: pointer; }
+.ff-reels-top .ff-reel-x { margin-left: auto; background: rgba(0,0,0,.45); }
+.ff-feed-reelbtn { position: absolute; left: 50%; top: 50%; z-index: 2; display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 18px 0 8px; border: 0; border-radius: 999px; background: rgba(15,23,42,.78); color: #fff; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; transform: translate(-50%, -50%); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.ff-feed-reelbtn i { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: linear-gradient(135deg,#f59e0b,#db2777 55%,#7c3aed); font-style: normal; }
+@media (prefers-reduced-motion: reduce) { .ff-reel-prog i { transition: none; } }
 .ff-reels-empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; font-size: 15px; font-weight: 700; }
 .ff-reels-empty b { display: block; margin-bottom: 8px; font-size: 44px; }
 @media (prefers-reduced-motion: reduce) { .ff-reels, .ff-lib, .ff-lib-sheet, .ff-lib-bg, .ff-reel-burst, .ff-ic-save.on { animation: none; } .ff-reels.out, .ff-lib.out, .ff-lib-sheet.out, .ff-lib-bg.out { transition: none; } }
@@ -11858,7 +11870,7 @@ function FeedStrip({
       "aria-hidden": "true"
     }, "🍿"), (soon || season) && React.createElement("span", {
       className: 'ff-feed-tile-b' + (soon ? ' soon' : '')
-    }, soon ? 'Soon' : '🆕 ' + season), (feedIgUrl_(p.instagramUrl) || feedYouTubeId_(p.trailerUrl)) && React.createElement("span", {
+    }, soon ? 'Soon' : '🆕 ' + season), (feedIgUrl_(p.instagramUrl) || feedYouTubeId_(p.trailerUrl) || feedVideoSrc_(p)) && React.createElement("span", {
       className: "ff-feed-tile-v",
       "aria-label": "Has a video"
     }, "▶️")), React.createElement("span", {
@@ -12153,9 +12165,63 @@ function feedTaps_(onTap, onDouble) {
     }, 280);
   };
 }
-// 🎬 Reels = posts with a video: an Instagram Reel first (vertical), else a YouTube trailer / Short.
+// 🎬 Reels = posts with a video, best player first: our uploaded video ('video', full screen, autoplay muted, loop) ›
+// a YouTube Shorts link ('short', clean muted autoplay, cropped 9:16) › an Instagram Reel ('ig', Instagram's player,
+// cropped to the video) › a YouTube trailer ('yt', 16:9, tap to play).
+function feedVideoSrc_(p) {
+  return p && /^\/v\/fv[0-9a-f]{16}\.(mp4|webm)$/.test(p.video || '') ? p.video : '';
+}
+function feedYtShort_(url) {
+  try {
+    return !!feedYouTubeId_(url) && /^\/shorts\//.test(new URL(url).pathname);
+  } catch (e) {
+    return false;
+  }
+}
 function feedReelKind_(p) {
-  return !p ? '' : feedIgUrl_(p.instagramUrl) ? 'ig' : feedYouTubeId_(p.trailerUrl) ? 'yt' : '';
+  return !p ? '' : feedVideoSrc_(p) ? 'video' : feedYtShort_(p.trailerUrl) ? 'short' : feedIgUrl_(p.instagramUrl) ? 'ig' : feedYouTubeId_(p.trailerUrl) ? 'yt' : '';
+}
+// Instagram's /embed/ page (measured Sept 2026): a 54 px header, then the media box = iframe width × 1.25 (4:5) with the
+// 9:16 video "contain"-ed inside, then ~150 px of buttons / likes / "View more on Instagram". To look like a real reel
+// the iframe is made big enough that the VIDEO covers the slot, and moved so the header and footer sit outside the
+// slot's overflow:hidden box (hidden and not tappable). Instagram may change this layout at any time.
+const FEED_IG_HEADER_ = 54;
+const FEED_IG_FOOTER_ = 190;
+function feedIgCrop_(slotW, slotH) {
+  const S = Math.max(1, Number(slotW) || 0);
+  const H = Math.max(1, Number(slotH) || 0);
+  const w = Math.ceil(Math.max(H / 1.25, S / (1.25 * 9 / 16)));
+  const media = w * 1.25;
+  return {
+    width: w,
+    height: Math.ceil(FEED_IG_HEADER_ + media + FEED_IG_FOOTER_),
+    left: Math.round((S - w) / 2),
+    top: Math.round((H - media) / 2 - FEED_IG_HEADER_)
+  };
+}
+// YouTube Short in a reel: 9:16 iframe covering the slot, 60 px taller at the top and bottom so YouTube's title bar and
+// logo are outside the box; our tap layer sits on top (controls=0), so its links can't be reached.
+function feedShortCrop_(slotW, slotH) {
+  const S = Math.max(1, Number(slotW) || 0);
+  const H = Math.max(1, Number(slotH) || 0) + 120;
+  const w = Math.ceil(Math.max(S, H * 9 / 16));
+  return {
+    width: w,
+    height: H,
+    left: Math.round((S - w) / 2),
+    top: -60
+  };
+}
+function feedShortSrc_(id) {
+  return /^[A-Za-z0-9_-]{11}$/.test(id || '') ? 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&mute=1&controls=0&playsinline=1&rel=0&loop=1&playlist=' + id + '&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=' + encodeURIComponent(window.location.origin) : '';
+}
+// Autoplay only when the phone allows motion and data (reduced motion / Data Saver → tap to play).
+function feedCanAutoplay_() {
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+    if (navigator.connection && navigator.connection.saveData) return false;
+  } catch (e) {}
+  return true;
 }
 function feedReelFromUrl_(search) {
   try {
@@ -12521,7 +12587,8 @@ function FeedPost({
   onNear,
   onComments,
   phone,
-  onLogin
+  onLogin,
+  onReel
 }) {
   // ❤️ 🔖 from the shared store (account when logged in, else this phone): the same post in Reels / the grid stays in step.
   useFeedMarks_();
@@ -12644,7 +12711,19 @@ function FeedPost({
   }, React.createElement(FeedMedia, {
     p: p,
     onLike: () => like(true)
-  }), soon && React.createElement("span", {
+  }), feedVideoSrc_(p) && onReel && React.createElement("button", {
+    type: "button",
+    className: "ff-feed-reelbtn",
+    onClick: e => {
+      e.stopPropagation();
+      onReel(p);
+    }
+  }, React.createElement("i", {
+    "aria-hidden": "true"
+  }, React.createElement(FeedIcon, {
+    name: "play",
+    size: 16
+  })), "Watch Reel"), soon && React.createElement("span", {
     className: "ff-feed-badge soon"
   }, "🗓️ Coming soon"), burst > 0 && React.createElement("span", {
     key: burst,
@@ -12748,9 +12827,11 @@ function FeedPost({
     "aria-hidden": "true"
   }, "›"))));
 }
-// 🎬 Reels: full screen, one reel per swipe (CSS scroll-snap). Only the reel on screen may load its video, and only after a
-// tap (Instagram can't autoplay; YouTube = youtube-nocookie, playsinline). Leaving a reel unloads its player; the next one
-// only gets its poster + a warmed-up connection. Tap = play / pause, double tap = ❤️. Right rail: ❤️ 💬 share 🔖.
+// 🎬 Reels: full screen, one reel per swipe (CSS scroll-snap, re-aligned after any resize so a neighbour never shows).
+// Only the reel on screen may load a player; leaving it unloads it; the next one only gets its poster + a warmed-up
+// connection. Uploaded videos + YouTube Shorts start by themselves (muted, tap 🔇 for sound) unless the phone asks for
+// reduced motion / Data Saver; Instagram needs a tap (its rule) and is cropped to the video; YouTube trailers are 16:9.
+// Tap = play / pause, double tap = ❤️. Right rail: ❤️ 💬 share 🔖.
 function FeedReels({
   items,
   startId,
@@ -12766,6 +12847,12 @@ function FeedReels({
   const [idx, setIdx] = useState(start);
   const [playing, setPlaying] = useState(false);
   const [yt, setYt] = useState(-1);
+  const [paused, setPaused] = useState(false);
+  const [muted, setMuted] = useState(true);
+  const [dims, setDims] = useState({
+    w: 0,
+    h: 0
+  });
   const [burst, setBurst] = useState({
     id: '',
     n: 0
@@ -12776,7 +12863,11 @@ function FeedReels({
   const [hint, setHint] = useState(items.length > 1);
   const listRef = useRef(null);
   const frameRef = useRef(null);
+  const videoRef = useRef(null);
+  const barRef = useRef(null);
   const idxRef = useRef(start);
+  const mutedRef = useRef(true);
+  mutedRef.current = muted;
   const done = useRef(false);
   const layerClose = useFFLayer_(() => shut(true));
   function shut(fromBack) {
@@ -12790,16 +12881,48 @@ function FeedReels({
   function stop() {
     setPlaying(false);
     setYt(-1);
+    setPaused(false);
     feedVideoEnd_('reels');
+  }
+  // Keep exactly one reel per screen: after a resize (phone bar, rotation) or a tap inside an embed, snap back.
+  function snap(smooth) {
+    const el = listRef.current;
+    if (!el || !el.clientHeight) return;
+    const want = idxRef.current * el.clientHeight;
+    if (Math.abs(el.scrollTop - want) > 1) el.scrollTo({
+      top: want,
+      behavior: smooth ? 'smooth' : 'auto'
+    });
   }
   React.useLayoutEffect(() => {
     const el = listRef.current;
-    if (el && start > 0) el.scrollTop = start * el.clientHeight;
+    if (!el) return;
+    setDims({
+      w: el.clientWidth,
+      h: el.clientHeight
+    });
+    if (start > 0) el.scrollTop = start * el.clientHeight;
   }, []);
   useEffect(() => {
+    const el = listRef.current;
     const unlock = ffScrollLock_();
+    const measure = () => {
+      if (!el) return;
+      setDims(d => d.w === el.clientWidth && d.h === el.clientHeight ? d : {
+        w: el.clientWidth,
+        h: el.clientHeight
+      });
+      snap(false);
+    };
+    let ro = null;
+    if (el && typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(measure);
+      ro.observe(el);
+    } else window.addEventListener('resize', measure);
+    // A tap inside an Instagram / YouTube frame moves focus there, and some browsers scroll the list to it.
+    const onBlur = () => setTimeout(() => snap(false), 60);
+    window.addEventListener('blur', onBlur);
     const onKey = e => {
-      const el = listRef.current;
       if (e.key === 'Escape') shut();else if (el && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
         e.preventDefault();
         el.scrollTo({
@@ -12813,17 +12936,21 @@ function FeedReels({
     return () => {
       unlock();
       clearTimeout(t);
+      if (ro) ro.disconnect();else window.removeEventListener('resize', measure);
+      window.removeEventListener('blur', onBlur);
       window.removeEventListener('keydown', onKey);
       feedVideoEnd_('reels');
     };
   }, []);
-  // The reel on screen counts a view; the next one is pre-warmed.
+  // The reel on screen counts a view, starts by itself when it can (our video / a Short), and warms up the next one.
   useEffect(() => {
     const p = items[idx];
     if (!p) return;
     feedEvent_(p.id, 'view');
-    feedPrewarm_(feedReelKind_(p));
-    if (items[idx + 1]) feedPrewarm_(feedReelKind_(items[idx + 1]));
+    const kind = feedReelKind_(p);
+    feedPrewarm_(kind === 'short' ? 'yt' : kind);
+    if (items[idx + 1]) feedPrewarm_(feedReelKind_(items[idx + 1]) === 'short' ? 'yt' : feedReelKind_(items[idx + 1]));
+    if ((kind === 'video' || kind === 'short') && feedCanAutoplay_()) play(p);
   }, [idx]);
   // YouTube tells its state (playing 1 / paused 2 / buffering 3) once we say "listening".
   useEffect(() => {
@@ -12844,29 +12971,65 @@ function FeedReels({
     return () => window.removeEventListener('message', onMsg);
   }, [playing, idx]);
   const raf = useRef(0);
+  const snapTimer = useRef(0);
+  // The reel nearest to the scroll position becomes the current one (players of the old one stop).
+  function syncIdx() {
+    const el = listRef.current;
+    if (!el || !el.clientHeight) return;
+    const i = Math.max(0, Math.min(items.length - 1, Math.round(el.scrollTop / el.clientHeight)));
+    if (i === idxRef.current) return;
+    idxRef.current = i;
+    setIdx(i);
+    setCapOpen('');
+    setHint(false);
+    stop();
+  }
   function onScroll() {
+    clearTimeout(snapTimer.current);
+    snapTimer.current = setTimeout(() => {
+      syncIdx();
+      snap(true);
+    }, 180);
     if (raf.current) return;
     raf.current = requestAnimationFrame(() => {
       raf.current = 0;
-      const el = listRef.current;
-      if (!el || !el.clientHeight) return;
-      const i = Math.max(0, Math.min(items.length - 1, Math.round(el.scrollTop / el.clientHeight)));
-      if (i === idxRef.current) return;
-      idxRef.current = i;
-      setIdx(i);
-      setCapOpen('');
-      setHint(false);
-      stop();
+      syncIdx();
     });
   }
+  // One player at a time for the whole page (feedVideoStart_ stops a trailer playing in the feed, and vice versa).
   function play(p) {
     feedVideoStart_('reels', () => {
       setPlaying(false);
       setYt(-1);
     });
     setPlaying(true);
+    setPaused(false);
     setYt(-1);
     feedEvent_(p.id, 'play');
+  }
+  // Our <video>: muted as an attribute too (iOS autoplay rule); if sound was refused, fall back to muted.
+  function bindVideo(el) {
+    videoRef.current = el;
+    if (!el || el.dataset.bound) return;
+    el.dataset.bound = '1';
+    el.muted = mutedRef.current;
+    if (mutedRef.current) el.setAttribute('muted', '');
+    const pr = el.play && el.play();
+    if (pr && pr.catch) pr.catch(() => {
+      el.muted = true;
+      setMuted(true);
+      const again = el.play();
+      if (again && again.catch) again.catch(() => setPaused(true));
+    });
+  }
+  function toggleSound(kind) {
+    const next = !muted;
+    setMuted(next);
+    if (kind === 'video' && videoRef.current) {
+      videoRef.current.muted = next;
+      if (!next && videoRef.current.paused) videoRef.current.play().catch(() => {});
+    }
+    if (kind === 'short' && frameRef.current) feedYtCmd_(frameRef.current, next ? 'mute' : 'unMute');
   }
   function like(p, force) {
     const on = force === true ? true : !feedIsMarked_('like', p.id);
@@ -12890,8 +13053,16 @@ function FeedReels({
   if (!tapRef.current) tapRef.current = feedTaps_(() => {
     const c = cur.current;
     if (!c.p) return;
-    if (!c.playing) play(c.p);else if (feedReelKind_(c.p) === 'yt' && frameRef.current) feedYtCmd_(frameRef.current, c.yt === 1 || c.yt === 3 ? 'pauseVideo' : 'playVideo');
+    const kind = feedReelKind_(c.p);
+    if (!c.playing) play(c.p);else if (kind === 'video' && videoRef.current) {
+      const v = videoRef.current;
+      if (v.paused) v.play().catch(() => {});else v.pause();
+    } else if ((kind === 'yt' || kind === 'short') && frameRef.current) {
+      const on = c.yt === 1 || c.yt === 3;
+      feedYtCmd_(frameRef.current, on ? 'pauseVideo' : 'playVideo');
+    }
   }, () => cur.current.p && like(cur.current.p, true));
+  const curKind = feedReelKind_(items[idx]);
   const top = React.createElement("div", {
     className: "ff-reels-top"
   }, React.createElement("button", {
@@ -12901,7 +13072,15 @@ function FeedReels({
   }, React.createElement(FeedIcon, {
     name: "back",
     size: 28
-  })), React.createElement("b", null, "Reels"), items.length > 1 && React.createElement("span", null, idx + 1, " / ", items.length));
+  })), React.createElement("b", null, "Reels"), playing && curKind === 'ig' ? React.createElement("button", {
+    type: "button",
+    className: "ff-reel-x",
+    "aria-label": "Close the Instagram player",
+    onClick: stop
+  }, React.createElement(FeedIcon, {
+    name: "close",
+    size: 22
+  })) : items.length > 1 && React.createElement("span", null, idx + 1, " / ", items.length));
   if (!items.length) return ReactDOM.createPortal(React.createElement("div", {
     className: "ff-reels" + (out ? ' out' : ''),
     role: "dialog",
@@ -12912,6 +13091,12 @@ function FeedReels({
   }, React.createElement("div", null, React.createElement("b", {
     "aria-hidden": "true"
   }, "🎬"), "No reels yet — videos from new posts will show up here."))), document.body);
+  const px = o => ({
+    width: o.width + 'px',
+    height: o.height + 'px',
+    left: o.left + 'px',
+    top: o.top + 'px'
+  });
   return ReactDOM.createPortal(React.createElement("div", {
     className: "ff-reels" + (out ? ' out' : ''),
     role: "dialog",
@@ -12942,26 +13127,75 @@ function FeedReels({
     }, React.createElement("span", null, b.renewSub ? '🔁 Renew ' + b.info.service : 'Get ' + b.info.service + ' from ₹' + b.info.price), React.createElement("b", {
       "aria-hidden": "true"
     }, "›")) : null;
+    const label = kind === 'video' || kind === 'short' ? 'Reel' : kind === 'ig' ? 'Instagram' : 'Trailer';
     return React.createElement("section", {
       key: p.id,
-      className: "ff-reel" + (on && kind === 'ig' ? ' ig-on' : ''),
+      className: "ff-reel" + (on && kind === 'ig' ? ' ig-on' : '') + (on && kind === 'video' ? ' vid-on' : ''),
       "aria-label": p.title
     }, React.createElement("div", {
       className: "ff-reel-stage",
       onClick: on && kind === 'ig' ? undefined : tapRef.current
-    }, near && p.image && React.createElement("img", {
+    }, near && p.image && !(on && kind === 'video') && React.createElement("img", {
       className: "ff-reel-bg",
       src: feedThumb_(p.image),
       alt: "",
       "aria-hidden": "true",
       decoding: "async"
-    }), near && p.image && React.createElement("img", {
+    }), near && p.image && !(on && (kind === 'video' || kind === 'short')) && React.createElement("img", {
       className: "ff-reel-poster",
       src: p.image,
       alt: p.title + ' poster',
       loading: i === idx ? 'eager' : 'lazy',
       decoding: "async"
-    }), i === idx && playing && kind === 'yt' && React.createElement("iframe", {
+    }), i === idx && playing && kind === 'video' && React.createElement("video", {
+      key: 'v-' + p.id,
+      ref: bindVideo,
+      className: "ff-reel-video",
+      src: feedVideoSrc_(p),
+      poster: p.image || undefined,
+      autoPlay: true,
+      loop: true,
+      playsInline: true,
+      preload: "auto",
+      "aria-label": 'Reel: ' + p.title,
+      onPlay: () => setPaused(false),
+      onPause: () => setPaused(true),
+      onTimeUpdate: e => {
+        const v = e.target;
+        if (barRef.current && v.duration) barRef.current.style.transform = 'scaleX(' + Math.min(1, v.currentTime / v.duration) + ')';
+      },
+      onError: () => {
+        stop();
+        flash({
+          text: '⚠️ This video could not play — check your internet'
+        });
+      }
+    }), i === idx && playing && kind === 'video' && React.createElement("span", {
+      className: "ff-reel-prog",
+      "aria-hidden": "true"
+    }, React.createElement("i", {
+      ref: barRef
+    })), i === idx && playing && kind === 'short' && dims.h > 0 && React.createElement("div", {
+      className: "ff-reel-crop short"
+    }, React.createElement("iframe", {
+      ref: frameRef,
+      src: feedShortSrc_(feedYouTubeId_(p.trailerUrl)),
+      title: 'Short: ' + p.title,
+      style: px(feedShortCrop_(dims.w, dims.h)),
+      allow: "autoplay; encrypted-media; picture-in-picture",
+      referrerPolicy: "strict-origin-when-cross-origin",
+      tabIndex: -1,
+      onLoad: e => {
+        try {
+          e.target.contentWindow.postMessage(JSON.stringify({
+            event: 'listening',
+            id: 'reel',
+            channel: 'widget'
+          }), 'https://www.youtube-nocookie.com');
+        } catch (x) {}
+        if (!mutedRef.current) setTimeout(() => frameRef.current && feedYtCmd_(frameRef.current, 'unMute'), 700);
+      }
+    })), i === idx && playing && kind === 'yt' && React.createElement("iframe", {
       ref: frameRef,
       className: "ff-reel-yt",
       src: feedReelYtSrc_(feedYouTubeId_(p.trailerUrl)),
@@ -12978,7 +13212,7 @@ function FeedReels({
           }), 'https://www.youtube-nocookie.com');
         } catch (x) {}
       }
-    }), i === idx && playing && kind === 'yt' && (yt === 1 || yt === 2 || yt === 3) && React.createElement("div", {
+    }), i === idx && playing && (kind === 'short' || kind === 'yt') && (yt === 1 || yt === 2 || yt === 3) && React.createElement("div", {
       className: "ff-reel-tap",
       "aria-hidden": "true"
     }), !on && React.createElement("span", {
@@ -12989,7 +13223,7 @@ function FeedReels({
       size: 34
     })), !on && i === idx && React.createElement("span", {
       className: "ff-reel-hint"
-    }, hint ? 'Swipe up for more ↑' : kind === 'ig' ? 'Tap to watch on Instagram' : 'Tap to play the trailer'), on && kind === 'yt' && yt === 2 && React.createElement("span", {
+    }, hint ? 'Swipe up for more ↑' : kind === 'ig' ? 'Tap to watch' : kind === 'yt' ? 'Tap to play the trailer' : 'Tap to play'), on && (kind === 'video' && paused || kind === 'short' && yt === 2 || kind === 'yt' && yt === 2) && React.createElement("span", {
       className: "ff-reel-play",
       "aria-hidden": "true"
     }, React.createElement(FeedIcon, {
@@ -12999,19 +13233,24 @@ function FeedReels({
       key: burst.n,
       className: "ff-reel-burst",
       "aria-hidden": "true"
-    }, "❤️")), on && kind === 'ig' && React.createElement("iframe", {
-      className: "ff-reel-ig",
+    }, "❤️")), on && kind === 'ig' && dims.h > 0 && React.createElement("div", {
+      className: "ff-reel-crop ig ff-reel-igcrop"
+    }, React.createElement("iframe", {
       src: feedIgUrl_(p.instagramUrl) + 'embed/',
       title: 'Instagram video: ' + p.title,
+      style: px(feedIgCrop_(dims.w, dims.h)),
+      scrolling: "no",
+      tabIndex: -1,
       allow: "autoplay; encrypted-media; picture-in-picture",
-      sandbox: "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox",
+      sandbox: "allow-scripts allow-same-origin allow-presentation",
       referrerPolicy: "strict-origin-when-cross-origin"
-    }), on && kind === 'ig' && React.createElement("div", {
-      className: "ff-reel-igbar"
-    }, React.createElement("button", {
+    })), on && (kind === 'video' || kind === 'short') && React.createElement("button", {
       type: "button",
-      onClick: stop
-    }, "✕ Close"), cta), React.createElement("div", {
+      className: "ff-reel-mute",
+      "aria-pressed": !muted,
+      "aria-label": muted ? 'Sound on' : 'Sound off',
+      onClick: () => toggleSound(kind)
+    }, muted ? '🔇' : '🔊'), React.createElement("div", {
       className: "ff-reel-rail"
     }, React.createElement("button", {
       type: "button",
@@ -13065,7 +13304,7 @@ function FeedReels({
     }, React.createElement("div", {
       className: bi.logoUrl ? 'ff-feed-av logo' : 'ff-feed-av',
       "aria-hidden": "true"
-    }, bi.logoUrl ? React.createElement("img", {
+    }, near && bi.logoUrl ? React.createElement("img", {
       src: bi.logoUrl,
       alt: "",
       loading: "lazy",
@@ -13073,7 +13312,7 @@ function FeedReels({
       height: 32
     }) : React.createElement("span", {
       className: bi.emoji ? 'em' : ''
-    }, bi.emoji || String(bi.name).charAt(0).toUpperCase())), React.createElement("span", null, bi.name, React.createElement("small", null, ' · ', kind === 'ig' ? 'Reel' : 'Trailer'))), React.createElement("div", {
+    }, bi.emoji || String(bi.name).charAt(0).toUpperCase())), React.createElement("span", null, bi.name, React.createElement("small", null, ' · ', label))), React.createElement("div", {
       className: "ff-reel-title"
     }, p.title), rel && React.createElement("div", {
       className: "ff-reel-rel"
@@ -13451,7 +13690,9 @@ function FeedScreen({
       el.removeEventListener('touchcancel', reset);
     };
   }, []);
-  const posts = data && data.posts || [];
+  // 🎬 A Reel posted as "Reels only" (inFeed false) is not in the feed list; Reels + the ☰ grid use every post.
+  const allPosts = data && data.posts || [];
+  const posts = allPosts.filter(p => p.inFeed !== false);
   const platforms = feedBrands_(posts);
   const genreList = feedGenres_(posts);
   const savedIds = when === 'saved' ? marks.saved : null;
@@ -13714,7 +13955,10 @@ function FeedScreen({
       onNear: wantPreview,
       onComments: openComments,
       phone: phone,
-      onLogin: () => nav('home', {})
+      onLogin: () => nav('home', {}),
+      onReel: p => setReels({
+        startId: p.id
+      })
     });
   });
   const chip = (key, label, on, onClick) => React.createElement("button", {
@@ -13735,7 +13979,7 @@ function FeedScreen({
       brandInfo: feedBrandInfo_(feedPostBrand_(p), plans)
     };
   }
-  const reelItems = posts.filter(p => feedReelKind_(p));
+  const reelItems = allPosts.filter(p => feedReelKind_(p));
   const onLogin = () => nav('home', {});
   const renderPost = p => React.createElement(FeedPost, Object.assign({
     key: p.id,
@@ -13750,7 +13994,7 @@ function FeedScreen({
     phone: phone,
     onLogin: onLogin
   }, bitsOf(p)));
-  const savedCount = marks.saved.filter(id => posts.some(p => p.id === id)).length;
+  const savedCount = marks.saved.filter(id => allPosts.some(p => p.id === id)).length;
   // Filters folded away by default; what is on shows as small removable chips under the search.
   const activeChips = [filter !== 'all' && chip('x-app', filter + ' ✕', false, () => change(() => setFilter('all'))), when !== 'all' && chip('x-when', ({
     week: '🆕 Latest',
@@ -13777,7 +14021,7 @@ function FeedScreen({
     "aria-hidden": "true",
     readOnly: false,
     defaultValue: ""
-  }), posts.length > 0 && React.createElement("div", {
+  }), allPosts.length > 0 && React.createElement("div", {
     className: "ff-feed-top" + (barHidden ? ' hide' : '')
   }, React.createElement("div", {
     className: "ff-feed-tabs"
@@ -13905,7 +14149,7 @@ function FeedScreen({
     onCta: onCta,
     onLogin: onLogin
   }), lib && React.createElement(FeedLibrary, {
-    posts: posts,
+    posts: allPosts,
     phone: phone,
     onClose: () => setLib(false),
     onLogin: onLogin,

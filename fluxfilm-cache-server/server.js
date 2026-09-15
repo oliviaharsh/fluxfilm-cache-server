@@ -502,6 +502,13 @@ app.get('/feed-img/:id', async (req, res) => {
   } catch (e) { res.status(500).type('text/plain').send('error'); }
 });
 
+// 🎬 Uploaded Reel videos (feedvideo.js, MySQL chunks): /v/<id>.mp4 with HTTP Range (206), ETag, immutable cache.
+let feedVideoMod = null; try { feedVideoMod = require('./feedvideo'); } catch (e) { console.log('[feed video] not loaded:', e.message); }
+app.get('/v/:file', async (req, res) => {
+  if (!feedVideoMod || !/^fv[0-9a-f]{16}\.(mp4|webm)$/.test(req.params.file)) return res.status(404).type('text/plain').send('not found');
+  try { await feedVideoMod.serve(req, res); } catch (e) { if (!res.headersSent) res.status(500).type('text/plain').send('error'); else res.destroy(); }
+});
+
 // Customers' own profile photos (photos.js). The id is random per upload (never the phone); a new upload = a new URL.
 app.get('/profile-photo/:id', async (req, res) => {
   try {

@@ -27,6 +27,7 @@ function mount(app, deps) {
   const comments = deps.comments || require('./feedcomments');
   // ❤️ 🔖 account likes / saves (feedmarks.js): only "is schema-v25 in?" + totals for the note in the list.
   let marks = deps.marks || null; if (!marks) { try { marks = require('./feedmarks'); } catch (_) { marks = null; } }
+  let videos = deps.videos || null; if (!videos) { try { videos = require('./feedvideo'); } catch (_) { videos = null; } }
   const ai = deps.ai || require('./feedai');
   // ✨ AI fill costs AI tokens: 20 per 10 minutes for the whole admin.
   let aiLimit = null; try { aiLimit = require('./security').rateLimiter(20, 10 * 60e3); } catch (_) {}
@@ -40,10 +41,64 @@ function mount(app, deps) {
       const [items, st, settings, info, job, cm, mk] = await Promise.all([feed.list(), feed.stats(), feed.getSettings(), feed.catalogServiceInfo(), feed.jobStatus().catch(() => null),
         comments.adminList({ status: 'pending', limit: 1 }).catch(() => ({ ready: false, counts: {}, byPost: {} })),
         marks ? marks.adminInfo().catch(() => ({ ready: false })) : Promise.resolve({ ready: false })]);
+      const vu = videos ? await videos.usage().catch(() => ({ ready: false })) : { ready: false };
       const byPost = cm.byPost || {};
       const posts = feed.sortPosts(items).map((p) => Object.assign({}, p, { status: feed.statusOf(p), views: (st[p.id] || {}).views || 0, likes: (st[p.id] || {}).likes || 0, clicks: (st[p.id] || {}).clicks || 0, shares: (st[p.id] || {}).shares || 0, plays: (st[p.id] || {}).plays || 0, comments: byPost[p.id] || { visible: 0, pending: 0, hidden: 0 } }));
-      res.json({ ok: true, posts, services: info.map((x) => x.service), serviceInfo: info, brands: feed.BRANDS.map((b) => ({ name: b.name, emoji: b.emoji })), settings: feed.publicSettings(settings), job, max: feed.MAX_POSTS, now: new Date().toISOString(), commentsReady: !!cm.ready, commentCounts: cm.counts || {}, marksReady: !!mk.ready, marksCounts: { likes: Number(mk.likes) || 0, saves: Number(mk.saves) || 0 } });
+      res.json({ ok: true, posts, services: info.map((x) => x.service), serviceInfo: info, brands: feed.BRANDS.map((b) => ({ name: b.name, emoji: b.emoji })), settings: feed.publicSettings(settings), job, max: feed.MAX_POSTS, now: new Date().toISOString(), commentsReady: !!cm.ready, commentCounts: cm.counts || {}, marksReady: !!mk.ready, marksCounts: { likes: Number(mk.likes) || 0, saves: Number(mk.saves) || 0 }, video: videoSummary(vu, items) });
     } catch (e) { fail(res, e); }
+  });
+
+  // 🎬 Storage card: "Videos: 312 MB of 2 GB used", each video with its size and the post using it.
+  function videoSummary(vu, items) {
+    const used = {}; (items || []).forEach((p) => { if (p.videoId) used[p.videoId] = { id: p.id, title: p.title }; });
+    return {
+      ready: !!vu.ready, videos: Number(vu.videos) || 0, bytes: Number(vu.bytes) || 0, maxBytes: Number(vu.maxBytes) || 0, totalBytes: Number(vu.totalBytes) || 0,
+      maxSeconds: Number(vu.maxSeconds) || 90, limits: vu.limits || {},
+      list: (vu.list || []).map((x) => Object.assign({}, x, { post: used[x.id] || null })),
+    };
+  }
+
+  // 🎬 Reel video upload (feedvideo.js): start → chunks (raw ~1 MB bodies, never base64) → finish (size + SHA-256) → the
+  // editor puts the video id on the post and 💾 Save links it (feed.save checks the upload is complete).
+  route('/admin/api/feed/video/start', async (req, res, b) => {
+    if (!videos) return res.status(400).json({ ok: false, message: 'Video upload is not available.' });
+    const r = await videos.start({ mime: b.mime, size: b.size, sha256: b.sha256, duration: b.duration });
+    res.status(r.ok ? 200 : 400).json(r);
+  });
+  const rawBody = require('express').raw({ type: 'application/octet-stream', limit: '1100kb' });
+  app.post('/admin/api/feed/video/chunk', rawBody, async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      if (!videos) return res.status(400).json({ ok: false, message: 'Video upload is not available.' });
+      const r = await videos.chunk(String(req.query.id || ''), Number(req.query.n), Buffer.isBuffer(req.body) ? req.body : null);
+      res.status(r.ok ? 200 : 400).json(r);
+    } catch (e) { fail(res, e); }
+  });
+  route('/admin/api/feed/video/finish', async (req, res, b) => {
+    if (!videos) return res.status(400).json({ ok: false, message: 'Video upload is not available.' });
+    const r = await videos.finish(String(b.id || ''));
+    if (r.ok) audit.record(req, { action: 'feed.video', entity: 'feed', id: r.id, summary: 'Uploaded a Reel video (' + Math.round(r.size / 1048576 * 10) / 10 + ' MB)' });
+    res.status(r.ok ? 200 : 400).json(r);
+  });
+  app.get('/admin/api/feed/videos', async (req, res) => {
+    if (!auth(req, res)) return;
+    try { res.json(Object.assign({ ok: true }, videoSummary(videos ? await videos.usage() : { ready: false }, await feed.list()))); } catch (e) { fail(res, e); }
+  });
+  // Delete frees the chunks. A video still on a post is refused (remove it in the post, or delete the post).
+  route('/admin/api/feed/video/delete', async (req, res, b) => {
+    if (!videos) return res.json({ ok: true });
+    const id = String(b.id || '');
+    const p = (await feed.list()).find((x) => x.videoId === id);
+    if (p) return res.status(400).json({ ok: false, inUse: true, message: 'This video is on the post "' + p.title + '" — remove it there and 💾 Save, or delete the post.' });
+    const r = await videos.remove(id);
+    if (r.ok) audit.record(req, { action: 'feed.video.delete', entity: 'feed', id, summary: 'Deleted a Reel video (' + (r.freedChunks || 0) + ' MB freed)' });
+    res.status(r.ok ? 200 : 400).json(r);
+  });
+  route('/admin/api/feed/video/settings', async (req, res, b) => {
+    if (!videos) return res.status(400).json({ ok: false, message: 'Video upload is not available.' });
+    const r = await videos.saveLimits({ videoMaxMb: b.videoMaxMb, videoTotalMb: b.videoTotalMb });
+    if (r.ok) audit.record(req, { action: 'feed.video.settings', entity: 'feed', id: 'videos', summary: 'Reel video limits: ' + r.limits.videoMaxMb + ' MB per video, ' + r.limits.videoTotalMb + ' MB total' });
+    res.status(r.ok ? 200 : 400).json(r);
   });
 
   route('/admin/api/feed/save', async (req, res, body) => {
