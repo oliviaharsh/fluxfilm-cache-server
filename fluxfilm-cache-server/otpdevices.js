@@ -86,6 +86,35 @@ function normDeviceType(v) {
   return null;
 }
 
+/* ---------- multi-device plans (same login on N devices = one row with device_count N) ---------- */
+const MAX_DEVICES = 10;
+const devCount = (v) => Math.max(1, Math.min(MAX_DEVICES, Math.floor(Number(v)) || 1));
+/**
+ * Per-device names of one subscription: [{ device, name, type }] for devices 1..n. raw_json DeviceNames holds them for
+ * a multi-device plan; device 1 falls back to DeviceName / device_type (DeviceName always = device 1, backward compatible).
+ */
+function deviceList(raw, n, typedType) {
+  const r = raw || {};
+  const src = Array.isArray(r.DeviceNames) ? r.DeviceNames.filter((x) => x && typeof x === 'object') : [];
+  const count = Math.max(devCount(n), Math.min(MAX_DEVICES, src.reduce((m, x) => Math.max(m, Math.floor(Number(x.device)) || 0), 0)));
+  const out = [];
+  for (let i = 1; i <= count; i++) {
+    const e = src.find((x) => Number(x.device) === i);
+    let name = e ? s(e.name) : '', type = e ? (normDeviceType(e.type) || '') : '';
+    if (i === 1) { if (!name) name = s(r.DeviceName); if (!type) type = normDeviceType(typedType) || normDeviceType(r.DeviceType) || ''; }
+    out.push({ device: i, name, type });
+  }
+  return out;
+}
+/** One line for cards: "LG TV" (one device) or "Device 1: LG TV · Device 2: Mi TV" ('' when nothing is named). */
+function deviceNamesText(rawJson, n) {
+  const raw = rawOf(rawJson);
+  const list = deviceList(raw, n, null);
+  if (list.length < 2) return s(raw.DeviceName);
+  if (!list.some((d) => d.name)) return '';
+  return list.map((d) => 'Device ' + d.device + ': ' + (d.name || '—')).join(' · ');
+}
+
 /* ---------- the list ---------- */
 const REFUND_STATUS = ['REFUNDED', 'CANCELLED', 'CANCELED'];
 const isRemoved = (x) => Number(x.removed) === 1 || x.removed === true || up(x.removed) === 'TRUE';
@@ -109,7 +138,7 @@ function statusLabel(row) {
 /** Free-text search: customer name, phone, device name, account (ID / login), order or sub id. */
 function matchesQuery(row, acc, q) {
   const t = s(q).toLowerCase(); if (!t) return true;
-  const hay = [row.name, row.deviceName, row.orderId, row.subId, row.plan, acc.loginLabel, acc.accountIds.join(' ')].join(' ').toLowerCase();
+  const hay = [row.name, row.deviceName, (row.devices || []).map((d) => d.name).join(' '), row.orderId, row.subId, row.plan, acc.loginLabel, acc.accountIds.join(' ')].join(' ').toLowerCase();
   if (hay.includes(t)) return true;
   const d = t.replace(/\D/g, '');
   return d.length >= 3 && (s(row.phone).includes(d) || s(acc.login).replace(/\D/g, '').includes(d));
@@ -200,7 +229,8 @@ function compute(input) {
       name: nameOfPhone.get(s(x.phone_norm)) || s(raw.Name) || mask(x.phone_norm) || '?',
       service: s(x.service), plan: s(x.plan),
       deviceType: normDeviceType(x.device_type) || normDeviceType(raw.DeviceType) || '',
-      deviceCount: Number(x.device_count) || 1,
+      deviceCount: devCount(x.device_count),
+      devices: devCount(x.device_count) > 1 ? deviceList(raw, x.device_count, x.device_type) : null,
       deviceName: s(raw.DeviceName), deviceNameUpdatedAt: s(raw.DeviceNameUpdatedAt), deviceNameSource: s(raw.DeviceNameSource),
       expiry: dateText(x.expiry_date), status,
       daysAgo: status === 'EXPIRED' && isFinite(ex) ? Math.max(0, today - istDay(ex)) : null,
@@ -239,7 +269,8 @@ function compute(input) {
     const t = tabs.get(c.canon);
     const mine = rowsAll.filter((r) => r._card === c && !r.renewed);
     const live = mine.filter((r) => !r.removed);
-    const active = live.filter((r) => r.status === 'ACTIVE').length;
+    // Counts are DEVICES: a 2-device plan on one login is 2 active devices (the 🚪 waiting count stays per plan).
+    const active = live.filter((r) => r.status === 'ACTIVE').reduce((n, r) => n + r.deviceCount, 0);
     const waiting = live.filter((r) => r.status !== 'ACTIVE').length;
     if (t && !c.noAccount) t.accounts++;
     if (t) { t.active += active; t.expired += waiting; }
@@ -257,9 +288,19 @@ function compute(input) {
     // Expired / refunded first (oldest expiry first), then active by the soonest expiry.
     rows = rows.sort((a, b) => (Number(a.removed) - Number(b.removed)) || (rank(a) - rank(b)) || (a._ms - b._ms) || a.name.localeCompare(b.name));
     recent.sort((a, b) => toMs(b.removedAt) - toMs(a.removedAt));
-    const clean = (r) => { const o = Object.assign({}, r); delete o._ms; delete o._card; delete o.renewSubId; return o; };
-    acc.rows = rows.map(clean);
-    acc.removedRecent = recent.map(clean);
+    const clean = (r) => { const o = Object.assign({}, r); delete o._ms; delete o._card; delete o.renewSubId; delete o.devices; o.key = o.subId; return o; };
+    // A multi-device plan shows ONE ROW PER DEVICE ("Device 1 of 2"), each with its own name + type (raw_json DeviceNames).
+    // 🚪 Remove stays per plan: allNames lets the confirm name every device.
+    const expand = (r) => {
+      if (!r.devices) return [clean(r)];
+      const allNames = r.devices.map((d) => d.name);
+      return r.devices.map((d) => Object.assign(clean(r), {
+        key: r.subId + '#' + d.device, device: d.device, devices: r.devices.length, deviceName: d.name, deviceType: d.type, allNames,
+        deviceNameHint: d.device === 1 ? r.deviceNameHint : undefined,
+      }));
+    };
+    acc.rows = [].concat(...rows.map(expand));
+    acc.removedRecent = recent.map((r) => Object.assign(clean(r), r.devices ? { deviceName: r.devices.map((d) => 'Device ' + d.device + ': ' + (d.name || '—')).join(' · ') } : {}));
     // Empty cards stay visible without a search (capacity view); a search shows only accounts with a match.
     if (q && !acc.rows.length && !acc.removedRecent.length && !matchesQuery({}, acc, q)) continue;
     if (c.noAccount && !acc.rows.length && !acc.removedRecent.length) continue;
@@ -275,10 +316,13 @@ function compute(input) {
 const SUB_COLS = 'sub_id, order_id, phone_norm, service, plan, status, fulfillment_status, expiry_date, release_eligible_at, inventory_ref, account_id, login_id, device_type, device_count, COALESCE(removed, 0) AS removed, removed_at, renew_sub_id, raw_json';
 const OTP_LIKE = ['%hotstar%', '%sony%', '%zee%'];
 
+const GROUP_COLS = ', group_id, group_size, group_index';
 async function loadSubs(q, services) {
   const svc = [...new Set((services || []).map(s).filter(Boolean))].slice(0, 30);
   const where = OTP_LIKE.map(() => 'LOWER(service) LIKE ?').concat(svc.length ? ['service IN (' + svc.map(() => '?').join(', ') + ')'] : []);
-  const rows = await q('SELECT ' + SUB_COLS + ' FROM subscriptions WHERE ' + where.join(' OR '), OTP_LIKE.concat(svc));
+  // Separate-login groups (schema-v19 group_id / group_index) only when those columns exist.
+  const groups = await require('./devicelogins').groupsReady(q).catch(() => false);
+  const rows = await q('SELECT ' + SUB_COLS + (groups ? GROUP_COLS : '') + ' FROM subscriptions WHERE ' + where.join(' OR '), OTP_LIKE.concat(svc));
   return Array.isArray(rows) ? rows : [];
 }
 
@@ -298,7 +342,8 @@ async function load(q, opts) {
 
 /* ---------- save one device name / type ---------- */
 /**
- * body: { subId, deviceName?, deviceType? } (a field left out is not changed). q = db.query-style.
+ * body: { subId, device?, setDevices?, deviceName?, deviceType? } (a field left out is not changed). device = 1..N of a
+ * multi-device plan (default 1); setDevices raises a same-login plan to that many devices (never lowers). q = db.query-style.
  * Returns { ok, status?, message?, before, after, changed }.
  */
 async function saveDevice(q, body, opts) {
@@ -307,16 +352,27 @@ async function saveDevice(q, body, opts) {
   const subId = s(b.subId || b.sub_id);
   if (!subId) return { ok: false, status: 400, message: 'subId required.' };
   const hasName = b.deviceName !== undefined, hasType = b.deviceType !== undefined;
-  if (!hasName && !hasType) return { ok: false, status: 400, message: 'Nothing to save.' };
+  if (!hasName && !hasType && (b.setDevices === undefined || b.setDevices === null || b.setDevices === '')) return { ok: false, status: 400, message: 'Nothing to save.' };
   let name = null, type = null;
   if (hasName) { const c = cleanDeviceName(b.deviceName); if (!c.ok) return { ok: false, status: 400, message: c.message }; name = c.value; }
   if (hasType) { type = b.deviceType === null ? '' : normDeviceType(b.deviceType); if (type === null) return { ok: false, status: 400, message: 'Device type must be PHONE or TV.' }; }
-  const rows = await q('SELECT sub_id, service, device_type, raw_json FROM subscriptions WHERE sub_id = ? LIMIT 1', [subId]);
+  const hasDevice = b.device !== undefined && b.device !== null && b.device !== '';
+  const device = hasDevice ? Number(b.device) : 1;
+  if (!(Number.isInteger(device) && device >= 1 && device <= MAX_DEVICES)) return { ok: false, status: 400, message: 'Device number must be 1 to ' + MAX_DEVICES + '.' };
+  const hasSet = b.setDevices !== undefined && b.setDevices !== null && b.setDevices !== '';
+  const setDevices = hasSet ? Number(b.setDevices) : 0;
+  if (hasSet && !(Number.isInteger(setDevices) && setDevices >= 2 && setDevices <= MAX_DEVICES)) return { ok: false, status: 400, message: 'Number of devices must be 2 to ' + MAX_DEVICES + '.' };
+  const rows = await q('SELECT sub_id, service, device_type, device_count, raw_json FROM subscriptions WHERE sub_id = ? LIMIT 1', [subId]);
   const cur = Array.isArray(rows) && rows[0];
   if (!cur) return { ok: false, status: 404, message: 'Subscription not found.' };
   if (!isOtpService(cur.service, o.policyOf)) return { ok: false, status: 400, message: 'Only OTP services (JioHotstar, SonyLIV, Zee5) have device names here.' };
   if (rawBroken(cur.raw_json)) return { ok: false, status: 409, message: 'This subscription\'s raw_json is unreadable — fix it in 📋 Sheets first.' };
   const raw = rawOf(cur.raw_json);
+  const curCount = devCount(cur.device_count);
+  if (hasSet && setDevices < curCount) return { ok: false, status: 400, message: 'This plan already has ' + curCount + ' devices (never lowered here).' };
+  const count = Math.max(curCount, setDevices);
+  if (device > count) return { ok: false, status: 400, message: 'This plan has ' + count + ' device' + (count === 1 ? '' : 's') + ' — there is no device ' + device + '.' };
+  if (count > 1) return saveMultiDevice(q, { subId, cur, raw, count, curCount, device, hasName, name, hasType, type }, o);
   const before = { deviceName: s(raw.DeviceName), deviceType: normDeviceType(cur.device_type) || normDeviceType(raw.DeviceType) || '' };
   const after = { deviceName: hasName ? name : before.deviceName, deviceType: hasType ? type : before.deviceType };
   const changed = [];
@@ -336,6 +392,44 @@ async function saveDevice(q, body, opts) {
   const r = await q('UPDATE subscriptions SET ' + sets.join(', ') + " WHERE sub_id = ? AND (raw_json IS NULL OR JSON_VALID(raw_json) = 1) LIMIT 1", params.concat([subId]));
   if (!r || !r.affectedRows) return { ok: false, status: 409, message: 'Not saved — the subscription changed. Refresh and try again.' };
   return { ok: true, before, after, changed, updatedAt: stamp };
+}
+
+/**
+ * Multi-device plan (device_count ≥ 2, or setDevices raising it): the device's name + type go into raw_json DeviceNames
+ * [{ device, name, type }]. DeviceName, DeviceType and the typed device_type always mirror DEVICE 1 (backward compatible).
+ * A raised count writes the typed device_count and raw_json DeviceCount together. One UPDATE, JSON_ARRAY/JSON_OBJECT
+ * (same result on MySQL and MariaDB), guarded by JSON_VALID.
+ */
+async function saveMultiDevice(q, a, o) {
+  const { subId, cur, raw, count, curCount, device, hasName, name, hasType, type } = a;
+  const list = deviceList(raw, count, cur.device_type);
+  const slot = list[device - 1];
+  const before = { device, deviceName: slot.name, deviceType: slot.type };
+  const after = { device, deviceName: hasName ? name : slot.name, deviceType: hasType ? type : slot.type };
+  const changed = [];
+  if (after.deviceName !== before.deviceName) changed.push('deviceName');
+  if (after.deviceType !== before.deviceType) changed.push('deviceType');
+  if (count !== curCount) changed.push('devices');
+  if (!changed.length) return { ok: true, before, after, changed, unchanged: true, device, devices: count, deviceNames: list };
+  slot.name = after.deviceName; slot.type = after.deviceType;
+  const first = list[0];
+  const stamp = istStamp(o.now);
+  const sets = [], params = [], paths = [], pathParams = [];
+  const typeOut = (normDeviceType(cur.device_type) || '') !== first.type || s(raw.DeviceType) !== first.type;
+  if (typeOut) { sets.push('device_type = ?'); params.push(first.type || null); }
+  if (count !== curCount) { sets.push('device_count = ?'); params.push(count); }
+  if (changed.includes('deviceName') || s(raw.DeviceName) !== first.name) {
+    paths.push("'$.DeviceName', ?", "'$.DeviceNameUpdatedAt', ?"); pathParams.push(first.name, stamp);
+    if (o.source) { paths.push("'$.DeviceNameSource', ?"); pathParams.push(o.source); }
+  }
+  if (typeOut) { paths.push("'$.DeviceType', ?"); pathParams.push(first.type); }
+  if (count !== curCount) { paths.push("'$.DeviceCount', ?"); pathParams.push(count); }
+  paths.push("'$.DeviceNames', JSON_ARRAY(" + list.map(() => "JSON_OBJECT('device', ?, 'name', ?, 'type', ?)").join(', ') + ')');
+  for (const d of list) pathParams.push(d.device, d.name, d.type);
+  sets.push("raw_json = JSON_SET(COALESCE(raw_json, '{}'), " + paths.join(', ') + ')'); params.push(...pathParams);
+  const r = await q('UPDATE subscriptions SET ' + sets.join(', ') + " WHERE sub_id = ? AND (raw_json IS NULL OR JSON_VALID(raw_json) = 1) LIMIT 1", params.concat([subId]));
+  if (!r || !r.affectedRows) return { ok: false, status: 409, message: 'Not saved — the subscription changed. Refresh and try again.' };
+  return { ok: true, before, after, changed, updatedAt: stamp, device, devices: count, devicesBefore: curCount, deviceNames: list };
 }
 
 /* ================= old Sheet import (read-only) ================= */
@@ -436,14 +530,29 @@ function nameLevel(sheetName, custName) {
   if (!a || !b) return 0;
   if (a === b || a.replace(/ /g, '') === b.replace(/ /g, '')) return 2;
   const x = a.split(' '), y = b.split(' ');
+  // Only one name typed: its first OR last name ("Adhate" ~ "Rohit Adhate"). Still only used when the match is unique.
+  if ((x.length === 1 && y.length > 1 && y[y.length - 1] === x[0]) || (y.length === 1 && x.length > 1 && x[x.length - 1] === y[0])) return 1;
   if (x[0] !== y[0]) return 0;
   if (x.length === 1 || y.length === 1 || x[1][0] === y[1][0]) return 1; // "Ankit" ~ "Ankit Satija", "Ankit S" ~ "Ankit Satija"
   return 0;
 }
 
+const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** '2027-02-17 …' → '17 Feb 2027'. */
+function dayLabel(v) { const m = s(v).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? +m[3] + ' ' + MON3[+m[2] - 1] + ' ' + m[1] : s(v); }
+const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+
 /**
  * Match parsed Sheet rows to OTP subscriptions: same service + login account (when the Sheet gave them), customer name
- * (exact beats first-name), expiry within ±1 IST day (same day beats ±1). Only a unique match counts.
+ * (exact beats first/last-name), expiry within ±1 IST day (same day beats ±1). Only a unique match counts.
+ *
+ * Multi-device plans: a PLAN is one subscription (same login on device_count N devices) or all rows of a separate-logins
+ * group (group_id, devices in group_index order). K Sheet rows of the same customer + expiry that match one plan with at
+ * least K devices are given Device 1..K in Sheet order (fewer rows than devices is fine). More rows than devices,
+ * different customer names or different expiry dates → ambiguous with the reason.
+ *
+ * Ambiguous / not-found rows carry `options` — the subscriptions on that login, one entry per device slot — so the owner
+ * can pick one in Preview. A plan with fewer devices than Sheet rows also gets "sets this plan to K devices" options.
  * subs: compute()-style subscriptions + customers; returns { matched, alreadyNamed, same, ambiguous, unmatched }.
  */
 function matchRows(parsed, input) {
@@ -458,78 +567,154 @@ function matchRows(parsed, input) {
     const raw = rawOf(x.raw_json);
     const id = accountOfRef(x.inventory_ref) || s(x.account_id);
     const ms = toMs(x.expiry_date);
+    const n = devCount(x.device_count);
     return {
       subId: s(x.sub_id), service: canonService(x.service), serviceName: s(x.service), plan: s(x.plan),
       login: digits10(x.login_id) || digits10(loginOfId.get(id)), accountId: id,
       names: [nameOfPhone.get(s(x.phone_norm)), s(raw.Name)].filter(Boolean),
       day: isFinite(ms) ? istDay(ms) : NaN, expiry: dateText(x.expiry_date),
-      deviceName: s(raw.DeviceName), deviceType: s(x.device_type) ? (normDeviceType(x.device_type) || '') : '',
+      deviceCount: n, devices: deviceList(raw, n, x.device_type), typedType: s(x.device_type) ? (normDeviceType(x.device_type) || '') : '',
+      groupId: s(x.group_id), groupIndex: Number(x.group_index) || 0, groupSize: Number(x.group_size) || 0, removed: isRemoved(x),
     };
   });
-  const out = { matched: [], alreadyNamed: [], same: [], ambiguous: [], unmatched: [] };
-  const claims = new Map();
+  const unitKey = (c) => (c.groupId ? 'G:' + c.service + '|' + c.groupId : 'S:' + c.subId);
+  const unitSubs = new Map();
+  for (const c of cands) { const k = unitKey(c); if (!unitSubs.has(k)) unitSubs.set(k, []); unitSubs.get(k).push(c); }
+  for (const list of unitSubs.values()) list.sort((p, q) => (p.groupIndex - q.groupIndex) || p.subId.localeCompare(q.subId));
+  const slotsOf = (k) => [].concat(...unitSubs.get(k).map((c) => Array.from({ length: c.deviceCount }, (_, i) => ({ c, device: i + 1 }))));
+  const curNameOf = (c, d) => (c.devices[d - 1] ? c.devices[d - 1].name : '');
+  const curTypeOf = (c, d) => (d === 1 ? c.typedType : c.devices[d - 1] ? c.devices[d - 1].type : '');
+  const lvOf = (r, c) => Math.max(0, ...c.names.map((n) => nameLevel(r.name, n)));
+
   const results = (parsed || []).map((r) => {
     const day = dayOfYmd(r.expiry);
-    let pool = cands.filter((c) => (!r.service || c.service === r.service) && (!r.account || c.login === r.account) && isFinite(c.day) && Math.abs(c.day - day) <= 1);
-    const lv = (c) => Math.max(0, ...c.names.map((n) => nameLevel(r.name, n)));
-    const exact = pool.filter((c) => lv(c) === 2);
-    pool = exact.length ? exact : pool.filter((c) => lv(c) === 1);
-    if (pool.length > 1) { const sameDay = pool.filter((c) => c.day === day); if (sameDay.length) pool = sameDay; }
-    const res = { row: r, pool };
-    if (pool.length === 1) { const k = pool[0].subId; claims.set(k, (claims.get(k) || 0) + 1); }
-    return res;
+    const near = cands.filter((c) => (!r.service || c.service === r.service) && (!r.account || c.login === r.account) && isFinite(c.day) && Math.abs(c.day - day) <= 1);
+    const exact = near.filter((c) => lvOf(r, c) === 2);
+    let pool = exact.length ? exact : near.filter((c) => lvOf(r, c) === 1);
+    let units = [...new Set(pool.map(unitKey))];
+    if (units.length > 1) { const sameDay = pool.filter((c) => c.day === day); if (sameDay.length) { pool = sameDay; units = [...new Set(pool.map(unitKey))]; } }
+    return { row: r, day, pool, unit: units.length === 1 ? units[0] : '', units };
   });
-  for (const { row, pool } of results) {
+
+  // Sheet rows that all point at the same plan → its devices, in Sheet order.
+  const byUnit = new Map();
+  for (const res of results) if (res.unit) { if (!byUnit.has(res.unit)) byUnit.set(res.unit, []); byUnit.get(res.unit).push(res); }
+  for (const [k, list] of byUnit) {
+    const slots = slotsOf(k);
+    let reason = '';
+    if (list.some((x, i) => list.some((y, j) => j > i && nameLevel(x.row.name, y.row.name) === 0))) reason = 'different customer names on the Sheet match the same plan';
+    else if (new Set(list.map((x) => x.row.expiry)).size > 1) reason = 'Sheet rows with different expiry dates match the same plan';
+    else if (list.length > slots.length) { reason = list.length + ' Sheet rows for this plan, but it is for ' + plural(slots.length, 'device'); list.forEach((x) => { x.overflow = list.length; }); }
+    if (!reason) {
+      const used = new Set();
+      for (const x of list) {
+        const i = slots.findIndex((sl, idx) => !used.has(idx) && x.pool.includes(sl.c));
+        if (i < 0) { reason = 'more Sheet rows than devices on this login'; break; }
+        used.add(i); x.slot = slots[i];
+      }
+      if (reason) list.forEach((x) => { delete x.slot; });
+    }
+    if (reason) list.forEach((x) => { x.reason = reason; });
+  }
+
+  // Manual pick in Preview: one option per device slot of each candidate plan.
+  const option = (c, d, n, setDevices) => {
+    const now = d <= c.deviceCount ? curNameOf(c, d) : '';
+    return {
+      value: c.subId + '|' + d + (setDevices ? '|' + setDevices : ''), subId: c.subId, device: d, devices: n, setDevices: setDevices || undefined,
+      label: (c.names[0] || '?') + ' · ' + dayLabel(c.expiry) + ' · ' + plural(n, 'device') + (n > 1 ? ' · Device ' + d + ' of ' + n : '') +
+        (c.groupSize > 1 ? ' · separate login ' + c.groupIndex + ' of ' + c.groupSize : '') + (setDevices ? ' (sets this plan to ' + setDevices + ' devices)' : '') +
+        (now ? ' · now "' + now + '"' : '') + (c.removed ? ' · removed' : ''),
+    };
+  };
+  const optionsFor = (subsList, overflow) => {
+    const out = [], seen = new Set();
+    for (const c of subsList) {
+      if (seen.has(c.subId)) continue; seen.add(c.subId);
+      for (let d = 1; d <= c.deviceCount; d++) out.push(option(c, d, c.deviceCount));
+      if (overflow > c.deviceCount && !c.groupId) for (let d = 1; d <= Math.min(overflow, MAX_DEVICES); d++) out.push(option(c, d, Math.min(overflow, MAX_DEVICES), Math.min(overflow, MAX_DEVICES)));
+    }
+    return out.slice(0, 80);
+  };
+  const onLogin = (r, day) => cands.filter((c) => (!r.service || c.service === r.service) && !c.removed && (r.account ? c.login === r.account : lvOf(r, c) >= 1))
+    .sort((p, q) => ((isFinite(p.day) ? Math.abs(p.day - day) : 1e9) - (isFinite(q.day) ? Math.abs(q.day - day) : 1e9)) || p.subId.localeCompare(q.subId)).slice(0, 30);
+  const candList = (subsList) => subsList.map((c) => ({ subId: c.subId, name: c.names[0] || '', expiry: c.expiry, devices: c.deviceCount }));
+
+  const out = { matched: [], alreadyNamed: [], same: [], ambiguous: [], unmatched: [] };
+  for (const res of results) {
+    const row = res.row;
     const base = { line: row.line, sheetName: row.name, deviceName: row.deviceName, deviceType: row.deviceType, expiry: row.expiry, account: row.account, service: LABELS[row.service] || row.service };
-    if (!pool.length) { out.unmatched.push(base); continue; }
-    if (pool.length > 1 || claims.get(pool[0].subId) > 1) {
-      out.ambiguous.push(Object.assign(base, { reason: pool.length > 1 ? pool.length + ' possible subscriptions' : 'another Sheet row matches the same subscription', candidates: pool.map((c) => ({ subId: c.subId, name: c.names[0] || '', expiry: c.expiry })) }));
+    if (!res.slot) {
+      const planSubs = [].concat(...res.units.map((k) => unitSubs.get(k)));
+      const others = onLogin(row, res.day);
+      if (!res.pool.length) { out.unmatched.push(Object.assign(base, { options: optionsFor(others, 0) })); continue; }
+      out.ambiguous.push(Object.assign(base, {
+        reason: res.reason || plural(planSubs.length, 'possible subscription'),
+        candidates: candList(planSubs), options: optionsFor(planSubs.concat(others), res.overflow || 0),
+      }));
       continue;
     }
-    const c = pool[0];
-    const item = Object.assign(base, { subId: c.subId, name: c.names[0] || row.name, plan: c.plan, subService: c.serviceName, subExpiry: c.expiry, currentDeviceName: c.deviceName, currentDeviceType: c.deviceType });
-    const nameSame = !row.deviceName || c.deviceName === row.deviceName;
-    const typeSame = !row.deviceType || c.deviceType === row.deviceType || !!c.deviceType;
-    if (c.deviceName && c.deviceName !== row.deviceName && row.deviceName) out.alreadyNamed.push(item);
-    else if (nameSame && typeSame) out.same.push(item);
-    else out.matched.push(item);
+    const { c, device: d } = res.slot;
+    const item = Object.assign(base, {
+      subId: c.subId, device: d, devices: c.deviceCount, name: c.names[0] || row.name, plan: c.plan, subService: c.serviceName, subExpiry: c.expiry,
+      currentDeviceName: curNameOf(c, d), currentDeviceType: curTypeOf(c, d),
+    }, c.groupSize > 1 ? { groupIndex: c.groupIndex, groupSize: c.groupSize } : {});
+    classify(out, item);
   }
   return out;
 }
+/** matched (something to write) / alreadyNamed (a different name is there) / same (nothing to write). */
+function classify(out, item) {
+  const nameSame = !item.deviceName || item.currentDeviceName === item.deviceName;
+  const typeSame = !item.deviceType || item.currentDeviceType === item.deviceType || !!item.currentDeviceType;
+  if (item.currentDeviceName && item.deviceName && item.currentDeviceName !== item.deviceName) out.alreadyNamed.push(item);
+  else if (nameSame && typeSame) out.same.push(item);
+  else out.matched.push(item);
+}
 
 /**
- * Save the owner-confirmed rows. items: [{ subId, deviceName, deviceType }]. Existing device names and types are kept
- * unless overwrite is true. Writes DeviceName + DeviceNameSource 'sheet' + DeviceNameUpdatedAt, and device_type (typed +
- * raw_json) only where it is empty or overwrite. Never touches status, expiry or removed. Idempotent.
+ * Save the owner-confirmed rows. items: [{ subId, device?, setDevices?, deviceName, deviceType }] (device = 1..N of a
+ * multi-device plan; setDevices only from a manual "sets this plan to K devices" pick). Existing device names and types
+ * are kept unless overwrite is true. Writes DeviceName (+ DeviceNames for multi-device plans) + DeviceNameSource 'sheet' +
+ * DeviceNameUpdatedAt, and device_type (typed + raw_json) only where it is empty or overwrite. Never touches status,
+ * expiry or removed. Idempotent.
  */
 async function saveImport(q, items, opts) {
   const o = opts || {};
   const overwrite = o.overwrite === true;
   const list = Array.isArray(items) ? items : [];
-  const out = { saved: 0, names: 0, types: 0, unchanged: 0, skipped: 0, errors: [] };
+  const out = { saved: 0, names: 0, types: 0, devices: 0, unchanged: 0, skipped: 0, errors: [] };
   const seen = new Set();
   for (const it of list) {
     const subId = s(it && it.subId);
-    if (!subId || seen.has(subId)) { out.skipped++; continue; }
-    seen.add(subId);
+    const device = it && it.device != null && it.device !== '' ? Number(it.device) : 1;
+    const setDevices = it && it.setDevices != null && it.setDevices !== '' ? Number(it.setDevices) : 0;
+    const key = subId + '|' + device;
+    if (!subId || seen.has(key)) { out.skipped++; continue; }
+    seen.add(key);
     const c = cleanDeviceName(it.deviceName);
     const t = it.deviceType == null || it.deviceType === '' ? '' : normDeviceType(it.deviceType);
-    if (!c.ok || t === null) { out.errors.push({ subId, message: c.ok ? 'Device type must be PHONE or TV.' : c.message }); continue; }
-    const rows = await q('SELECT sub_id, service, device_type, raw_json FROM subscriptions WHERE sub_id = ? LIMIT 1', [subId]);
+    if (!c.ok || t === null) { out.errors.push({ subId, device, message: c.ok ? 'Device type must be PHONE or TV.' : c.message }); continue; }
+    const rows = await q('SELECT sub_id, service, device_type, device_count, raw_json FROM subscriptions WHERE sub_id = ? LIMIT 1', [subId]);
     const cur = Array.isArray(rows) && rows[0];
-    if (!cur) { out.errors.push({ subId, message: 'not found' }); continue; }
+    if (!cur) { out.errors.push({ subId, device, message: 'not found' }); continue; }
     const raw = rawOf(cur.raw_json);
+    const count = Math.max(devCount(cur.device_count), setDevices || 0);
+    const slot = count > 1 ? (deviceList(raw, count, cur.device_type)[device - 1] || { name: '', type: '' }) : { name: s(raw.DeviceName), type: normDeviceType(cur.device_type) || '' };
+    const typedEmpty = count > 1 && device > 1 ? !slot.type : !s(cur.device_type);
     const body = { subId };
-    if (c.value && s(raw.DeviceName) !== c.value && (overwrite || !s(raw.DeviceName))) body.deviceName = c.value;
-    const curType = normDeviceType(cur.device_type) || '';
-    if (t && curType !== t && (overwrite || !s(cur.device_type))) body.deviceType = t;
-    if (body.deviceName === undefined && body.deviceType === undefined) { out.unchanged++; continue; }
+    if (count > 1 || device !== 1) body.device = device;
+    if (setDevices && setDevices > devCount(cur.device_count)) body.setDevices = setDevices;
+    if (c.value && slot.name !== c.value && (overwrite || !slot.name)) body.deviceName = c.value;
+    if (t && slot.type !== t && (overwrite || typedEmpty)) body.deviceType = t;
+    if (body.deviceName === undefined && body.deviceType === undefined && body.setDevices === undefined) { out.unchanged++; continue; }
     const r = await saveDevice(q, body, { now: o.now, policyOf: o.policyOf, source: 'sheet' });
-    if (!r.ok) { out.errors.push({ subId, message: r.message }); continue; }
+    if (!r.ok) { out.errors.push({ subId, device, message: r.message }); continue; }
     if (r.unchanged) { out.unchanged++; continue; }
     out.saved++;
     if (r.changed.includes('deviceName')) out.names++;
     if (r.changed.includes('deviceType')) out.types++;
+    if (r.changed.includes('devices')) out.devices++;
   }
   return out;
 }
@@ -588,5 +773,5 @@ function sheetReader(env, fetchImpl) {
 module.exports = {
   compute, load, saveDevice, cleanDeviceName, normDeviceType, isOtpService, canonService, statusOf, statusLabel, matchesQuery,
   parseRows, parsePaste, dumpToRows, sheetDate, nameLevel, matchRows, saveImport, loadForImport, sheetReader,
-  istStamp, toMs, rawOf, MAX_DEVICE_NAME, SUB_COLS,
+  istStamp, toMs, rawOf, MAX_DEVICE_NAME, SUB_COLS, GROUP_COLS, MAX_DEVICES, deviceList, deviceNamesText, dayLabel,
 };

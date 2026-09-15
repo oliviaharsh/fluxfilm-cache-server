@@ -294,7 +294,8 @@ function mountAdmin(app, deps) {
         db.query('SELECT coins_balance, coins_lifetime, last_event FROM wallet WHERE phone_norm = ? ORDER BY coins_lifetime DESC, coins_balance DESC LIMIT 1', [ph]),
       ]);
       // 📱 Device name the owner typed for OTP services (raw_json DeviceName, otpdevices.js) — shown on the card.
-      for (const x of subs) { try { const j = typeof x.raw_json === 'string' ? JSON.parse(x.raw_json) : x.raw_json; if (j && typeof j.DeviceName === 'string' && j.DeviceName.trim()) x.device_name = j.DeviceName.trim(); } catch (_) { /* unreadable raw_json: no device name */ } delete x.raw_json; }
+      // A multi-device plan shows every device: "Device 1: LG TV · Device 2: Mi TV" (raw_json DeviceNames).
+      for (const x of subs) { try { const t = require('./otpdevices').deviceNamesText(x.raw_json, x.device_count); if (t) x.device_name = t; } catch (_) { /* unreadable raw_json: no device name */ } delete x.raw_json; }
       // 💸 Refund credit (separate pot in coins_ledger, pays up to 100% of an order) — never blocks Customer 360.
       let refundCredit = 0;
       try { refundCredit = await require('./coins').creditBalance(ph); } catch (_) { refundCredit = 0; }

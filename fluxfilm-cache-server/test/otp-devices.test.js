@@ -183,6 +183,91 @@ section('old Sheet: matching (unique / ambiguous / none)');
   ok('never matches a non-OTP subscription', netflixRow.unmatched.length === 1);
 }
 
+section('multi-device plans: the owner\'s pasted block (16 Sep)');
+// Exactly what the owner copied from Google Sheets.
+const OWNER_PASTE = [
+  '📱8076332049',
+  'Ankit Satija\tLG TV\t📺TV\t✅\t17/02/2027\tACTIVE ✅',
+  'Ankit Satija\tLG TV\t📺TV\t✅\t17/02/2027\tACTIVE ✅',
+  'Saiba Shaikh\tAmazon TV/Rockchip Phone\t📺TV\t✅\t19/11/2026\tACTIVE ✅',
+  'Mohammad Sourab\tMohd Iphone\t📱PHONE\t\t01/09/2026\tEXPIRED ⚠️',
+  'krishna Goyal\tHonor Phone/Web browser\t📱PHONE\t✅\t06/12/2026\tACTIVE ✅',
+  'Mohmadazaz Patel\tTechno Phone\t📱PHONE\t✅\t10/12/2026\tACTIVE ✅',
+  'Muhammed ali\tiPhone 14 Pro Max\t📱PHONE\t✅\t22/09/2026\tACTIVE ✅',
+  'Adhate\tSamsung Phone\t📱PHONE\t✅\t03/11/2026\tACTIVE ✅',
+  'Akshay Manikandan\tIphone 17,3\t📱PHONE\t✅\t08/11/2026\tACTIVE ✅',
+].join('\n');
+function multiFixture(ankitDevices) {
+  const JH = (id, ph, exp, extra) => Object.assign({ sub_id: id, order_id: 'O' + id, phone_norm: ph, service: 'JioHotstar', plan: '1 Year', status: 'ACTIVE', expiry_date: exp + ' 12:00:00', inventory_ref: 'JH-1Y-02', login_id: '8076332049', device_type: null, device_count: null, removed: 0, raw_json: '{}' }, extra || {});
+  return {
+    plans: [{ service: 'JioHotstar', raw_json: JSON.stringify({ AllocationPolicy: 'OTP_ACCOUNT' }) }],
+    accounts: [{ service: 'JioHotstar', account_id: 'JH-1Y-02', login_id: '8076332049' }, { service: 'JioHotstar', account_id: 'JH-1M-01', login_id: '7428576079' }],
+    customers: [
+      { phone_norm: '9700000001', name: 'Ankit Satija' }, { phone_norm: '9700000002', name: 'Saiba Shaikh' }, { phone_norm: '9700000003', name: 'Mohammad Sourab' },
+      { phone_norm: '9700000004', name: 'Krishna Goyal' }, { phone_norm: '9700000005', name: 'Mohmad Azaz Patel' }, { phone_norm: '9700000006', name: 'Muhammed Ali' },
+      { phone_norm: '9700000007', name: 'Rohit Adhate' }, { phone_norm: '9700000008', name: 'Akshay Manikandan' }, { phone_norm: '9700000009', name: 'Neha Kapoor' },
+    ],
+    subs: [
+      JH('A1', '9700000001', '2027-02-17', { device_count: ankitDevices }),
+      JH('A2', '9700000002', '2026-11-19'), JH('A3', '9700000003', '2026-09-01', { status: 'EXPIRED' }), JH('A4', '9700000004', '2026-12-06'),
+      JH('A5', '9700000005', '2026-12-10'), JH('A6', '9700000006', '2026-09-22'), JH('A7', '9700000007', '2026-11-03'), JH('A8', '9700000008', '2026-11-08'),
+      // Separate logins: one plan, 2 rows sharing group_id (devicelogins.js), each on its own login.
+      JH('G1', '9700000009', '2026-12-25', { group_id: 'GRP1', group_index: 1, group_size: 2 }),
+      JH('G2', '9700000009', '2026-12-25', { group_id: 'GRP1', group_index: 2, group_size: 2, inventory_ref: 'JH-1M-01', login_id: '7428576079' }),
+    ],
+  };
+}
+{
+  const M = multiFixture(2);
+  const parsed = O.parseRows(O.parsePaste(OWNER_PASTE));
+  ok('paste: 9 customer rows read, nothing skipped', parsed.rows.length === 9 && !parsed.skipped.length, parsed);
+  const m = O.matchRows(parsed.rows, M);
+  const ank = m.matched.filter((x) => x.subId === 'A1');
+  ok('Ankit ×2 on a 2-device plan → Device 1 of 2 and Device 2 of 2 (Sheet order), not ambiguous', ank.length === 2 && ank[0].device === 1 && ank[1].device === 2 && ank.every((x) => x.devices === 2 && x.deviceName === 'LG TV' && x.deviceType === 'TV') && ank[0].line === 2 && ank[1].line === 3, ank);
+  ok('the whole block matches: 9 to save, 0 ambiguous, 0 not found', m.matched.length === 9 && !m.ambiguous.length && !m.unmatched.length, { a: m.ambiguous, u: m.unmatched });
+  ok('"Adhate" (last name only, unique on this login + expiry) → Rohit Adhate', m.matched.some((x) => x.subId === 'A7' && x.name === 'Rohit Adhate'), m.matched.map((x) => [x.line, x.subId]));
+  ok('"Mohmadazaz Patel" ~ "Mohmad Azaz Patel" (spaces ignored), "krishna Goyal" (case)', m.matched.some((x) => x.subId === 'A5') && m.matched.some((x) => x.subId === 'A4'));
+
+  // Live case: the plan is stored as 1 device but the Sheet lists Ankit twice.
+  const live = O.matchRows(parsed.rows, multiFixture(null));
+  const la = live.ambiguous.filter((x) => x.sheetName === 'Ankit Satija');
+  ok('plan stored as 1 device + 2 identical Sheet rows → both ambiguous with a clear reason', la.length === 2 && la.every((x) => /2 Sheet rows for this plan, but it is for 1 device/.test(x.reason)) && live.matched.length === 7, la);
+  const lo = la[0].options;
+  ok('  ...pick options: "Ankit Satija · 17 Feb 2027 · 1 device" and "Device 1/2 of 2 (sets this plan to 2 devices)"', lo.some((o) => o.value === 'A1|1' && o.label === 'Ankit Satija · 17 Feb 2027 · 1 device') && lo.some((o) => o.value === 'A1|2|2' && o.setDevices === 2 && /Device 2 of 2 \(sets this plan to 2 devices\)/.test(o.label)), lo);
+
+  // 3 rows for a 2-device plan.
+  const three = O.matchRows(O.parseRows(O.parsePaste(OWNER_PASTE.split('\n').slice(0, 3).concat(['Ankit Satija\tMi TV\t📺TV\t✅\t17/02/2027\tACTIVE ✅']).join('\n'))).rows, M);
+  ok('3 Sheet rows for a 2-device plan → all 3 ambiguous: "3 Sheet rows for this plan, but it is for 2 devices"', three.ambiguous.length === 3 && !three.matched.length && /3 Sheet rows for this plan, but it is for 2 devices/.test(three.ambiguous[0].reason) && three.ambiguous[0].options.some((o) => o.value === 'A1|3|3'), three.ambiguous[0]);
+  // Different customers on the Sheet matching the same plan.
+  const diff = O.matchRows([{ line: 1, account: '8076332049', service: 'jiohotstar', name: 'Ankit', deviceName: 'TV1', deviceType: 'TV', expiry: '2027-02-17' }, { line: 2, account: '8076332049', service: 'jiohotstar', name: 'Satija', deviceName: 'TV2', deviceType: 'TV', expiry: '2027-02-17' }], M);
+  ok('different Sheet names ("Ankit" / "Satija") on one plan → ambiguous, never guessed', diff.ambiguous.length === 2 && /different customer names/.test(diff.ambiguous[0].reason), diff);
+  // Fewer rows than devices is fine.
+  const one = O.matchRows([{ line: 1, account: '8076332049', service: 'jiohotstar', name: 'Ankit Satija', deviceName: 'LG TV', deviceType: 'TV', expiry: '2027-02-17' }], M);
+  ok('1 Sheet row for a 2-device plan → Device 1 of 2', one.matched.length === 1 && one.matched[0].device === 1 && one.matched[0].devices === 2, one);
+
+  // Group of 2 separate logins.
+  const grp = O.matchRows(O.parseRows(O.parsePaste(['📱 8076332049', 'Neha Kapoor\tSony TV\t📺 TV\t✅\t25/12/2026\tACTIVE ✅', '📱 7428576079', 'Neha Kapoor\tRedmi Phone\t📱 PHONE\t✅\t25/12/2026\tACTIVE ✅'].join('\n'))).rows, M);
+  ok('group of 2 separate logins (one row under each 📱 login) → each row on its own group row', grp.matched.length === 2 && grp.matched.find((x) => x.subId === 'G1').deviceName === 'Sony TV' && grp.matched.find((x) => x.subId === 'G2').deviceName === 'Redmi Phone' && grp.matched.find((x) => x.subId === 'G2').groupIndex === 2 && grp.matched[0].groupSize === 2, grp);
+  const grp2 = O.matchRows([{ line: 7, account: '', service: 'jiohotstar', name: 'Neha Kapoor', deviceName: 'Sony TV', deviceType: 'TV', expiry: '2026-12-25' }, { line: 8, account: '', service: 'jiohotstar', name: 'Neha Kapoor', deviceName: 'Redmi Phone', deviceType: 'PHONE', expiry: '2026-12-25' }], M);
+  ok('  ...no login header: the 2 rows fill group_index 1 then 2 (not "2 possible subscriptions")', grp2.matched.length === 2 && grp2.matched[0].subId === 'G1' && grp2.matched[1].subId === 'G2' && !grp2.ambiguous.length, grp2);
+
+  // First-name only, expiry one day off, unique.
+  const fn = O.matchRows([{ line: 1, account: '8076332049', service: 'jiohotstar', name: 'Akshay', deviceName: 'Iphone 17,3', deviceType: 'PHONE', expiry: '2026-11-09' }], M);
+  ok('first name only + expiry ±1 day, unique → matched', fn.matched.length === 1 && fn.matched[0].subId === 'A8', fn);
+  const unk = O.matchRows([{ line: 4, account: '8076332049', service: 'jiohotstar', name: 'Somebody Else', deviceName: 'Mi TV', deviceType: 'TV', expiry: '2026-11-19' }], M);
+  ok('not found row still offers the subscriptions on that login to pick (closest expiry first)', unk.unmatched.length === 1 && unk.unmatched[0].options.length >= 8 && unk.unmatched[0].options[0].subId === 'A2', unk.unmatched[0].options.slice(0, 2));
+  ok('name rules: last name only, dots ignored', O.nameLevel('Adhate', 'Rohit Adhate') === 1 && O.nameLevel('Rohit Adhate', 'Adhate') === 1 && O.nameLevel('Ankit S.', 'ankit s') === 2 && O.nameLevel('Satija', 'Ankit Kumar') === 0);
+
+  // List: one row per device, counts are devices.
+  const L = O.compute({ subs: multiFixture(2).subs.map((x) => (x.sub_id === 'A1' ? Object.assign({}, x, { raw_json: JSON.stringify({ DeviceName: 'LG TV', DeviceNames: [{ device: 1, name: 'LG TV', type: 'TV' }, { device: 2, name: 'Mi TV', type: 'PHONE' }] }) }) : x)), accounts: M.accounts, customers: M.customers, plans: M.plans, now: Date.UTC(2026, 8, 16) });
+  const c1 = L.accounts.find((a) => a.accountIds.includes('JH-1Y-02'));
+  const a1 = c1.rows.filter((r) => r.subId === 'A1');
+  ok('list: a 2-device plan is 2 rows (Device 1 of 2, Device 2 of 2) with their own names + types', a1.length === 2 && a1[0].key === 'A1#1' && a1[1].key === 'A1#2' && a1[0].deviceName === 'LG TV' && a1[1].deviceName === 'Mi TV' && a1[1].deviceType === 'PHONE' && a1[1].devices === 2 && a1[0].allNames.join() === 'LG TV,Mi TV', a1);
+  ok('counts count devices: 8 active plans on the login incl. Ankit\'s 2 devices = 9 active devices', c1.active === 9 && L.counts.activeDevices === 10, [c1.active, L.counts]);
+  ok('search finds device 2\'s name', O.compute({ subs: L && multiFixture(2).subs.map((x) => (x.sub_id === 'A1' ? Object.assign({}, x, { raw_json: JSON.stringify({ DeviceNames: [{ device: 2, name: 'Mi TV', type: '' }] }) }) : x)), accounts: M.accounts, customers: M.customers, plans: M.plans, now: Date.UTC(2026, 8, 16), q: 'mi tv' }).accounts[0].rows.map((r) => r.key).join() === 'A1#1,A1#2');
+  ok('deviceNamesText: one device → its name; 2 devices → "Device 1: … · Device 2: …"', O.deviceNamesText('{"DeviceName":"LG TV"}', 1) === 'LG TV' && O.deviceNamesText({ DeviceName: 'LG TV', DeviceNames: [{ device: 2, name: 'Mi TV' }] }, 2) === 'Device 1: LG TV · Device 2: Mi TV' && O.deviceNamesText('{}', 2) === '' && O.deviceNamesText('{broken', 2) === '');
+}
+
 section('fake database + admin routes');
 const TABLES = ['subscriptions', 'customers', 'plans', 'inventory_accounts', 'inventory_capacity', 'orders', 'wallet', 'audit_log', 'app_settings', 'coins_ledger', 'refund_offers'];
 function makeDb(F) {
@@ -208,13 +293,21 @@ function makeDb(F) {
         const likes = p.filter((x) => /%/.test(x)), ins = p.filter((x) => !/%/.test(x));
         return [...subs.values()].filter((x) => likes.some((l) => likeOk(x.service, l)) || ins.includes(x.service)).map((x) => Object.assign({}, x));
       }
-      if (/^SELECT sub_id, service, device_type, raw_json FROM subscriptions WHERE sub_id = \? LIMIT 1$/.test(sql)) { const x = subs.get(p[0]); return x ? [Object.assign({}, x)] : []; }
+      if (/^SELECT sub_id, service, device_type, device_count, raw_json FROM subscriptions WHERE sub_id = \? LIMIT 1$/.test(sql)) { const x = subs.get(p[0]); return x ? [Object.assign({}, x)] : []; }
       if (/^UPDATE subscriptions SET .* WHERE sub_id = \? AND \(raw_json IS NULL OR JSON_VALID\(raw_json\) = 1\) LIMIT 1$/.test(sql)) {
         const x = subs.get(p[p.length - 1]); if (!x) return { affectedRows: 0 };
         let i = 0;
         if (/device_type = \?/.test(sql)) x.device_type = p[i++];
+        if (/device_count = \?/.test(sql)) x.device_count = p[i++];
         const m = sql.match(/JSON_SET\(COALESCE\(raw_json, '\{\}'\), (.*)\) WHERE/);
-        if (m) { const keys = [...m[1].matchAll(/'\$\.(\w+)', \?/g)].map((k) => k[1]); x.raw_json = jsonSet(x.raw_json, keys.map((k) => [k, p[i++]])); }
+        if (m) {
+          // '$.Key', ?  pairs, then optionally '$.DeviceNames', JSON_ARRAY(JSON_OBJECT('device', ?, 'name', ?, 'type', ?), …)
+          const [scalars, arr] = m[1].split("'$.DeviceNames', ");
+          const keys = [...scalars.matchAll(/'\$\.(\w+)', \?/g)].map((k) => k[1]);
+          const pairs = keys.map((k) => [k, p[i++]]);
+          if (arr) { const n = (arr.match(/JSON_OBJECT\(/g) || []).length; const list = []; for (let k = 0; k < n; k++) list.push({ device: p[i++], name: p[i++], type: p[i++] }); pairs.push(['DeviceNames', list]); }
+          x.raw_json = jsonSet(x.raw_json, pairs);
+        }
         return { affectedRows: 1 };
       }
       // admin.js POST /admin/api/sub-removed (the existing "Removed from account" save)
@@ -310,7 +403,7 @@ function makeDb(F) {
     r = await get('/admin/api/otp-devices?service=jiohotstar');
     const jh = r.body.accounts.find((a) => a.accountIds.includes('JH-3M-02'));
     ok('  ...J1 left the list and is in "Removed recently" with its device name', !jh.rows.some((x) => x.subId === 'J1') && jh.removedRecent[0].subId === 'J1' && jh.removedRecent[0].deviceName === 'LG TV' && jh.expired === 0 && r.body.counts.expiredWaiting === 2, jh);
-    ok('panel: remove button posts to the existing endpoint with a confirm naming device + login + service', /post\('\/admin\/api\/sub-removed', \{ sub_id: f\.r\.subId, removed: true, removed_at: '' \}\)/.test(html) && /confirm\('Remove ' \+ f\.r\.name \+ \(f\.r\.deviceName \? ' \(' \+ f\.r\.deviceName \+ '\)' : ''\) \+ ' from ' \+ login \+ '\?\\n\\nLog this device out in ' \+ f\.a\.service \+ ' first\.'\)/.test(html));
+    ok('panel: remove button posts to the existing endpoint with a confirm naming device + login + service', /post\('\/admin\/api\/sub-removed', \{ sub_id: f\.r\.subId, removed: true, removed_at: '' \}\)/.test(html) && /var names = odAllNames\(f\.r\);/.test(html) && /confirm\('Remove ' \+ f\.r\.name \+ \(names \? ' \(' \+ names \+ '\)' : ''\) \+ ' from ' \+ login \+ '\?\\n\\nLog ' \+ \(f\.r\.devices \? 'all ' \+ f\.r\.devices \+ ' devices' : 'this device'\) \+ ' out in ' \+ f\.a\.service \+ ' first\.'\)/.test(html));
 
     section('Customer 360 + 🚪 Remove users show the device name');
     r = await get('/admin/api/customer?phone=9811100003');
@@ -358,6 +451,68 @@ function makeDb(F) {
     ok('  ...non-OTP / too long rows are reported as errors, not written', r.body.saved === 0 && r.body.errors.length === 2 && !raw('N1').DeviceName, r.body);
     ok('  ...needs items (400), at most 500, admin key', (await post('/admin/api/otp-devices/import/save', { items: [] })).status === 400 && (await post('/admin/api/otp-devices/import/save', { items: Array.from({ length: 501 }, (_, i) => ({ subId: 'S' + i })) })).status === 400 && (await fetch(base + '/admin/api/otp-devices/import/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"source":"paste","text":"x"}' })).status === 403);
 
+    section('multi-device routes: preview picks, per-device save, list, Remove, 360, Remove users');
+    {
+      const MF = multiFixture(null); // live shape: Ankit's plan stored as 1 device
+      MF.customers.forEach((c) => F.customers.push(c));
+      MF.subs.forEach((x) => mockDb.subs.set(x.sub_id, Object.assign({}, x, { inventory_ref: x.sub_id === 'G2' ? 'JH-1M-01' : 'JH-1Y-02' })));
+      const snap = JSON.stringify([...mockDb.subs.values()]);
+      mockDb.calls.length = 0;
+      r = await post('/admin/api/otp-devices/import/preview', { source: 'paste', text: OWNER_PASTE });
+      const amb = r.body.ambiguous.filter((x) => x.sheetName === 'Ankit Satija');
+      ok('preview of the owner\'s block: Ankit rows ambiguous with the reason + pick options, the other 7 matched', r.body.ok && amb.length === 2 && /but it is for 1 device/.test(amb[0].reason) && r.body.counts.matched === 7 && amb[0].options.some((o) => o.value === 'A1|2|2'), r.body.counts);
+      ok('  ...preview writes NOTHING (no UPDATE/INSERT/DELETE, data identical)', !mockDb.calls.some((c) => /^(UPDATE|INSERT|DELETE)/.test(c.sql)) && JSON.stringify([...mockDb.subs.values()]) === snap);
+      // The panel's own item builder (admin.html odImpItems) with the owner's two picks.
+      const items = new Function('OD', fnSrc('odImpItems') + '\nreturn odImpItems();')({ imp: r.body, overwrite: false, picks: { ['ambiguous:' + amb[0].line]: 'A1|1|2', ['ambiguous:' + amb[1].line]: 'A1|2|2' } });
+      const picked = items.filter((x) => x.manual);
+      ok('panel: manual picks join the save items (device + setDevices), matched rows keep their device', items.length === 9 && picked.length === 2 && picked[0].subId === 'A1' && picked[0].device === 1 && picked[1].device === 2 && picked[1].setDevices === 2 && picked[1].deviceName === 'LG TV', items);
+      const clash = new Function('OD', fnSrc('odImpItems') + '\nvar x = odImpItems(); return [x.length, OD.pickClash];')({ imp: r.body, overwrite: false, picks: { ['ambiguous:' + amb[0].line]: 'A1|2|2', ['ambiguous:' + amb[1].line]: 'A1|2|2' } });
+      ok('  ...two rows picking the same device: only one is saved, the clash is counted', clash[0] === 8 && clash[1] === 1, clash);
+      r = await post('/admin/api/otp-devices/import/save', { items });
+      const a1 = mockDb.subs.get('A1');
+      ok('save with the picks: plan set to 2 devices (device_count + raw DeviceCount), DeviceNames 1 + 2, DeviceName = device 1, type TV typed + raw', r.body.ok && r.body.saved === 9 && r.body.devices === 1 && a1.device_count === 2 && raw('A1').DeviceCount === 2 && JSON.stringify(raw('A1').DeviceNames) === JSON.stringify([{ device: 1, name: 'LG TV', type: 'TV' }, { device: 2, name: 'LG TV', type: 'TV' }]) && raw('A1').DeviceName === 'LG TV' && a1.device_type === 'TV' && raw('A1').DeviceType === 'TV' && raw('A1').DeviceNameSource === 'sheet', { body: r.body, raw: raw('A1'), a1 });
+      await tick();
+      ok('  ...change log says a plan was set to more devices', /1 plan\(s\) set to more devices/.test(audits('sub.deviceImport').slice(-1)[0].params.join('|')));
+      r = await post('/admin/api/otp-devices/import/preview', { source: 'paste', text: OWNER_PASTE });
+      ok('  ...paste again → Ankit is now Device 1 of 2 + Device 2 of 2, all "already the same"', r.body.counts.same === 9 && !r.body.ambiguous.length && r.body.same.filter((x) => x.subId === 'A1').map((x) => x.device).join() === '1,2', r.body.counts);
+      r = await post('/admin/api/otp-devices/import/save', { items });
+      ok('  ...saving the same items again → nothing new', r.body.saved === 0 && r.body.unchanged === 9, r.body);
+
+      r = await post('/admin/api/otp-devices/device', { subId: 'A1', device: 2, deviceName: 'Mi TV', deviceType: 'PHONE' });
+      ok('per-device save: device 2 → DeviceNames[2] only; DeviceName / device_type stay device 1', r.body.ok && r.body.device === 2 && r.body.devices === 2 && JSON.stringify(raw('A1').DeviceNames[1]) === JSON.stringify({ device: 2, name: 'Mi TV', type: 'PHONE' }) && raw('A1').DeviceNames[0].name === 'LG TV' && raw('A1').DeviceName === 'LG TV' && mockDb.subs.get('A1').device_type === 'TV', { body: r.body, raw: raw('A1') });
+      await tick();
+      ok('  ...change log names the device', /device 2 of 2: device name "LG TV" → "Mi TV", type TV → PHONE/.test(audits('sub.device').slice(-1)[0].params.join('|')), audits('sub.device').slice(-1));
+      r = await post('/admin/api/otp-devices/device', { subId: 'A1', device: 1, deviceName: 'LG OLED' });
+      ok('  ...device 1 save keeps DeviceName (backward compatible) and DeviceNames[1] in step', r.body.ok && raw('A1').DeviceName === 'LG OLED' && raw('A1').DeviceNames[0].name === 'LG OLED' && raw('A1').DeviceNames[1].name === 'Mi TV', raw('A1'));
+      ok('  ...device 3 of a 2-device plan → 400; device 0 → 400', (await post('/admin/api/otp-devices/device', { subId: 'A1', device: 3, deviceName: 'x' })).status === 400 && (await post('/admin/api/otp-devices/device', { subId: 'A1', device: 0, deviceName: 'x' })).status === 400);
+      const lower = await O.saveDevice((sql, p) => mockDb.query(sql, p), { subId: 'A1', setDevices: 1, deviceName: 'x' });
+      ok('  ...never lowers the number of devices', !lower.ok && mockDb.subs.get('A1').device_count === 2);
+
+      r = await get('/admin/api/otp-devices?service=jiohotstar');
+      const card1 = r.body.accounts.find((a) => a.accountIds.includes('JH-1Y-02'));
+      const rows1 = card1.rows.filter((x) => x.subId === 'A1');
+      ok('list: Ankit shows as 2 rows with his 2 device names', rows1.map((x) => x.key + '=' + x.deviceName).join() === 'A1#1=LG OLED,A1#2=Mi TV', rows1);
+      // Render with the panel code.
+      mockDb.subs.set('E1', Object.assign({}, mockDb.subs.get('A1'), { sub_id: 'E1', order_id: 'OE1', phone_norm: '9700000003', status: 'EXPIRED', expiry_date: at(-4), raw_json: JSON.stringify({ DeviceName: 'Old TV', DeviceNames: [{ device: 1, name: 'Old TV', type: 'TV' }, { device: 2, name: 'Old Phone', type: 'PHONE' }] }) }));
+      r = await get('/admin/api/otp-devices?service=jiohotstar');
+      const card2 = r.body.accounts.find((a) => a.accountIds.includes('JH-1Y-02'));
+      const make2 = new Function(varSrc('ICONS') + varSrc('MON') + "\nvar OD = { q: '', removed: false };" + ['esc', 'prettyDate', 'svcIcon', 'ruPlural', 'odCard', 'odRow', 'odAllNames'].map(fnSrc).join('\n') + '\nreturn { card: odCard, names: odAllNames };')();
+      const html2 = make2.card(card2);
+      ok('panel rows: "Device 1 of 2" / "Device 2 of 2", each with its own name box + 📱/📺 picker', /<b>Device 1 of 2<\/b>/.test(html2) && /<b>Device 2 of 2<\/b>/.test(html2) && /data-odname="A1#2" value="Mi TV"/.test(html2) && /data-odtype="A1#2"/.test(html2), html2.slice(0, 300));
+      ok('🚪 Remove stays per plan: one button for the expired 2-device plan (on Device 1)', (html2.match(/data-odrm="E1"/g) || []).length === 1 && /data-odrm="E1">🚪 Remove plan \(2 devices\)/.test(html2) && /🚪 Remove is on Device 1/.test(html2));
+      const e1 = card2.rows.find((x) => x.subId === 'E1');
+      ok('Remove confirm lists every device name', make2.names(e1) === 'Device 1: Old TV, Device 2: Old Phone', make2.names(e1));
+      ok('card counts count devices (Ankit = 2)', card2.active === card2.rows.filter((x) => x.status === 'ACTIVE').length, [card2.active, card2.rows.length]);
+
+      r = await get('/admin/api/customer?phone=9700000001');
+      const c360 = (r.body.subs || []).find((x) => x.sub_id === 'A1');
+      ok('Customer 360: device_name lists both devices', c360 && c360.device_name === 'Device 1: LG OLED · Device 2: Mi TV' && !('raw_json' in c360), c360);
+      const E = require('../expiredusers');
+      const ppl = E.compute({ now: NOW, subs: [{ sub_id: 'X', service: 'JioHotstar', status: 'EXPIRED', expiry_date: at(-9), inventory_ref: 'JH-9', login_id: '9', phone_norm: '2', device_count: 2, device_name: 'Old TV', device_names: '[{"device": 1, "name": "Old TV", "type": "TV"}, {"device": 2, "name": "Old Phone", "type": "PHONE"}]' }] }).other.groups[0].people[0];
+      ok('🚪 Remove users row: both device names (SUBS_SQL reads DeviceNames, JSON_VALID guarded)', ppl.deviceName === 'Device 1: Old TV · Device 2: Old Phone' && /IF\(JSON_VALID\(s\.raw_json\), JSON_EXTRACT\(s\.raw_json, '\$\.DeviceNames'\), NULL\) AS device_names/.test(E.SUBS_SQL), ppl);
+      mockDb.subs.delete('E1');
+    }
+
     section('Sheet reader (read-only adminDumpTab request, clear messages)');
     const bodies = [];
     const fakeFetch = (answer) => async (url, init) => { bodies.push(JSON.parse(init.body)); return { text: async () => JSON.stringify(answer) }; };
@@ -379,7 +534,7 @@ function makeDb(F) {
     ok('inline scripts parse', parsed && scripts.length > 0);
     ok('side menu: 📱 OTP devices right after 🚪 Remove users, with its own view', /\['removeusers', '🚪', 'Remove users'\], \['otpdevices', '📱', 'OTP devices'\]/.test(html) && /otpdevices: otpDevicesView/.test(html) && /function otpDevicesView\(/.test(html));
     ok('screen: counts, service chips, search, Show removed toggle, import card with Sheet + paste + ✅ Save N', /api\('\/admin\/api\/otp-devices', \{ service: OD\.svc, q: OD\.q, removed: OD\.removed \? '1' : '' \}\)/.test(html) && /data-odsvc=/.test(html) && /id="odq"/.test(html) && /Show removed/.test(html) && /📥 Copy device names from old Sheet/.test(html) && /data-odprev="sheet"/.test(html) && /id="odpaste"/.test(html) && /✅ Save ' \+ n \+ ' device name'/.test(html) && /Overwrite device names I already typed/.test(html));
-    ok('device save on 💾, blur and type change → POST /admin/api/otp-devices/device', /post\('\/admin\/api\/otp-devices\/device', \{ subId: id, deviceName: name, deviceType: type \}\)/.test(html) && /addEventListener\('focusout'/.test(html) && /✓ saved/.test(html));
+    ok('device save on 💾, blur and type change → POST /admin/api/otp-devices/device', /post\('\/admin\/api\/otp-devices\/device', \{ subId: f\.r\.subId, device: f\.r\.device \|\| 1, deviceName: name, deviceType: type \}\)/.test(html) && /addEventListener\('focusout'/.test(html) && /✓ saved/.test(html));
     ok('import preview table cells are escaped', /'<td>' \+ esc\(v\) \+ '<\/td>'/.test(html));
     ok('package.json runs this test', /node test\/otp-devices\.test\.js/.test(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')));
   } finally {

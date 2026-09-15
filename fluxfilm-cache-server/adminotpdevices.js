@@ -2,9 +2,9 @@
  * FluxFilm - admin "📱 OTP devices" (admin-only, mounted by admin.js). See otpdevices.js.
  *
  *   GET  /admin/api/otp-devices?service=&q=&removed=1   login accounts of OTP services with their customers
- *   POST /admin/api/otp-devices/device                  { subId, deviceName?, deviceType? }  (raw_json + device_type, change log)
+ *   POST /admin/api/otp-devices/device                  { subId, device?, deviceName?, deviceType? }  (raw_json + device_type, change log)
  *   POST /admin/api/otp-devices/import/preview          { source: 'sheet', tab } | { source: 'paste', text }  → preview, writes NOTHING
- *   POST /admin/api/otp-devices/import/save             { items: [{ subId, deviceName, deviceType }], overwrite }  (one change-log entry)
+ *   POST /admin/api/otp-devices/import/save             { items: [{ subId, device?, setDevices?, deviceName, deviceType }], overwrite }  (one change-log entry)
  *
  * 🚪 Remove uses the existing POST /admin/api/sub-removed (same write + change log as "Removed from account").
  * The old Sheet is only ever READ (sheetReader has no write method).
@@ -38,15 +38,16 @@ function mount(app, deps) {
     if (!auth(req, res)) return;
     try {
       const b = req.body || {};
-      const r = await O().saveDevice(q, { subId: b.subId, deviceName: b.deviceName, deviceType: b.deviceType }, { policyOf: await policyOf() });
+      const r = await O().saveDevice(q, { subId: b.subId, device: b.device, deviceName: b.deviceName, deviceType: b.deviceType }, { policyOf: await policyOf() });
       if (!r.ok) return res.status(r.status || 400).json({ ok: false, message: r.message });
       if (!r.unchanged) {
         const parts = [];
+        if (r.devices > 1) parts.push('device ' + r.device + ' of ' + r.devices + ':');
         if (r.changed.includes('deviceName')) parts.push('device name ' + (r.before.deviceName ? '"' + r.before.deviceName + '"' : '(none)') + ' → ' + (r.after.deviceName ? '"' + r.after.deviceName + '"' : '(none)'));
         if (r.changed.includes('deviceType')) parts.push('type ' + (r.before.deviceType || '(none)') + ' → ' + (r.after.deviceType || '(none)'));
-        audit.record(req, { action: 'sub.device', entity: 'subscription', id: s(b.subId), summary: '📱 ' + (parts.join(', ') || 'device type kept in step'), details: { before: r.before, after: r.after } });
+        audit.record(req, { action: 'sub.device', entity: 'subscription', id: s(b.subId), summary: '📱 ' + (parts.join(', ').replace(':,', ':') || 'device type kept in step'), details: { before: r.before, after: r.after } });
       }
-      res.json({ ok: true, subId: s(b.subId), deviceName: r.after.deviceName, deviceType: r.after.deviceType, updatedAt: r.updatedAt || '', unchanged: !!r.unchanged });
+      res.json({ ok: true, subId: s(b.subId), device: r.device || 1, devices: r.devices || 1, deviceName: r.after.deviceName, deviceType: r.after.deviceType, updatedAt: r.updatedAt || '', unchanged: !!r.unchanged });
     } catch (e) { fail(res, e); }
   });
 
@@ -87,7 +88,7 @@ function mount(app, deps) {
       const overwrite = b.overwrite === true;
       const r = await O().saveImport(q, items, { overwrite, policyOf: await policyOf() });
       if (r.saved) {
-        audit.record(req, { action: 'sub.deviceImport', entity: 'import', id: 'otp-devices', summary: '📥 Copied device names from the old Sheet: ' + r.names + ' name(s), ' + r.types + ' type(s) on ' + r.saved + ' subscription(s)' + (r.unchanged ? ' · ' + r.unchanged + ' already the same' : '') + (r.errors.length ? ' · ' + r.errors.length + ' failed' : '') + (overwrite ? ' · overwrite on' : ''), details: { overwrite, saved: r.saved, names: r.names, types: r.types, unchanged: r.unchanged, skipped: r.skipped, errors: r.errors.slice(0, 50) } });
+        audit.record(req, { action: 'sub.deviceImport', entity: 'import', id: 'otp-devices', summary: '📥 Copied device names from the old Sheet: ' + r.names + ' name(s), ' + r.types + ' type(s) on ' + r.saved + ' subscription(s)' + (r.devices ? ' · ' + r.devices + ' plan(s) set to more devices' : '') + (r.unchanged ? ' · ' + r.unchanged + ' already the same' : '') + (r.errors.length ? ' · ' + r.errors.length + ' failed' : '') + (overwrite ? ' · overwrite on' : ''), details: { overwrite, saved: r.saved, names: r.names, types: r.types, devices: r.devices, unchanged: r.unchanged, skipped: r.skipped, errors: r.errors.slice(0, 50) } });
       }
       res.json(Object.assign({ ok: true, message: r.saved ? '📥 Saved ' + r.saved + ' device name' + (r.saved === 1 ? '' : 's') + '.' + (r.unchanged ? ' ' + r.unchanged + ' already the same.' : '') : 'Nothing new to save' + (r.unchanged ? ' (' + r.unchanged + ' already the same).' : '.') }, r));
     } catch (e) { fail(res, e); }
