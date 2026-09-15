@@ -46,10 +46,20 @@ const DB_RECOVER = Object.assign(
     recoverGetAccess: (a) => recover.getAccess(a[0], a[1], a[2], a[3]),
   } : {},
   otptool ? {
-    // a[2] = device token from otpVerifyCode (required - a phone number alone no longer unlocks OTPs).
-    getLatestOtp: (a) => otptool.getLatestOtp(a[0], a[1], a[2]),
-    otpSendCode: (a) => require('./otpaccess').sendCode(a[0]),
-    otpVerifyCode: (a) => require('./otpaccess').verifyCode(a[0], a[1]),
+    // a[2] = device token from otpVerifyCode (required - a phone number alone no longer unlocks OTPs),
+    // a[3] = sub id / order id of the plan the customer tapped (only that purchase's login OTP is shown).
+    getLatestOtp: (a) => otptool.getLatestOtp(a[0], a[1], typeof a[2] === 'string' ? a[2] : '', typeof a[3] === 'string' ? a[3] : ''),
+    // Get OTP: [phone, email] - the code goes only to an email that belongs to an active plan on that phone.
+    otpSendCode: (a) => require('./otpaccess').sendGetOtpCode(String(a[0] || ''), String(a[1] || '')),
+    // [phone, code, email, kind]: kind 'games' / 'refund' check that tool's email rule; anything else = Get OTP.
+    // The email is required (the old phone-only code to the profile email is gone).
+    otpVerifyCode: (a) => {
+      const ph = String(a[0] || ''); const code = String(a[1] || ''); const em = typeof a[2] === 'string' ? a[2] : '';
+      if (!em) return { ok: false, expired: true, message: 'Please type your email and tap "Email me a code" again.' };
+      if (a[3] === 'games' && gamesMod) return gamesMod.verifyCode(ph, em, code);
+      if (a[3] === 'refund' && refundsMod) return refundsMod.verifyCode(ph, em, code);
+      return require('./otpaccess').verifyGetOtpCode(ph, em, code);
+    },
     getOtpQuota: (a) => otptool.getOtpQuota(a[0], a[1]),
   } : {}
 );
@@ -177,7 +187,8 @@ const LIMITS = {
 const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setAvatar', 'removeProfilePhoto', 'submitRestockRequest']);
 // Per-phone limits (independent of IP) for actions that email or reveal codes.
 const PHONE_LIMITS = {
-  recoverSendOtp: security.rateLimiter(3, 15 * 60e3),
+  // 6 (was 3): a wrong-email try also counts, and recover.js already waits 30 s between real code emails.
+  recoverSendOtp: security.rateLimiter(6, 15 * 60e3),
   getLatestOtp: security.rateLimiter(15, TEN_MIN),
   otpSendCode: security.rateLimiter(4, 60 * 60e3),
   otpVerifyCode: security.rateLimiter(12, 15 * 60e3),
@@ -273,7 +284,7 @@ if (gamesMod) {
     gameStart: (a, req) => gamesMod.start(a[0], a[1], a[2], { paid: !!(a[3] && a[3].paid === true) }, { ip: security.clientIp(req) }),
     gameStep: (a) => gamesMod.step(a[0], a[1], a[2], a[3]),
     gameFinish: (a) => gamesMod.finish(a[0], a[1], a[2], a[3]),
-    gamesSendCode: (a) => gamesMod.sendCode(a[0]),
+    gamesSendCode: (a) => gamesMod.sendCode(String(a[0] || ''), String(a[1] || '')), // [phone, email]
   });
   ['getGamesStatus', 'getGamesHome', 'gameStart', 'gameStep', 'gameFinish', 'gamesSendCode'].forEach((x) => DB_STOREFRONT_ACTIONS.add(x));
   Object.assign(LIMITS, {
@@ -304,7 +315,7 @@ if (refundsMod) {
   Object.assign(DB_STOREFRONT, {
     getPendingRefunds: (a) => refundsMod.getPendingRefunds(a[0]),
     convertRefundToCredit: (a) => refundsMod.convertToCredit(a[0], a[1]),
-    refundSendCode: (a) => refundsMod.sendCode(a[0]),
+    refundSendCode: (a) => refundsMod.sendCode(String(a[0] || ''), String(a[1] || '')), // [phone, email]
     requestUpiRefund: (a) => refundsMod.requestUpi(a[0], a[1], a[2], a[3]),
   });
   ['getPendingRefunds', 'convertRefundToCredit', 'refundSendCode', 'requestUpiRefund'].forEach((x) => DB_STOREFRONT_ACTIONS.add(x));
@@ -403,7 +414,7 @@ app.post('/api', async (req, res) => {
   const limited = rateLimited(req, action, a);
   if (limited) {
     res.set('Retry-After', String(limited.retryAfterSec));
-    return res.status(429).json({ ok: false, rateLimited: true, message: 'Too many requests — please wait ' + Math.ceil(limited.retryAfterSec / 60) + ' min and try again.' });
+    return res.status(429).json({ ok: false, rateLimited: true, message: (action === 'recoverSendOtp' ? 'Too many tries for this number — please wait ' + Math.ceil(limited.retryAfterSec / 60) + ' min. A code we already emailed still works for 10 minutes.' : 'Too many requests — please wait ' + Math.ceil(limited.retryAfterSec / 60) + ' min and try again.') });
   }
   const dbUnavailable = () => res.status(503).json({ ok: false, message: 'The FluxFilm database is temporarily unavailable. No order or update was sent to the old system.' });
   const dbError = (label, e) => {

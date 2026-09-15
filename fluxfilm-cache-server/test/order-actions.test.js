@@ -85,8 +85,8 @@ function run(sql, p) {
   if (/^INSERT INTO admin_todos \(title, note\) VALUES \(\?, \?\)$/.test(sql)) { const id = S.todos.length + 1; S.todos.push({ id, title: p[0], note: p[1], done: 0 }); return { affectedRows: 1, insertId: id }; }
   if (/^UPDATE admin_todos SET done = \?, done_at = (NOW\(\)|NULL) WHERE id = \? LIMIT 1$/.test(sql)) { const t = S.todos.find((x) => x.id === p[1]); if (t) t.done = p[0]; return { affectedRows: t ? 1 : 0 }; }
   if (/^SELECT id, title, note FROM admin_todos WHERE id = \? LIMIT 1$/.test(sql)) return S.todos.filter((x) => x.id === p[0]).map(clone);
-  if (/^SELECT email FROM customers WHERE phone_norm = \?/.test(sql)) return [];
-  if (/^SELECT email FROM orders WHERE phone_norm = \? AND UPPER\(status\) = 'REFUNDED'/.test(sql)) return S.orders.filter((o) => o.phone_norm === p[0] && o.status === 'REFUNDED' && o.email).map((o) => ({ email: o.email }));
+  if (/FROM customers/.test(sql)) throw new Error('refunds must never read the customers profile email: ' + sql);
+  if (/^SELECT order_id, email, status, raw_json FROM orders WHERE phone_norm = \? AND UPPER\(status\) = 'REFUNDED'/.test(sql)) return S.orders.filter((o) => o.phone_norm === p[0] && String(o.status).toUpperCase() === 'REFUNDED').map(clone);
   if (/^UPDATE admin_todos SET done = 1, done_at = NOW\(\) WHERE id = \? AND done = 0 LIMIT 1$/.test(sql)) { const t = S.todos.find((x) => x.id === p[0] && !x.done); if (t) t.done = 1; return { affectedRows: t ? 1 : 0 }; }
   if (/^INSERT INTO coins_ledger/.test(sql)) { S.ledger.push({ event: p[0], order_id: p[1], phone_norm: p[2], coins_delta: p[6], balance_after: p[7], note: p[8] }); return { affectedRows: 1 }; }
   if (/^SELECT phone, coins_balance FROM wallet WHERE phone_norm = \? ORDER BY coins_lifetime DESC, coins_balance DESC LIMIT 1 FOR UPDATE$/.test(sql)) return S.wallet.filter((w) => w.phone_norm === p[0]).map(clone);
@@ -178,7 +178,12 @@ const rawOrder = (id) => { const r = order(id).raw_json; return typeof r === 'st
   const fakeMailer = { send: async (to, subj, html) => { mails.push({ to, subj, html }); return { ok: true }; }, sendAccessEmail: async (p) => { mails.push({ to: p.email, access: p.access }); return { ok: true }; } };
   const fakePush = { sendToPhone: async (ph, msg) => { pushes.push({ ph, msg }); return { ok: true }; }, sendToAdmins: async (msg) => { pushes.push({ admin: true, msg }); return { ok: true }; } };
   const codeSends = [];
-  const fakeOtp = { verifyToken: (t, ph) => t === 'good-' + ph, sendCode: async (ph, o) => { codeSends.push({ ph, tool: o.tool, eligible: await o.eligible(ph), email: await o.emailFor(ph) }); return { ok: true, maskedEmail: 'y*@x.com' }; }, _internal: { maskEmail: () => 'y*@x.com' } };
+  // Token 'good-<phone>' = this device verified y@x.com; 'good-<phone>|other@x.com' = verified another email.
+  const fakeOtp = {
+    tokenMatcher: (t, ph) => (String(t).split('|')[0] === 'good-' + ph ? (em) => em === (String(t).split('|')[1] || 'y@x.com') : null),
+    sendEmailCode: async (kind, ph, em, o) => { const eligible = await o.eligible(ph, (x) => x === em); codeSends.push({ kind, ph, em, tool: o.tool, eligible }); return eligible ? { ok: true } : { ok: false, noActive: true, message: o.noMessage }; },
+    verifyEmailCode: async (kind, ph, em, code, o) => ({ ok: await o.eligible(ph, (x) => x === em) }),
+  };
   const R = require('../refunds').create({ db: mockDb, coins: fakeCoins, push: fakePush, mailer: fakeMailer, otpaccess: fakeOtp });
   admin.mountAdmin(app, {
     db: mockDb, ADMIN_KEY: 'k', sync: require('../sync'),
@@ -358,9 +363,14 @@ const rawOrder = (id) => { const r = order(id).raw_json; return typeof r === 'st
   await post('/admin/api/order/refund', { orderId: 'FF50', method: 'UPI_ASK' });
   pushes.length = 0; mails.length = 0;
   let u = await R.requestUpi(PH, 'FF50', 'rahul@okhdfcbank', '');
-  ok('no email-code token → needsVerify (nothing saved)', u.ok === false && u.needsVerify === true && u.hasEmail === true && !S.todos.length && rawOrder('FF50').RefundState === 'ASK_CUSTOMER', u);
-  const sc = await R.sendCode(PH);
-  ok('email code for refunds: eligible because a cash refund waits, email from the refunded order', sc.ok && codeSends[0].tool === 'Refund' && codeSends[0].eligible === true && codeSends[0].email === 'y@x.com', codeSends);
+  ok('no email-code token → needsVerify (nothing saved), no email hint', u.ok === false && u.needsVerify === true && !('maskedEmail' in u) && !/@/.test(u.message) && !S.todos.length && rawOrder('FF50').RefundState === 'ASK_CUSTOMER', u);
+  const sc = await R.sendCode(PH, 'y@x.com');
+  ok('email code for refunds: the typed email is the one on the refunded order → sent', sc.ok && codeSends[0].kind === 'refund' && codeSends[0].tool === 'Refund' && codeSends[0].eligible === true, codeSends);
+  const scBad = await R.sendCode(PH, 'attacker@evil.com');
+  const scNone = await R.sendCode('9000000009', 'y@x.com');
+  ok('any other email (e.g. a profile email someone wrote) or another phone → one generic "no"', !scBad.ok && scBad.noActive && !scNone.ok && scBad.message === scNone.message && !/y@x|\*/.test(scBad.message), { scBad, scNone });
+  u = await R.requestUpi(PH, 'FF50', 'rahul@okhdfcbank', 'good-' + PH + '|attacker@evil.com');
+  ok('device verified with ANOTHER email (Get OTP / Games / another order) cannot redirect this refund', u.ok === false && u.needsVerify === true && !S.todos.length && !rawOrder('FF50').RefundUpi, u);
   for (const bad of ['rahul', 'rahul@', '@okhdfc', 'rahul@o', 'rahul@@ok', 'rahul@ok-hdfc', 'r@1bank', 'rahul@okhdfcbank.com', '<b>@ybl']) {
     u = await R.requestUpi(PH, 'FF50', bad, 'good-' + PH);
     if (u.ok || u.field !== 'upi') { ok('UPI ID format refused: ' + bad, false, u); break; }

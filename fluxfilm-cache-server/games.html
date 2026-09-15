@@ -487,26 +487,30 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
       return '<div><span>' + esc(x.coupon ? '₹' + x.coupon + ' off coupon' : x.coins ? x.coins + ' coins' : 'No prize') + '</span><b>' + x.chance + '%</b></div>';
     }).join('') + '</div><button class="close" id="shClose">Close</button>', function () { $('shClose').onclick = closeSheet; });
   }
+  // No email hints: the customer types the email they bought with (it must be on one of this phone's plans / paid orders).
   function openVerify() {
-    var el = (S.home && S.home.eligibility) || {};
-    sheet('<h3 class="disp">🔒 Confirm it\'s you</h3><p>We\'ll email a 6-digit code to ' + (el.maskedEmail ? '<b>' + esc(el.maskedEmail) + '</b>' : 'the email on your FluxFilm account') + '. You only need to do this once on this phone.</p>' +
+    sheet('<h3 class="disp">🔒 Confirm it\'s you</h3><p>Type the email you used when you bought a FluxFilm plan. We\'ll email you a 6-digit code. You only need to do this once on this phone.</p>' +
+      '<input class="codein" id="vEmail" type="email" autocomplete="email" maxlength="120" placeholder="name@gmail.com" aria-label="Your email" style="letter-spacing:normal;font-size:16px"/>' +
       '<button class="cta" id="vSend">Email me a code</button><div id="vStep2" hidden style="display:flex;flex-direction:column;gap:10px"><input class="codein" id="vCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" aria-label="6-digit code"/><button class="cta" id="vOk">Confirm</button></div>' +
       '<div class="err" id="vErr" role="alert"></div><button class="close" id="shClose">Not now</button>', function () {
       $('shClose').onclick = closeSheet;
+      var email = function () { return String($('vEmail').value || '').replace(/\s+/g, '').toLowerCase(); };
       $('vSend').onclick = function () {
+        if (!/^[^@]+@[^@]+\.[^@]+$/.test(email())) { $('vErr').textContent = 'Enter your email, like name@gmail.com.'; return; }
         var b = $('vSend'); b.disabled = true; b.textContent = 'Sending…'; $('vErr').textContent = '';
-        api('gamesSendCode', [S.phone]).then(function (r) {
+        api('gamesSendCode', [S.phone, email()]).then(function (r) {
           b.disabled = false; b.textContent = 'Send the code again';
           if (!r.ok) { $('vErr').textContent = r.message || 'Could not send the code.'; return; }
-          $('vStep2').hidden = false; toast(r.message || ('Code sent to ' + (r.maskedEmail || 'your email'))); $('vCode').focus();
+          $('vStep2').hidden = false; toast(r.message || 'Code sent to your email'); $('vCode').focus();
         });
       };
       $('vOk').onclick = function () {
         var b = $('vOk'); b.disabled = true; $('vErr').textContent = '';
-        api('otpVerifyCode', [S.phone, $('vCode').value]).then(function (r) {
+        api('otpVerifyCode', [S.phone, $('vCode').value, email(), 'games']).then(function (r) {
           b.disabled = false;
           if (!r.ok || !r.token) { $('vErr').textContent = r.message || 'That code is not right.'; return; }
           try { localStorage.setItem('ff_otp_access_' + S.phone, JSON.stringify({ token: r.token, expiresAt: r.expiresAt })); } catch (e) {}
+          S.token = r.token;
           closeSheet(); toast('✅ Confirmed — you can win prizes now'); loadHome();
         });
       };
