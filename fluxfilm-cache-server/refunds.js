@@ -61,6 +61,9 @@ const SENT_POPUP_DAYS = 30;               // "✅ Your refund was sent" pop-up: 
 const UPI_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{1,99}@[a-zA-Z][a-zA-Z0-9]{1,49}$/;
 const OFFER_RE = /^RO[A-Z0-9]{8}$/;
 const REASONS = { NO_REPLACEMENT: 'No replacement available', MID_PERIOD: 'Mid-period refund' };
+// ⚡ Refund now (adminrefundnow.js): refunds the owner issues directly are refund_offers rows with an RN… id.
+const NOW_REASONS = { NO_REPLACEMENT: 'No replacement', MID_PERIOD: 'Mid-period', NOT_DELIVERED: 'Not delivered', OTHER: 'Other' };
+const NOW_ID_RE = /^RN[A-Z0-9]{8}$/;
 const TODO_MARK = (id) => '[upi-refund:' + id + ']';
 const TODO_MARK_RE = /\[upi-refund:(FF\d{1,14})\]/;
 /** refund + bonus% in whole rupees (coins / coupon value). */
@@ -119,6 +122,7 @@ function refundInfo(o) {
     coupon: s(raw.RefundCoupon), couponExpiry: s(raw.RefundCouponExpiry), upi: s(raw.RefundUpi), at: s(raw.RefundedAt),
     todoId: raw.RefundTodoId || null, reference: s(raw.RefundRef),
     delivered: up(raw.RefundKind) === 'DELIVERED', offerId: s(raw.RefundOfferId), charge: asNum(raw.RefundCharge), paid: asNum(raw.RefundPaid),
+    byAdmin: raw.RefundNow === true,
   };
 }
 
@@ -210,6 +214,8 @@ function create(deps) {
         P('Choose how you want it in the app:') + choices(d.credit) + button +
         P('This refund is ready for you until <b>' + esc(s(d.expiresAt).slice(0, 10)) + '</b>. When you take it, this plan stops working (the account is refunded).');
     }
+    // ⚡ Refund now (adminrefundnow.js): the owner's optional note to the customer on the other refund emails.
+    if (kind !== 'OFFER' && s(d.note)) extra += P('Note from FluxFilm: <i>' + esc(d.note) + '</i>');
     const html = '<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:520px;margin:auto"><h2 style="color:#0f766e;margin-bottom:4px">' + esc(title) + '</h2>' +
       '<p style="color:#475569;margin-top:0">Hi ' + esc(o.name || 'there') + ',</p>' +
       '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin:14px 0;font-size:14px"><b>' + esc(o.service) + '</b> — ' + esc(o.plan) + '<br>Order ID: ' + esc(o.order_id) + '<br>' + esc(body) + '</div>' + extra +
@@ -781,7 +787,8 @@ function create(deps) {
   function adminOfferView(ro) {
     const st = up(ro.status) === 'OFFERED' && expired(ro) ? 'EXPIRED' : up(ro.status);
     return {
-      offerId: s(ro.offer_id), orderId: s(ro.order_id), subIds: s(ro.sub_ids), phone: norm(ro.phone_norm), service: s(ro.service), plan: s(ro.plan), reason: up(ro.reason), reasonLabel: REASONS[up(ro.reason)] || '',
+      offerId: s(ro.offer_id), orderId: s(ro.order_id), subIds: s(ro.sub_ids), phone: norm(ro.phone_norm), service: s(ro.service), plan: s(ro.plan), reason: up(ro.reason), reasonLabel: REASONS[up(ro.reason)] || NOW_REASONS[up(ro.reason)] || '',
+      byAdmin: NOW_ID_RE.test(s(ro.offer_id)),
       paid: asNum(ro.paid_amount), charge: asNum(ro.charge_amount), suggestedCharge: ro.suggested_charge == null ? null : asNum(ro.suggested_charge), refund: asNum(ro.refund_amount),
       daysUsed: ro.days_used == null ? null : Number(ro.days_used), totalDays: ro.total_days == null ? null : Number(ro.total_days), bonusPercent: asNum(ro.bonus_percent), note: s(ro.note),
       status: st, method: up(ro.method), credit: ro.credit_amount == null ? null : Number(ro.credit_amount), coupon: s(ro.coupon_code), upi: s(ro.upi_id), reference: s(ro.upi_ref),
@@ -797,7 +804,7 @@ function create(deps) {
     const toSend = []; const choosing = [];
     for (const o of rows || []) {
       const r = refundInfo(o); const raw = rawOf(o.raw_json);
-      const row = { orderId: s(o.order_id), name: s(o.name), phone: norm(o.phone_norm), email: s(o.email), service: s(o.service), plan: s(o.plan), amount: r.amount, upi: r.upi, state: r.state, requestedAt: s(raw.RefundUpiRequestedAt), refundedAt: r.at, delivered: r.delivered, offerId: r.offerId, charge: r.charge, paid: r.paid };
+      const row = { orderId: s(o.order_id), name: s(o.name), phone: norm(o.phone_norm), email: s(o.email), service: s(o.service), plan: s(o.plan), amount: r.amount, upi: r.upi, state: r.state, requestedAt: s(raw.RefundUpiRequestedAt), refundedAt: r.at, delivered: r.delivered, offerId: r.offerId, charge: r.charge, paid: r.paid, byAdmin: r.byAdmin };
       if (r.state === 'UPI_REQUESTED') toSend.push(row); else if (r.state === 'ASK_CUSTOMER') choosing.push(Object.assign(row, { kind: 'order' }));
     }
     toSend.sort((a, b) => String(a.requestedAt).localeCompare(String(b.requestedAt)));
@@ -821,8 +828,10 @@ function create(deps) {
   return {
     getSettings, saveSettings, getPendingRefunds, chooseRefund, chooseForOrder, convertToCredit, acceptOffer, sendCode, verifyCode, requestUpi, requestOfferUpi, markSentSeen,
     completeUpi, onTodoDone, createRefundCouponOn, notify, quoteOffer, createOffer, cancelOffer, adminOverview, offerTarget,
+    // ⚡ Refund now (adminrefundnow.js) reuses the offer-accept access ending and the UPI to-do.
+    endAccessOn, addUpiTodo,
   };
 }
 
 const defaultInstance = create();
-module.exports = Object.assign({ create, refundInfo, BONUS_PERCENT, OFFER_DAYS, COUPON_DAYS, UPI_RE, OFFER_RE, REASONS, bonusCredit, maskUpi, suggestCharge, offerAmounts, validateSettings, TODO_MARK_RE, Refused }, defaultInstance);
+module.exports = Object.assign({ create, refundInfo, BONUS_PERCENT, OFFER_DAYS, COUPON_DAYS, UPI_RE, OFFER_RE, REASONS, NOW_REASONS, NOW_ID_RE, bonusCredit, maskUpi, suggestCharge, offerAmounts, validateSettings, TODO_MARK_RE, Refused }, defaultInstance);

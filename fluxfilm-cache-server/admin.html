@@ -876,7 +876,7 @@ function subCard(s) {
     '<div class="bar' + (d != null && d <= 0 ? ' b' : d != null && d <= 7 ? ' w' : '') + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
     (creds ? '<div class="creds">' + creds + '</div>' : '') + rmUi +
     '<div class="row" style="justify-content:space-between"><div class="meta"><span class="pill p-grey">' + id + '</span>' + (s.inventory_ref ? '<span class="pill p-blue">' + esc(s.inventory_ref) + '</span>' : '') + statusPill(s.status) + (s.source ? '<span class="pill p-grey">' + esc(s.source) + '</span>' : '') + '</div>' +
-    '<span class="row" style="gap:6px">' + (!/REFUNDED|CANCEL|REMOVED/i.test(s.status || '') ? '<button class="btn ghost sm" onclick="offerRefundDialog(\'' + id + '\')">💸 Offer refund</button>' : '') + '<button class="btn ghost sm" onclick="extendDialog(\'' + id + '\')">⏱ Extend</button><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a></span></div></div>';
+    '<span class="row" style="gap:6px">' + (!/REFUNDED|CANCEL|REMOVED/i.test(s.status || '') ? '<button class="btn ghost sm" onclick="offerRefundDialog(\'' + id + '\')">💸 Offer refund</button><button class="btn ghost sm" onclick="refundNowDialog(\'' + id + '\')">⚡ Refund now</button>' : '') + '<button class="btn ghost sm" onclick="extendDialog(\'' + id + '\')">⏱ Extend</button><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a></span></div></div>';
 }
 function saveRemoved(id) {
   var cb = document.getElementById('rm_' + id), at = document.getElementById('rmat_' + id), msg = document.getElementById('rmmsg_' + id);
@@ -1705,9 +1705,11 @@ function orderActionsHtml(r) {
   // Cash refund still open (refunds.js): the owner sends the money, then marks it sent here (or ticks the Today to-do).
   if (a.upiDone && a.upiDone.allowed) h += '<div class="oabtns"><button class="btn purple" data-oa="upidone">✅ Mark UPI refund sent</button></div><div id="oa_form"></div><div id="oa_msg"></div>';
   // 💸 Offer refund (Refunds v3): a delivered plan — the customer chooses coins / coupon / UPI in the app.
-  if (a.offer && a.offer.allowed) h += '<div class="oabtns"><button class="btn purple" data-oa="offer">💸 Offer refund</button><span class="muted" style="font-size:.75rem">No replacement, or a mid-period refund with a usage charge</span></div>' + (a.fulfil.allowed || a.manual.allowed || a.refund.allowed || a.erase.allowed ? '' : '<div id="oa_form"></div><div id="oa_msg"></div>');
+  // ⚡ Refund now: the owner already agreed it with the customer (delivered or not) — issue it in one step.
+  var rnow = a.refundNow && a.refundNow.allowed, offerOk = a.offer && a.offer.allowed;
+  if (offerOk || rnow) h += '<div class="oabtns">' + (offerOk ? '<button class="btn purple" data-oa="offer">💸 Offer refund</button>' : '') + (rnow ? '<button class="btn dark" data-oa="refundnow">⚡ Refund now</button>' : '') + '<span class="muted" style="font-size:.75rem">' + (offerOk ? 'Offer: the customer chooses in the app. ' : '') + (rnow ? '⚡ Refund now: already agreed with the customer — UPI / coins / coupon at once.' : '') + '</span></div>' + (a.fulfil.allowed || a.manual.allowed || a.refund.allowed || a.erase.allowed ? '' : '<div id="oa_form"></div><div id="oa_msg"></div>');
   var any = a.fulfil.allowed || a.manual.allowed || a.refund.allowed || a.erase.allowed;
-  if (!any && ((a.upiDone && a.upiDone.allowed) || (a.offer && a.offer.allowed))) return h + '</div>';
+  if (!any && ((a.upiDone && a.upiDone.allowed) || offerOk || rnow)) return h + '</div>';
   if (!any) return h + '<div class="muted" style="font-size:.85rem">' + (a.refunded ? 'Nothing else to do for a refunded order.' : a.delivered ? '✅ Delivered — nothing to fix.' : esc(a.refund.reason || a.fulfil.reason || '')) + '</div></div>';
   if (r.lastError && !a.delivered && a.status === 'PAID') h += '<div class="qnote bad">⚠️ Last delivery error: ' + esc(r.lastError) + (r.lastErrorAt ? ' <span class="muted">(' + prettyDate(r.lastErrorAt, true) + ')</span>' : '') + '</div>';
   if (r.stock && a.status === 'PAID') h += '<div class="qnote ' + (r.stock.stockLevel === 'OUT' ? 'bad' : r.stock.stockLevel === 'LOW' ? 'warn' : '') + '">📦 Stock for ' + esc(r.service) + ' · ' + esc(r.plan) + ': <b>' + esc(oaStockText(r.stock)) + '</b>' + (r.stock.stockLevel === 'OUT' ? ' — add an account in 📦 Stock first, or deliver manually / refund.' : '') + '</div>';
@@ -1723,7 +1725,8 @@ function orderActionsHtml(r) {
 }
 // How a refund was / is being paid (adminorderactions.js → refund.kind / state).
 function oaRefundHow(f) {
-  var off = f.delivered ? ' <span class="muted">(delivered plan · offer ' + esc(f.offerId) + ' · paid ' + money(f.paid) + (f.charge ? ' − charge ' + money(f.charge) : ', no charge') + ' · access ended)</span> ' : '';
+  if (f.byAdmin && !f.delivered) return ' <span class="muted">(⚡ by admin · not delivered)</span> ' + oaRefundHow1(f);
+  var off = f.delivered ? ' <span class="muted">(delivered plan · ' + (f.byAdmin ? '⚡ by admin' : 'offer ' + esc(f.offerId)) + ' · paid ' + money(f.paid) + (f.charge ? ' − charge ' + money(f.charge) : ', no charge') + ' · access ended)</span> ' : '';
   return off + oaRefundHow1(f);
 }
 function oaRefundHow1(f) {
@@ -1748,6 +1751,7 @@ function wireOrderActions(r) {
     var b = e.target.closest('[data-oa]'); if (!b) return;
     var act = b.getAttribute('data-oa'), form = $('#oa_form'); oaMsg('');
     if (act === 'offer') { offerRefundForm(form, { orderId: id }, function (x) { oaAfter(id, '<div class="qnote" style="margin-bottom:10px">' + esc(x.message || 'Refund offered') + '</div>'); }); return; }
+    if (act === 'refundnow') { refundNowForm(form, { orderId: id }, function (x) { oaAfter(id, '<div class="qnote" style="margin-bottom:10px">' + esc(x.message || 'Refunded') + '</div>' + oaNotes(x)); }); return; }
     if (act === 'fulfil') {
       if (!confirm(a.fulfil.label.replace(/^\S+\s/, '') + ' ' + id + ' now? It picks a free account exactly like a website order and emails the customer.')) return;
       b.disabled = true; oaMsg('<div class="qnote">Working…</div>');
@@ -1858,6 +1862,7 @@ function wireOrderActions(r) {
 function rfStatusPill(st) { var c = { OFFERED: 'p-warn', UPI_REQUESTED: 'p-bad', DONE: 'p-ok', CANCELLED: 'p-grey', EXPIRED: 'p-grey' }[st] || 'p-grey'; var t = { OFFERED: 'waiting for customer', UPI_REQUESTED: 'UPI to send', DONE: 'done', CANCELLED: 'cancelled', EXPIRED: 'expired' }[st] || st; return '<span class="pill ' + c + '">' + esc(t) + '</span>'; }
 function rfOfferLine(f) {
   var how = f.method === 'COINS' ? '🪙 ' + esc(f.credit) + ' coins' : f.method === 'COUPON' ? '🎟️ coupon ' + esc(f.coupon) + ' (' + money(f.credit) + ')' : f.method === 'UPI' ? '🏦 UPI ' + esc(f.upi) + (f.reference ? ' · ref ' + esc(f.reference) : '') : '';
+  if (f.byAdmin) return '<b>' + money(f.refund) + '</b> ' + rfStatusPill(f.status) + ' <span class="pill p-blue">⚡ by admin</span> <span class="muted" style="font-size:.75rem">' + esc(f.offerId) + ' · ' + esc(f.reasonLabel || f.reason) + ' · paid ' + money(f.paid) + (f.charge ? ' − charge ' + money(f.charge) : '') + (how ? ' · ' + how : '') + (f.method === 'UPI' && f.status === 'UPI_REQUESTED' ? ' (to send)' : '') + (f.emailSent ? ' · emailed' : '') + (f.note ? ' · “' + esc(f.note) + '”' : '') + ' · ' + prettyDate(f.createdAt, true) + '</span>';
   return '<b>' + money(f.refund) + '</b> ' + rfStatusPill(f.status) + ' <span class="muted" style="font-size:.75rem">' + esc(f.offerId) + ' · ' + (f.reason === 'NO_REPLACEMENT' ? 'no replacement' : 'mid-period, charge ' + money(f.charge) + (f.daysUsed != null ? ' (' + esc(f.daysUsed) + '/' + esc(f.totalDays) + ' days)' : '')) + ' · paid ' + money(f.paid) + (how ? ' · ' + how : '') + (f.status === 'OFFERED' ? ' · open until ' + prettyDate(f.expiresAt) : '') + (f.emailSent ? ' · emailed' : '') + (f.note ? ' · “' + esc(f.note) + '”' : '') + '</span>';
 }
 function offerRefundDialog(subId) {
@@ -1914,6 +1919,92 @@ function offerRefundForm(box, target, after, prefill) {
     };
   });
 }
+/* ================= ⚡ Refund now: already agreed with the customer → refund at once (adminrefundnow.js) ================= */
+function refundNowDialog(subId) {
+  modal('⚡ Refund now', '<div id="rnw_box"></div>', '', '');
+  refundNowForm($('#rnw_box'), { subId: subId }, function () { closeModal(); if ($('#c360') && S.cust && $('#cp')) lookup(true); });
+}
+function refundNowForm(box, target, after) {
+  if (!box) return;
+  box.innerHTML = '<p class="muted" style="font-size:.8rem">Loading…</p>';
+  api('/admin/api/order/refund-now/quote', target).then(function (q) {
+    if (!box.isConnected) return;
+    if (!q.ok) { box.innerHTML = '<div class="qnote bad">⚠️ ' + esc(q.message || 'Could not load') + '</div>'; return; }
+    var what = (q.legacy ? esc(q.subId) : esc(q.orderId)) + ' — ' + esc(q.service) + ' ' + esc(q.plan);
+    var head = '<div class="qnote">' + svcIcon(q.service) + ' <b>' + esc(q.service) + ' · ' + esc(q.plan) + '</b> · ' + (q.legacy ? esc(q.subId) + ' (old-site plan)' : esc(q.orderId)) + ' · ' + esc(q.name || '') + ' ' + esc(q.phone || '') +
+      '<br>' + (q.legacy ? 'Paid: <b>not in the new system</b>' : 'Paid <b>' + money(q.paid) + '</b>') + (q.delivered ? ' · used <b>' + esc(q.daysUsed) + ' of ' + esc(q.totalDays) + ' days</b>' + (q.periodEnd ? ' (until ' + prettyDate(q.periodEnd) + ')' : '') : ' · <b>not delivered</b>') + '</div>' +
+      (q.openOffer ? '<div class="qnote warn">An open refund offer (' + esc(q.openOffer.offerId) + ', ' + money(q.openOffer.refund) + ') will be closed — handled by admin.</div>' : '') +
+      (q.openRequest ? '<div class="qnote warn">The customer’s refund request (' + esc(q.openRequest.requestId) + ') will be closed — handled by admin.</div>' : '') +
+      (q.phoneOk ? '' : '<div class="qnote warn">No 10-digit phone number: only 🏦 UPI “Already sent” can be recorded.</div>');
+    if (!q.allowed) { box.innerHTML = '<div class="oaform" data-nodirty><b>⚡ Refund now</b>' + head + '<div class="qnote warn">' + esc(q.reason || 'Not possible.') + '</div></div>'; return; }
+    box.innerHTML = '<div class="oaform" data-nodirty><b>⚡ Refund now</b><span class="muted" style="font-size:.75rem">For a refund you already agreed with the customer. It happens at once — no offer, no request.' + (q.delivered ? ' This plan stops working (Recover / Get OTP / renew stop).' : '') + '</span>' + head +
+      (q.legacy ? '<div class="qnote">This plan was bought on the old site, so there is no order to refund. Type what they paid: the refund is recorded on the plan.</div><label>Paid (₹) *<input class="inp" id="rn_paid" type="number" min="1" step="1" inputmode="numeric"/></label>' : '') +
+      '<label>Reason<select class="inp" id="rn_reason"><option value="NO_REPLACEMENT">No replacement — no charge</option><option value="MID_PERIOD">Mid-period — usage charge</option><option value="NOT_DELIVERED">Not delivered — no charge</option><option value="OTHER">Other (write why)</option></select></label>' +
+      '<label id="rn_rtextl">Why?<input class="inp" id="rn_rtext" maxlength="200" autocomplete="off"/></label>' +
+      '<div class="row2"><label id="rn_chargel">Usage charge (₹) <span class="muted" style="font-size:.72rem" id="rn_sugg"></span><input class="inp" id="rn_charge" type="number" min="0" step="1" inputmode="numeric" value="0"/></label>' +
+      '<label>Refund amount (₹)<input class="inp" id="rn_amt" type="number" min="1" step="1" inputmode="numeric"/></label></div>' +
+      '<label>How<select class="inp" id="rn_method"><option value="UPI">🏦 UPI</option><option value="COINS">🪙 Coins (refund credit)</option><option value="COUPON">🎟️ Coupon (one use, ' + esc(q.couponDays || 180) + ' days)</option></select></label>' +
+      '<div id="rn_upibox" style="display:grid;gap:8px"><div class="row2"><label>UPI ID *<input class="inp" id="rn_upi" placeholder="name@okhdfcbank" autocomplete="off" autocapitalize="none"/></label><label>UTR / reference (optional)<input class="inp" id="rn_ref" autocomplete="off"/></label></div>' +
+      '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rn_sent" checked/> Already sent' + (q.legacy ? '' : ' (untick = add to 💸 Refunds to send)') + '</label></div>' +
+      '<div id="rn_bonusbox" class="row" style="gap:8px;align-items:center;flex-wrap:wrap"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rn_bonus"' + (Number(q.bonusPercent) > 0 ? ' checked' : '') + '/> Add bonus</label><input class="inp" id="rn_pct" type="number" min="0" max="50" step="1" value="' + esc(q.bonusPercent) + '" style="max-width:90px"/> %</div>' +
+      '<label>Note to the customer (optional)<input class="inp" id="rn_note" maxlength="300" autocomplete="off"/></label>' +
+      '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rn_notify" checked/> Send email to customer' + (q.email ? ' (' + esc(q.email) + ')' : ' — no email on this ' + (q.legacy ? 'plan' : 'order')) + '</label>' +
+      '<div class="qnote" id="rn_total"></div><div id="rn_msg"></div>' +
+      '<button class="btn dark" id="rn_review">Review</button><div id="rn_confirm"></div></div>';
+    var touched = false, int = function (id) { var v = $(id).value; return v === '' ? null : Math.round(Number(v)); };
+    var calc = function () {
+      var reason = $('#rn_reason').value, method = $('#rn_method').value;
+      var paid = q.legacy ? (int('#rn_paid') || 0) : Number(q.paid) || 0;
+      var noCharge = reason === 'NO_REPLACEMENT' || reason === 'NOT_DELIVERED';
+      var sugg = q.legacy ? Math.round(paid * (Number(q.daysUsed) || 0) / (Number(q.totalDays) || 30)) : Number(q.suggestedCharge) || 0;
+      $('#rn_rtextl').style.display = reason === 'OTHER' ? '' : 'none';
+      $('#rn_chargel').style.display = noCharge ? 'none' : '';
+      $('#rn_sugg').textContent = q.delivered && paid ? 'suggested ' + money(sugg) + ' = ' + q.daysUsed + ' ÷ ' + q.totalDays + ' days × ' + money(paid) : '';
+      var charge = noCharge ? 0 : Math.max(0, int('#rn_charge') || 0);
+      if (!touched) $('#rn_amt').value = Math.max(0, paid - charge);
+      var amt = int('#rn_amt') || 0;
+      $('#rn_upibox').style.display = method === 'UPI' ? 'grid' : 'none';
+      $('#rn_bonusbox').style.display = method === 'UPI' ? 'none' : 'flex';
+      var pct = method !== 'UPI' && $('#rn_bonus').checked ? Math.max(0, Math.min(50, int('#rn_pct') || 0)) : 0;
+      var value = amt + Math.round(amt * pct / 100);
+      var err = !paid ? 'Type what the customer paid.' : charge > paid ? 'The charge is more than paid.' : amt > paid ? 'The refund can’t be more than paid (' + money(paid) + ').' : amt < 1 ? 'The refund must be at least ₹1.' : '';
+      $('#rn_total').innerHTML = err ? '⚠️ ' + esc(err) : 'Refund <b>' + money(amt) + '</b> (paid ' + money(paid) + (paid - amt ? ' − ' + money(paid - amt) : ', no charge') + ')' + (method === 'UPI' ? '' : ' → customer gets <b>' + money(value) + '</b>' + (pct ? ' (+' + pct + '%)' : ''));
+      return { reason: reason, method: method, paid: paid, charge: paid - amt, amt: amt, pct: pct, value: value, err: err };
+    };
+    $('#rn_amt').oninput = function () { touched = true; calc(); };
+    ['#rn_reason', '#rn_method', '#rn_charge', '#rn_bonus', '#rn_pct', '#rn_sent'].concat(q.legacy ? ['#rn_paid'] : []).forEach(function (sel) { $(sel).oninput = calc; $(sel).onchange = calc; });
+    if (!q.delivered) $('#rn_reason').value = 'NOT_DELIVERED';
+    if (q.delivered && !q.legacy) $('#rn_charge').value = q.suggestedCharge || 0;
+    calc();
+    $('#rn_review').onclick = function () {
+      var v = calc(), msg = $('#rn_msg'); msg.innerHTML = ''; $('#rn_confirm').innerHTML = '';
+      if (v.err) { msg.innerHTML = '<div class="qnote bad">' + esc(v.err) + '</div>'; return; }
+      if (v.reason === 'OTHER' && $('#rn_rtext').value.trim().length < 3) { msg.innerHTML = '<div class="qnote bad">Write why (a few words).</div>'; $('#rn_rtext').focus(); return; }
+      var upi = $('#rn_upi').value.replace(/\s+/g, ''), sent = $('#rn_sent').checked;
+      if (v.method === 'UPI' && !/^[a-zA-Z0-9][a-zA-Z0-9._-]{1,99}@[a-zA-Z][a-zA-Z0-9]{1,49}$/.test(upi)) { msg.innerHTML = '<div class="qnote bad">Enter a UPI ID like name@okhdfcbank.</div>'; $('#rn_upi').focus(); return; }
+      if (v.method === 'UPI' && !sent && q.legacy) { msg.innerHTML = '<div class="qnote bad">Old-site plan: send the UPI refund first, then record it with “Already sent”.</div>'; return; }
+      var ends = q.delivered ? ' This plan will stop working.' : ' The order is marked refunded.';
+      var line = v.method === 'UPI' ? (sent ? 'Refund ' + money(v.amt) + ' to ' + upi + ' (already sent' + ($('#rn_ref').value.trim() ? ', ref ' + $('#rn_ref').value.trim() : '') + ')' : 'Add ' + money(v.amt) + ' to Refunds to send → ' + upi)
+        : v.method === 'COINS' ? 'Add ' + v.value + ' coins of refund credit (' + money(v.amt) + (v.pct ? ' + ' + v.pct + '%' : '') + ')'
+          : 'Create a ' + money(v.value) + ' coupon (' + money(v.amt) + (v.pct ? ' + ' + v.pct + '%' : '') + ', one use, ' + (q.couponDays || 180) + ' days)';
+      $('#rn_confirm').innerHTML = '<div class="qnote warn" style="font-size:.9rem"><b>' + esc(line) + '</b> for ' + what + '.' + esc(ends) + ($('#rn_notify').checked && q.email ? ' The customer is emailed.' : ' No email.') + '</div>' +
+        '<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn purple" id="rn_go">⚡ Confirm refund ' + money(v.amt) + '</button><button class="btn ghost" id="rn_back">Back</button></div>';
+      $('#rn_back').onclick = function () { $('#rn_confirm').innerHTML = ''; };
+      $('#rn_go').onclick = function () {
+        var go = this; go.disabled = true; msg.innerHTML = '<div class="qnote">Working…</div>';
+        var body = { orderId: q.legacy ? '' : q.orderId, subId: q.legacy ? q.subId : '', reason: v.reason, reasonText: $('#rn_rtext').value, charge: v.charge, amount: v.amt, method: v.method, upi: upi, reference: $('#rn_ref').value, upiSent: sent, addBonus: $('#rn_bonus').checked, bonusPercent: $('#rn_pct').value, note: $('#rn_note').value, notify: $('#rn_notify').checked };
+        if (q.legacy) body.paid = v.paid;
+        post('/admin/api/order/refund-now', body).then(function (x) {
+          go.disabled = false;
+          if (!x.ok) { msg.innerHTML = '<div class="qnote bad">⚠️ ' + esc(x.message || 'failed') + '</div>'; return; }
+          msg.innerHTML = '';
+          var m = $('#modal'); if (m) m.removeAttribute('data-dirty');
+          toast(x.message || '⚡ Refunded'); if (after) after(x);
+        });
+      };
+    };
+  });
+}
 var RF = { data: null };
 function refundsView() {
   $('#view').innerHTML = '<div class="ph"><div><h1>↩️ Refunds</h1><p>UPI refunds to send, refunds the customer is still choosing, and refund offers on delivered plans</p></div><button class="btn ghost" id="rfreload">⟳ Refresh</button></div><div id="rfbody"><p class="muted">Loading…</p></div>';
@@ -1931,7 +2022,7 @@ function renderRefundsView() {
   var d = RF.data, st = d.settings || {};
   var send = (d.toSend || []).map(function (x, i) {
     return '<div class="li" style="align-items:flex-start"><span style="font-size:1.1rem">' + svcIcon(x.service) + '</span><div class="grow"><b>' + money(x.amount) + ' → <code>' + esc(x.upi) + '</code></b> <button class="copy" data-copy="' + esc(x.upi) + '">Copy UPI</button>' +
-      '<div class="muted" style="font-size:.75rem">' + esc(x.name || '—') + ' · ' + esc(x.phone) + ' · <a href="#" data-rfo="' + esc(x.orderId) + '">' + esc(x.orderId) + '</a> · ' + esc(x.service) + ' ' + esc(x.plan) + (x.delivered ? ' · delivered plan' + (x.charge ? ' (paid ' + money(x.paid) + ' − charge ' + money(x.charge) + ')' : ' (no charge)') : ' · not delivered') + (x.requestedAt ? ' · asked ' + prettyDate(x.requestedAt, true) : '') + '</div>' +
+      '<div class="muted" style="font-size:.75rem">' + esc(x.name || '—') + ' · ' + esc(x.phone) + ' · <a href="#" data-rfo="' + esc(x.orderId) + '">' + esc(x.orderId) + '</a> · ' + esc(x.service) + ' ' + esc(x.plan) + (x.delivered ? ' · delivered plan' + (x.charge ? ' (paid ' + money(x.paid) + ' − charge ' + money(x.charge) + ')' : ' (no charge)') : ' · not delivered') + (x.byAdmin ? ' · ⚡ by admin' : '') + (x.requestedAt ? ' · asked ' + prettyDate(x.requestedAt, true) : '') + '</div>' +
       '<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><input class="inp" style="max-width:230px" placeholder="UTR / reference (optional)" id="rfutr_' + i + '" autocomplete="off"/><button class="btn green sm" data-rfdone="' + i + '">✅ Done</button></div></div></div>';
   }).join('');
   var choosing = (d.choosing || []).map(function (x) {
@@ -1949,7 +2040,7 @@ function renderRefundsView() {
       (open ? '<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">' + (x.kind === 'UNDELIVERED' ? '<button class="btn green sm" data-rqapprove="' + i + '">✅ Approve → offer full refund</button>' : '<button class="btn purple sm" data-rqoffer="' + i + '">💸 Offer refund</button>') + '<button class="btn ghost sm" data-rqreject="' + i + '">❌ Reject</button></div>' : '') + '</div></div>';
   }).join('');
   var recent = (d.offers || []).filter(function (f) { return f.status !== 'OFFERED'; }).slice(0, 40).map(function (f) {
-    return '<div class="li"><span style="font-size:1.1rem">' + svcIcon(f.service) + '</span><div class="grow">' + rfOfferLine(f) + '<div class="muted" style="font-size:.72rem">' + esc(f.name || '') + ' ' + esc(f.phone) + ' · <a href="#" data-rfo="' + esc(f.orderId) + '">' + esc(f.orderId) + '</a> · ' + esc(f.service) + ' ' + esc(f.plan) + ' · offered ' + prettyDate(f.createdAt, true) + '</div></div></div>';
+    return '<div class="li"><span style="font-size:1.1rem">' + svcIcon(f.service) + '</span><div class="grow">' + rfOfferLine(f) + '<div class="muted" style="font-size:.72rem">' + esc(f.name || '') + ' ' + esc(f.phone) + ' · <a href="#" data-rfo="' + esc(f.orderId) + '">' + esc(f.orderId) + '</a> · ' + esc(f.service) + ' ' + esc(f.plan) + (f.byAdmin ? '' : ' · offered ' + prettyDate(f.createdAt, true)) + '</div></div></div>';
   }).join('');
   $('#rfbody').innerHTML =
     (d.ready ? '' : '<div class="qnote warn">Run <b>db/schema-v26.sql</b> in phpMyAdmin to switch on 💸 Offer refund for delivered plans. Not-delivered refunds and the UPI list below already work.</div>') +
@@ -1960,7 +2051,7 @@ function renderRefundsView() {
     '<label>Extra for coins / coupon (%)<input class="inp" id="rfbonus" type="number" min="0" max="50" step="1" value="' + esc(st.bonusPercent) + '" style="max-width:120px"/></label>' +
     '<label>Days the customer has to choose (delivered plans)<input class="inp" id="rfdays" type="number" min="1" max="90" step="1" value="' + esc(st.offerDays) + '" style="max-width:120px"/></label>' +
     '<button class="btn" id="rfsave">Save</button><span class="muted" id="rfsmsg" style="font-size:.8rem"></span></div><p class="muted" style="font-size:.72rem;margin:8px 0 0">UPI refunds are always the exact amount. A new % applies to new offers (an open offer keeps the % it was made with).</p></div>' +
-    (recent ? '<div class="subhead"><h3>🕘 Recent offers</h3></div><div class="card list" style="padding:6px 16px">' + recent + '</div>' : '');
+    (recent ? '<div class="subhead"><h3>🕘 Recent offers &amp; ⚡ refunds by admin</h3></div><div class="card list" style="padding:6px 16px">' + recent + '</div>' : '');
   $('#rfsave').onclick = function () {
     $('#rfsmsg').textContent = 'Saving…';
     post('/admin/api/refunds/settings', { bonusPercent: $('#rfbonus').value, offerDays: $('#rfdays').value }).then(function (x) { $('#rfsmsg').textContent = x.ok ? '✅ Saved' : '⚠️ ' + (x.message || 'failed'); if (x.ok) toast('Refund settings saved'); });
