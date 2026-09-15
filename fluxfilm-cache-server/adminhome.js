@@ -28,11 +28,12 @@ function mount(app, deps) {
   const expiredCard = (ex) => {
     const E = deps.expiredusers || require('./expiredusers');
     const ok = !!(ex && ex.main);
-    const c = ok ? E.summarize(ex) : { customers: 0, accounts: 0 };
+    const c = ok ? E.summarize(ex) : E.summarize(null);
+    // "To do" = only logins where changing the password is worth it NOW (owner's timing rule); waiting ones in the subtitle.
     return {
-      key: 'expired', icon: '🚪', title: 'Customers to log out', count: c.customers, tone: 'warn',
-      sub: ok ? 'on ' + c.accounts + ' account' + (c.accounts === 1 ? '' : 's') : 'could not work it out — open 🚪 Remove users',
-      accounts: c.accounts, go: { view: 'removeusers' }, names: ok ? E.todayNames(ex, 20) : [],
+      key: 'expired', icon: '🔑', title: 'Account passwords to change', count: c.changeNow.accounts, tone: 'warn',
+      sub: ok ? E.todoLine(c) : 'could not work it out — open 🚪 Remove users', showSub: ok && c.wait.accounts > 0,
+      accounts: c.changeNow.accounts, waiting: c.wait.accounts, go: { view: 'removeusers' }, names: ok ? E.todayNames(ex, 20) : [],
     };
   };
 
