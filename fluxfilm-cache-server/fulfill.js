@@ -1112,4 +1112,7 @@ async function fulfillAndGetAccess(orderId, proof) {
 /** Admin endpoint only (key-protected): full result including credentials. opts.allowLegacy: old-site order. */
 async function fulfillForAdmin(orderId, opts) { return _fulfillSafe(orderId, opts && opts.allowLegacy ? { allowLegacy: true } : undefined); }
 
-module.exports = { fulfillAndGetAccess, fulfillForAdmin, planRenewal, checkDeviceLogins, pickDeviceLogins, allocatePrimeSeparate, allocateProfileSeparate, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { withLock, genSubId, freeSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE, _deliveredRowsGuard } };
+module.exports = { fulfillAndGetAccess, fulfillForAdmin, planRenewal, checkDeviceLogins, pickDeviceLogins, allocatePrimeSeparate, allocateProfileSeparate, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { withLock, genSubId, freeSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE, _deliveredRowsGuard,
+  // 🔁 Switch account (adminswitch.js) counts capacity with exactly these.
+  occupancyMap, primeOccupancy, sharingProfileOf, profileAccountLoad, _inTransaction, _heldDevices, rawOf,
+  PRIME_MAX_TOTAL, PRIME_MAX_TV, NETFLIX_SHARING_NO, NETFLIX_SHARING_MAX } };
