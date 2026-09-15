@@ -2,7 +2,7 @@
  * FluxFilm - admin 🚧 Maintenance screen (admin-only): pause / resume new orders.
  *
  *   GET  /admin/api/store   → { settings }
- *   POST /admin/api/store   { paused?, message?, backText? }   (change log)
+ *   POST /admin/api/store   { paused?, message?, backText?, helpBubble? }   (change log)
  */
 function mount(app, deps) {
   const { auth } = deps;
@@ -20,8 +20,10 @@ function mount(app, deps) {
     try {
       const r = await store.saveSettings(req.body || {});
       if (!r.ok) return res.status(400).json(r);
-      if (r.changed.length) {
-        const what = r.changed.includes('paused') ? (r.settings.paused ? 'PAUSED new orders (maintenance on)' : 'RESUMED new orders (maintenance off)') : 'Updated maintenance message';
+      if (r.changed.includes('helpBubble')) audit.record(req, { action: 'store.helpbubble', entity: 'settings', id: 'store', summary: '💬 Floating Help bubble turned ' + (r.settings.helpBubble === false ? 'OFF' : 'ON') });
+      const rest = r.changed.filter((k) => k !== 'helpBubble');
+      if (rest.length) {
+        const what = rest.includes('paused') ? (r.settings.paused ? 'PAUSED new orders (maintenance on)' : 'RESUMED new orders (maintenance off)') : 'Updated maintenance message';
         audit.record(req, { action: 'store.' + (r.settings.paused ? 'pause' : 'resume'), entity: 'settings', id: 'store', summary: what + (r.settings.paused && r.settings.backText ? ' · back ' + r.settings.backText : '') });
       }
       res.json({ ok: true, settings: r.settings, changed: r.changed });

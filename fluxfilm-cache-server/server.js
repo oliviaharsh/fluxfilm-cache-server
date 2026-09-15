@@ -220,9 +220,12 @@ if (feedMod && feedCommentsMod) {
   Object.assign(DB_STOREFRONT, {
     getFeedComments: (a) => feedCommentsMod.list(a[0], a[1]),
     addFeedComment: (a, req) => feedCommentsMod.add(a[0], a[1], a[2], { ip: security.clientIp(req) }),
+    // a = [[postId, …]] → newest 3 visible comments per post (posts near the screen, ≤ 12, cached 30 s).
+    getFeedCommentPreviews: (a) => feedCommentsMod.previews(a[0]),
   });
-  DB_STOREFRONT_ACTIONS.add('getFeedComments'); DB_STOREFRONT_ACTIONS.add('addFeedComment');
+  DB_STOREFRONT_ACTIONS.add('getFeedComments'); DB_STOREFRONT_ACTIONS.add('addFeedComment'); DB_STOREFRONT_ACTIONS.add('getFeedCommentPreviews');
   LIMITS.getFeedComments = security.rateLimiter(300, TEN_MIN);
+  LIMITS.getFeedCommentPreviews = security.rateLimiter(300, TEN_MIN);
   LIMITS.addFeedComment = security.rateLimiter(40, TEN_MIN);
   PHONE_LIMITS.addFeedComment = security.rateLimiter(10, TEN_MIN);
 }
