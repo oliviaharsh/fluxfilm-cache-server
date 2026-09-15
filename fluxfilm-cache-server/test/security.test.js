@@ -142,8 +142,8 @@ const ROOT = path.join(__dirname, '..');
 
     const act = (action, args, ip) => fetch(base + '/api', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip }, body: JSON.stringify({ action, args }) });
     statuses = [];
-    for (let i = 0; i < 5; i++) statuses.push((await act('recoverSendOtp', ['9876500001', 'a@b.c'], '203.0.113.' + (20 + i))).status);
-    ok('recover OTP email: 3 per phone per 15 min, whatever the IP', statuses.slice(0, 3).every((x) => x !== 429) && statuses[3] === 429 && statuses[4] === 429, statuses);
+    for (let i = 0; i < 8; i++) statuses.push((await act('recoverSendOtp', ['9876500001', 'a@b.c'], '203.0.113.' + (20 + i))).status);
+    ok('recover OTP email: 6 per phone per 15 min, whatever the IP', statuses.slice(0, 6).every((x) => x !== 429) && statuses[6] === 429 && statuses[7] === 429, statuses);
     const rl = await (await act('recoverSendOtp', ['9876500001', 'a@b.c'], '203.0.113.99')).json();
     ok('429 tells the customer to wait', rl.rateLimited === true && /wait/.test(rl.message), rl);
     statuses = [];
