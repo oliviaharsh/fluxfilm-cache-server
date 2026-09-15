@@ -387,6 +387,21 @@ function mountAdmin(app, deps) {
     if (!cfg || !mkeys || !def) return res.status(400).json({ ok: false, message: 'Table not editable' });
     for (const k of mkeys) { if (keyvals[k] == null || keyvals[k] === '') return res.status(400).json({ ok: false, message: 'Missing key: ' + k }); }
     try {
+      // 🔒 Email lock: the admin may change a customer's email with no code (e.g. the old email is dead → "Contact Help").
+      // The owner checked who they are, so the new address is saved as verified and the old one gets a notice.
+      let emailNotice = null;
+      if (name === 'customers' && Object.prototype.hasOwnProperty.call(raw, 'Email')) {
+        try {
+          const emaillock = require('./emaillock');
+          const before = await db.query('SELECT name, email FROM customers WHERE phone = ? LIMIT 1', [keyvals.phone]);
+          const oldEm = emaillock.normEmail(before && before[0] && before[0].email);
+          const newEm = emaillock.normEmail(raw.Email);
+          if (newEm && newEm !== oldEm) {
+            Object.assign(raw, emaillock.verifiedFields(newEm, 'admin'), { EmailChangedAt: new Date().toISOString() });
+            if (oldEm) { raw.PreviousEmail = oldEm; emailNotice = { oldEm, newEm, name: before[0].name }; }
+          }
+        } catch (e) { console.log('[email-lock] admin edit check skipped:', e.message); }
+      }
       // sheet header -> { col, cast } from the sync mapping
       const rev = {};
       for (const [col, spec] of Object.entries(def.cols)) rev[spec[0]] = { col, cast: spec[1] };
@@ -401,6 +416,10 @@ function mountAdmin(app, deps) {
       const where = mkeys.map((k) => '`' + k + '`=?').join(' AND ');
       const r = await db.query('UPDATE `' + name + '` SET ' + sets.join(', ') + ' WHERE ' + where + ' LIMIT 1', [...params, ...mkeys.map((k) => keyvals[k])]);
       audit.record(req, { action: 'row.edit', entity: name, id: mkeys.map((k) => keyvals[k]).join(' / '), summary: 'Edited in Sheets', details: raw });
+      if (emailNotice && r && r.affectedRows) {
+        Promise.resolve().then(() => require('./emaillock').notifyChanged(emailNotice.oldEm, emailNotice.newEm, emailNotice.name))
+          .catch((e) => console.log('[email-lock] admin change notice failed:', e.message));
+      }
       res.json({ ok: true, changed: (r && r.affectedRows) || 0 });
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });

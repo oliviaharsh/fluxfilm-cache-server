@@ -15,8 +15,8 @@
  *
  * Safety: every change locks the order row (SELECT … FOR UPDATE) inside one transaction, checks the phone owns the
  * order and that the refund is still in the expected state, so double taps / two devices / admin + customer at the
- * same moment can never credit twice or credit AND pay out. Sending a refund to a UPI ID needs the same email code
- * as Get OTP (otpaccess.js): a phone number alone must never redirect money.
+ * same moment can never credit twice or credit AND pay out. Sending a refund to a UPI ID needs an email code (otpaccess.js)
+ * sent to the email on THAT refunded order (never the profile email): a phone number alone must never redirect money.
  */
 const crypto = require('crypto');
 
@@ -180,33 +180,42 @@ function create(deps) {
     }
   }
 
-  // Email code for "send my refund to this UPI ID" (same code + device token as Get OTP / Games).
-  async function hasOpenUpiRefund(ph) { return (await getPendingRefunds(ph)).items.some((x) => x.state === 'ASK_CUSTOMER'); }
-  async function refundEmailFor(ph) {
-    const c = await M.db().query("SELECT email FROM customers WHERE phone_norm = ? AND email IS NOT NULL AND email <> '' LIMIT 1", [ph]);
-    if (c.length && s(c[0].email).includes('@')) return s(c[0].email);
-    const o = await M.db().query("SELECT email FROM orders WHERE phone_norm = ? AND UPPER(status) = 'REFUNDED' AND email IS NOT NULL AND email <> '' ORDER BY created_at_sheet DESC LIMIT 1", [ph]);
-    return o.length && s(o[0].email).includes('@') ? s(o[0].email) : '';
+  // Email code for "send my refund to this UPI ID". The code goes ONLY to the email on the refunded order itself
+  // (a REFUNDED order with RefundMethod UPI_PENDING was PAID: admin can refund only paid orders). Never the profile
+  // email (anyone can change it without a login). The customer types it; every "no" gets the same REFUND_NO answer.
+  const REFUND_NO = 'We could not confirm this. Use the email you gave on the refunded order. Need help? Tap Help.';
+  const VERIFY_MSG = 'For your safety, confirm it\'s you: type the email you used on this order, and we\'ll email you a 6-digit code.';
+  function refundEmailMatches(o, match) {
+    const r = refundInfo(o); const raw = rawOf(o.raw_json);
+    if (up(o.status) !== 'REFUNDED' || r.kind !== 'UPI_PENDING' || !s(raw.RefundedAt)) return false;
+    const em = s(o.email).replace(/\s+/g, '').toLowerCase();
+    return !!em && em.includes('@') && !!match && match(em);
   }
-  async function sendCode(phone) {
-    return M.otpaccess().sendCode(phone, { tool: 'Refund', eligible: hasOpenUpiRefund, emailFor: refundEmailFor, notEligibleMessage: 'There is no refund waiting for a UPI ID on this number.' });
+  async function refundEligible(ph, match) {
+    const rows = await M.db().query("SELECT order_id, email, status, raw_json FROM orders WHERE phone_norm = ? AND UPPER(status) = 'REFUNDED' ORDER BY created_at_sheet DESC LIMIT 20", [ph]);
+    return (rows || []).some((o) => refundInfo(o).state === 'ASK_CUSTOMER' && refundEmailMatches(o, match));
+  }
+  function sendCode(phone, email) {
+    return M.otpaccess().sendEmailCode('refund', phone, email, { tool: 'Refund', eligible: refundEligible, noMessage: REFUND_NO, mailer: M.mailer() });
+  }
+  function verifyCode(phone, email, code) {
+    return M.otpaccess().verifyEmailCode('refund', phone, email, code, { eligible: refundEligible, noMessage: REFUND_NO });
   }
 
   async function requestUpi(phone, orderId, upiId, token) {
     const ph = norm(phone); const oid = oidOf(orderId); const upi = s(upiId).replace(/\s+/g, '');
     if (ph.length !== 10 || !oid) return { ok: false, message: 'Order not found.' };
     if (!UPI_RE.test(upi)) return { ok: false, field: 'upi', message: 'Enter a UPI ID like name@okhdfcbank.' };
-    if (!M.otpaccess().verifyToken(token, ph)) {
-      const email = await refundEmailFor(ph).catch(() => '');
-      const maskedEmail = email ? M.otpaccess()._internal.maskEmail(email) : '';
-      return { ok: false, needsVerify: true, hasEmail: !!email, maskedEmail, message: email ? 'For your safety, confirm it\'s you: we\'ll email a 6-digit code to ' + maskedEmail + '.' : 'We don\'t have an email for this number. Please message us on WhatsApp for your refund.' };
-    }
+    const match = M.otpaccess().tokenMatcher(token, ph);
+    if (!match) return { ok: false, needsVerify: true, message: VERIFY_MSG };
     try {
       const done = await withTx(async (conn) => {
         const o = await lockOrder(conn, oid);
         if (!o || s(o.phone_norm) !== ph) throw new Refused('Order not found.');
         const raw = rawOf(o.raw_json); const r = refundInfo(o);
         if (up(o.status) !== 'REFUNDED' || r.kind !== 'UPI_PENDING') throw new Refused('This refund was already completed.');
+        // The device's verified email must be THIS order's email (a token from Get OTP / Games / another order does not count).
+        if (!refundEmailMatches(o, match)) throw new Refused(VERIFY_MSG, { needsVerify: true });
         if (r.state === 'UPI_REQUESTED') return { already: true, o, upi: r.upi };
         if (r.state !== 'ASK_CUSTOMER') throw new Refused('This refund was already completed.');
         const at = fmtDt(now());
@@ -273,7 +282,7 @@ function create(deps) {
     return completeUpi({ orderId: m[1], via: 'todo' });
   }
 
-  return { getPendingRefunds, convertToCredit, sendCode, requestUpi, completeUpi, onTodoDone, createRefundCouponOn, notify };
+  return { getPendingRefunds, convertToCredit, sendCode, verifyCode, requestUpi, completeUpi, onTodoDone, createRefundCouponOn, notify };
 }
 
 const defaultInstance = create();

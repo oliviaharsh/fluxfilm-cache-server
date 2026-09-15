@@ -71,6 +71,8 @@ function run(sql, p) {
   if (/^SELECT order_id, coins, rupees, status FROM coin_spends WHERE order_id = \? LIMIT 1 FOR UPDATE$/.test(sql)) return S.spends.filter((x) => x.order_id === p[0]).map(clone);
   if (/^SELECT cs\.order_id FROM coin_spends cs LEFT JOIN orders o ON o\.order_id = cs\.order_id WHERE cs\.status = 'HELD' AND cs\.created_at < NOW\(\) - INTERVAL \? HOUR/.test(sql)) return S.spends.filter((x) => x.status === 'HELD' && x.created_at < Date.now() - p[0] * 3600e3 && !S.orders.some((o) => o.order_id === x.order_id && o.status === 'PAID')).map(clone);
   if (/^SELECT cs\.order_id FROM coin_spends cs JOIN orders o/.test(sql)) return S.spends.filter((x) => ['HELD', 'RELEASED'].includes(x.status) && S.orders.some((o) => o.order_id === x.order_id && o.status === 'PAID')).map(clone);
+  // email lock (emaillock.js): these test customers have no profile row
+  if (/^SELECT phone, name, email, raw_json FROM customers WHERE phone_norm = \? LIMIT 1$/.test(sql)) return [];
   // plans / orders
   if (/^SELECT price, duration_days, is_active, raw_json FROM plans/.test(sql)) return S.plans.filter((x) => x.service === p[0] && x.plan === p[1]).map((x) => ({ price: x.price, duration_days: 30, is_active: 'TRUE', raw_json: '{}' }));
   if (/^SELECT 1 FROM orders WHERE order_id = \? LIMIT 1$/.test(sql)) return S.orders.filter((o) => o.order_id === p[0]).map(() => ({ 1: 1 }));
