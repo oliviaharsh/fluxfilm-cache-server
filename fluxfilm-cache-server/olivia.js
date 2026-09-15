@@ -192,6 +192,10 @@ function globalIntentOf(text) {
   if (/\b(for|at|in|mein|me|mai|ka|ki|only|sirf|just)\s+\d{2,4}\b(?!\s*(months?|mahin|din|days?|years?|saal|device))/.test(t) || /\b\d{2,4}\s*(rs|rupees?|rupay|inr|ka|ki|mein|me|mai)\b/.test(t) || (/\b(bought|buy|liya|kharida|paid|mila)\b/.test(t) && /\b\d{2,4}\b(?!\s*(months?|mahin|din|days?|years?|saal|device))/.test(t))) return 'price';
   if (/\b(password|pasword|passwrd|passwod|pass|login|log in|id pass|sign in)\b|पासवर्ड|लॉगिन/.test(t) && /bhul|bhool|forgot|forget|yaad nahi|nahi mil|nhi mil|not (working|opening)|wrong|galat|incorrect|chahiye|chaiye|\bdo\b|de do|dedo|send|bhejo|kya hai|kaha|kahan|nahi chal|nhi chal|kaam nahi|khul nahi|reset|new|naya|nahi ho|nhi ho|not able|can.?t|भूल|नहीं/.test(t)) return 'login';
   if (/household|house hold|tv code|not part of|घर/.test(t)) return 'household';
+  // Buying questions the team answers every day on WhatsApp (training run 1): when the login comes, how to pay, TV.
+  if (/\b(login|log in|id|id pass(word)?|password|details|credentials?)\b.{0,25}\b(kab|when|kitni der|kitne (der|time|min))\b|\b(kab|when|how (long|soon|fast)|kitni der)\b.{0,25}\b(login|id|password|details|credentials?)\b|लॉगिन कब/.test(t)) return 'whenlogin';
+  if (!/nahi|nhi|not|fail|error|problem|issue|kat gay|deduct/.test(t) && (/\b(gpay|g pay|google ?pay|phone ?pe|paytm|bhim|upi|scanner)\b.{0,25}(chalega|chalta|hoga|ho jayega|accept|works?|le lete|lete ho|\?)|\b(payment|pay)\b.{0,20}\b(kaise|how|method|mode|options?|kis se|kisse)\b|\b(credit|debit) card\b|\bcard se\b|net ?banking/.test(t))) return 'paymethod';
+  if (/\b(tv|t\.v|television|smart ?tv|fire ?stick|firestick)\b|टीवी/.test(t) && (QUESTION_RE.test(t) || /chal(ega|egi|ta|ti| jayega| jaega)|hoga|ho jayega|work|support|dekh sakte|login ho|चलेगा|चलता/.test(t))) return 'tv';
   if (/human|agent|real person|call me|whatsapp|talk to|baat karni|baat karo|team se/.test(t)) return 'other';
   return '';
 }
@@ -257,6 +261,8 @@ function detectLang(text) {
   return '';
 }
 const QUESTION_RE = /\?\s*$|^(does|do|is|are|can|will|how|what|why|when|which|kya|kaise|kyun|kyu|kab|kitna)\b/i;
+const PLAIN_PRICE_RE = /kitne ka|kitne ki|kitna (hai|lagega|padega|hoga)|kitne (rupay|rupaye|paise)|\bprice\b|\brate\b|\bdaam\b|\bcost\b|how much|कितने का|कीमत/i;
+const NOT_PLAIN_PRICE_RE = /cheap|sasta|saste|discount|\bkam\b|mehnga|mahanga|expensive|costly|earlier|pehle|before|last time|pichli|group|offer|\d/i;
 const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[a-z]{2,}$/i;
 const GROUP_LINK_RE = /^https:\/\/(chat\.whatsapp\.com|wa\.me|api\.whatsapp\.com)\/[\w?=&%./-]+$/i;
 const GROUP_FALLBACK = 'https://chat.whatsapp.com/IY67tbIr0zj0WfTFyYp3eB';
@@ -297,19 +303,70 @@ function urlBtn(id, lang, url) { return { id, label: words.buttonLabel(id, lang)
 const LINK_BUTTONS = { whatsapp: 'whatsapp', helper: 'helper', myplans: 'myplans', buysite: 'buysite' };
 /** "2 devices", "3 screens", "do phone" → 2. 0 when the customer did not ask for more than one device. */
 function devicesWanted(text) {
-  const t = String(text || '').toLowerCase().replace(/\b(do|two)\b(?=\s*(devices?|screens?|phones?|mobiles?|logins?))/g, '2').replace(/\b(teen|three)\b(?=\s*(devices?|screens?|phones?|mobiles?|logins?))/g, '3');
-  const m = t.match(/\b([2-9])\s*(devices?|dvices?|screens?|phones?|mobiles?|logins?|log ins?)\b/);
+  const DEV = '(devices?|dvices?|screens?|phones?|mobiles?|logins?|log ins?|डिवाइस|स्क्रीन|फ़ोन|फोन|मोबाइल)';
+  const num = (re, d) => (x) => x.replace(new RegExp('(^|[^a-z\\u0900-\\u097F])(' + re + ')(?=\\s*' + DEV + ')', 'g'), (_, pre) => pre + d);
+  const t = num('teen|three|तीन', '3')(num('do|two|दो', '2')(String(text || '').toLowerCase()));
+  const m = t.match(new RegExp('(?:^|[^\\d])([2-9])\\s*' + DEV + '(?![a-z])'));
   return m ? Number(m[1]) : 0;
 }
-/** Shop plans with at least that many devices, for the service being talked about (in stock only). */
-function multiDevicePlans(text, st, ctx) {
-  const n = devicesWanted(text);
-  if (n < 2 || PAY_STEPS.has(st.step)) return [];
-  const svc = entities(text, ctx.cat.plans).service || st.service || '';
-  const base = (x) => String(x || '').split(' (')[0].toLowerCase();
-  return (ctx.cat.plans || []).filter((p) => p && p.service && p.plan && devicesOf(p.plan) >= n && (!svc || base(p.service) === base(svc)) && stockOf(ctx.cat.stock, p) !== 'OUT')
-    .sort((a, b) => devicesOf(a.plan) - devicesOf(b.plan) || (Number(a.durationDays) || 0) - (Number(b.durationDays) || 0));
+/** Every plan of this exact service with at least n devices (sold-out ones too; the caller checks stock). */
+function devicePlansOf(plans, service, n) {
+  return (plans || []).filter((p) => p && p.service === service && p.plan && devicesOf(p.plan) >= n)
+    .sort((a, b) => devicesOf(a.plan) - devicesOf(b.plan) || (Number(a.durationDays) || 0) - (Number(b.durationDays) || 0) || a.price - b.price);
 }
+/** Services that really sell a plan with at least n devices (in stock), in catalogue order. */
+function deviceServicesOf(cat, n) {
+  return [...new Set((cat.plans || []).filter((p) => p && p.service && p.plan && devicesOf(p.plan) >= n && stockOf(cat.stock, p) !== 'OUT').map((p) => p.service))];
+}
+/** A service's own device rule (admin → plan → device rule), first line only. '' when the plan has none. */
+function deviceRuleOf(plans, service, variant) {
+  const list = (plans || []).filter((p) => p && p.service === service && devicesOf(p.plan) === 1 && s(p.deviceRuleText));
+  const p = list.find((x) => !variant || variantOf(x.plan) === variant) || list[0];
+  return p ? s(p.deviceRuleText).split(/\r?\n/)[0].trim().slice(0, 160) : '';
+}
+/**
+ * "2 devices ke liye chahiye" — the way the team sells it on WhatsApp: say yes warmly, ask the ONE missing choice
+ * (which service → Sharing or Private), then show the real N-device plans with live prices. Never invents a plan:
+ * when a service has none, its own device rule is quoted and the 1-device plans are offered.
+ * 2+ device plans are still bought on the Buy page (same/separate logins, TV slots are chosen there).
+ */
+function devicesReplies(st, ctx, lang) {
+  const n = st.devices;
+  const plans = ctx.cat.plans || [];
+  if (!st.service) {
+    const svcs = deviceServicesOf(ctx.cat, n);
+    if (!svcs.length) { delete st.devices; return [{ intent: 'MULTI_DEVICE_NONE', facts: { n, service: '', max: 0, rule: '' } }].concat(advance(st, ctx.cat, lang, ctx.profile)); }
+    st.step = 'devices_service'; st.deviceServices = svcs;
+    return [{ intent: 'ASK_SERVICE_FOR_DEVICES', facts: { n }, buttons: svcs.map((x, i) => btn('dsvc:' + i, lang, serviceLabel(plans, x))).concat([btn('menu', lang)]) }];
+  }
+  const all = devicePlansOf(plans, st.service, n);
+  if (!all.length) {
+    const max = Math.max(1, ...plans.filter((p) => p && p.service === st.service && p.plan).map((p) => devicesOf(p.plan)));
+    const svc = st.service;
+    const rule = deviceRuleOf(plans, svc, st.variant);
+    st.step = 'devices_none'; st.plan = null;
+    const b = (max >= 2 ? [btn('dmax:' + max, lang, '📱 ' + words.devicesLabel(max, lang))] : []).concat([btn('d1', lang), btn('menu', lang)]);
+    return [{ intent: 'MULTI_DEVICE_NONE', facts: { n, service: svc, max: max >= 2 ? max : 0, rule: /device|screen/i.test(rule) ? rule : '' }, buttons: b }];
+  }
+  const variants = new Set(all.map((p) => variantOf(p.plan)));
+  const variant = st.variant && variants.has(st.variant) ? st.variant : '';
+  if (!variant && variants.has('sharing') && variants.has('private')) {
+    st.step = 'devices_variant';
+    return [{ intent: 'ASK_DEVICES_SHARING_OR_PRIVATE', facts: { n, service: st.service }, buttons: [btn('dvar:sharing', lang), btn('dvar:private', lang), btn('ddiff', lang), btn('menu', lang)] }];
+  }
+  const list = all.filter((p) => !variant || variantOf(p.plan) === variant);
+  const inStock = list.filter((p) => stockOf(ctx.cat.stock, p) !== 'OUT');
+  const title = st.service + (variant ? ' ' + variantLabel(variant) : '');
+  st.step = 'devices_list';
+  if (!inStock.length) return [{ intent: 'OUT_OF_STOCK', facts: { title: title + ' (' + words.devicesLabel(n, lang) + ')' }, buttons: [btn('d1', lang), btn('menu', lang), btn('whatsapp', lang)] }];
+  const go = Object.assign(btn('buysite', lang), { service: st.service });
+  return [{
+    intent: 'MULTI_DEVICE_ON_WEBSITE',
+    facts: { n, title, group: isGroupService(plans, st.service), items: inStock.slice(0, 5).map((p) => words.durationLabel(p.durationDays, lang) + ' · ' + words.devicesLabel(devicesOf(p.plan), lang) + ' · ' + words.rupees(p.price)) },
+    buttons: [go, btn('d1', lang), btn('menu', lang)],
+  }];
+}
+const DEVICE_STEPS = new Set(['devices_service', 'devices_variant', 'devices_list', 'devices_none']);
 const isGroupService = (plans, service) => (plans || []).some((p) => p.service === service && p.requiresGroupJoin);
 function groupLinkOf(plans, service) {
   const p = (plans || []).find((x) => x.service === service && x.requiresGroupJoin && GROUP_LINK_RE.test(s(x.groupJoinLink)));
@@ -408,11 +465,11 @@ function menuReply(st, lang, name) {
   return { intent: 'GREET_MENU', facts: { name: firstName(name) }, buttons: ['buy', 'renew', 'household', 'other'].map((id) => btn(id, lang)) };
 }
 const firstName = (n) => s(n).split(/\s+/)[0].replace(/[^\p{L}.'-]/gu, '').slice(0, 20);
-function resetPurchase(st) { for (const k of ['service', 'variant', 'days', 'plan', 'extraValue', 'options', 'title', 'price', 'coupon', 'groupJoined', 'flow', 'renew', 'renewSubs', 'renewOptions']) delete st[k]; }
+function resetPurchase(st) { for (const k of ['service', 'variant', 'days', 'plan', 'extraValue', 'options', 'title', 'price', 'coupon', 'groupJoined', 'flow', 'renew', 'renewSubs', 'renewOptions', 'devices', 'deviceServices']) delete st[k]; }
 
 // Buttons that create, change or cancel an order: only an explicit tap or clear words, never an AI guess.
 const MONEY_BUTTONS = new Set(['pay', 'paid', 'change', 'rchange', 'cantpay', 'nocoupon', 'switch', 'twin', 'joined', 'normal']);
-const CHOOSING_STEPS = new Set(['service', 'variant', 'duration', 'tv', 'extra_email', 'own_email', 'group', 'confirm', 'coupon', 'renew_pick', 'renew_duration', 'renew_confirm']);
+const CHOOSING_STEPS = new Set(['service', 'variant', 'duration', 'tv', 'extra_email', 'own_email', 'group', 'confirm', 'coupon', 'renew_pick', 'renew_duration', 'renew_confirm', 'devices_service', 'devices_variant', 'devices_list', 'devices_none']);
 const PAY_STEPS = new Set(['paying', 'backup_name', 'backup_review', 'delivering']);
 const payButtons = (lang) => [btn('paid', lang), btn('cantpay', lang), btn('coupon', lang), btn('change', lang)];
 function payCard(st) {
@@ -555,6 +612,9 @@ function factPack(st, ctx, lang) {
   const lines = [];
   const plans = chatPlans(ctx.cat.plans);
   const focus = st.service ? plans.filter((p) => p.service === st.service || p.service.split(' (')[0] === st.service.split(' (')[0]) : plans;
+  // 2+ device plans too, so "kitne devices?" gets the real answer (they are bought on the Buy page).
+  const multi = (ctx.cat.plans || []).filter((p) => p && p.service && p.plan && devicesOf(p.plan) >= 2 && (!st.service || familyOf(p.service) === familyOf(st.service)));
+  for (const p of multi.slice(0, 20)) lines.push('- ' + titleOf(p, 'en') + ' for ' + devicesOf(p.plan) + ' devices: ' + words.rupees(p.price) + (stockOf(ctx.cat.stock, p) === 'OUT' ? ' (sold out)' : '') + ' (bought on the Buy page of the website)');
   for (const p of focus.slice(0, 40)) lines.push('- ' + titleOf(p, 'en') + ': ' + words.rupees(p.price) + (stockOf(ctx.cat.stock, p) === 'OUT' ? ' (sold out)' : '') + (p.requiresGroupJoin ? ' (Group Offer: join our WhatsApp group first)' : '') + (String(p.deviceRuleText || '').trim() ? ' — devices: ' + String(p.deviceRuleText).split(/\r?\n/)[0].trim().slice(0, 160) : ''));
   const where = PAY_STEPS.has(st.step) ? 'The customer has an unpaid order of ' + words.rupees(st.amount) + ' open and is on the payment step.' : st.plan ? 'The customer is choosing ' + st.title + '.' : 'The customer has not chosen a plan yet.';
   return [
@@ -684,11 +744,19 @@ async function turn(c, input, ctx) {
     else if (st.step === 'backup_name' && !g && !intentOf(text) && /^[\p{L} .'-]{2,60}$/u.test(text)) action = 'payer:' + text;
     // 2. Things that can be asked at any moment.
     else if (g === 'coupon') { action = 'coupon'; code = couponCodeIn(text, false); }
-    else if (g !== 'change' && g !== 'renew' && (multi = multiDevicePlans(text, st, ctx)).length) action = 'devices';
+    else if (!['change', 'renew', 'login', 'household'].includes(g) && !PAY_STEPS.has(st.step) && (multi = devicesWanted(text)) >= 2) action = 'devices';
     else if (g !== 'change' && g !== 'renew' && (priced = narrowToFamily(plansByPrice(text, ctx.cat.plans), st)).length) action = (priced.length === 1 && PICK_WORDS_RE.test(text) && !QUESTION_RE.test(text) && !/earlier|pehle|before|last time|bought|liya tha|kharida/i.test(text)) ? 'pricepick' : 'pricematch';
     else if (g === 'change') action = 'change';
-    else if (g === 'price') { ents = entities(text, ctx.cat.plans); action = (ents.service && !PAY_STEPS.has(st.step)) ? 'slots' : 'price'; }
+    else if (g === 'price') {
+      ents = entities(text, ctx.cat.plans);
+      // "kitne ka hai?" / "netflix ka price?": the team just tells the price (or asks which service first).
+      const plain = PLAIN_PRICE_RE.test(text) && !NOT_PLAIN_PRICE_RE.test(text) && !ents.days;
+      if (PAY_STEPS.has(st.step)) action = 'price';
+      else if (plain && (ents.service || !currentPlan(st, ctx.cat))) action = 'pricefrom';
+      else action = ents.service ? 'slots' : 'price';
+    }
     else if (g === 'renew' || g === 'household' || g === 'other' || g === 'login') { action = g; if (g === 'renew') ents = entities(text, ctx.cat.plans); }
+    else if (g === 'whenlogin' || g === 'paymethod' || (g === 'tv' && st.step !== 'tv')) { action = g; ents = entities(text, ctx.cat.plans); }
     // 3. The step's own answers.
     if (!action) {
       const it = intentOf(text);
@@ -698,7 +766,10 @@ async function turn(c, input, ctx) {
       if (it === 'paid' && PAY_STEPS.has(st.step)) action = st.paused ? 'backpay_paid' : 'paid';
       else if (payEnts.service) { st.pendingSwitch = { service: payEnts.service, variant: payEnts.variant || '', days: payEnts.days || 0 }; action = 'switchask'; }
       else if (it === 'cantpay' && st.step === 'paying') action = 'cantpay';
+      else if (it === 'diff' && st.devices && DEVICE_STEPS.has(st.step) && !ents.service) action = 'ddiff';
       else if (it === 'diff' && (st.step === 'variant' || (st.service && needsVariant(ctx.cat.plans, st.service)) || ents.service)) action = 'diff';
+      // While choosing an N-device plan, a typed service / "sharing" / "3 months" stays in the N-device plans.
+      else if (st.devices && DEVICE_STEPS.has(st.step) && (ents.service || ents.variant || ents.days)) action = 'devices_more';
       else if (st.flow === 'renew' && (st.step === 'renew_pick' || st.step === 'renew_duration') && (ents.service || ents.days) && renewTextAction(st, ents, ctx)) action = renewTextAction(st, ents, ctx);
       else if (ents.service || ents.days || (ents.variant && !QUESTION_RE.test(text))) action = 'slots'; // "does sharing work on TV?" is a question, not a choice
       else if (it === 'yes' && (st.step === 'confirm' || st.step === 'renew_confirm')) action = 'pay';
@@ -766,12 +837,33 @@ async function turn(c, input, ctx) {
     const hadOrder = dropOrder(st); delete st.coupon;
     return (hadOrder ? [{ intent: 'OLD_QR_CANCELLED' }] : []).concat(renewDurations(st, ctx, lang));
   }
-  if (action === 'devices') {
-    // "2 devices ke liye chahiye": the 2+ device plans are real shop plans, but they are bought on the Buy page.
-    const n = devicesWanted(text);
-    const keep = (st.lastButtons || []).filter((x) => !LINK_BUTTONS[x.id] && x.id !== 'menu' && !MONEY_BUTTONS.has(x.id));
-    const go = Object.assign(btn('buysite', lang), { service: multi[0].service });
-    return [{ intent: 'MULTI_DEVICE_ON_WEBSITE', facts: { n, items: multi.slice(0, 5).map((p) => titleOf(p, lang) + ' · ' + devicesOf(p.plan) + ' devices · ' + words.rupees(p.price)) }, buttons: [go].concat(keep, [btn('menu', lang)]) }];
+  if (action === 'devices' || action === 'devices_more') {
+    // "2 devices ke liye chahiye" / "do phone": remember N, keep the service + Sharing/Private already known in THIS purchase.
+    const e = entities(text, ctx.cat.plans);
+    const n = action === 'devices' ? multi : st.devices;
+    const known = CHOOSING_STEPS.has(st.step) ? { service: st.service, variant: st.variant } : {};
+    resetPurchase(st);
+    st.devices = n;
+    st.service = e.service || known.service || '';
+    const variant = e.variant || (e.service && e.service !== known.service ? '' : known.variant);
+    if (variant) st.variant = variant;
+    return devicesReplies(st, ctx, lang);
+  }
+  if (action.startsWith('dsvc:')) {
+    const next = (st.deviceServices || [])[Number(action.slice(5))];
+    if (!next || !st.devices) return advance(st, ctx.cat, lang, ctx.profile);
+    const n = st.devices; resetPurchase(st); st.devices = n; st.service = next;
+    return devicesReplies(st, ctx, lang);
+  }
+  if (action.startsWith('dvar:')) { if (!st.devices) return advance(st, ctx.cat, lang, ctx.profile); st.variant = action.slice(5) === 'private' ? 'private' : 'sharing'; return devicesReplies(st, ctx, lang); }
+  if (action.startsWith('dmax:')) { const m = Number(action.slice(5)); if (!st.service || !(m >= 2)) return advance(st, ctx.cat, lang, ctx.profile); st.devices = m; return devicesReplies(st, ctx, lang); }
+  if (action === 'd1') { delete st.devices; delete st.deviceServices; st.plan = null; return advance(st, ctx.cat, lang, ctx.profile); }
+  if (action === 'ddiff') {
+    // The difference, told from the N-device plans' own benefits (not the 1-device ones).
+    const all = devicePlansOf(ctx.cat.plans, st.service, st.devices || 2);
+    const one = (v) => { const o = all.find((p) => variantOf(p.plan) === v); return o ? o.benefits : []; };
+    st.step = 'devices_variant';
+    return [{ intent: 'EXPLAIN_SHARING_VS_PRIVATE', facts: { sharing: one('sharing'), private: one('private') }, buttons: [btn('dvar:sharing', lang), btn('dvar:private', lang), btn('menu', lang)] }];
   }
   if (action === 'household' || action === 'other' || action === 'login') {
     if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true;
@@ -779,6 +871,52 @@ async function turn(c, input, ctx) {
     const b = action === 'household' ? [btn('helper', lang), btn('whatsapp', lang)] : action === 'login' ? [btn('myplans', lang), btn('whatsapp', lang)] : [btn('whatsapp', lang)];
     if (!st.paused) st.step = action === 'other' ? 'handoff' : 'info';
     return [{ intent, buttons: withBackToPay(st, lang, b.concat([btn('menu', lang)])) }];
+  }
+  if (action === 'tv' || action === 'whenlogin' || action === 'paymethod') {
+    // Answered from the catalogue (benefits, device rule, fulfilment); the step's own buttons stay, so buying continues.
+    const plans = ctx.cat.plans || [];
+    const again = (st.lastButtons || []).length ? st.lastButtons : menuReply({}, lang).buttons;
+    const withWa = (b) => (b.some((x) => x.id === 'whatsapp') ? b : b.concat([btn('whatsapp', lang)]));
+    const idle = !PAY_STEPS.has(st.step) && !CHOOSING_STEPS.has(st.step);
+    if (idle && ents.service) { resetPurchase(st); st.service = ents.service; }
+    const svc = ents.service || (st.plan && st.plan.service) || st.service || '';
+    // Nothing being bought yet: after the answer, go on selling (which service → Sharing or Private …).
+    const tail = idle ? advance(st, ctx.cat, lang, ctx.profile) : [];
+    const keep = (r) => (tail.length ? [r].concat(tail) : [Object.assign(r, { buttons: r.buttons || again, input: st.lastInput || undefined })]);
+    if (action === 'paymethod') {
+      const card = /card|net ?banking/i.test(text);
+      return keep({ intent: 'PAYMENT_METHOD', facts: { paying: PAY_STEPS.has(st.step), card }, buttons: card ? withWa(again) : undefined });
+    }
+    const rule = svc ? deviceRuleOf(plans, svc, st.variant) : '';
+    if (action === 'whenlogin') {
+      const sp = plans.filter((p) => p.service === svc);
+      const manual = sp.length > 0 && sp.every((p) => /manual/i.test(s(p.fulfillmentMode)));
+      return keep({ intent: manual ? 'WHEN_LOGIN_MANUAL' : 'WHEN_LOGIN', facts: { service: svc, rule: /otp|phone number/i.test(rule) ? rule : '' } });
+    }
+    const hasTv = (x) => plans.some((p) => p.service === x && (p.benefits || []).some((b) => /\bTV\b/i.test(b)));
+    if (!svc) {
+      const tvs = [...new Set(servicesOf(plans).filter(hasTv).map((x) => x.split(' (')[0]))];
+      return keep({ intent: 'TV_ANSWER', facts: { services: tvs } });
+    }
+    if (!hasTv(svc)) return keep({ intent: 'TV_UNSURE', facts: { service: svc }, buttons: tail.length ? undefined : withWa(again) });
+    return keep({ intent: 'TV_ANSWER_SERVICE', facts: { service: svc, rule: /\bTV\b/i.test(rule) ? rule : '' } });
+  }
+  if (action === 'pricefrom') {
+    if (ents.service && ents.service !== st.service) { const keepJoin = st.groupJoined && familyOf(ents.service) === familyOf(st.service); resetPurchase(st); st.service = ents.service; if (keepJoin) st.groupJoined = true; }
+    if (ents.variant) st.variant = ents.variant;
+    st.plan = null;
+    if (!st.service || !servicesOf(ctx.cat.plans).includes(st.service)) {
+      const a = advance(st, ctx.cat, lang, ctx.profile);
+      if (a[0] && a[0].intent === 'ASK_SERVICE') a[0].intent = 'PRICE_WHICH_SERVICE';
+      return a;
+    }
+    const inStock = (p) => stockOf(ctx.cat.stock, p) !== 'OUT';
+    const split = needsVariant(ctx.cat.plans, st.service) && !st.variant;
+    const items = split
+      ? ['sharing', 'private'].map((v) => { const o = optionsFor(ctx.cat.plans, st.service, v).filter(inStock)[0]; return o ? variantLabel(v) + ' ' + words.durationLabel(o.durationDays, lang) + ' · ' + words.rupees(o.price) : ''; }).filter(Boolean)
+      : optionsFor(ctx.cat.plans, st.service, needsVariant(ctx.cat.plans, st.service) ? st.variant : '').filter(inStock).slice(0, 5).map((p) => words.durationLabel(p.durationDays, lang) + ' · ' + words.rupees(p.price));
+    const title = st.service + (st.variant && !split ? ' ' + variantLabel(st.variant) : '');
+    return (items.length ? [{ intent: 'PRICE_FROM', facts: { title, items, from: split } }] : []).concat(advance(st, ctx.cat, lang, ctx.profile));
   }
   if (action === 'change') {
     const done = await paidAlready(c, ctx);

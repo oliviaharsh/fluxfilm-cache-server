@@ -36,17 +36,20 @@ const words = require('../oliviawords');
 
 // ── fake shop (the tools layer) ──
 const PLANS = [
-  { service: 'Netflix', plan: 'Sharing 1M', durationDays: 30, price: 139, benefits: ['Your own profile on a shared account', '1 device'], deviceRuleText: 'Login on 1 device only\nDo not share the login' },
+  { service: 'Netflix', plan: 'Sharing 1M', durationDays: 30, price: 139, benefits: ['Your own profile on a shared account', '1 device', '📺📱TV/Mobile/Laptop/Tab'], deviceRuleText: 'Login on 1 device only\nDo not share the login' },
   { service: 'Netflix', plan: 'Sharing 3M', durationDays: 90, price: 399, benefits: ['Your own profile on a shared account'] },
   { service: 'Netflix', plan: 'Private 1M', durationDays: 30, price: 169, benefits: ['Only you use the profile', '4K'] },
   { service: 'Netflix', plan: 'Private 3M', durationDays: 90, price: 499, benefits: ['Only you use the profile'] },
+  { service: 'Netflix', plan: 'Sharing 2 Devices 1M', durationDays: 30, price: 179, benefits: ['Shared profile', '2 DEVICES'], loginChoice: true },
+  { service: 'Netflix', plan: 'Sharing 2 Devices 3M', durationDays: 90, price: 489, benefits: ['Shared profile', '2 DEVICES'], loginChoice: true },
+  { service: 'Netflix', plan: 'Private 2 Devices 1M', durationDays: 30, price: 189, benefits: ['Private profile, lock it', '2 DEVICES'], loginChoice: true },
   { service: 'Netflix (Group Offer)', plan: 'Sharing 1M', durationDays: 30, price: 99, requiresGroupJoin: true, groupJoinLink: 'https://chat.whatsapp.com/TESTGROUP1' },
   { service: 'Netflix (Group Offer)', plan: 'Private 1M', durationDays: 30, price: 149, requiresGroupJoin: true, groupJoinLink: 'javascript:alert(1)' },
-  { service: 'Prime Video', plan: '1 Month', durationDays: 30, price: 39, needsExtraField: true, extraFieldKey: 'PRIME_DEVICE_TYPE' },
+  { service: 'Prime Video', plan: '1 Month', durationDays: 30, price: 39, needsExtraField: true, extraFieldKey: 'PRIME_DEVICE_TYPE', benefits: ['📺📱TV/Mobile/Laptop/Tab', '🍿1 DEVICE'], deviceRuleText: 'Prime: 1 device only. TV has limited slots.' },
   { service: 'Prime Video', plan: '2 Devices 1M', durationDays: 30, price: 59, needsExtraField: true, extraFieldKey: 'PRIME_DEVICE_TYPE', loginChoice: true },
-  { service: 'JioHotstar', plan: '1 Month', durationDays: 30, price: 69 },
+  { service: 'JioHotstar', plan: '1 Month', durationDays: 30, price: 69, deviceRuleText: 'Instant access: your login phone number is shown right after payment. Get the OTP anytime from Tools → Get OTP.' },
   { service: 'JioHotstar', plan: '3 Months', durationDays: 90, price: 199 },
-  { service: 'YouTube Premium', plan: '1 Month', durationDays: 30, price: 99, needsExtraField: true, extraFieldKey: 'YT_EMAIL', extraFieldLabel: 'your YouTube email' },
+  { service: 'YouTube Premium', plan: '1 Month', durationDays: 30, price: 99, needsExtraField: true, extraFieldKey: 'YT_EMAIL', extraFieldLabel: 'your YouTube email', fulfillmentMode: 'MANUAL' },
 ];
 const STOCK = { 'JioHotstar|||1 Month': { stockLevel: 'OUT' } };
 const calls = [];
@@ -440,9 +443,9 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   olivia._internal.setDeps({ words: Object.assign({}, words, {
     say: (i, f, l, s2) => words.say(i, f, l, Object.assign({}, s2, { aiWords: false })),
     classify: async () => ({ id: '', tokens: 0 }),
-    answer: (q, facts, k, l, s2) => words.answer(q, facts, k, l, s2, { model: async (m) => { seenQ.push(m); return /tv/i.test(q) ? { json: { text: 'Sharing works on 1 device at a time, TV too 😊', handoff: false }, tokens: 30 } : { json: { text: 'Sure, you get 3 months free!', handoff: false }, tokens: 30 }; } }),
+    answer: (q, facts, k, l, s2) => words.answer(q, facts, k, l, s2, { model: async (m) => { seenQ.push(m); return /lock/i.test(q) ? { json: { text: 'Sharing is a shared profile, and it plays on 1 device at a time 😊', handoff: false }, tokens: 30 } : { json: { text: 'Sure, you get 3 months free!', handoff: false }, tokens: 30 }; } }),
   }) });
-  r = await olivia.handle(PH, { conversationId: conv, text: 'does sharing work on my tv?' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'can I lock the sharing profile?' });
   ok('off-script question → answer from owner knowledge, same buttons kept', last(r).intent === 'FREE_ANSWER' && /1 device/.test(last(r).text) && last(r).buttons.length > 0, last(r));
   ok('the model got live prices + owner knowledge, but no phone / email / name', JSON.stringify(seenQ).includes('Sharing plans work on 1 device') && JSON.stringify(seenQ).includes('₹') && !JSON.stringify(seenQ).includes('9876543210') && !JSON.stringify(seenQ).includes('ramesh@example.com') && !JSON.stringify(seenQ).includes('Ramesh'));
   r = await olivia.handle(PH, { conversationId: conv, text: 'any free months offer for me?' });
@@ -490,6 +493,111 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   r = await olivia.handle(PH, { conversationId: conv, text: 'prime video 2 devices ke liye chahiye' });
   ok('2 devices → the real 2-device plan with price, and an Open Buy page button for that service', last(r).intent === 'MULTI_DEVICE_ON_WEBSITE' && /Prime Video/.test(last(r).text) && /₹59/.test(last(r).text) && last(r).buttons[0].id === 'buysite' && last(r).buttons[0].link === 'buysite' && last(r).buttons[0].service === 'Prime Video', last(r));
   ok('format: bold even when the AI changes the case ("1 month" vs "1 Month")', /\*Prime Video 1 month\*/.test(words.format('Prime Video 1 month renewed.', { title: 'Prime Video 1 Month' }, 'X')));
+
+  // ── Training run 1 "how we sell": the owner's 2-device example (acknowledge → ask the ONE missing choice → real plans) ──
+  calls.length = 0;
+  ok('devices wanted: Hindi "दो फ़ोन" / "2 डिवाइस"; "12 devices" and "phonepe" are not device counts', olivia._internal.devicesWanted('दो फ़ोन पर चाहिए') === 2 && olivia._internal.devicesWanted('नेटफ्लिक्स 2 डिवाइस') === 2 && olivia._internal.devicesWanted('teen screens') === 3 && olivia._internal.devicesWanted('12 devices') === 0 && olivia._internal.devicesWanted('2 phonepe') === 0);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: '2 devices ke liye chahiye' });
+  const dsv = last(r);
+  ok('replay (Hinglish): "2 devices ke liye chahiye", no service → asks which service; ONLY services with real 2-device plans', r.lang === 'hinglish' && dsv.intent === 'ASK_SERVICE_FOR_DEVICES' && /2 devices wale plans hain/.test(dsv.text) && dsv.buttons.some((b) => b.label === 'Netflix') && dsv.buttons.some((b) => b.label === 'Prime Video') && !dsv.buttons.some((b) => /JioHotstar|YouTube/.test(b.label)), dsv);
+  r = await olivia.handle(PH, { conversationId: conv, choice: findBtn(dsv, /^Netflix$/).id });
+  const dvq = last(r);
+  ok('Netflix → "Haan ji, 2 devices wala plan hai! Sharing ya Private? Phir price" + Sharing / Private / difference (no price yet)', dvq.intent === 'ASK_DEVICES_SHARING_OR_PRIVATE' && /^Haan ji, Netflix mein 2 devices wala plan hai!/.test(dvq.text) && /Sharing chahiye ya Private/.test(dvq.text) && /price batati hoon/.test(dvq.text) && !/₹/.test(dvq.text) && ids(dvq).join() === 'dvar:sharing,dvar:private,ddiff,menu', dvq);
+  r = await olivia.handle(PH, { conversationId: conv, text: 'dono mein fark kya hai?' });
+  ok('"fark kya hai" → difference from the 2-device plans\' own benefits, then Sharing / Private again', last(r).intent === 'EXPLAIN_SHARING_VS_PRIVATE' && /Private profile, lock it/.test(last(r).text) && ids(last(r)).includes('dvar:private'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'sharing' });
+  const dls = last(r);
+  ok('"sharing" → ONLY Netflix Sharing 2-device plans with live prices + Open Buy page (Netflix) + 1-device plans', dls.intent === 'MULTI_DEVICE_ON_WEBSITE' && /Netflix Sharing ke 2 devices wale plans/.test(dls.text) && /1 mahina · 2 devices · ₹179/.test(dls.text) && /3 mahine · 2 devices · ₹489/.test(dls.text) && !/₹189|₹139/.test(dls.text) && dls.buttons[0].id === 'buysite' && dls.buttons[0].service === 'Netflix' && ids(dls).includes('d1'), dls);
+  ok('WhatsApp look: the button name is bold', /\*Open Buy page\*/.test(dls.raw), dls.raw);
+  r = await olivia.handle(PH, { conversationId: conv, text: '3 months' });
+  ok('"3 months" while looking at 2-device plans stays on them (never silently a 1-device plan)', last(r).intent === 'MULTI_DEVICE_ON_WEBSITE' && !calls.some((c) => c[0] === 'createOrder'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'd1' });
+  ok('"1 device wale plans" → normal Netflix Sharing lengths (₹139) in chat', last(r).intent === 'ASK_DURATION' && last(r).buttons.some((b) => /₹139/.test(b.label)), last(r));
+  // live chat 8 (2026-09-15 06:47): "Netflix" → "2 devices ke liye chahiye" jumped to Private durations
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'Netflix' });
+  r = await olivia.handle(PH, { conversationId: conv, text: '2 devices ke liye chahiye' });
+  ok('replay (live chat 8): Netflix chosen, then "2 devices ke liye chahiye" → Sharing or Private for 2 devices (not Private durations)', last(r).intent === 'ASK_DEVICES_SHARING_OR_PRIVATE' && !r.messages.some((m) => m.intent === 'ASK_DURATION'), r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  await olivia.handle(PH, { conversationId: conv, text: 'netflix private' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'do phone par chalana hai' });
+  ok('Private already chosen + "do phone" → straight to Private 2-device plans (₹189)', last(r).intent === 'MULTI_DEVICE_ON_WEBSITE' && /₹189/.test(last(r).text) && !/₹179/.test(last(r).text), last(r));
+  await olivia.handle(PH, { conversationId: conv, choice: 'lang:en' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'I need netflix for 2 devices' });
+  ok('replay (English): "I need netflix for 2 devices" → "Yes, Netflix has a 2-device plan! … Sharing or Private? Then I will tell you the price."', r.lang === 'en' && last(r).intent === 'ASK_DEVICES_SHARING_OR_PRIVATE' && /^Yes, Netflix has a 2-device plan!/.test(last(r).text) && /Then I will tell you the price/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'dvar:private' });
+  ok('Private → "Here are the Netflix Private plans for 2 devices" ₹189', last(r).intent === 'MULTI_DEVICE_ON_WEBSITE' && /Here are the Netflix Private plans for 2 devices/.test(last(r).text) && /1 month · 2 devices · ₹189/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'prime video for 3 screens please' });
+  const pn = last(r);
+  ok('no 3-device Prime plan → says so kindly with the plan\'s own device rule, offers the 2-device plan and 1-device plans (never invents)', pn.intent === 'MULTI_DEVICE_NONE' && /Prime Video does not have a plan for 3 devices/.test(pn.text) && /Prime: 1 device only\. TV has limited slots\./.test(pn.text) && ids(pn).includes('dmax:2') && ids(pn).includes('d1'), pn);
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'dmax:2' });
+  ok('"2 devices" button → the real Prime 2-device plan ₹59', last(r).intent === 'MULTI_DEVICE_ON_WEBSITE' && /₹59/.test(last(r).text) && last(r).buttons[0].service === 'Prime Video', last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'jiohotstar 2 devices chahiye' });
+  ok('Hinglish, service with no 2-device plan → "Sorry ji, JioHotstar mein 2 devices wala plan nahi hai" + 1-device plans (no unrelated rule quoted)', r.lang === 'hinglish' && last(r).intent === 'MULTI_DEVICE_NONE' && /JioHotstar mein 2 devices wala plan nahi hai/.test(last(r).text) && !/OTP/.test(last(r).text) && !ids(last(r)).some((x) => /^dmax/.test(x)), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'd1' });
+  ok('→ 1-device JioHotstar plans', last(r).intent === 'ASK_DURATION' && /JioHotstar/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'नेटफ्लिक्स 2 डिवाइस चाहिए' });
+  ok('Hindi: "नेटफ्लिक्स 2 डिवाइस चाहिए" → reply in Hindi, Sharing या Private', r.lang === 'hi' && last(r).intent === 'ASK_DEVICES_SHARING_OR_PRIVATE' && /हाँ जी, Netflix में 2 डिवाइस वाला प्लान है!/.test(last(r).text), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'dvar:sharing' });
+  ok('Hindi list uses "2 डिवाइस"', /2 डिवाइस · ₹179/.test(last(r).text), last(r));
+  ok('no order was ever created for a 2-device plan in chat', !calls.some((c) => c[0] === 'createOrder'));
+  await olivia.handle(PH, { conversationId: conv, choice: 'lang:hinglish' });
+
+  // ── Training run 1: the most common other buying questions from the team's chats ──
+  ok('intents: when login / how to pay / TV; "gpay se nahi ho raha" stays a payment problem', olivia._internal.globalIntentOf('login kab milega?') === 'whenlogin' && olivia._internal.globalIntentOf('id password kab milegi') === 'whenlogin' && olivia._internal.globalIntentOf('paytm se payment ho jayega?') === 'paymethod' && olivia._internal.globalIntentOf('payment kaise karu') === 'paymethod' && olivia._internal.globalIntentOf('gpay se nahi ho raha?') !== 'paymethod' && olivia._internal.globalIntentOf('tv par chalega?') === 'tv' && olivia._internal.globalIntentOf('netflix tv code aa raha') === 'household');
+  // "kitne ka" (~75 chats): the team tells the price, or first asks which service
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'kitne ka hai?' });
+  ok('"kitne ka hai?" with nothing chosen → "price service par depend karta hai, kaunsa chahiye?" + service buttons (not "prices are live")', last(r).intent === 'PRICE_WHICH_SERVICE' && last(r).buttons.some((b) => b.label === 'Netflix'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix ka price kya hai' });
+  ok('"netflix ka price kya hai" → starting prices for Sharing (₹139) and Private (₹169), then Sharing or Private', r.messages[0].intent === 'PRICE_FROM' && /Sharing 1 mahina · ₹139/.test(plain(r.messages[0].text)) && /Private 1 mahina · ₹169/.test(plain(r.messages[0].text)) && last(r).intent === 'ASK_SHARING_OR_PRIVATE', r.messages);
+  r = await olivia.handle(PH, { conversationId: conv, choice: 'variant:sharing' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'kitne ka hai' });
+  ok('Sharing chosen, "kitne ka hai" → every Sharing length with price (₹139, ₹399) and the lengths again', r.messages[0].intent === 'PRICE_FROM' && /1 mahina · ₹139/.test(plain(r.messages[0].text)) && /3 mahine · ₹399/.test(plain(r.messages[0].text)) && !/₹169/.test(r.messages[0].text) && last(r).intent === 'ASK_DURATION', r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'lang:en' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'what is the price of jiohotstar?' });
+  ok('English: JioHotstar price → in-stock lengths only (3 months ₹199; 1 month sold out)', r.lang === 'en' && r.messages[0].intent === 'PRICE_FROM' && /3 months · ₹199/.test(plain(r.messages[0].text)) && !/₹69/.test(r.messages[0].text), r.messages);
+  // TV (~32 chats)
+  await olivia.handle(PH, { conversationId: conv, choice: 'lang:hinglish' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix tv par chalega?' });
+  ok('"netflix tv par chalega?" → "Haan ji, TV, mobile, laptop aur tab" from the plan benefits, then keeps selling (Sharing or Private)', r.messages[0].intent === 'TV_ANSWER_SERVICE' && /^Haan ji, Netflix TV, mobile, laptop aur tab/.test(plain(r.messages[0].text)) && last(r).intent === 'ASK_SHARING_OR_PRIVATE', r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'prime video tv pe chalega kya' });
+  ok('Prime on TV → yes + the plan\'s own rule "TV has limited slots"', r.messages[0].intent === 'TV_ANSWER_SERVICE' && /TV has limited slots/.test(r.messages[0].text), r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'hotstar tv par chalega?' });
+  ok('a plan that does not list TV → no guess, confirm with the team (WhatsApp button)', r.messages[0].intent === 'TV_UNSURE', r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'kya TV par chalta hai?' });
+  ok('TV question without a service → the services whose plans list TV, then which one', r.messages[0].intent === 'TV_ANSWER' && /Netflix, Prime Video/.test(r.messages[0].text) && !/JioHotstar/.test(r.messages[0].text) && last(r).intent === 'ASK_SERVICE', r.messages);
+  r = await olivia.handle(PH, { conversationId: conv, text: 'amazon prime 1 month' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'haan tv par dekhenge' });
+  ok('Prime "watch on TV?" step: "haan tv par dekhenge" is still the answer (not a TV question)', last(r).intent === 'CONFIRM_PLAN', last(r));
+  // when does the login come / how to pay
+  r = await olivia.handle(PH, { conversationId: conv, text: 'login kab milega?' });
+  ok('"login kab milega?" while confirming → right after payment, shown + emailed + My plans; confirm buttons kept', last(r).intent === 'WHEN_LOGIN' && /Payment aate hi login mil jata hai/.test(last(r).text) && ids(last(r)).includes('pay'), last(r));
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'youtube ka login kab milega' });
+  ok('YouTube (manual) → "team activate karti hai, turant nahi"', r.messages[0].intent === 'WHEN_LOGIN_MANUAL' && /turant nahi/.test(r.messages[0].text), r.messages);
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'hotstar id password kab milegi' });
+  ok('JioHotstar → instant + its own login rule (phone number + OTP from Tools)', r.messages[0].intent === 'WHEN_LOGIN' && /Get the OTP anytime from Tools/.test(r.messages[0].text), r.messages);
+  r = await olivia.handle(PH, { conversationId: conv, text: 'netflix sharing 1 month' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'paytm se payment ho jayega?' });
+  ok('"paytm se payment ho jayega?" → UPI, any app, QR after picking; confirm buttons kept', last(r).intent === 'PAYMENT_METHOD' && /UPI se hota hai/.test(last(r).text) && ids(last(r)).includes('pay'), last(r));
+  await olivia.handle(PH, { conversationId: conv, choice: 'pay' });
+  r = await olivia.handle(PH, { conversationId: conv, text: 'gpay chalega?' });
+  ok('while paying: "gpay chalega?" → "QR upar hai", payment buttons kept, no order cancelled', last(r).intent === 'PAYMENT_METHOD' && /QR upar hai/.test(last(r).text) && ids(last(r)).includes('paid') && !r.messages.some((m) => m.intent === 'OLD_QR_CANCELLED'), last(r));
+  r = await olivia.handle(PH, { conversationId: conv, text: 'credit card se ho jayega?' });
+  ok('card asked → UPI + ask the team on WhatsApp (never promises card payment)', last(r).intent === 'PAYMENT_METHOD' && /WhatsApp/.test(last(r).text) && ids(last(r)).includes('whatsapp'), last(r));
+  await olivia.handle(PH, { conversationId: conv, choice: 'change' });
+  await olivia.handle(PH, { conversationId: conv, choice: 'menu' });
+  const mdFacts = [];
+  olivia._internal.setDeps({ words: Object.assign({}, words, { answer: async (q, facts) => { mdFacts.push(facts); return { text: '', handoff: false, tokens: 0 }; } }) });
+  await olivia.handle(PH, { conversationId: conv, text: 'kaunsa best rahega mere liye bhai?' });
+  olivia._internal.setDeps({ words });
+  ok('fact pack now includes the 2-device plans with prices (bought on the Buy page)', mdFacts.length === 1 && /Netflix Sharing 1 month for 2 devices: ₹179 \(bought on the Buy page/.test(mdFacts[0]), mdFacts[0] && mdFacts[0].slice(0, 300));
 
   // ── Past chats (customer menu) ──
   const hist = await olivia.history(PH);

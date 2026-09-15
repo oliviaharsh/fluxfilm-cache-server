@@ -292,9 +292,64 @@ const T = {
     hi: (f) => 'आपका ' + rupees(f.amount) + ' का पेमेंट' + (f.title ? ' (' + f.title + ')' : '') + ' अभी बाकी है। क्या उसकी जगह ' + f.service + ' चाहिए? तब वह QR रद्द हो जाएगा।',
   },
   MULTI_DEVICE_ON_WEBSITE: {
-    en: (f) => 'For ' + f.n + ' devices we have:' + bullets(f.items) + '\n\nThese plans are bought on the Buy page of the website (they have a few extra choices). Tap below to open it, or pick a 1-device plan here.',
-    hinglish: (f) => f.n + ' devices ke liye yeh plans hain:' + bullets(f.items) + '\n\nYeh plans website ke Buy page se milte hain (wahan kuch extra options hain). Neeche button se kholiye, ya yahan 1 device wala plan chuniye.',
-    hi: (f) => f.n + ' डिवाइस के लिए ये प्लान हैं:' + bullets(f.items) + '\n\nये प्लान वेबसाइट के Buy पेज से मिलते हैं (वहाँ कुछ और विकल्प हैं)। नीचे बटन से खोलिए, या यहाँ 1 डिवाइस वाला प्लान चुनिए।',
+    en: (f) => 'Here are the ' + (f.title ? f.title + ' ' : '') + 'plans for ' + f.n + ' devices:' + bullets(f.items) + '\n\nThese plans are bought on the Buy page of the website (it asks a few extra choices there).' + (f.group ? ' This is our Group Offer, so please join our WhatsApp group first.' : '') + ' Tap "Open Buy page" below, or pick a 1-device plan here.',
+    hinglish: (f) => (f.title ? f.title + ' ke ' : '') + f.n + ' devices wale plans yeh rahe:' + bullets(f.items) + '\n\nYeh plans website ke Buy page se milte hain (wahan kuch extra options hain).' + (f.group ? ' Yeh Group Offer hai, isliye pehle WhatsApp group join kijiye.' : '') + ' Neeche "Open Buy page" dabaiye, ya yahan 1 device wala plan chuniye.',
+    hi: (f) => (f.title ? f.title + ' के ' : '') + f.n + ' डिवाइस वाले प्लान ये रहे:' + bullets(f.items) + '\n\nये प्लान वेबसाइट के Buy पेज से मिलते हैं (वहाँ कुछ और विकल्प हैं)।' + (f.group ? ' यह Group Offer है, इसलिए पहले WhatsApp ग्रुप जॉइन कीजिए।' : '') + ' नीचे "Open Buy page" दबाइए, या यहाँ 1 डिवाइस वाला प्लान चुनिए।',
+  },
+  ASK_SERVICE_FOR_DEVICES: {
+    en: (f) => 'Sure, we have plans for ' + f.n + ' devices 😊 For which one do you want it?',
+    hinglish: (f) => 'Haan ji, ' + f.n + ' devices wale plans hain 😊 Kaunsa chahiye?',
+    hi: (f) => 'हाँ जी, ' + f.n + ' डिवाइस वाले प्लान हैं 😊 कौन सा चाहिए?',
+  },
+  ASK_DEVICES_SHARING_OR_PRIVATE: {
+    en: (f) => 'Yes, ' + f.service + ' has a ' + f.n + '-device plan! But first tell me: do you want Sharing or Private? Then I will tell you the price.',
+    hinglish: (f) => 'Haan ji, ' + f.service + ' mein ' + f.n + ' devices wala plan hai! Lekin pehle bataiye, aapko Sharing chahiye ya Private? Phir main aapko price batati hoon.',
+    hi: (f) => 'हाँ जी, ' + f.service + ' में ' + f.n + ' डिवाइस वाला प्लान है! लेकिन पहले बताइए, आपको Sharing चाहिए या Private? फिर मैं आपको कीमत बताती हूँ।',
+  },
+  MULTI_DEVICE_NONE: {
+    en: (f) => 'Sorry, ' + (f.service ? f.service + ' does not have' : 'we do not have') + ' a plan for ' + f.n + ' devices' + (f.max ? ' (the biggest plan is for ' + f.max + ' devices)' : '') + '.' + (f.rule ? ' Plan rule: ' + f.rule : '') + (f.service ? ' You can take a 1-device plan' + (f.max ? ' or the ' + f.max + '-device plan' : '') + '.' : ' Please pick a plan below.'),
+    hinglish: (f) => 'Sorry ji, ' + (f.service ? f.service + ' mein' : 'abhi') + ' ' + f.n + ' devices wala plan nahi hai' + (f.max ? ' (' + f.max + ' devices tak ka plan hai)' : '') + '.' + (f.rule ? ' Plan ka rule: ' + f.rule : '') + (f.service ? ' Aap 1 device wala plan le sakte hain' + (f.max ? ' ya ' + f.max + ' devices wala' : '') + '.' : ' Neeche se koi plan chun lijiye.'),
+    hi: (f) => 'माफ़ कीजिए, ' + (f.service ? f.service + ' में' : 'अभी') + ' ' + f.n + ' डिवाइस वाला प्लान नहीं है' + (f.max ? ' (' + f.max + ' डिवाइस तक का प्लान है)' : '') + '।' + (f.rule ? ' प्लान का नियम: ' + f.rule : '') + (f.service ? ' आप 1 डिवाइस वाला प्लान ले सकते हैं' + (f.max ? ' या ' + f.max + ' डिवाइस वाला' : '') + '।' : ' नीचे से कोई प्लान चुन लीजिए।'),
+  },
+  PRICE_WHICH_SERVICE: {
+    en: () => 'The price depends on the service 😊 Which one do you want? I will tell you the price right away.',
+    hinglish: () => 'Price service par depend karta hai 😊 Aapko kaunsa chahiye? Main turant price batati hoon.',
+    hi: () => 'कीमत सर्विस पर निर्भर है 😊 आपको कौन सा चाहिए? मैं तुरंत कीमत बताती हूँ।',
+  },
+  PRICE_FROM: {
+    en: (f) => (f.from ? f.title + ' prices start at:' : f.title + ' prices today:') + bullets(f.items),
+    hinglish: (f) => (f.from ? f.title + ' ka price yahan se shuru hai:' : f.title + ' ke aaj ke price:') + bullets(f.items),
+    hi: (f) => (f.from ? f.title + ' की कीमत यहाँ से शुरू है:' : f.title + ' की आज की कीमत:') + bullets(f.items),
+  },
+  TV_ANSWER: {
+    en: (f) => 'Yes 😊 ' + (f.services && f.services.length ? f.services.join(', ') + ' plans work on TV, mobile, laptop and tab.' : 'Tell me which one you want and I will check its device rule.') + ' Which one do you want?',
+    hinglish: (f) => 'Haan ji 😊 ' + (f.services && f.services.length ? f.services.join(', ') + ' ke plans TV, mobile, laptop aur tab par chalte hain.' : 'Service bataiye, main uska device rule dekh leti hoon.') + ' Aapko kaunsa chahiye?',
+    hi: (f) => 'हाँ जी 😊 ' + (f.services && f.services.length ? f.services.join(', ') + ' के प्लान TV, मोबाइल, लैपटॉप और टैब पर चलते हैं।' : 'सर्विस बताइए, मैं उसका डिवाइस नियम देख लेती हूँ।') + ' आपको कौन सा चाहिए?',
+  },
+  TV_ANSWER_SERVICE: {
+    en: (f) => 'Yes, ' + f.service + ' works on TV, mobile, laptop and tab 📺' + (f.rule ? ' Note: ' + f.rule : ''),
+    hinglish: (f) => 'Haan ji, ' + f.service + ' TV, mobile, laptop aur tab sab par chalta hai 📺' + (f.rule ? ' Dhyan dijiye: ' + f.rule : ''),
+    hi: (f) => 'हाँ जी, ' + f.service + ' TV, मोबाइल, लैपटॉप और टैब सब पर चलता है 📺' + (f.rule ? ' ध्यान दीजिए: ' + f.rule : ''),
+  },
+  TV_UNSURE: {
+    en: (f) => 'The ' + f.service + ' plan does not say TV, so please confirm with our team on WhatsApp before buying 🙏',
+    hinglish: (f) => f.service + ' ke plan mein TV nahi likha hai, isliye lene se pehle WhatsApp par team se confirm kar lijiye 🙏',
+    hi: (f) => f.service + ' के प्लान में TV नहीं लिखा है, इसलिए लेने से पहले WhatsApp पर टीम से पक्का कर लीजिए 🙏',
+  },
+  WHEN_LOGIN: {
+    en: (f) => 'You get the login right after the payment is received (it is checked automatically, usually in a minute or two). It is shown to you and also sent to your email, and it stays in My plans.' + (f.rule ? ' ' + f.service + ': ' + f.rule : ''),
+    hinglish: (f) => 'Payment aate hi login mil jata hai (payment apne aap check hota hai, aam taur par ek-do minute mein). Login aapko dikh jata hai, email par bhi aata hai, aur My plans mein saved rehta hai.' + (f.rule ? ' ' + f.service + ': ' + f.rule : ''),
+    hi: (f) => 'पेमेंट आते ही लॉगिन मिल जाता है (पेमेंट अपने आप चेक होता है, आमतौर पर एक-दो मिनट में)। लॉगिन आपको दिख जाता है, ईमेल पर भी आता है, और My plans में सेव रहता है।' + (f.rule ? ' ' + f.service + ': ' + f.rule : ''),
+  },
+  WHEN_LOGIN_MANUAL: {
+    en: (f) => f.service + ' is activated by our team, so it is not instant. After payment the team sets it up and you get it on your email soon.',
+    hinglish: (f) => f.service + ' hamari team activate karti hai, isliye yeh turant nahi hota. Payment ke baad team set up karti hai aur jaldi hi email par mil jata hai.',
+    hi: (f) => f.service + ' हमारी टीम एक्टिवेट करती है, इसलिए यह तुरंत नहीं होता। पेमेंट के बाद टीम सेट करती है और जल्दी ही ईमेल पर मिल जाता है।',
+  },
+  PAYMENT_METHOD: {
+    en: (f) => 'Payment is by UPI: scan the QR with any UPI app (Google Pay, PhonePe, Paytm, BHIM…).' + (f.card ? ' For any other way to pay, please ask our team on WhatsApp.' : '') + (f.paying ? ' Your QR is above.' : ' I send the QR once you pick a plan.'),
+    hinglish: (f) => 'Payment UPI se hota hai: kisi bhi UPI app (Google Pay, PhonePe, Paytm, BHIM…) se QR scan kijiye.' + (f.card ? ' Koi aur tareeka chahiye to WhatsApp par team se poochiye.' : '') + (f.paying ? ' Aapka QR upar hai.' : ' Plan chunne ke baad main QR bhejti hoon.'),
+    hi: (f) => 'पेमेंट UPI से होता है: किसी भी UPI ऐप (Google Pay, PhonePe, Paytm, BHIM…) से QR स्कैन कीजिए।' + (f.card ? ' कोई और तरीका चाहिए तो WhatsApp पर टीम से पूछिए।' : '') + (f.paying ? ' आपका QR ऊपर है।' : ' प्लान चुनने के बाद मैं QR भेजती हूँ।'),
   },
   LOGIN_HELP: {
     en: () => 'Your login is always saved in "My plans" 🔐 Open My plans and tap your plan to see it. It is also in the email we sent after payment. If it still does not work, our team will help you on WhatsApp.',
@@ -334,6 +389,10 @@ const B = {
   'variant:sharing': { en: '🤝 Sharing', hinglish: '🤝 Sharing', hi: '🤝 Sharing' },
   'variant:private': { en: '🔒 Private', hinglish: '🔒 Private', hi: '🔒 Private' },
   diff: { en: '❓ What is the difference?', hinglish: '❓ Dono mein fark kya hai?', hi: '❓ दोनों में फ़र्क क्या है?' },
+  'dvar:sharing': { en: '🤝 Sharing', hinglish: '🤝 Sharing', hi: '🤝 Sharing' },
+  'dvar:private': { en: '🔒 Private', hinglish: '🔒 Private', hi: '🔒 Private' },
+  ddiff: { en: '❓ What is the difference?', hinglish: '❓ Dono mein fark kya hai?', hi: '❓ दोनों में फ़र्क क्या है?' },
+  d1: { en: '📱 1-device plans', hinglish: '📱 1 device wale plans', hi: '📱 1 डिवाइस वाले प्लान' },
   'tv:yes': { en: '📺 Yes, on TV', hinglish: '📺 Haan, TV par', hi: '📺 हाँ, TV पर' },
   'tv:no': { en: '📱 No, phone / laptop', hinglish: '📱 Nahi, phone / laptop', hi: '📱 नहीं, फ़ोन / लैपटॉप' },
   pay: { en: '✅ Yes, send QR', hinglish: '✅ Haan, QR bhejo', hi: '✅ हाँ, QR भेजो' },
@@ -360,6 +419,14 @@ const B = {
 function buttonLabel(id, lang, fallback) {
   const b = B[id];
   return b ? b[normLang(lang)] : (fallback || id);
+}
+
+/** "2 devices" / "2 डिवाइस" (plan lists and button labels). */
+function devicesLabel(n, lang) {
+  const d = Math.max(1, Math.round(Number(n) || 1));
+  const L = normLang(lang);
+  if (L === 'hi') return d + ' डिवाइस';
+  return d + (d === 1 ? ' device' : ' devices');
 }
 
 /** "5 days left" / "expires today" / "ended 2 days ago" (button labels, fixed text). */
@@ -407,7 +474,8 @@ const LEAD_EMOJI = {
   ASK_SERVICE: '🎬', ASK_SHARING_OR_PRIVATE: '🎬', ASK_DURATION: '🗓️', ASK_TV: '📺', ASK_OWN_EMAIL: '📧', ASK_EXTRA_EMAIL: '📧', BAD_EMAIL: '📧',
   CONFIRM_PLAN: '🧾', CONFIRM_PLAN_COUPON: '🧾', SEND_PAYMENT: '💳', PAYMENT_REMINDER: '💳', PAYMENT_NOT_YET: '⏳', BACKUP_UNDER_REVIEW: '⏳',
   RENEW_PICK: '🔁', RENEW_DURATION: '🔁', RENEW_CONFIRM: '🔁', RENEW_CONFIRM_COUPON: '🔁', RENEW_NOTHING: '🔁',
-  PRICE_HELP: '💰', PRICE_HELP_PLAN: '💰', PRICE_MATCH: '💰', SWITCH_CONFIRM: '🔄', QUESTION_TO_TEAM: '💬', ASK_COUPON: '🎟️', COUPON_INVALID: '🎟️',
+  PRICE_HELP: '💰', PRICE_HELP_PLAN: '💰', PRICE_MATCH: '💰', PRICE_FROM: '💰', PAYMENT_METHOD: '💳', WHEN_LOGIN: '🔐', WHEN_LOGIN_MANUAL: '🔐',
+  ASK_DEVICES_SHARING_OR_PRIVATE: '📱', MULTI_DEVICE_ON_WEBSITE: '📱', MULTI_DEVICE_NONE: '📱', SWITCH_CONFIRM: '🔄', QUESTION_TO_TEAM: '💬', ASK_COUPON: '🎟️', COUPON_INVALID: '🎟️',
 };
 const escRe = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function format(text, facts, intent) {
@@ -525,4 +593,4 @@ async function answer(question, facts, knowledge, lang, settings, deps) {
   return { text, handoff: res.json.handoff === true, tokens: res.tokens || 0 };
 }
 
-module.exports = { LANGS, normLang, template, say, classify, answer, check, format, daysLeftLabel, buttonLabel, durationLabel, rupees, callModel, INTENTS: Object.keys(T), _internal: { T, B, fill } };
+module.exports = { LANGS, normLang, template, say, classify, answer, check, format, daysLeftLabel, devicesLabel, buttonLabel, durationLabel, rupees, callModel, INTENTS: Object.keys(T), _internal: { T, B, fill } };
