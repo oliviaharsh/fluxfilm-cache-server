@@ -237,7 +237,7 @@ const fakeHttp = async (url, opts) => {
   const model = async (msgs) => { asked = msgs; return { json: { title: 'Front of the Class', caption: 'Brad ki kahani 💪 — Tourette syndrome ke saath teacher banne ka sapna. Must watch! #inspiring #hopecore call 98765 43210 www.x.com @us.silverscreens', genres: ['Drama', 'Biography', 'Superhero', 'Thriller'], languages: ['English', 'Klingon'], type: 'movie', releaseDate: '1999-01-01' }, tokens: 321 }; };
   r = await feedai.aiFill({ title: '🎥Front of the class (2008)', sourceCaption: SRC, type: 'movie' }, { feed: fakeFeed, model });
   const f = r.fields;
-  ok('AI fill uses the Reel caption; result is only suggested (nothing saved)', r.ok && r.ai && r.tokens === 321 && /Brad Cohen/.test(asked[1].content) && JSON.stringify(await feed.list()).indexOf('Brad ki kahani') < 0);
+  ok('AI fill uses the Reel caption; result is only suggested (nothing saved)', r.ok && r.ai && r.tokens === 321 && /Contact 9876543210/.test(asked[asked.length - 1].content) && JSON.stringify(await feed.list()).indexOf('Brad ki kahani') < 0);
   ok('AI caption cleaned: no hashtags, phone numbers, links, @handles; ≤ 300 characters; Hinglish kept', f.caption && !/#|98765|www\.|@us/.test(f.caption) && f.caption.length <= 300 && /Brad ki kahani/.test(f.caption), f.caption);
   ok('TMDB decides the facts: title, genres (mapped to the fixed list), release date, poster, trailer; the AI\'s date ignored', f.title === 'Front of the Class' && f.genres.join() === 'Drama,Action,Adventure' && f.releaseDate === '2008-12-07' && f.imageUrl === 'https://image.tmdb.org/t/p/w780/front.jpg' && f.trailerUrl === 'https://www.youtube.com/watch?v=abcdefghijk' && r.tmdb === true, f);
   ok('languages only from the known list', f.languages.join() === 'English');
@@ -273,7 +273,8 @@ const fakeHttp = async (url, opts) => {
   x = await call('POST', '/admin/api/feed/ai-fill', { title: 'x' });
   ok('✨ AI fill is rate-limited (20 per 10 minutes)', x.code === 429 && aiCalls === 20);
   ok('admin page: ✨ AI fill fills the form for review (never saves), 🔄 Refresh thumbnail, big thumbnails shrunk ≤120 KB, Meta token setting with help, AI key status', /id="fdai"/.test(admin) && /\/admin\/api\/feed\/ai-fill/.test(admin) && /Check the ✨ suggestions, then 💾 Save/.test(admin) && /id="fdthumb"/.test(admin) && /\/admin\/api\/feed\/thumb\/refresh/.test(admin) && /var FD_THUMB_MAX = 120 \* 1024;/.test(admin) && /id="fdmeta" type="password" autocomplete="off"/.test(admin) && /App ID\|App secret/.test(admin) && /DEEPSEEK_API_KEY/.test(admin));
-  ok('Olivia\'s DeepSeek adapter reused (exported, token limit option), no new AI provider', typeof require('../oliviawords').callModel === 'function' && /require\('\.\/oliviawords'\)\.callModel/.test(fs.readFileSync(path.join(ROOT, 'feedai.js'), 'utf8')) && !/openai|anthropic|gemini/i.test(fs.readFileSync(path.join(ROOT, 'feedai.js'), 'utf8')));
+  // Run 4 (15 Sep): optional Gemini was added on purpose (owner); DeepSeek stays the fallback via Olivia's adapter.
+  ok('Olivia\'s DeepSeek adapter reused (exported, token limit option); only Gemini added, no other AI provider', typeof require('../oliviawords').callModel === 'function' && /require\('\.\/oliviawords'\)\.callModel/.test(fs.readFileSync(path.join(ROOT, 'feedai.js'), 'utf8')) && !/openai|anthropic/i.test(fs.readFileSync(path.join(ROOT, 'feedai.js'), 'utf8')) && /require\('\.\/feedgemini'\)\.callGemini/.test(fs.readFileSync(path.join(ROOT, 'feedai.js'), 'utf8')));
 
   // ================= #78: TMDB still not visible publicly =================
   const pubAll = JSON.stringify(await feed.publicList());

@@ -5,8 +5,9 @@
  * their profile, recover access and use Get OTP — but no NEW order or renewal can be created.
  * Orders that already exist can still be paid, verified and delivered (someone may be mid-payment).
  *
- *   getStatus()          → { ok, paused, message, backText, since, sassy }   (public, storefront polls it)
+ *   getStatus()          → { ok, paused, message, backText, since, sassy, helpBubble }   (public, storefront polls it)
  *   sassyGreeting (default ON): the fun rotating greeting on My plans; OFF = plain "Welcome back, Name".
+ *   helpBubble (default ON): the small floating 💬 Help bubble on Home / My plans / Account; OFF = only the top Help button.
  *   guard()              → null, or { ok:false, paused:true, message }         (createOrder / createRenewOrder)
  *   saveSettings(input)  → { ok, settings, changed }                            (admin)
  */
@@ -22,6 +23,7 @@ const DEFAULTS = Object.freeze({
   backText: '',
   since: '',
   sassyGreeting: true,
+  helpBubble: true,
 });
 
 function validateSettings(input, prev) {
@@ -34,6 +36,7 @@ function validateSettings(input, prev) {
     else out.message = m || DEFAULTS.message;
   }
   if (inb.sassyGreeting !== undefined) out.sassyGreeting = !(inb.sassyGreeting === false || inb.sassyGreeting === 0 || /^(false|0|off)$/i.test(s(inb.sassyGreeting)));
+  if (inb.helpBubble !== undefined) out.helpBubble = !(inb.helpBubble === false || inb.helpBubble === 0 || /^(false|0|off)$/i.test(s(inb.helpBubble)));
   if (inb.backText !== undefined) {
     const b = s(inb.backText).replace(/[<>]/g, '');
     if (b.length > 60) errors.push('"Back by" must be 60 characters or less (example: in 30 minutes).');
@@ -64,13 +67,13 @@ async function saveSettings(input) {
   if (!next.paused) next.since = '';
   await db.query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [KEY, JSON.stringify(next)]);
   cache = null;
-  const changed = ['paused', 'message', 'backText', 'sassyGreeting'].filter((k) => String(before[k]) !== String(next[k]));
+  const changed = ['paused', 'message', 'backText', 'sassyGreeting', 'helpBubble'].filter((k) => String(before[k]) !== String(next[k]));
   return { ok: true, settings: next, before, changed };
 }
 
 async function getStatus() {
   const c = await getSettings();
-  return { ok: true, paused: !!c.paused, message: c.paused ? c.message : '', backText: c.paused ? c.backText : '', since: c.paused ? c.since : '', sassy: c.sassyGreeting !== false };
+  return { ok: true, paused: !!c.paused, message: c.paused ? c.message : '', backText: c.paused ? c.backText : '', since: c.paused ? c.since : '', sassy: c.sassyGreeting !== false, helpBubble: c.helpBubble !== false };
 }
 
 /** Called before creating any new order. Fails OPEN on a database hiccup (the order code has its own checks). */
