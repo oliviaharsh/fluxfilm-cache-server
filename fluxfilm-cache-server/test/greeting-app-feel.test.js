@@ -141,7 +141,7 @@ ok('visible again → class removed', !S.classes.has('ff-hidden'));
 section('My plans greeting card wiring');
 const dash = html.slice(html.indexOf('function DashboardScreen({'), html.indexOf('\nfunction ', html.indexOf('function DashboardScreen({')));
 ok('old static "Welcome back, <br> Name 👋" is gone', !/"Welcome back,", React\.createElement\("br", null\), first, " 👋"/.test(html));
-ok('card uses ffGreeting with name, plans, last visit, owner switch, phone seed, taps', /window\.ffGreeting\(\{\s*name,\s*subs: allSubs,\s*lastSeen: helloVisit\.lastSeen,\s*isNew: helloIsNew,\s*sassy,\s*seed: normPhone_\(phone \|\| ''\),\s*skip: helloTap\s*\}\)/.test(dash));
+ok('card uses ffGreeting with name, plans (refunded left out), last visit, owner switch, phone seed, taps', /window\.ffGreeting\(\{\s*name,\s*subs: allSubs\.filter\(s => !s\.refunded\),\s*lastSeen: helloVisit\.lastSeen,\s*isNew: helloIsNew,\s*sassy,\s*seed: normPhone_\(phone \|\| ''\),\s*skip: helloTap\s*\}\)/.test(dash));
 ok('last visit read once per mount (useState initializer)', /const \[helloVisit\] = useState\(\(\) => window\.ffGreetingVisit \?/.test(dash));
 ok('tap on the line → next line (only when sassy)', /onClick: \(\) => sassy && setHelloTap\(n => n \+ 1\)/.test(dash) && /"aria-live": "polite"/.test(dash));
 ok('words re-animate when the line changes (key = tap + text); last word + emoji kept together', /key: helloTap \+ '\|' \+ hello\.text/.test(dash) && /className: "ff-hello-end"/.test(dash) && /animationDelay: Math\.min\(i \* 45, 450\) \+ 'ms'/.test(dash));

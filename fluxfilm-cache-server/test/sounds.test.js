@@ -201,7 +201,8 @@ ok('AudioContext constructor throws: silent', (() => { try { W.fire('pointerdown
   let B = runBell();
   ok('silent before first tap', B.window.ffBell.play() === false && B.A.made === 0);
   B.tap();
-  ok('plays after a tap, ≤ 1.2 s, quiet master', B.window.ffBell.play() === true && span(B.A) <= 1.2 && B.A.sources.length === 1 && B.A.gains[0].gain.value === 0.35);
+  // Owner 15 Sep: "something which lasts 2-4 secs and louder" — two ka-chings, then a ringing chord.
+  ok('plays after a tap, 2–4 s, loud master (0.9), two drawer clicks', B.window.ffBell.play() === true && span(B.A) >= 2 && span(B.A) <= 4 && B.A.sources.length === 2 && B.A.gains[0].gain.value === 0.9, { span: span(B.A), sources: B.A.sources.length, master: B.A.gains[0] && B.A.gains[0].gain.value });
   ok('default ON', B.window.ffBell.on() === true);
   B.window.ffBell.set(false);
   let o0 = B.A.oscs.length;

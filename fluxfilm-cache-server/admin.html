@@ -25,7 +25,14 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
   function resume(then) { try { var p = ctx.resume && ctx.resume(); if (p && p.then) p.then(function () { if (then && ctx.state === 'running') then(); }, function () {}); } catch (e) {} }
   function unlock() {
     try {
-      if (!ctx) { var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; ctx = new AC(); out = ctx.createGain(); out.gain.value = 0.35; out.connect(ctx.destination); }
+      if (!ctx) {
+        var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; ctx = new AC();
+        // Loud but never clipping: a compressor in front of the speakers, then a strong master gain.
+        var comp = ctx.createDynamicsCompressor ? ctx.createDynamicsCompressor() : null;
+        out = ctx.createGain(); out.gain.value = 0.9;
+        if (comp) { comp.threshold.value = -14; comp.knee.value = 6; comp.ratio.value = 8; comp.attack.value = 0.003; comp.release.value = 0.25; out.connect(comp); comp.connect(ctx.destination); }
+        else out.connect(ctx.destination);
+      }
       if (ctx.state !== 'running') resume();
     } catch (e) { ctx = null; }
   }
@@ -36,16 +43,26 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.05);
   }
-  function kaching() {
-    var t = ctx.currentTime + 0.02;
-    // "ka": a tiny filtered noise click like a till drawer.
-    var n = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.04), ctx.sampleRate), d = n.getChannelData(0);
-    for (var i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  function drawer(t, v) {
+    // "ka": a filtered noise click like a till drawer.
+    var n = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.08), ctx.sampleRate), d = n.getChannelData(0);
+    for (var i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2);
     var src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
-    src.buffer = n; bp.type = 'bandpass'; bp.frequency.value = 3200; g.gain.value = 0.5;
+    src.buffer = n; bp.type = 'bandpass'; bp.frequency.value = 2600; if (bp.Q) bp.Q.value = 0.8; g.gain.value = v;
     src.connect(bp); bp.connect(g); g.connect(out); src.start(t);
-    // "ching": two bright bells.
-    [[1318.5, 0.07], [1975.5, 0.15]].forEach(function (b) { tone(t + b[1], b[0], 0.7, 0.3); tone(t + b[1], b[0] * 2.01, 0.35, 0.07, 'triangle'); });
+  }
+  function bell(t, f, dur, v) { tone(t, f, dur, v); tone(t, f * 2.01, dur * 0.5, v * 0.3, 'triangle'); tone(t, f * 3.02, dur * 0.25, v * 0.12); }
+  // New paid order: a loud ~3 s "ka-ching! ka-ching!" — drawer + bells twice, a rising sparkle, then a ringing chord.
+  function kaching() {
+    var t = ctx.currentTime + 0.03;
+    drawer(t, 0.9);
+    bell(t + 0.06, 1318.5, 0.9, 0.55);
+    bell(t + 0.16, 1975.5, 1.1, 0.5);
+    drawer(t + 0.55, 0.6);
+    bell(t + 0.6, 1568.0, 0.8, 0.45);
+    bell(t + 0.7, 2349.3, 1.0, 0.4);
+    [1046.5, 1318.5, 1568.0, 2093.0].forEach(function (f, i) { bell(t + 1.15 + i * 0.12, f, 0.5, 0.35); });
+    [1046.5, 1318.5, 1568.0, 2093.0].forEach(function (f) { tone(t + 1.7, f, 1.5, 0.22); tone(t + 1.7, f * 1.004, 1.5, 0.12, 'triangle'); });
   }
   function play(force) {
     try {
@@ -858,8 +875,10 @@ function renderCustomer() {
 }
 function subCard(s) {
   var d = daysLeft(s.expiry_date), st = istDate(s.start_date), ex = istDate(s.expiry_date);
-  var act = /ACTIVE/i.test(s.status) && (d == null || d > 0);
-  var pill = d == null ? statusPill(s.status) : d > 7 ? '<span class="pill p-ok">' + d + 'd left</span>' : d > 0 ? '<span class="pill p-warn">' + d + 'd left</span>' : d === 0 ? '<span class="pill p-bad">Ends today</span>' : '<span class="pill p-bad">Expired ' + (-d) + 'd ago</span>';
+  // A refunded / cancelled plan has ended even if its expiry date is still ahead: never show "Nd left" for it.
+  var stopped = /REFUNDED|CANCEL/i.test(s.status || '') || /REFUNDED/i.test(s.fulfillment_status || '');
+  var act = !stopped && /ACTIVE/i.test(s.status) && (d == null || d > 0);
+  var pill = stopped ? '<span class="pill p-bad">↩️ ' + (/CANCEL/i.test(s.status || '') ? 'Cancelled' : 'Refunded') + ' · ended</span>' : d == null ? statusPill(s.status) : d > 7 ? '<span class="pill p-ok">' + d + 'd left</span>' : d > 0 ? '<span class="pill p-warn">' + d + 'd left</span>' : d === 0 ? '<span class="pill p-bad">Ends today</span>' : '<span class="pill p-bad">Expired ' + (-d) + 'd ago</span>';
   var pct = st && ex && ex > st ? Math.max(0, Math.min(100, (Date.now() - st) / (ex - st) * 100)) : 0;
   var id = esc(s.sub_id);
   function cred(label, v) { return v && v !== '-' && v !== '—' ? '<div class="cr"><span>' + label + '</span><code title="' + esc(v) + '">' + esc(v) + '</code><button class="copy" data-copy="' + esc(v) + '">Copy</button></div>' : ''; }
@@ -873,10 +892,10 @@ function subCard(s) {
   var remind = 'Hi! Your FluxFilm ' + (s.service || '') + ' (' + (s.plan || '') + ') ' + (d != null && d > 0 ? 'expires in ' + d + ' day(s)' : 'has expired') + '. Renew now on shop.fluxfilm.in 🙏';
   return '<div class="sc' + (act ? '' : ' exp') + '"><div class="hd"><div class="sic">' + svcIcon(s.service) + '</div><div class="ttl"><b>' + esc(s.service || '—') + '</b><small>' + esc(s.plan || '') + (s.device_count ? ' · ' + esc(s.device_count) + ' device(s)' : '') + (s.device_type ? ' · ' + esc(s.device_type) : '') + (Number(s.group_size) > 1 ? ' · <b>Device ' + esc(s.group_index) + ' of ' + esc(s.group_size) + '</b> (separate logins, order ' + esc(s.order_id || '') + ')' : '') + '</small></div>' +
     '<div class="rt">' + pill + '<div style="margin-top:6px">Start: ' + prettyDate(s.start_date) + '</div><div>Expiry: <b style="color:var(--ink)">' + prettyDate(s.expiry_date, true) + '</b></div></div></div>' +
-    '<div class="bar' + (d != null && d <= 0 ? ' b' : d != null && d <= 7 ? ' w' : '') + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
+    (stopped ? '<div class="qnote warn" style="margin:8px 0">This plan was refunded — it has ended. Can\'t be renewed or extended. Tick <b>Removed from account</b> once you change the password.</div>' : '<div class="bar' + (d != null && d <= 0 ? ' b' : d != null && d <= 7 ? ' w' : '') + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>') +
     (creds ? '<div class="creds">' + creds + '</div>' : '') + rmUi +
     '<div class="row" style="justify-content:space-between"><div class="meta"><span class="pill p-grey">' + id + '</span>' + (s.inventory_ref ? '<span class="pill p-blue">' + esc(s.inventory_ref) + '</span>' : '') + statusPill(s.status) + (s.source ? '<span class="pill p-grey">' + esc(s.source) + '</span>' : '') + '</div>' +
-    '<span class="row" style="gap:6px">' + (!/REFUNDED|CANCEL|REMOVED/i.test(s.status || '') ? '<button class="btn ghost sm" onclick="offerRefundDialog(\'' + id + '\')">💸 Offer refund</button>' : '') + '<button class="btn ghost sm" onclick="extendDialog(\'' + id + '\')">⏱ Extend</button><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a></span></div></div>';
+    '<span class="row" style="gap:6px">' + (stopped ? '' : (!/REFUNDED|CANCEL|REMOVED/i.test(s.status || '') ? '<button class="btn ghost sm" onclick="offerRefundDialog(\'' + id + '\')">💸 Offer refund</button>' : '') + '<button class="btn ghost sm" onclick="extendDialog(\'' + id + '\')">⏱ Extend</button><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a>') + '</span></div></div>';
 }
 function saveRemoved(id) {
   var cb = document.getElementById('rm_' + id), at = document.getElementById('rmat_' + id), msg = document.getElementById('rmmsg_' + id);
