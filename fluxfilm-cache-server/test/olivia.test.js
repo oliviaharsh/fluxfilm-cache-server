@@ -36,7 +36,7 @@ const words = require('../oliviawords');
 
 // ── fake shop (the tools layer) ──
 const PLANS = [
-  { service: 'Netflix', plan: 'Sharing 1M', durationDays: 30, price: 139, benefits: ['Your own profile on a shared account', '1 device'] },
+  { service: 'Netflix', plan: 'Sharing 1M', durationDays: 30, price: 139, benefits: ['Your own profile on a shared account', '1 device'], deviceRuleText: 'Login on 1 device only\nDo not share the login' },
   { service: 'Netflix', plan: 'Sharing 3M', durationDays: 90, price: 399, benefits: ['Your own profile on a shared account'] },
   { service: 'Netflix', plan: 'Private 1M', durationDays: 30, price: 169, benefits: ['Only you use the profile', '4K'] },
   { service: 'Netflix', plan: 'Private 3M', durationDays: 90, price: 499, benefits: ['Only you use the profile'] },
@@ -97,7 +97,9 @@ const tools = {
 olivia._internal.setDeps({ tools });
 
 const PH = '9876543210';
-const last = (r) => r.messages[r.messages.length - 1];
+// Older checks read the words; the WhatsApp look (*bold*, paragraphs, a lead emoji) is checked on `raw` below.
+const plain = (x) => String(x || '').replace(/\*/g, '').replace(/\n\n(?=[^\n]*\?$)/, ' ').replace(/^\p{Extended_Pictographic}\uFE0F?\s/u, '');
+const last = (r) => { const m = r.messages[r.messages.length - 1]; return m && Object.assign({}, m, { raw: m.text, text: plain(m.text) }); };
 const ids = (m) => (m.buttons || []).map((b) => b.id);
 const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
 
@@ -461,6 +463,26 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   r = await olivia.handle(PH, { conversationId: conv, text: 'I want private please' });
   ok('clear English → English again', r.lang === 'en', r.lang);
 
+  // ── WhatsApp look: bold facts, spacing, emoji (added by code, so AI words get it too) ──
+  const f1 = words.format('You chose Prime Video 1 month for ₹39. Shall I send the payment QR?', { title: 'Prime Video 1 month', price: 39 }, 'CONFIRM_PLAN');
+  ok('format: plan + ₹ in bold, question on its own paragraph, lead emoji', f1 === '🧾 You chose *Prime Video 1 month* for *₹39*.\n\nShall I send the payment QR?', f1);
+  ok('format: "button names" become bold, no quotes', words.format('Tap "I have paid".', {}, 'SEND_PAYMENT') === '💳 Tap *I have paid*.');
+  ok('format: a message that already has an emoji gets no extra one; model * symbols removed', words.format('Hello **Harsh**! 😊 How can I help?', {}, 'GREET_MENU') === 'Hello Harsh! 😊 How can I help?');
+  ok('format: coupon code + new expiry date bold', /\*FF20\*/.test(words.format('Coupon FF20 applied. Plan runs until 15 Oct 2026.', { code: 'FF20', newExpiry: '15 Oct 2026' }, 'X')) && /\*15 Oct 2026\*/.test(words.format('Plan runs until 15 Oct 2026.', { newExpiry: '15 Oct 2026' }, 'X')));
+  ok('check: a rewrite that ADDS {NAME} is rejected (live: "Which plan would you like to renew, ?")', !words.check('Which plan would you like to renew, {NAME}?', words.template('RENEW_PICK', {}, 'en')));
+
+  // ── forgot login / password → My plans (live: "Mujhe pass do Netflix ka, bhul gaya" restarted a purchase) ──
+  ok('login help intent: pass bhul gaya / forgot password / login nahi ho raha', ['Mujhe pass do Netflix ka, bhul gaya', 'forgot my password', 'login nahi ho raha', 'netflix ka password kya hai'].every((x) => olivia._internal.globalIntentOf(x) === 'login') && olivia._internal.globalIntentOf('netflix chahiye') !== 'login');
+  r = await olivia.handle(PH, { conversationId: conv, text: 'Mujhe pass do Netflix ka, bhul gaya' });
+  ok('forgot login → LOGIN_HELP with Open My plans + WhatsApp, never a password', last(r).intent === 'LOGIN_HELP' && ids(last(r)).includes('myplans') && ids(last(r)).includes('whatsapp') && last(r).buttons.find((b) => b.id === 'myplans').link === 'myplans' && !/password/i.test(last(r).text), last(r));
+
+  // ── device questions are answered from each plan's own device rule ──
+  const devFacts = [];
+  olivia._internal.setDeps({ words: Object.assign({}, words, { answer: async (q, facts) => { devFacts.push(facts); return { text: '', handoff: false, tokens: 0 }; } }) });
+  await olivia.handle(PH, { conversationId: conv, text: 'kitne devices login hoga is plan mein bhai?' });
+  olivia._internal.setDeps({ words });
+  ok('fact pack: device rule of each plan + Sharing vs Private explained', devFacts.length === 1 && /devices: Login on 1 device only/.test(devFacts[0]) && /shared profile/.test(devFacts[0]), devFacts[0] && devFacts[0].slice(0, 400));
+
   // ── Past chats (customer menu) ──
   const hist = await olivia.history(PH);
   ok('past chats: only this phone\'s chats, newest first, with a preview of what the customer wrote', hist.ok && hist.chats.length >= 1 && hist.chats.every((x) => /^[a-f0-9]{32}$/.test(x.id)) && hist.chats.some((x) => x.preview) && /\+05:30$/.test(hist.chats[0].updatedAt), hist);
@@ -523,6 +545,10 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('widget: chat fits above the phone keyboard (visualViewport) and keeps the newest message in view', widget.includes('visualViewport') && widget.includes('fitToKeyboard') && widget.includes('vv.height'));
   ok('widget: ⋮ menu with Past chats / New chat, read-only past chat with Continue', widget.includes('oliviaHistory') && widget.includes('oliviaTranscript') && widget.includes('Past chats') && widget.includes('New chat') && widget.includes('Continue this chat'));
   ok('server: history + transcript actions, rate limited', server.includes('oliviaHistory: (a) => oliviaMod.history(a[0])') && server.includes('oliviaTranscript: (a) => oliviaMod.transcript(a[0], a[1])') && server.includes('LIMITS.oliviaTranscript'));
+  ok('widget: *bold* drawn with text nodes only (no innerHTML from messages)', widget.includes('function richText') && /createTextNode\(part\)/.test(widget) && !/innerHTML\s*=\s*m\.text/.test(widget));
+  ok('widget: tap photo/name → WhatsApp-style profile (About, AI notice, languages, WhatsApp team)', widget.includes('function renderProfile') && widget.includes("openProfile") && widget.includes('I am an AI') && widget.includes('Chat language') && widget.includes('ffo-who'));
+  ok('widget: My plans button closes the chat and opens My plans; shop exposes ffGoMyPlans', widget.includes("kind === 'myplans'") && widget.includes('ffGoMyPlans') && html.includes('window.ffGoMyPlans = goLoggedHome'));
+  ok('widget: still pure ASCII', !/[^\x00-\x7F]/.test(widget));
   ok('widget: 2 choices — Chat with Olivia / WhatsApp our team', /Chat with Olivia/.test(widget) && /WhatsApp our team/.test(widget));
   const schemaSql = fs.readFileSync(path.join(root, 'db', 'schema-v21.sql'), 'utf8');
   ok('schema-v21: both tables, IF NOT EXISTS', /CREATE TABLE IF NOT EXISTS olivia_conversations/.test(schemaSql) && /CREATE TABLE IF NOT EXISTS olivia_messages/.test(schemaSql));

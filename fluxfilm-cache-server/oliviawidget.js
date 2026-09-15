@@ -157,6 +157,21 @@
     '.ffo-chip{font-size:11.5px;font-weight:700;border-radius:10px;padding:2px 8px;background:#fff4e5;color:#9a5b00}.ffo-chip.done{background:#e7fce3;color:#00745f}' +
     '.ffo-empty{align-self:center;text-align:center;color:#54656f;background:#fff;border-radius:10px;padding:14px 16px;margin-top:20px;max-width:280px;font-size:14px}' +
     '.ffo-continue{align-self:center;margin:14px 0 6px;width:auto;padding:11px 18px}' +
+    '.ffo-m b{font-weight:700}' +
+    '.ffo-who{display:flex;align-items:center;gap:10px;border:0;background:none;color:inherit;font:inherit;text-align:left;padding:2px 6px 2px 0;border-radius:24px;cursor:pointer;min-width:0}.ffo-who:active{background:rgba(255,255,255,.12)}' +
+    '.ffo-who:focus-visible,.ffo-pact:focus-visible,.ffo-pchip:focus-visible,.ffo-pwa:focus-visible{outline:2px solid #53bdeb;outline-offset:2px}' +
+    '.ffo-plist{background:#f0f2f5;gap:10px}' +
+    '.ffo-prof{background:#fff;border-radius:12px;padding:20px 16px 14px;display:flex;flex-direction:column;align-items:center;text-align:center;box-shadow:0 1px .5px rgba(11,20,26,.13)}' +
+    '.ffo-pav{width:132px;height:132px;border-radius:50%;overflow:hidden;display:grid;place-items:center;font-size:64px;background:linear-gradient(135deg,#dcf8c6,#25d366);margin-bottom:12px}.ffo-pav img{width:100%;height:100%;object-fit:cover;display:block}' +
+    '.ffo-pname{font-size:22px;font-weight:600;color:#111b21}.ffo-prole{font-size:15px;color:#667781;margin-top:2px}.ffo-ponline{font-size:13px;color:#00a884;margin-top:4px;font-weight:600}' +
+    '.ffo-pacts{display:flex;gap:10px;margin-top:16px;width:100%;justify-content:center}' +
+    '.ffo-pact{flex:1;max-width:104px;border:1px solid #e9edef;background:#fff;border-radius:12px;padding:10px 4px;font:inherit;color:#008069;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px}.ffo-pact i{font-style:normal;font-size:22px}.ffo-pact span{font-size:13px;font-weight:600}.ffo-pact:active{background:#f0f2f5}' +
+    '.ffo-psec{background:#fff;border-radius:12px;padding:12px 16px;box-shadow:0 1px .5px rgba(11,20,26,.13)}' +
+    '.ffo-plabel{font-size:13.5px;color:#008069;font-weight:600;margin-bottom:6px}.ffo-pabout{font-size:15.5px;line-height:1.45;color:#111b21}' +
+    '.ffo-pline{display:flex;gap:14px;align-items:flex-start;padding:10px 0;border-top:1px solid #f0f2f5}.ffo-pline:first-child{border-top:0;padding-top:2px}' +
+    '.ffo-pline i{font-style:normal;font-size:20px;width:26px;text-align:center;flex:none}.ffo-pline b{display:block;font-size:15.5px;font-weight:600;color:#111b21}.ffo-pline span{display:block;font-size:14px;color:#667781;line-height:1.4}' +
+    '.ffo-pchips{display:flex;gap:8px;flex-wrap:wrap}.ffo-pchip{border:1px solid #d1d7db;background:#fff;color:#111b21;border-radius:18px;padding:8px 14px;font:inherit;font-size:14.5px;cursor:pointer}.ffo-pchip.on{background:#d9fdd3;border-color:#00a884;color:#005c4b;font-weight:600}' +
+    '.ffo-pwa{border:0;background:#fff;color:#008069;border-radius:12px;padding:14px;font:inherit;font-size:15.5px;font-weight:600;cursor:pointer;box-shadow:0 1px .5px rgba(11,20,26,.13);margin-bottom:8px}' +
     '.ffo-menu[hidden],.ffo-foot[hidden]{display:none!important}' +
     '.ffo-panel[hidden],.ffo-bg[hidden]{display:none!important}';
   function injectCss() {
@@ -165,6 +180,7 @@
   }
   function h(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function openLink(kind) {
+    if (kind === 'myplans') { closeChat(); if (typeof window.ffGoMyPlans === 'function') { try { window.ffGoMyPlans(); } catch (e) {} } return; }
     var url = kind === 'helper' ? (typeof NETFLIX_HOUSEHOLD_LINK !== 'undefined' ? NETFLIX_HOUSEHOLD_LINK : '') : st.wa; // eslint-disable-line no-undef
     if (!url) url = st.wa;
     try { var w = window.open(url, '_blank'); if (w) w.opener = null; else location.href = url; } catch (e) { location.href = url; }
@@ -220,15 +236,20 @@
     audioCtx(); // opened by a tap: the browser now allows the reply sounds
     if (ui) { ui.panel.hidden = false; st.open = true; render(); return; }
     var panel = h('div', 'ffo-panel'); panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Chat with Olivia');
-    var top = h('div', 'ffo-top'); top.appendChild(avatarEl());
+    var top = h('div', 'ffo-top');
+    var who = h('button', 'ffo-who'); who.type = 'button'; who.setAttribute('aria-label', 'Open Olivia\'s profile');
+    who.appendChild(avatarEl());
     var name = h('b', null, 'Olivia'); name.appendChild(aiTag());
-    var t = h('div'); t.appendChild(name); var sub = h('small', null, 'online'); t.appendChild(sub); top.appendChild(t);
+    var t = h('div'); t.appendChild(name); var sub = h('small', null, 'online'); t.appendChild(sub); who.appendChild(t);
+    who.onclick = function (e) { e.stopPropagation(); menu.hidden = true; openProfile(); };
+    top.appendChild(who);
     var more = h('button', 'ffo-x ffo-more', '\u22EE'); more.setAttribute('aria-label', 'Chat menu'); more.onclick = function (e) { e.stopPropagation(); toggleMenu(); }; top.appendChild(more);
     var x = h('button', 'ffo-x', '\u00D7'); x.setAttribute('aria-label', 'Close chat'); x.onclick = closeChat; top.appendChild(x);
     var menu = h('div', 'ffo-menu'); menu.hidden = true;
     var m1 = h('button', null, '\uD83D\uDDC2\uFE0F Past chats'); m1.type = 'button'; m1.onclick = function () { menu.hidden = true; openHistory(); };
     var m2 = h('button', null, '\u270F\uFE0F New chat'); m2.type = 'button'; m2.onclick = function () { menu.hidden = true; newChat(); };
-    menu.appendChild(m1); menu.appendChild(m2); top.appendChild(menu);
+    var m0 = h('button', null, '\uD83D\uDC64 Olivia\'s profile'); m0.type = 'button'; m0.onclick = function () { menu.hidden = true; openProfile(); };
+    menu.appendChild(m0); menu.appendChild(m1); menu.appendChild(m2); top.appendChild(menu);
     var list = h('div', 'ffo-list'); list.setAttribute('aria-live', 'polite');
     var foot = h('form', 'ffo-foot');
     var input = h('input', 'ffo-in'); input.placeholder = 'Message'; input.setAttribute('aria-label', 'Message'); input.autocomplete = 'off';
@@ -280,6 +301,55 @@
     st.convId = st.past.id;
     st.messages = (st.past.messages || []).map(function (m) { return { role: m.role, text: m.text, at: m.at, read: true }; });
     st.view = 'chat'; save(); render();
+  }
+  /** WhatsApp-style contact info: who Olivia is, what she can do, and that she is an AI. */
+  function openProfile() { st.view = 'profile'; render(); }
+  function renderProfile(list) {
+    list.appendChild(viewBar('Profile', function () { st.view = 'chat'; render(); }));
+    var head = h('div', 'ffo-prof');
+    var big = avatarEl(); big.className = 'av ffo-pav'; head.appendChild(big);
+    var nm = h('div', 'ffo-pname', 'Olivia'); nm.appendChild(aiTag()); head.appendChild(nm);
+    head.appendChild(h('div', 'ffo-prole', 'FluxFilm store assistant'));
+    head.appendChild(h('div', 'ffo-ponline', '\u25CF online'));
+    var acts = h('div', 'ffo-pacts');
+    function act(icon, label, fn) {
+      var b = h('button', 'ffo-pact'); b.type = 'button'; b.appendChild(h('i', null, icon)); b.appendChild(h('span', null, label)); b.onclick = fn; acts.appendChild(b);
+    }
+    act('\uD83D\uDCAC', 'Chat', function () { st.view = 'chat'; render(); });
+    act('\uD83D\uDDC2\uFE0F', 'Past chats', openHistory);
+    act('\u270F\uFE0F', 'New chat', newChat);
+    head.appendChild(acts);
+    list.appendChild(head);
+
+    var about = h('div', 'ffo-psec');
+    about.appendChild(h('div', 'ffo-plabel', 'About'));
+    about.appendChild(h('div', 'ffo-pabout', 'Hi! I am Olivia, FluxFilm\'s AI assistant \uD83D\uDE0A I help you buy a plan, pay, renew and find your login \u2014 step by step, any time of the day.'));
+    list.appendChild(about);
+
+    var info = h('div', 'ffo-psec');
+    function line(icon, title, text) {
+      var r = h('div', 'ffo-pline'); r.appendChild(h('i', null, icon));
+      var d = h('div'); d.appendChild(h('b', null, title)); d.appendChild(h('span', null, text)); r.appendChild(d); info.appendChild(r);
+    }
+    line('\uD83D\uDED2', 'What I can do', 'Buy a plan \u00B7 Pay by UPI \u00B7 Renew \u00B7 Coupons \u00B7 Find your login');
+    line('\u26A1', 'Replies in seconds', 'Any time, day or night');
+    line('\uD83D\uDD12', 'Safe and honest', 'Prices, payments and logins come straight from the FluxFilm shop. I never make them up.');
+    line('\uD83E\uDD16', 'I am an AI', 'Not a person. For anything tricky, our team is on WhatsApp.');
+    list.appendChild(info);
+
+    var langs = h('div', 'ffo-psec');
+    langs.appendChild(h('div', 'ffo-plabel', 'Chat language'));
+    var chips = h('div', 'ffo-pchips');
+    [['en', 'English'], ['hinglish', 'Hinglish'], ['hi', '\u0939\u093F\u0902\u0926\u0940']].forEach(function (l) {
+      var c = h('button', 'ffo-pchip' + (st.lang === l[0] ? ' on' : ''), l[1]); c.type = 'button';
+      c.onclick = function () { st.lang = l[0]; save(); st.view = 'chat'; render(); talk({ choice: 'lang:' + l[0] }, l[1]); };
+      chips.appendChild(c);
+    });
+    langs.appendChild(chips);
+    list.appendChild(langs);
+
+    var wa = h('button', 'ffo-pwa', '\uD83D\uDCAC WhatsApp our team'); wa.type = 'button'; wa.onclick = function () { openLink('whatsapp'); };
+    list.appendChild(wa);
   }
   function viewBar(title, onBack) {
     var bar = h('div', 'ffo-viewbar');
@@ -358,10 +428,18 @@
     }
     return c;
   }
+  /** WhatsApp formatting: *bold* becomes bold. Built from text nodes, so nothing in a message can become HTML. */
+  function richText(el, text) {
+    String(text || '').split(/(\*[^*\n]{1,120}\*)/).forEach(function (part) {
+      if (/^\*[^*\n]+\*$/.test(part)) el.appendChild(h('b', null, part.slice(1, -1)));
+      else if (part) el.appendChild(document.createTextNode(part));
+    });
+  }
   function bubble(m, prev) {
     var mine = m.role === 'customer';
     var cont = prev && prev.role === m.role;
-    var b = h('div', 'ffo-m ' + (mine ? 'c' : 'o') + (cont ? ' cont' : '') + (m.fresh ? ' ffo-new' : ''), m.text);
+    var b = h('div', 'ffo-m ' + (mine ? 'c' : 'o') + (cont ? ' cont' : '') + (m.fresh ? ' ffo-new' : ''), mine ? m.text : null);
+    if (!mine) richText(b, m.text);
     var meta = h('span', 'ffo-meta', timeText(m.at));
     if (mine) meta.appendChild(h('span', 'ffo-tick' + (m.read ? ' read' : ''), m.read ? '\u2713\u2713' : '\u2713'));
     b.appendChild(meta);
@@ -370,7 +448,9 @@
   function render() {
     if (!ui) return;
     var list = ui.list; list.innerHTML = '';
-    ui.foot.hidden = st.view === 'history' || st.view === 'past';
+    ui.foot.hidden = st.view === 'history' || st.view === 'past' || st.view === 'profile';
+    list.className = 'ffo-list' + (st.view === 'profile' ? ' ffo-plist' : '');
+    if (st.view === 'profile') { renderProfile(list); list.scrollTop = 0; return; }
     if (st.view === 'history') { renderHistory(list); list.scrollTop = 0; return; }
     if (st.view === 'past') { renderPast(list); list.scrollTop = list.scrollHeight; return; }
     list.appendChild(h('div', 'ffo-day', 'Today'));

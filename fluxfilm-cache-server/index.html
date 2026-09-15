@@ -12935,6 +12935,8 @@ function App() {
       });
     });
   }
+  // Olivia's "Open My plans" button (olivia.js widget) uses the same path as the My plans tab.
+  window.ffGoMyPlans = goLoggedHome;
   function recoverFromCard(sub) {
     navReset('recover', {
       preSelectedSub: sub
