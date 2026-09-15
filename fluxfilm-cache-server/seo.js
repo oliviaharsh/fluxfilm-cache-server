@@ -429,6 +429,9 @@ async function aboutPage() {
 // Plain HTML (no DB text). The refund methods describe refunds.js: refund credit ("coins", ₹1 = 1, pays up to the full
 // price), personal RF coupon (single use, this phone, 180 days), and a cash refund where the customer picks coins
 // +BONUS_PERCENT or a UPI ID (email code first). Keep this page, the FAQ answer and REFUND-POLICY.md saying the same.
+// Refunds v3 (owner 15 Sep, PR "refunds v3"): the CUSTOMER chooses the method — coins OR coupon get BONUS_PERCENT extra,
+// UPI cash is the exact amount; delivered-plan refunds are emailed + shown as a banner and chosen in the app. The %
+// shown here is the default (refunds.js BONUS_PERCENT); if the owner changes it in admin → Refunds, update this text.
 const REFUND_UPDATED = '15 Sep 2026';
 let refundsModForPolicy = null;
 function refundBonusPercent() {
@@ -444,7 +447,7 @@ function refundPolicyBody() {
       '<li>Delivery is instant, so there is no refund just because you changed your mind after delivery.</li>' +
       '<li>Login not working? We give you a replacement. If we can’t replace it, we refund you within 24 hours.</li>' +
       '<li>Plans that are not instant are delivered within 48 hours — or you can claim a full refund with no charge.</li>' +
-      '<li>Refunds are paid as coins or a coupon (extra value) or as cash to your UPI (the exact amount).</li>' +
+      '<li>You choose how you get a refund: coins or a coupon' + (bonus ? ' with ' + bonus + '% extra' : ' (extra value)') + ', or cash to your UPI (the exact amount).</li>' +
     '</ul></div>' +
     section('Instant delivery',
       p('Most FluxFilm plans are delivered instantly: your login appears on screen as soon as your UPI payment is confirmed, and we email you a copy.') +
@@ -453,11 +456,12 @@ function refundPolicyBody() {
       p('If your login stops working, or there is any other problem with your account, tell us and we will give you a <b>replacement account</b>.') +
       p('Only if we don’t have enough accounts to replace it, we <b>refund you within the next 24 hours</b>.')) +
     section('Manual delivery (48 hours)',
-      p('Some plans are not instant — our team activates them for you. These plans are delivered <b>within 48 hours</b> of your payment.') +
+      p('Some plans are not instant — our team activates them for you. These plans are delivered <b>within 48 hours</b> of your payment. The 48 hours count from the time you paid.') +
       p('If a manual plan is not delivered within 48 hours, you can claim a <b>full refund with no charge</b>.')) +
     section('Refunds in the middle of a plan',
       p('If your plan was delivered and you want a refund part-way through the period, you can ask for one.') +
-      p('Our team decides the refund amount based on how much of the plan you have used (a usage charge). We tell you the amount before we refund.')) +
+      p('Our team decides the refund amount based on how much of the plan you have used (a usage charge). We tell you the amount before we refund.') +
+      p('When a refund on a delivered plan is ready, <b>we email you and FluxFilm shows a banner</b> with what you paid, any charge and why, and your refund. You choose how you want it in the app. When you take the refund, that plan stops working.')) +
     section('Changes made by streaming services',
       p('We only provide accounts that have an active subscription. What that subscription includes is set by the streaming service or subscription provider, and they can change it. For example, Netflix may lower Premium video quality or change features.') +
       p('Changes like these are out of our hands, so they are <b>not a reason for a full refund</b>. If you want a refund because of such a change, it is handled like a refund in the middle of a plan (subject to a usage charge).')) +
@@ -466,17 +470,17 @@ function refundPolicyBody() {
       p('The new price applies only when you renew, or when you buy again after your period ends.')) +
     section('How refunds are paid',
       '<ul class="list">' +
-        '<li><b>🪙 Coins (refund credit)</b> — added to your FluxFilm account. ₹1 = 1 coin, and refund credit can pay the full price of any plan or renewal.' + (bonus ? ' When we offer you a cash refund and you choose coins instead, you get <b>' + bonus + '% extra</b>.' : '') + '</li>' +
-        '<li><b>🎟️ Coupon</b> — a personal coupon for your phone number, used once, valid for 180 days. You find it in Account → Coupons.</li>' +
-        '<li><b>🏦 Cash to your UPI</b> — the exact refund amount, sent to the UPI ID you give us. No extra is added to cash refunds.</li>' +
+        '<li><b>🪙 Coins (refund credit)</b> — added to your FluxFilm account straight away. ₹1 = 1 coin, and refund credit can pay the full price of any plan or renewal.' + (bonus ? ' When you choose coins, you get <b>' + bonus + '% extra</b>.' : '') + '</li>' +
+        '<li><b>🎟️ Coupon</b> — a personal coupon for your phone number, added straight away, used once, valid for 180 days. You find it in Account → Coupons.' + (bonus ? ' When you choose a coupon, it is also worth <b>' + bonus + '% extra</b>.' : '') + '</li>' +
+        '<li><b>🏦 Cash to your UPI</b> — the exact refund amount, sent by our team to the UPI ID you give us. No extra is added to cash refunds. We let you know when it has been sent.</li>' +
       '</ul>' +
-      p('Coins and coupons can give you more value than you paid; cash is always the exact refund amount.')) +
+      p('You choose the method. Coins and coupons give you more value than your refund; cash is always the exact refund amount.')) +
     section('How to request a refund',
       '<ol class="steps">' +
-        '<li>Open FluxFilm and tap <b>Help</b>, or email <a href="mailto:support@fluxfilm.in">support@fluxfilm.in</a>. Tell us your phone number, your order ID if you have it, and what went wrong.</li>' +
-        '<li>Our team checks your order and replies. Sometimes we start the refund ourselves — for example, when a plan can’t be delivered.</li>' +
-        '<li>For a cash refund, sign in to FluxFilm with your phone number. The app asks how you want it: ' + (bonus ? 'coins with ' + bonus + '% extra, ' : 'coins, ') + 'or money to your UPI ID.</li>' +
-        '<li>If you choose UPI, type your UPI ID when the app asks. For your safety we email you a 6-digit code first. We then send the refund and let you know.</li>' +
+        '<li>Open FluxFilm, sign in with your phone number and go to <b>Account → 💸 Request refund</b>. Pick the plan or order and tell us why. You can also tap <b>Help</b> or email <a href="mailto:support@fluxfilm.in">support@fluxfilm.in</a>.</li>' +
+        '<li>A plan that was paid but not delivered yet can be refunded once <b>48 hours have passed since your payment</b> — until then our team is still activating it or arranging a replacement, and the app shows when you can ask. Our team checks every request and replies. Sometimes we start the refund ourselves — for example, when a plan can’t be delivered.</li>' +
+        '<li>When your refund is ready, we email you and FluxFilm shows it when you sign in with your phone number. You choose how you want it: coins or a coupon' + (bonus ? ' with ' + bonus + '% extra' : '') + ' (added instantly), or money to your UPI ID (the exact amount).</li>' +
+        '<li>If you choose UPI, type your UPI ID when the app asks. For your safety we email you a 6-digit code first. Our team then sends the refund, and you get an email and a message in the app when it’s done.</li>' +
       '</ol>') +
     section('Contact',
       p('Email <a href="mailto:support@fluxfilm.in">support@fluxfilm.in</a> or tap <b>Help</b> in the FluxFilm app.') +
