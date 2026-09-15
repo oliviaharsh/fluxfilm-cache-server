@@ -179,6 +179,8 @@ function mountAdmin(app, deps) {
   require('./adminfeed').mount(app, Object.assign({ db, auth, audit }, deps.feed || {}));
   // Push notifications: renewal reminders settings, test, send, broadcast (adminpush.js).
   require('./adminpush').mount(app, Object.assign({ db, auth, audit }, deps.push || {}));
+  // 📈 Reports + 🔔 owner alerts (new paid order push, daily / weekly / monthly summaries) (adminreports.js).
+  require('./adminreports').mount(app, Object.assign({ db, auth, audit }, deps.reports || {}));
   // Email sender check + test email (adminmail.js).
   require('./adminmail').mount(app, Object.assign({ auth, audit }, deps.mail || {}));
   // Plans editor: builder, copy, on/off, safe delete (adminplans.js).

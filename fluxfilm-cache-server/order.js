@@ -410,6 +410,12 @@ async function _markPaid(orderId, txnRef) {
       .then((r) => { if (r && r.status) console.log('[referral]', orderId, JSON.stringify(r)); })
       .catch((e) => console.log('[referral] reward failed for', orderId, e.message));
   }
+  // 💸 "New order ₹X" on the owner's phones (ownernotify.js). Bank email / typed UTR / admin Mark paid / Quick order /
+  // backup UPI claims all end here. Fire and forget, at most once per order.
+  if (becamePaid) notifyOwnerPaid(orderId);
+}
+function notifyOwnerPaid(orderId) {
+  try { require('./ownernotify').orderPaidLater(orderId); } catch (e) { console.log('[owner-alert] not loaded:', e.message); }
 }
 
 // Refunded by the owner: the checkout page stops waiting and says so (no bank credit is taken for it).
@@ -615,6 +621,7 @@ async function confirmFreeOrder(orderId, proof) {
     referrals.onOrderPaid(oid)
       .then((r) => { if (r && r.status) console.log('[referral]', oid, JSON.stringify(r)); })
       .catch((e) => console.log('[referral] reward failed for', oid, e.message));
+    notifyOwnerPaid(oid);
   }
   return done.out;
 }

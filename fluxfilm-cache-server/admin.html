@@ -774,6 +774,31 @@ window.addEventListener('popstate', function (e) {
     } else hPush({ ffv: 'today' });
   }
 });
+// 📈 Reports (reports.js): its menu entry (after 💰 Profit), screen and a "📈 Reports" button on Today are added here,
+// so the shared MENU / viewMap / todayView lines stay untouched.
+(function () { var at = -1; MENU.forEach(function (m, i) { if (m[0] === 'profit') at = i; }); MENU.splice(at >= 0 ? at + 1 : MENU.length, 0, ['reports', '📈', 'Reports']); })();
+var ffViewMapBase = viewMap;
+viewMap = function () { var m = ffViewMapBase(); if (typeof reportsView === 'function') m.reports = reportsView; return m; };
+var ffTodayViewBase = todayView;
+todayView = function () {
+  ffTodayViewBase();
+  var row = $('#view .ph .row'); if (row && !$('#treports')) row.insertAdjacentHTML('afterbegin', '<button class="btn ghost sm" id="treports" onclick="nav(\'reports\')">📈 Reports</button>');
+};
+// A tapped 💸 / 📊 notification: /panel?v=orders&order=FF123 opens that order, /panel?v=reports&report=day:2026-09-16 that summary.
+var FFLINK = (function () { try { var p = new URLSearchParams(location.search); return { order: /^FF[\w-]{1,30}$/i.test(p.get('order') || '') ? p.get('order') : '', report: /^(day|week|month):[\d~m-]{7,20}$/.test(p.get('report') || '') ? p.get('report') : '' }; } catch (e) { return { order: '', report: '' }; } })();
+(function () {
+  if (!FFLINK.order) return;
+  var tries = 0;
+  var t = setInterval(function () {
+    if (++tries > 60) { clearInterval(t); return; }
+    if (!$('#view') || !H.inited) return; // wait for sign-in + the panel
+    clearInterval(t);
+    var id = FFLINK.order; FFLINK.order = '';
+    ffDropLinkParams();
+    openOrder(id);
+  }, 500);
+})();
+function ffDropLinkParams() { try { var u = new URL(location.href); u.searchParams.delete('order'); u.searchParams.delete('report'); history.replaceState(history.state, '', u.pathname + u.search + u.hash); } catch (e) {} }
 // /panel#orders or /panel?v=orders opens that screen (after sign-in too).
 function hDeepLink() {
   var v = '';
@@ -2638,8 +2663,8 @@ function saveSettingsBtn(btn, path, body, stateFn, onOk) {
 var PN = { d: null };
 var PN_TPL = [['before', '⏰ Before the plan ends', 'Sent on each “days before” day'], ['today', '⚠️ On the expiry day', ''], ['after', '😟 The day after it ended', ''], ['delivered', '🎬 When a plan is delivered', 'Right after payment, with the login ready']];
 function pushView() {
-  $('#view').innerHTML = '<div class="ph"><div><h1>🔔 Notifications</h1><p>Renewal reminders on customers’ phones — automatic, never twice, only in the daytime. Only customers who tapped “Yes, remind me” get them.</p></div></div><div id="pnbody"><p class="muted">Loading…</p></div><div id="mailcard"></div>';
-  pnLoad(); mailLoad();
+  $('#view').innerHTML = '<div class="ph"><div><h1>🔔 Notifications</h1><p>Renewal reminders on customers’ phones — automatic, never twice, only in the daytime. Only customers who tapped “Yes, remind me” get them.</p></div></div><div id="ownercard"></div><div id="pnbody"><p class="muted">Loading…</p></div><div id="mailcard"></div>';
+  ownerLoad(); pnLoad(); mailLoad();
 }
 // ✉️ Which address sends customer email (support@ mailbox or the Gmail fallback) + a test email.
 function mailLoad() {
@@ -2755,6 +2780,143 @@ function pnRender() {
     btn.disabled = true; btn.textContent = '⏳ Sending…';
     post('/admin/api/push/broadcast', body).then(function (r) { btn.disabled = false; btn.textContent = '📢 Send again'; toast((r.ok ? '📢 ' : '⚠️ ') + (r.message || 'error')); if (r.ok) pnLoad(); });
   };
+}
+
+/* ================= 💸 owner alerts + 📊 summary settings (ownernotify.js / adminreports.js) ================= */
+var OA = { d: null };
+var OA_EMAIL = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,180}\.[A-Za-z]{2,24}$/;
+function ownerLoad() {
+  api('/admin/api/owner-alerts').then(function (r) {
+    var el = $('#ownercard'); if (!el) return;
+    if (!r.ok) { el.innerHTML = '<div class="card muted" style="margin-bottom:14px">' + esc(r.message || 'error') + '</div>'; return; }
+    OA.d = r; ownerRender();
+  });
+}
+function ownerRender() {
+  var d = OA.d, st = d.settings, el = $('#ownercard'); if (!el) return;
+  var tog = function (id, on, label) { return '<label class="rf-tog" style="margin:0;display:flex;align-items:center;gap:10px"><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + ' style="width:20px;height:20px;flex:none"/> <span>' + label + '</span></label>'; };
+  var nx = function (k) { var n = d.next && d.next[k]; return '<span class="muted" style="font-size:.74rem">' + (n ? 'next: ' + esc(n.text) + ' · ' + esc(n.period) : 'off') + '</span>'; };
+  var line = function (tid, on, label, timeId, time, k) { return '<div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">' + tog(tid, on, label) + '<input class="inp" type="time" id="' + timeId + '" value="' + esc(time) + '" style="width:auto;padding:6px 10px"/>' + nx(k) + '</div>'; };
+  var def = (d.defaultEmails || []).join(', ');
+  el.innerHTML = '<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">💸 New paid order alerts</h3>' +
+    '<p class="muted" style="font-size:.8rem;margin:0 0 10px">Your phone rings the moment an order is paid — bank email, UPI claim, ₹0 checkout, Mark paid or Quick order — once per order, even when the admin panel is closed. Admin devices: ' + (d.adminDevices == null ? '?' : d.adminDevices) + '.</p>' +
+    '<div class="mt-f">' + tog('oaorder', st.orderPush, '<b>💸 New paid order push</b>') + tog('oacredit', st.creditPush, '✅ Credit paid push') + tog('oaomail', st.orderEmail, '✉️ Also email me each order') + '</div>' +
+    '<div class="row" style="margin-top:12px"><button class="btn dark" id="oatest">🔔 Test new-order alert</button></div>' +
+    '<h3 style="margin:20px 0 6px">📊 Business summaries</h3>' +
+    '<p class="muted" style="font-size:.8rem;margin:0 0 10px">India time. Daily covers that day (a time before 12:00 sends yesterday’s). Weekly = Monday–Sunday, sent on Sunday. Monthly is sent on the last day of the month. If the server was restarting at that time it is sent within 6 hours, otherwise skipped. Never sent twice.</p>' +
+    '<div class="mt-f">' + line('oaday', st.dailyOn, 'Daily at', 'oadayt', st.dailyTime, 'day') + line('oaweek', st.weeklyOn, 'Weekly (Sunday) at', 'oaweekt', st.weeklyTime, 'week') + line('oamonth', st.monthlyOn, 'Monthly (last day) at', 'oamontht', st.monthlyTime, 'month') +
+    tog('oaspush', st.summaryPush, '📱 Push the summary to admin phones') + tog('oasmail', st.summaryEmail, '✉️ Email the summary') +
+    '<label>Send emails to <span class="muted">(comma separated, up to 5 · empty = ' + esc(def || 'the shop email') + ')</span><input class="inp" id="oaemails" type="text" inputmode="email" autocomplete="off" value="' + esc((st.emails || []).join(', ')) + '" placeholder="' + esc(def || 'you@example.com') + '"/></label></div>' +
+    '<div class="rf-save"><button class="btn green" id="oasave">💾 Save</button><span class="rf-state" id="oastate"></span></div>' +
+    '<div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap"><button class="btn ghost" data-oasend="day">📨 Send today’s summary now</button><button class="btn ghost sm" data-oasend="week">📨 This week</button><button class="btn ghost sm" data-oasend="month">📨 This month</button><button class="btn ghost sm" onclick="nav(\'reports\')">📈 Open Reports</button></div>' +
+    '<div class="qnote warn" style="margin-top:12px">📱 Alerts use this phone’s own notification sound (Chrome / FluxFilm Admin app notification channel) — pick a loud sound there. For alerts with the screen off on Android: Settings → Apps → Chrome → Battery → <b>Unrestricted</b>.</div></div>';
+  var state = function (k, x) { var e = $('#oastate'); if (e) { e.className = 'rf-state ' + k; e.textContent = x; } };
+  $('#oasave').onclick = function () {
+    var list = $('#oaemails').value.split(/[,;\s]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+    var bad = list.filter(function (x) { return !OA_EMAIL.test(x); });
+    if (bad.length) { state('bad', '⚠️ Not an email: ' + bad.join(', ')); return toast('⚠️ Not an email: ' + bad[0]); }
+    if (list.length > 5) { state('bad', '⚠️ At most 5 emails'); return; }
+    saveSettingsBtn(this, '/admin/api/owner-alerts/settings', { orderPush: $('#oaorder').checked, creditPush: $('#oacredit').checked, orderEmail: $('#oaomail').checked, dailyOn: $('#oaday').checked, dailyTime: $('#oadayt').value, weeklyOn: $('#oaweek').checked, weeklyTime: $('#oaweekt').value, monthlyOn: $('#oamonth').checked, monthlyTime: $('#oamontht').value, summaryPush: $('#oaspush').checked, summaryEmail: $('#oasmail').checked, emails: list.join(', ') }, state, function (r) { OA.d.settings = r.settings; OA.d.next = r.next; setTimeout(ownerRender, 2600); });
+  };
+  $('#oatest').onclick = function () {
+    var b = this; b.disabled = true;
+    if (window.ffBell) ffBell.play(true); // the in-app ka-ching too
+    post('/admin/api/owner-alerts/test-order', {}).then(function (r) { b.disabled = false; toast((r.ok ? '' : '⚠️ ') + (r.message || 'error')); });
+  };
+  $$('#ownercard [data-oasend]').forEach(function (b) {
+    b.onclick = function () {
+      var kind = b.getAttribute('data-oasend'), word = { day: 'today’s', week: 'this week’s', month: 'this month’s' }[kind];
+      if (!confirm('Send ' + word + ' summary now (push + email as set above)? It does not change the scheduled one.')) return;
+      b.disabled = true;
+      post('/admin/api/reports/send-now', { kind: kind }).then(function (r) { b.disabled = false; toast((r.ok ? '📨 ' : '⚠️ ') + (r.message || 'error')); });
+    };
+  });
+}
+
+/* ================= 📈 Reports: day / week (Mon–Sun) / month / custom + past summaries (adminreports.js) ================= */
+var RP = { kind: 'day', date: '', from: '', to: '', data: null, charts: [], tok: 0 };
+(function () { try { if (!document.getElementById('rpcss')) document.head.insertAdjacentHTML('beforeend', '<style id="rpcss">.rp-secs{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px;margin-bottom:16px}.rp-secs .card h3{margin:0 0 4px;font-size:.95rem}.rp-up{color:var(--ok);font-weight:700}.rp-down{color:var(--bad);font-weight:700}@media(max-width:600px){#rpbody .kpis,#rpsnap .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}#rpbody .kpi,#rpsnap .kpi{padding:12px;gap:10px}#rpbody .kpi .n,#rpsnap .kpi .n{font-size:1.1rem}}</style>'); } catch (e) {} })();
+function rpToday() { return new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10); }
+function rpAdd(ymd, n) { return new Date(Date.parse(ymd + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10); }
+function reportsView() {
+  if (!RP.date) RP.date = rpToday();
+  $('#view').innerHTML = '<div class="ph"><div><h1>📈 Reports</h1><p>Cash in, orders, customers, refunds and what is pending. India time · weeks run Monday–Sunday.</p></div><div class="row"><button class="btn ghost sm" onclick="nav(\'push\')">⚙️ Summary settings</button></div></div>' +
+    '<div class="row" id="rptabs" style="margin-bottom:10px;gap:6px;flex-wrap:wrap">' + [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['custom', 'Custom dates']].map(function (k) { return '<button class="chip' + (RP.kind === k[0] ? ' on' : '') + '" data-rpk="' + k[0] + '">' + k[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="row" id="rppick" style="margin-bottom:14px;gap:6px;flex-wrap:wrap;align-items:center"></div><div id="rpbody"><p class="muted">Loading…</p></div>' +
+    '<div class="card"><h3 style="margin-top:0">🗂 Past summaries</h3><div class="list" id="rphist"><p class="muted">Loading…</p></div></div>';
+  $('#rptabs').onclick = function (e) { var b = e.target.closest('[data-rpk]'); if (!b) return; RP.kind = b.getAttribute('data-rpk'); $$('#rptabs .chip').forEach(function (c) { c.classList.toggle('on', c === b); }); rpPicker(); if (RP.kind !== 'custom' || (RP.from && RP.to)) rpLoad(); };
+  rpPicker(); rpLoad(); rpHistory();
+  if (FFLINK.report) { var id = FFLINK.report; FFLINK.report = ''; ffDropLinkParams(); rpOpenSnap(id); }
+}
+function rpPicker() {
+  var el = $('#rppick'); if (!el) return;
+  if (RP.kind === 'custom') {
+    if (!RP.to) RP.to = rpToday(); if (!RP.from) RP.from = rpAdd(RP.to, -6);
+    el.innerHTML = '<label class="muted" style="font-size:.8rem">From <input class="inp" type="date" id="rpfrom" value="' + esc(RP.from) + '" style="width:auto"/></label><label class="muted" style="font-size:.8rem">to <input class="inp" type="date" id="rpto" value="' + esc(RP.to) + '" style="width:auto"/></label><button class="btn sm" id="rpgo">Show</button>';
+    $('#rpgo').onclick = function () { RP.from = $('#rpfrom').value; RP.to = $('#rpto').value; if (!RP.from || !RP.to) return toast('Pick both dates'); if (RP.to < RP.from) return toast('“To” must be on or after “from”'); rpLoad(); };
+    return;
+  }
+  var month = RP.kind === 'month';
+  el.innerHTML = '<button class="btn ghost sm" id="rpprev" aria-label="Previous">‹</button><input class="inp" type="' + (month ? 'month' : 'date') + '" id="rpdate" value="' + esc(month ? RP.date.slice(0, 7) : RP.date) + '" style="width:auto"/><button class="btn ghost sm" id="rpnext" aria-label="Next">›</button><button class="btn ghost sm" id="rpnow">' + ({ day: 'Today', week: 'This week', month: 'This month' })[RP.kind] + '</button>';
+  var go = function (ymd) { RP.date = ymd; rpPicker(); rpLoad(); };
+  var step = function (dir) { var d = RP.date; if (RP.kind === 'day') return go(rpAdd(d, dir)); if (RP.kind === 'week') return go(rpAdd(d, 7 * dir)); var y = +d.slice(0, 4), m = +d.slice(5, 7) - 1 + dir; var t = new Date(Date.UTC(y, m, 1)); go(t.toISOString().slice(0, 10)); };
+  $('#rpprev').onclick = function () { step(-1); }; $('#rpnext').onclick = function () { step(1); }; $('#rpnow').onclick = function () { go(rpToday()); };
+  $('#rpdate').onchange = function () { var v = this.value; if (!v) return; go(month ? v + '-01' : v); };
+}
+function rpLoad() {
+  var tok = ++RP.tok, el = $('#rpbody'); if (!el) return;
+  el.innerHTML = '<p class="muted">Loading…</p>';
+  api('/admin/api/reports', RP.kind === 'custom' ? { kind: 'custom', from: RP.from, to: RP.to } : { kind: RP.kind, date: RP.date }).then(function (r) {
+    if (tok !== RP.tok || !$('#rpbody')) return;
+    if (!r.ok) { $('#rpbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
+    RP.data = r; rpRender(r, $('#rpbody'), true);
+  });
+}
+function rpArrow(p) { return p === null ? '<span class="pill p-blue">new</span>' : p > 0 ? '<span class="rp-up">▲' + p + '%</span>' : p < 0 ? '<span class="rp-down">▼' + Math.abs(p) + '%</span>' : '<span class="muted">±0%</span>'; }
+function rpRender(d, el, withCharts) {
+  var t = d.totals || {}, p = d.prev || {}, ch = d.change || {}, rf = t.refunds || { count: 0, amount: 0 };
+  var kpi = function (ic, n, l) { return '<div class="kpi"><div class="ic">' + ic + '</div><div><div class="n">' + n + '</div><div class="l">' + l + '</div></div></div>'; };
+  var h = '<div class="muted" style="font-size:.8rem;margin:0 0 10px">' + esc(d.label) + (d.prevRange ? ' · compared with ' + esc(d.prevRange.label) : '') + (d.sentAt ? ' · sent ' + esc(new Date(d.sentAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) : '') + '</div>' +
+    '<div class="kpis">' + kpi('💵', money(t.revenue) + ' ' + rpArrow(ch.revenue), 'Cash in (paid orders) · before ' + money(p.revenue)) +
+    kpi('🧾', (t.orders || 0) + ' ' + rpArrow(ch.orders), (t.newOrders || 0) + ' new · ' + (t.renewals || 0) + ' renewals') +
+    kpi('👥', (t.newCustomers || 0) + ' ' + rpArrow(ch.newCustomers), 'New customers') +
+    (d.profit && d.profit.ready ? kpi('📈', money(d.profit.profit), 'Profit estimate' + (d.profit.margin != null ? ' · ' + d.profit.margin + '%' : '')) : '') +
+    kpi('↩️', money(rf.amount), (rf.count || 0) + ' refund' + (rf.count === 1 ? '' : 's')) +
+    (d.pending ? kpi('⏳', d.pending.total, 'Pending right now') : '') + '</div>';
+  var daily = t.daily || [], svcs = t.services || [];
+  if (withCharts && (daily.length > 1 || svcs.length)) h += '<div class="g2">' + (daily.length > 1 ? '<div class="card"><h3>Revenue per day</h3><div class="chart" style="height:220px"><canvas id="rpc1"></canvas></div></div>' : '') + (svcs.length ? '<div class="card"><h3>Orders per service</h3><div class="chart" style="height:220px"><canvas id="rpc2"></canvas></div></div>' : '') + '</div>';
+  h += '<div class="rp-secs">' + (d.sections || []).map(function (sec) {
+    return '<div class="card"><h3>' + esc(sec.title) + '</h3><div class="list">' + (sec.rows || []).map(function (r) { return '<div class="li"><div class="grow">' + esc(r[0]) + (r[2] ? '<div class="muted" style="font-size:.72rem">' + esc(r[2]) + '</div>' : '') + '</div><b style="white-space:nowrap">' + esc(r[1]) + '</b></div>'; }).join('') + '</div></div>';
+  }).join('') + '</div>';
+  el.innerHTML = h;
+  if (!withCharts || !window.Chart) return;
+  RP.charts.forEach(function (c) { try { c.destroy(); } catch (e) {} }); RP.charts = [];
+  try {
+    if ($('#rpc1')) RP.charts.push(new Chart($('#rpc1'), { type: 'bar', data: { labels: daily.map(function (x) { return +x.date.slice(8) + ' ' + MON[+x.date.slice(5, 7) - 1]; }), datasets: [{ label: 'Revenue ₹', data: daily.map(function (x) { return x.revenue; }), backgroundColor: '#fb7185', borderRadius: 5 }] }, options: { maintainAspectRatio: false, plugins: { legend: { display: false } } } }));
+    if ($('#rpc2')) RP.charts.push(new Chart($('#rpc2'), { type: 'bar', data: { labels: svcs.slice(0, 10).map(function (x) { return x.service; }), datasets: [{ label: 'Orders', data: svcs.slice(0, 10).map(function (x) { return x.orders; }), backgroundColor: '#818cf8', borderRadius: 5 }] }, options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false } } } }));
+  } catch (e) {}
+}
+function rpHistory() {
+  api('/admin/api/reports/history').then(function (r) {
+    var el = $('#rphist'); if (!el) return;
+    if (!r.ok) { el.innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
+    if (!r.list.length) { el.innerHTML = '<p class="muted" style="font-size:.85rem">No summaries sent yet. The first daily one goes out tonight — or use 📨 Send today’s summary now in ⚙️ Summary settings.</p>'; return; }
+    var icon = { day: '📅', week: '🗓', month: '📆' };
+    el.innerHTML = r.list.map(function (x) { return '<div class="li" role="button" style="cursor:pointer" data-rpsnap="' + esc(x.id) + '"><span>' + (icon[x.kind] || '📊') + '</span><div class="grow"><b>' + esc(x.label) + '</b> <span class="muted">· ' + esc({ day: 'daily', week: 'weekly', month: 'monthly' }[x.kind] || '') + '</span>' + (x.manual ? ' <span class="pill p-grey">sent by hand</span>' : '') + '<div class="muted" style="font-size:.72rem">' + esc(prettyDate(x.sentAt, true)) + '</div></div><u style="font-size:.8rem">Open ›</u></div>'; }).join('');
+    el.onclick = function (e) { var b = e.target.closest('[data-rpsnap]'); if (b) rpOpenSnap(b.getAttribute('data-rpsnap')); };
+  });
+}
+function rpOpenSnap(id) {
+  modal('📊 Summary', '<div id="rpsnap"><p class="muted">Loading…</p></div>', '', '');
+  api('/admin/api/reports/snapshot', { id: id }).then(function (r) {
+    var el = $('#rpsnap'); if (!el) return;
+    if (!r.ok) { el.innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
+    var sn = r.snapshot;
+    if (sn.status === 'FAILED' || !sn.totals) { el.innerHTML = '<div class="qnote warn">⚠️ This summary could not be made' + (sn.error ? ': ' + esc(sn.error) : '') + '. Use 📨 Send now in ⚙️ Summary settings to try again.</div>'; return; }
+    var dl = sn.delivery || {};
+    el.innerHTML = '<p style="margin:0 0 8px"><b>' + esc(sn.line || '') + '</b></p><div id="rpsnapin"></div><p class="muted" style="font-size:.75rem">Delivered: ' + (dl.push ? '📱 ' + (dl.push.sent || 0) + ' of ' + (dl.push.devices || 0) + ' device(s)' : '📱 push off') + ' · ' + (dl.email ? (dl.email.ok ? '✉️ email sent' : '✉️ email not sent' + (dl.email.skipped || dl.email.error ? ' (' + esc(dl.email.skipped || dl.email.error) + ')' : '')) : '✉️ email off') + '</p>';
+    rpRender(sn, $('#rpsnapin'), false);
+  });
 }
 /* ================= offers: announcement bar, banner card, pop-up (promos.js) ================= */
 var PR = { list: [], edit: null };
