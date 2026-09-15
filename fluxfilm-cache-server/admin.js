@@ -165,6 +165,8 @@ function mountAdmin(app, deps) {
   require('./adminbankcredits').mount(app, Object.assign({ db, auth, audit }, deps.bank || {}));
   // 🚪 Expired customers still on accounts (Sheet rule) + tick all subscriptions of an order removed (adminexpired.js).
   require('./adminexpired').mount(app, Object.assign({ db, auth, audit }, deps.expired || {}));
+  // 📱 OTP devices: per OTP login account its customers + device names, 🚪 remove, copy names from the old Sheet (adminotpdevices.js).
+  require('./adminotpdevices').mount(app, Object.assign({ db, auth, audit }, deps.otpDevices || {}));
   // Maintenance: pause / resume new orders (adminstore.js).
   require('./adminstore').mount(app, Object.assign({ db, auth, audit }, deps.store || {}));
   // 🤖 Olivia, the AI store manager: on/off, test phones, voice, recent chats (adminolivia.js).
@@ -291,7 +293,8 @@ function mountAdmin(app, deps) {
         db.query('SELECT * FROM subscriptions WHERE phone_norm = ? ORDER BY expiry_date DESC', [ph]),
         db.query('SELECT coins_balance, coins_lifetime, last_event FROM wallet WHERE phone_norm = ? ORDER BY coins_lifetime DESC, coins_balance DESC LIMIT 1', [ph]),
       ]);
-      for (const x of subs) delete x.raw_json;
+      // 📱 Device name the owner typed for OTP services (raw_json DeviceName, otpdevices.js) — shown on the card.
+      for (const x of subs) { try { const j = typeof x.raw_json === 'string' ? JSON.parse(x.raw_json) : x.raw_json; if (j && typeof j.DeviceName === 'string' && j.DeviceName.trim()) x.device_name = j.DeviceName.trim(); } catch (_) { /* unreadable raw_json: no device name */ } delete x.raw_json; }
       // 💸 Refund credit (separate pot in coins_ledger, pays up to 100% of an order) — never blocks Customer 360.
       let refundCredit = 0;
       try { refundCredit = await require('./coins').creditBalance(ph); } catch (_) { refundCredit = 0; }

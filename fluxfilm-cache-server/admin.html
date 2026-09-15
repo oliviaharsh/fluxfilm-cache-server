@@ -436,6 +436,18 @@ textarea.inp{resize:vertical}
 .ru-person .grow{flex:1;min-width:170px}
 .ru-person .btn,.ru-acc .ru-all{min-height:40px}
 @media(max-width:600px){.ru-person .btn{width:100%;justify-content:center}.ru-acc .ru-all{width:100%;justify-content:center}}
+/* 📱 OTP devices */
+.od-acc{padding:12px 14px;margin-bottom:10px}.od-acc.has-exp{border-left:4px solid #ef4444}
+.od-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.od-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:10px 8px;border-bottom:1px solid #f1f4f8;border-radius:10px}.od-row:last-child{border-bottom:0}
+.od-row.bad{background:#fff5f5}.od-row.gone{opacity:.65}
+.od-who{flex:1 1 220px;min-width:0}.od-meta{font-size:.74rem;margin-top:2px}
+.od-dev{display:flex;gap:6px;align-items:center;flex:1 1 300px;min-width:0}.od-dev input{flex:1;min-width:110px}.od-dev select{flex:0 0 112px;width:112px;padding-left:8px;padding-right:4px}
+.od-chips .ru-chip{flex:1 1 100px;padding:8px 10px;cursor:default}
+.od-ok{font-size:.74rem;color:var(--ok)}.od-ok:empty{display:none}
+.od-row .btn{min-height:40px}
+.od-tbl{overflow-x:auto;margin:6px 0 10px}.od-tbl table{border-collapse:collapse;font-size:.76rem;width:100%}.od-tbl th,.od-tbl td{padding:5px 7px;border-bottom:1px solid #eef2f6;text-align:left;white-space:nowrap}
+@media(max-width:600px){.od-row .od-rm{width:100%;justify-content:center}.od-dev{flex-basis:100%;flex-wrap:wrap}.od-dev input{min-width:0;flex:1 1 90px}.od-ok{flex-basis:100%}}
 .tadd{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.tadd .inp{padding:8px 11px}.tadd #tt{flex:1;min-width:180px}
 .todo input[type=checkbox]{width:18px;height:18px;accent-color:var(--ok)}.todo.done .ttitle{text-decoration:line-through;color:var(--mut)}
 .adet{width:100%;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:10px;font-size:.72rem;overflow:auto;max-height:260px;margin:6px 0 0}
@@ -593,7 +605,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
   ['DATA'], ['golive', '🚚', 'Go-live import'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
@@ -638,7 +650,7 @@ function nav(v) {
   route();
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -906,7 +918,7 @@ function subCard(s) {
     '<input type="datetime-local" id="rmat_' + id + '" value="' + esc(t) + '" title="India time — leave empty for now"/>' +
     '<button class="btn dark sm" onclick="saveRemoved(\'' + id + '\')">Save</button><span id="rmmsg_' + id + '" class="muted" style="font-size:.72rem">' + (rm && !t ? 'no time → counted as removed at expiry' : '') + '</span></div>';
   var remind = 'Hi! Your FluxFilm ' + (s.service || '') + ' (' + (s.plan || '') + ') ' + (d != null && d > 0 ? 'expires in ' + d + ' day(s)' : 'has expired') + '. Renew now on shop.fluxfilm.in 🙏';
-  return '<div class="sc' + (act ? '' : ' exp') + '"><div class="hd"><div class="sic">' + svcIcon(s.service) + '</div><div class="ttl"><b>' + esc(s.service || '—') + '</b><small>' + esc(s.plan || '') + (s.device_count ? ' · ' + esc(s.device_count) + ' device(s)' : '') + (s.device_type ? ' · ' + esc(s.device_type) : '') + (Number(s.group_size) > 1 ? ' · <b>Device ' + esc(s.group_index) + ' of ' + esc(s.group_size) + '</b> (separate logins, order ' + esc(s.order_id || '') + ')' : '') + '</small></div>' +
+  return '<div class="sc' + (act ? '' : ' exp') + '"><div class="hd"><div class="sic">' + svcIcon(s.service) + '</div><div class="ttl"><b>' + esc(s.service || '—') + '</b><small>' + esc(s.plan || '') + (s.device_count ? ' · ' + esc(s.device_count) + ' device(s)' : '') + (s.device_type ? ' · ' + esc(s.device_type) : '') + (s.device_name ? ' · 📱 <b>' + esc(s.device_name) + '</b>' : '') + (Number(s.group_size) > 1 ? ' · <b>Device ' + esc(s.group_index) + ' of ' + esc(s.group_size) + '</b> (separate logins, order ' + esc(s.order_id || '') + ')' : '') + '</small></div>' +
     '<div class="rt">' + pill + '<div style="margin-top:6px">Start: ' + prettyDate(s.start_date) + '</div><div>Expiry: <b style="color:var(--ink)">' + prettyDate(s.expiry_date, true) + '</b></div></div></div>' +
     (stopped ? '<div class="qnote warn" style="margin:8px 0">This plan was refunded — it has ended. Can\'t be renewed or extended. Tick <b>Removed from account</b> once you change the password.</div>' : '<div class="bar' + (d != null && d <= 0 ? ' b' : d != null && d <= 7 ? ' w' : '') + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>') +
     (creds ? '<div class="creds">' + creds + '</div>' : '') + rmUi +
@@ -4218,7 +4230,7 @@ function ruPerson(p, g) {
   // 🔁 Switched to another account: still running there, but may still be logged in on this old login.
   if (p.switchedTo) ago = '🔁 switched to ' + esc(p.switchedTo) + ' ' + (p.daysAgo ? ruPlural(p.daysAgo, 'day') + ' ago' : 'today');
   return '<div class="ru-person"><div class="grow"><b>' + esc(p.name) + '</b> <span class="muted">· ' + (p.phone ? '…' + esc(String(p.phone).slice(-4)) : 'no phone') + '</span>' +
-    '<div class="muted" style="font-size:.74rem">' + esc(p.plan || p.service) + (p.slot ? ' · ' + esc(p.slot) : '') + ' · <b style="color:var(--bad)">' + ago + '</b> (' + prettyDate(p.expiry) + ')' + (p.orderId ? ' · <a href="#" data-ruorder="' + esc(p.orderId) + '">' + esc(p.orderId) + '</a>' : '') + '</div></div>' +
+    '<div class="muted" style="font-size:.74rem">' + esc(p.plan || p.service) + (p.slot ? ' · ' + esc(p.slot) : '') + (p.deviceName ? ' · 📱 <b>' + esc(p.deviceName) + '</b>' : '') + ' · <b style="color:var(--bad)">' + ago + '</b> (' + prettyDate(p.expiry) + ')' + (p.orderId ? ' · <a href="#" data-ruorder="' + esc(p.orderId) + '">' + esc(p.orderId) + '</a>' : '') + '</div></div>' +
     '<button class="btn ghost sm" data-rurm="' + esc(p.subId) + '" data-runame="' + esc(p.name) + '">✅ Removed</button></div>';
 }
 function ruRules() { return (RU.data && RU.data.rules) || (RU.data && RU.data.counts && RU.data.counts.rules) || { minInactive: 3, minDays: 10 }; }
@@ -4367,6 +4379,170 @@ function ruClick(e) {
       if (r.skipped) { RU.data = null; removeUsersView(); } else ruDrop(ids);
     });
   }
+}
+/* ================= 📱 OTP devices (per OTP login: customers, device names, 🚪 remove) ================= */
+// GET /admin/api/otp-devices (otpdevices.js). Device name + type → raw_json DeviceName + device_type (kept in step).
+// 🚪 Remove = the existing POST /admin/api/sub-removed (same write + change log as "Removed from account").
+// 📥 Copy from the old Sheet: preview first (reads only), then ✅ Save. The Sheet is never written.
+var OD = { data: null, svc: store('ff_od_svc') || '', q: '', removed: false, imp: null, overwrite: false, open: {} };
+function otpDevicesView() {
+  $('#view').innerHTML = '<div id="odwrap"><div class="ph"><div><h1>📱 OTP devices</h1><p>Who is on each OTP login, which device they use, and who to remove</p></div><button class="btn ghost" id="odref">⟳ Refresh</button></div>' +
+    '<div id="odtop"><p class="muted">Loading…</p></div>' +
+    '<div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center"><div class="search" style="flex:1;min-width:220px;margin:0"><input class="inp" id="odq" placeholder="🔎 Customer, phone, device name or account…" value="' + esc(OD.q) + '" autocomplete="off"/></div>' +
+    '<label class="row" style="gap:6px;cursor:pointer;font-size:.85rem"><input type="checkbox" id="odrmshow"' + (OD.removed ? ' checked' : '') + '/> Show removed</label></div>' +
+    '<details class="card" id="odimp" style="padding:10px 14px;margin-bottom:10px"' + (OD.open.odimp ? ' open' : '') + '><summary style="cursor:pointer"><b>📥 Copy device names from old Sheet</b> <span class="muted">— preview first; nothing is written to the Sheet</span></summary>' +
+    '<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px"><input class="inp" id="odtab" placeholder="Sheet tab name, e.g. JIOHOTSTAR" value="' + esc(store('ff_od_tab') || '') + '" style="flex:1;min-width:180px"/><button class="btn sm" data-odprev="sheet">🔍 Preview from Sheet</button></div>' +
+    '<p class="muted" style="font-size:.76rem;margin:8px 0 4px">Or select the rows in Google Sheets (with the 📱 phone header rows), copy, and paste here:</p>' +
+    '<textarea class="inp" id="odpaste" rows="4" style="width:100%;font-size:.8rem" placeholder="📱 8076332049&#10;Ankit Satija&#9;LG TV&#9;📺 TV&#9;TRUE&#9;14/09/2026&#9;EXPIRED ⚠️"></textarea>' +
+    '<button class="btn ghost sm" data-odprev="paste" style="margin-top:6px">🔍 Preview pasted rows</button><div id="odimpres"></div></details>' +
+    '<div id="odlist"></div></div>';
+  $('#odref').onclick = function () { OD.data = null; odLoad(); };
+  var t; $('#odq').addEventListener('input', function () { OD.q = $('#odq').value.trim(); clearTimeout(t); t = setTimeout(odLoad, 300); });
+  $('#odrmshow').addEventListener('change', function () { OD.removed = $('#odrmshow').checked; odLoad(); });
+  $('#odimp').addEventListener('toggle', function () { OD.open.odimp = $('#odimp').open; });
+  var body = $('#odwrap'); // listeners live on this screen's own element (gone when another screen opens)
+  body.onclick = odClick;
+  body.addEventListener('focusout', function (e) { var inp = e.target.closest && e.target.closest('[data-odname]'); if (inp) odSave(inp.closest('[data-odrow]')); });
+  body.addEventListener('change', function (e) { var sel = e.target.closest && e.target.closest('[data-odtype]'); if (sel) odSave(sel.closest('[data-odrow]')); var ow = e.target.id === 'odow'; if (ow) { OD.overwrite = e.target.checked; odImpRender(); } });
+  body.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.closest && e.target.closest('[data-odname]')) e.target.blur(); });
+  odImpRender();
+  if (OD.data) renderOtpDevices(); else odLoad();
+}
+function odLoad() {
+  api('/admin/api/otp-devices', { service: OD.svc, q: OD.q, removed: OD.removed ? '1' : '' }).then(function (r) {
+    if (!$('#odlist')) return;
+    if (!r.ok) { $('#odtop').innerHTML = ''; $('#odlist').innerHTML = '<div class="card muted">' + esc(r.message || 'Could not load — try ⟳ Refresh.') + '</div>'; return; }
+    OD.data = r; renderOtpDevices();
+  });
+}
+function renderOtpDevices() {
+  var d = OD.data, top = $('#odtop'), list = $('#odlist'); if (!d || !top || !list) return;
+  var c = d.counts || { accounts: 0, activeDevices: 0, expiredWaiting: 0 };
+  var svcs = d.services || [];
+  var allExp = svcs.reduce(function (n, x) { return n + (x.expired || 0); }, 0);
+  top.innerHTML = '<div class="ru-chips od-chips">' +
+    '<div class="ru-chip">🔐 <b>' + c.accounts + '</b><br><span class="muted" style="font-size:.74rem">' + (c.accounts === 1 ? 'account' : 'accounts') + '</span></div>' +
+    '<div class="ru-chip ok">📱 <b>' + c.activeDevices + '</b><br><span class="muted" style="font-size:.74rem">active ' + (c.activeDevices === 1 ? 'device' : 'devices') + '</span></div>' +
+    '<div class="ru-chip' + (c.expiredWaiting ? ' warn' : '') + '" title="Log the device out, then 🚪 Remove">⚠️ <b>' + c.expiredWaiting + '</b><br><span class="muted" style="font-size:.74rem">expired, waiting to remove</span></div></div>' +
+    '<div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">' + [{ key: '', label: 'All', expired: allExp }].concat(svcs).map(function (x) {
+      return '<button class="chip' + (OD.svc === x.key ? ' on' : '') + '" data-odsvc="' + esc(x.key) + '">' + svcIcon(x.label || 'x') + ' ' + esc(x.label) + (x.expired ? ' · ⚠️ ' + x.expired : '') + '</button>';
+    }).join('') + '</div>';
+  var accs = d.accounts || [];
+  list.innerHTML = accs.length ? accs.map(odCard).join('') : '<div class="card muted">' + (OD.q ? 'No match.' : 'No OTP accounts found.') + '</div>';
+}
+function odCard(a) {
+  var ids = a.accountIds.length ? a.accountIds.join(' / ') : (a.noAccount ? 'No account set' : '');
+  var capPill = a.cap != null ? ' <span class="pill ' + (a.used >= a.cap ? 'p-bad' : a.used >= a.cap - 1 ? 'p-warn' : 'p-ok') + '">' + a.used + '/' + a.cap + ' used</span>' : '';
+  var head = '<div class="od-head"><div><b>' + svcIcon(a.service) + ' ' + esc(a.service) + '</b> · <b style="font-family:Consolas,monospace">' + esc(ids) + '</b>' + (a.capInactive ? ' <span class="pill p-grey">inactive</span>' : '') +
+    '<div class="muted" style="font-size:.8rem;word-break:break-all">📞 Login ' + esc(a.loginLabel || '—') + (a.loginLabel ? ' <button class="copy" data-copy="' + esc(a.loginLabel) + '">Copy</button>' : '') + '</div>' +
+    '<div class="ru-counts"><b class="ru-active">' + a.active + ' active</b> · ' + (a.expired ? '<b style="color:var(--bad)">' + a.expired + ' expired (not removed)</b>' : '0 expired') + capPill + '</div></div></div>';
+  var rows = a.rows.length ? a.rows.map(function (r) { return odRow(r, a); }).join('') : '<p class="muted" style="margin:6px 0">' + (OD.q ? 'No customer matches here.' : 'Nobody on this login.') + '</p>';
+  var recent = !OD.removed && a.removedRecent && a.removedRecent.length ? '<details style="margin-top:6px"><summary style="cursor:pointer;font-size:.8rem">🚪 Removed recently (' + a.removedRecent.length + ') — make sure these devices are logged out</summary>' +
+    a.removedRecent.map(function (r) { return '<div class="ru-person"><div class="grow"><b>' + esc(r.name) + '</b> <span class="muted">· ' + esc(r.phoneMasked) + '</span><div class="muted" style="font-size:.74rem">' + (r.deviceType === 'TV' ? '📺' : '📱') + ' <b>' + esc(r.deviceName || 'no device name') + '</b> · removed ' + prettyDate(r.removedAt, true) + ' · ' + esc(r.plan) + '</div></div></div>'; }).join('') + '</details>' : '';
+  return '<div class="card od-acc' + (a.expired ? ' has-exp' : '') + '">' + head + rows + recent + '</div>';
+}
+function odRow(r, a) {
+  var id = esc(r.subId), bad = r.status !== 'ACTIVE';
+  var pill = r.status === 'ACTIVE' ? 'p-ok' : r.status === 'REFUNDED' ? 'p-blue' : 'p-bad';
+  var icon = r.deviceType === 'TV' ? '📺' : r.deviceType === 'PHONE' ? '📱' : '❔';
+  var opt = function (v, t) { return '<option value="' + v + '"' + ((r.deviceType || '') === v ? ' selected' : '') + '>' + t + '</option>'; };
+  return '<div class="od-row' + (bad && !r.removed ? ' bad' : '') + (r.removed ? ' gone' : '') + '" data-odrow="' + id + '">' +
+    '<div class="od-who"><b>' + esc(r.name) + '</b> <span class="muted">· ' + esc(r.phoneMasked) + '</span>' + (r.phone ? ' <a href="#" data-odcust="' + esc(r.phone) + '">360 ›</a>' : '') +
+    '<div class="muted od-meta">' + esc(r.plan) + ' · ' + icon + ' ' + (r.deviceCount > 1 ? r.deviceCount + ' devices' : '1 device') + ' · expiry <b>' + prettyDate(r.expiry) + '</b>' + (r.orderId ? ' · <a href="#" data-odorder="' + esc(r.orderId) + '">' + esc(r.orderId) + '</a>' : '') + '</div></div>' +
+    '<span class="pill ' + pill + '">' + esc(r.label) + '</span>' +
+    '<div class="od-dev"><select class="inp" data-odtype="' + id + '" aria-label="Device type">' + opt('', 'Type…') + opt('PHONE', '📱 Phone') + opt('TV', '📺 TV') + '</select>' +
+    '<input class="inp" maxlength="60" data-odname="' + id + '" value="' + esc(r.deviceName) + '" placeholder="' + esc(r.deviceNameHint ? 'was: ' + r.deviceNameHint : 'Device name, e.g. LG TV') + '" aria-label="Device name"/>' +
+    '<button class="btn ghost sm" data-odsave="' + id + '">💾 Save</button><span class="od-ok"></span></div>' +
+    (r.canRemove ? '<button class="btn dark sm od-rm" data-odrm="' + id + '">🚪 Remove</button>' : r.removed ? '<span class="muted" style="font-size:.74rem">🚪 removed ' + prettyDate(r.removedAt, true) + '</span>' : '') + '</div>';
+}
+function odFind(subId) {
+  var accs = (OD.data && OD.data.accounts) || [];
+  for (var i = 0; i < accs.length; i++) for (var j = 0; j < accs[i].rows.length; j++) if (accs[i].rows[j].subId === subId) return { a: accs[i], r: accs[i].rows[j], i: j };
+  return null;
+}
+function odSave(rowEl) {
+  if (!rowEl || rowEl._saving) return;
+  var id = rowEl.getAttribute('data-odrow'), f = odFind(id); if (!f) return;
+  var inp = rowEl.querySelector('[data-odname]'), sel = rowEl.querySelector('[data-odtype]'), ok = rowEl.querySelector('.od-ok');
+  var name = inp.value.replace(/\s+/g, ' ').trim(), type = sel.value;
+  if (name === (f.r.deviceName || '') && type === (f.r.deviceType || '')) return;
+  if (name.length > 60) { ok.textContent = '⚠️ max 60'; return; }
+  rowEl._saving = true; ok.textContent = 'Saving…';
+  post('/admin/api/otp-devices/device', { subId: id, deviceName: name, deviceType: type }).then(function (x) {
+    rowEl._saving = false;
+    if (!x.ok) { ok.textContent = '⚠️ ' + (x.message || 'failed'); return; }
+    f.r.deviceName = x.deviceName; f.r.deviceType = x.deviceType || '';
+    inp.value = x.deviceName; sel.value = x.deviceType || '';
+    ok.textContent = '✓ saved';
+    // Typed again while saving: save the newer text too.
+    if (document.activeElement !== inp && inp.value !== name) odSave(rowEl);
+  });
+}
+function odClick(e) {
+  var sv = e.target.closest('[data-odsvc]'); if (sv) { OD.svc = sv.getAttribute('data-odsvc'); store('ff_od_svc', OD.svc); odLoad(); return; }
+  var b = e.target.closest('[data-odsave]'); if (b) { odSave(b.closest('[data-odrow]')); return; }
+  var cu = e.target.closest('[data-odcust]'); if (cu) { e.preventDefault(); store('ff_last_phone', cu.getAttribute('data-odcust')); nav('customer'); return; }
+  var or = e.target.closest('[data-odorder]'); if (or) { e.preventDefault(); openOrder(or.getAttribute('data-odorder')); return; }
+  var pv = e.target.closest('[data-odprev]'); if (pv) { odPreview(pv.getAttribute('data-odprev'), pv); return; }
+  var sa = e.target.closest('[data-odimpsave]'); if (sa) { odImpSave(sa); return; }
+  var rm = e.target.closest('[data-odrm]');
+  if (rm) {
+    var f = odFind(rm.getAttribute('data-odrm')); if (!f) return;
+    var login = f.a.loginLabel || f.a.accountIds.join(' / ') || 'this account';
+    if (!confirm('Remove ' + f.r.name + (f.r.deviceName ? ' (' + f.r.deviceName + ')' : '') + ' from ' + login + '?\n\nLog this device out in ' + f.a.service + ' first.')) return;
+    rm.disabled = true;
+    post('/admin/api/sub-removed', { sub_id: f.r.subId, removed: true, removed_at: '' }).then(function (x) {
+      if (!x.ok) { rm.disabled = false; toast('⚠️ ' + (x.message || 'failed')); return; }
+      f.r.removed = true; f.r.canRemove = false; f.r.removedAt = (x.sub && x.sub.removed_at) || '';
+      if (!OD.removed) f.a.rows.splice(f.i, 1);
+      f.a.removedRecent = [f.r].concat(f.a.removedRecent || []);
+      f.a.expired = Math.max(0, f.a.expired - 1);
+      if (OD.data.counts) OD.data.counts.expiredWaiting = Math.max(0, OD.data.counts.expiredWaiting - 1);
+      (OD.data.services || []).forEach(function (s) { if (s.label === f.a.service && s.expired) s.expired--; });
+      RU.data = null; K.data = null; T.data = null;
+      toast('🚪 ' + f.r.name + ' removed'); renderOtpDevices();
+    });
+  }
+}
+/* ---- 📥 copy device names from the old Sheet (preview → ✅ Save) ---- */
+function odPreview(kind, btn) {
+  var body = kind === 'paste' ? { source: 'paste', text: $('#odpaste').value } : { source: 'sheet', tab: $('#odtab').value.trim() };
+  if (kind === 'sheet') { if (!body.tab) { toast('Type the Sheet tab name'); return; } store('ff_od_tab', body.tab); }
+  btn.disabled = true; $('#odimpres').innerHTML = '<p class="muted">Reading…</p>';
+  post('/admin/api/otp-devices/import/preview', body).then(function (r) { btn.disabled = false; OD.imp = r; odImpRender(); });
+}
+function odTbl(head, rows) {
+  if (!rows.length) return '<p class="muted" style="font-size:.78rem;margin:2px 0 8px">None.</p>';
+  return '<div class="od-tbl"><table><thead><tr>' + head.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+    rows.map(function (r) { return '<tr>' + r.map(function (v) { return '<td>' + esc(v) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+}
+function odImpItems() {
+  var p = OD.imp; if (!p || !p.ok) return [];
+  return p.matched.concat(OD.overwrite ? p.alreadyNamed : []).map(function (x) { return { subId: x.subId, deviceName: x.deviceName, deviceType: x.deviceType }; });
+}
+function odImpRender() {
+  var box = $('#odimpres'), p = OD.imp; if (!box) return;
+  if (!p) { box.innerHTML = ''; return; }
+  if (!p.ok) { box.innerHTML = '<div class="qnote warn" style="margin-top:8px">⚠️ ' + esc(p.message || 'failed') + (p.help ? '<br>' + esc(p.help) : '') + '</div>'; return; }
+  var c = p.counts, n = odImpItems().length, ty = function (t) { return t === 'TV' ? '📺 TV' : t === 'PHONE' ? '📱 Phone' : ''; };
+  box.innerHTML = '<div style="margin-top:10px;font-size:.84rem">Read <b>' + p.rowsRead + '</b> customer row' + (p.rowsRead === 1 ? '' : 's') + (p.tab ? ' from <b>' + esc(p.tab) + '</b>' : '') + ': <b>' + c.matched + '</b> to save · ' + c.alreadyNamed + ' already have a device name · ' + c.same + ' already the same · ' + c.ambiguous + ' ambiguous · ' + c.unmatched + ' not found' + (p.skipped && p.skipped.length ? ' · ' + p.skipped.length + ' lines skipped' : '') + '</div>' +
+    '<h4 style="margin:10px 0 2px">✅ Matched (' + c.matched + ')</h4>' + odTbl(['Sub ID', 'Customer', 'Sheet name', 'Device name', 'Type', 'Expiry'], p.matched.map(function (x) { return [x.subId, x.name, x.sheetName, x.deviceName, ty(x.deviceType), x.expiry]; })) +
+    '<h4 style="margin:10px 0 2px">✏️ Already has a device name (' + c.alreadyNamed + ') — skipped unless ticked</h4>' + odTbl(['Sub ID', 'Customer', 'Now', 'Sheet'], p.alreadyNamed.map(function (x) { return [x.subId, x.name, x.currentDeviceName, x.deviceName]; })) +
+    '<h4 style="margin:10px 0 2px">❓ Ambiguous (' + c.ambiguous + ') — not saved</h4>' + odTbl(['Line', 'Sheet name', 'Device', 'Account', 'Expiry', 'Why'], p.ambiguous.map(function (x) { return [x.line, x.sheetName, x.deviceName, x.account, x.expiry, x.reason + ': ' + x.candidates.map(function (k) { return k.subId; }).join(', ')]; })) +
+    '<h4 style="margin:10px 0 2px">🔍 Not found (' + c.unmatched + ') — not saved</h4>' + odTbl(['Line', 'Sheet name', 'Device', 'Account', 'Expiry'], p.unmatched.map(function (x) { return [x.line, x.sheetName, x.deviceName, x.account, x.expiry]; })) +
+    '<label class="row" style="gap:6px;cursor:pointer;font-size:.84rem;margin:8px 0"><input type="checkbox" id="odow"' + (OD.overwrite ? ' checked' : '') + '/> Overwrite device names I already typed (' + c.alreadyNamed + ')</label>' +
+    '<button class="btn" data-odimpsave="1"' + (n ? '' : ' disabled') + '>✅ Save ' + n + ' device name' + (n === 1 ? '' : 's') + '</button>';
+}
+function odImpSave(btn) {
+  var items = odImpItems(); if (!items.length) return;
+  if (!confirm('Save ' + items.length + ' device name' + (items.length === 1 ? '' : 's') + ' from the old Sheet?\n\nOnly the device name and type change (status, expiry and removed stay as they are).')) return;
+  btn.disabled = true;
+  post('/admin/api/otp-devices/import/save', { items: items, overwrite: OD.overwrite }).then(function (r) {
+    if (!r.ok) { btn.disabled = false; toast('⚠️ ' + (r.message || 'failed')); return; }
+    toast(r.message || 'Saved'); OD.imp = null; odImpRender();
+    $('#odimpres').innerHTML = '<div class="qnote" style="margin-top:8px">' + esc(r.message || 'Saved') + (r.errors && r.errors.length ? ' ⚠️ ' + r.errors.length + ' failed.' : '') + '</div>';
+    odLoad();
+  });
 }
 function loadOrderCleanup(id) {
   var box = $('#od_cleanup'); if (!box) return;
