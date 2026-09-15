@@ -240,6 +240,21 @@ function narrowToFamily(list, st) {
 }
 const PICK_WORDS_RE = /wala|wali|wale|chahiye|chaiye|de do|dedo|dijiye|want|give me|lena|leni|that one|ye wala|yahi|le lo|lelo/i; // not "buy it for 99": that is about an old price
 const familyOf = (service) => String(service || '').toLowerCase().split(' (')[0].trim();
+// Words that only appear when someone writes Hindi in English letters (ambiguous ones like "to", "me", "do" are left out).
+const HINGLISH_WORDS = new Set(['hai', 'hain', 'kya', 'nahi', 'nhi', 'nahin', 'chahiye', 'chaiye', 'chahie', 'mujhe', 'muje', 'aap', 'aapka', 'karo', 'kardo', 'krdo', 'dedo', 'wala', 'wali', 'wale', 'kaise', 'kitna', 'kitne', 'mein', 'mai', 'bhai', 'haan', 'ji', 'gaya', 'gya', 'raha', 'rha', 'rahi', 'batao', 'bataiye', 'dikhao', 'kyun', 'kyu', 'lena', 'bhi', 'toh', 'yeh', 'woh', 'abhi', 'accha', 'achha', 'acha', 'theek', 'thik', 'konsa', 'kaunsa', 'liya', 'kiya', 'hoon', 'hu', 'kab', 'kaha', 'kahan', 'paise', 'lagega', 'milega', 'chalega', 'bolo', 'samjha', 'samajh', 'krna', 'karna', 'hota', 'hoga', 'pehle', 'baad', 'sirf', 'sab', 'kuch', 'koi', 'apna', 'mera', 'meri', 'humko', 'hume', 'hamara', 'jaldi', 'kaisa', 'dijiye', 'kijiye', 'ruko']);
+const ENGLISH_WORDS = new Set(['i', 'want', 'need', 'please', 'the', 'is', 'what', 'how', 'my', 'you', 'can', 'which', 'why', 'where', 'give', 'show', 'help', 'price', 'plan', 'thanks', 'thank', 'are', 'have', 'does', 'will', 'buy', 'bought', 'not', 'working', 'with', 'for', 'this', 'that', 'it', 'and', 'or', 'a', 'an']);
+/** 'hi' for Devanagari, 'hinglish' / 'en' when the words make it clear, '' when unsure (then the language stays). */
+function detectLang(text) {
+  const t = String(text || '');
+  if (/[\u0900-\u097F]/.test(t)) return 'hi';
+  const w = t.toLowerCase().match(/[a-z]+/g) || [];
+  if (!w.length) return '';
+  const hing = w.filter((x) => HINGLISH_WORDS.has(x)).length;
+  const eng = w.filter((x) => ENGLISH_WORDS.has(x)).length;
+  if (hing >= 2 || (hing >= 1 && hing >= eng)) return 'hinglish';
+  if (eng >= 2 && hing === 0) return 'en';
+  return '';
+}
 const QUESTION_RE = /\?\s*$|^(does|do|is|are|can|will|how|what|why|when|which|kya|kaise|kyun|kyu|kab|kitna)\b/i;
 const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[a-z]{2,}$/i;
 const GROUP_LINK_RE = /^https:\/\/(chat\.whatsapp\.com|wa\.me|api\.whatsapp\.com)\/[\w?=&%./-]+$/i;
@@ -305,7 +320,11 @@ function advance(st, cat, lang, profile) {
   }
   if (isGroupService(cat.plans, st.service) && !st.groupJoined) {
     st.step = 'group';
-    out.push({ intent: 'GROUP_JOIN', facts: { service: st.service }, buttons: [urlBtn('groupjoin', lang, groupLinkOf(cat.plans, st.service)), btn('joined', lang), btn('change', lang)] });
+    const gp = st.plan && cat.plans.find((x) => x.service === st.plan.service && x.plan === st.plan.plan);
+    const normal = gp && twinPlan(cat.plans, gp, false);
+    out.push({ intent: 'GROUP_JOIN', facts: { service: st.service, title: gp ? titleOf(gp, lang) : '', price: gp ? gp.price : 0, normalPrice: normal && normal.price > gp.price ? normal.price : 0 },
+      buttons: [urlBtn('groupjoin', lang, groupLinkOf(cat.plans, st.service)), btn('joined', lang)].concat(normal ? [btn('normal', lang, words.buttonLabel('normal', lang) + ' · ' + words.rupees(normal.price))] : [btn('change', lang)]) });
+    if (normal) st.twin = { service: normal.service, plan: normal.plan };
     return out;
   }
   if (needsVariant(cat.plans, st.service) && !st.variant) {
@@ -376,7 +395,7 @@ const firstName = (n) => s(n).split(/\s+/)[0].replace(/[^\p{L}.'-]/gu, '').slice
 function resetPurchase(st) { for (const k of ['service', 'variant', 'days', 'plan', 'extraValue', 'options', 'title', 'price', 'coupon', 'groupJoined', 'flow', 'renew', 'renewSubs', 'renewOptions']) delete st[k]; }
 
 // Buttons that create, change or cancel an order: only an explicit tap or clear words, never an AI guess.
-const MONEY_BUTTONS = new Set(['pay', 'paid', 'change', 'rchange', 'cantpay', 'nocoupon', 'switch', 'twin', 'joined']);
+const MONEY_BUTTONS = new Set(['pay', 'paid', 'change', 'rchange', 'cantpay', 'nocoupon', 'switch', 'twin', 'joined', 'normal']);
 const CHOOSING_STEPS = new Set(['service', 'variant', 'duration', 'tv', 'extra_email', 'own_email', 'group', 'confirm', 'coupon', 'renew_pick', 'renew_duration', 'renew_confirm']);
 const PAY_STEPS = new Set(['paying', 'backup_name', 'backup_review', 'delivering']);
 const payButtons = (lang) => [btn('paid', lang), btn('cantpay', lang), btn('coupon', lang), btn('change', lang)];
@@ -611,9 +630,12 @@ async function pickPlan(c, ctx, p) {
 }
 
 async function turn(c, input, ctx) {
-  const st = c.state; const lang = c.lang;
   const choice = s(input.choice);
   const text = s(input.text).slice(0, 500);
+  // She answers in the language the customer writes in: Hinglish in → Hinglish out (a clear message switches it).
+  const written = text && !choice ? detectLang(text) : '';
+  if (written && c.lang && written !== c.lang) { ctx.meta.push({ langSwitch: c.lang + '>' + written }); c.lang = written; }
+  const st = c.state; const lang = c.lang;
 
   // Language first (and any time a language button is pressed or typed).
   const typedLang = text ? globalIntentOf(text) : '';
@@ -765,6 +787,7 @@ async function turn(c, input, ctx) {
     if (sw) { st.service = sw.service; if (sw.variant) st.variant = sw.variant; if (sw.days) st.days = sw.days; }
     return [{ intent: 'OLD_QR_CANCELLED' }].concat(advance(st, ctx.cat, lang, ctx.profile));
   }
+  if (action === 'normal') action = 'twin'; // from the Group Offer explanation: the same plan without the group
   if (action === 'twin') {
     if (!st.twin) return priceReplies(st, ctx, lang);
     const done = await paidAlready(c, ctx);
@@ -968,6 +991,51 @@ async function handle(phone, input) {
 }
 
 /** Admin: latest conversations with their messages (no logins are ever stored). */
+/** The customer's own past chats (newest first), for the "Past chats" menu. Logs never hold a login. */
+async function history(phone) {
+  const a = await allowedFor(phone);
+  if (!a.ok) return { ok: false, disabled: true };
+  const convs = await db.query('SELECT id, lang, status, order_id, turns, created_at, updated_at FROM olivia_conversations WHERE phone_norm = ? AND turns > 0 ORDER BY updated_at DESC LIMIT 20', [a.phone]);
+  if (!convs.length) return { ok: true, chats: [] };
+  const ids = convs.map((c) => c.id);
+  const inList = ids.map(() => '?').join(',');
+  // Preview: what was bought / being bought if anything, else the customer's last words.
+  const key = await db.query('SELECT m.conversation_id, m.role, m.body FROM olivia_messages m JOIN (SELECT conversation_id, MAX(id) AS mx FROM olivia_messages WHERE conversation_id IN (' + inList + ") AND role = 'olivia' AND (intent LIKE 'PAYMENT_RECEIVED%' OR intent LIKE 'RENEW_DONE%' OR intent LIKE 'CONFIRM_PLAN%' OR intent = 'RENEW_CONFIRM' OR intent = 'DELIVERY_BEING_SET_UP') GROUP BY conversation_id) x ON m.id = x.mx", ids);
+  const last = await db.query('SELECT m.conversation_id, m.role, m.body FROM olivia_messages m JOIN (SELECT conversation_id, MAX(id) AS mx FROM olivia_messages WHERE conversation_id IN (' + inList + ") AND role = 'customer' GROUP BY conversation_id) x ON m.id = x.mx", ids);
+  const byId = new Map(last.map((m) => [m.conversation_id, m]));
+  for (const m of key) byId.set(m.conversation_id, m);
+  return {
+    ok: true,
+    chats: convs.map((c) => ({
+      id: c.id, status: c.status, hasOrder: !!c.order_id, turns: Number(c.turns) || 0,
+      startedAt: iso(c.created_at), updatedAt: iso(c.updated_at),
+      preview: cleanBody((byId.get(c.id) || {}).body || '').split('\n')[0].slice(0, 90),
+    })),
+  };
+}
+/** One of the customer's own chats, read-only (the phone must match). */
+async function transcript(phone, id) {
+  const a = await allowedFor(phone);
+  if (!a.ok) return { ok: false, disabled: true };
+  const c = await loadConv(id, a.phone);
+  if (!c) return { ok: false, message: 'Chat not found.' };
+  const rows = await db.query('SELECT role, intent, body, created_at FROM olivia_messages WHERE conversation_id = ? ORDER BY id ASC LIMIT 300', [c.id]);
+  return { ok: true, id: c.id, lang: c.lang, messages: rows.map((m) => ({ role: m.role === 'customer' ? 'customer' : 'olivia', text: cleanBody(m.body), at: iso(m.created_at), past: true })) };
+}
+function iso(v) {
+  if (!v) return '';
+  if (v instanceof Date) return v.toISOString();
+  const m = String(v).match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})/);
+  return m ? m[1] + 'T' + m[2] + '+05:30' : String(v);
+}
+/** Chat-log markers → words a customer understands. */
+function cleanBody(body) {
+  return String(body || '')
+    .replace(/\s*\[login shown in app\]/g, '\n(🔒 Your login was shown here — see My plans or your email)')
+    .replace(/\s*\[(pay|backup) card\]/g, '\n(💳 Payment QR was shown)')
+    .replace(/\s*\[[a-z]+ card\]/g, '');
+}
+
 async function recent(limit) {
   const n = Math.min(100, Math.max(1, Number(limit) || 30));
   try {
@@ -982,6 +1050,6 @@ async function messagesOf(id) {
 }
 
 module.exports = {
-  DEFAULTS, validateSettings, getSettings, saveSettings, status, handle, recent, messagesOf, schemaReady,
-  _internal: { typoService, plansByPrice, MONEY_BUTTONS, setDeps: (d) => { deps = Object.assign({}, deps, d); }, reset: () => { cache = null; schemaOk = null; }, entities, intentOf, globalIntentOf, couponCodeIn, couponReason, chatPlans, needsVariant, optionsFor, titleOf, phoneList },
+  DEFAULTS, validateSettings, getSettings, saveSettings, status, handle, history, transcript, recent, messagesOf, schemaReady,
+  _internal: { detectLang, cleanBody, typoService, plansByPrice, MONEY_BUTTONS, setDeps: (d) => { deps = Object.assign({}, deps, d); }, reset: () => { cache = null; schemaOk = null; }, entities, intentOf, globalIntentOf, couponCodeIn, couponReason, chatPlans, needsVariant, optionsFor, titleOf, phoneList },
 };

@@ -101,7 +101,7 @@
     '.ffo-opt b{display:block;font-size:16px;color:#0f172a}.ffo-opt div>span{display:block;font-size:13px;color:#64748b;font-weight:600}.ffo-opt i{font-style:normal;font-size:30px}' +
     '.ffo-opt.ai{border-color:#25d366;background:#f0fdf4}' +
     // WhatsApp-style chat
-    '.ffo-panel{position:fixed;inset:0;z-index:91;display:flex;flex-direction:column;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Plus Jakarta Sans",sans-serif;background-color:#efeae2;' +
+    '.ffo-panel{position:fixed;inset:0;bottom:auto;height:100%;height:100dvh;overscroll-behavior:contain;z-index:91;display:flex;flex-direction:column;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Plus Jakarta Sans",sans-serif;background-color:#efeae2;' +
       'background-image:radial-gradient(rgba(0,0,0,.035) 1.2px,transparent 1.3px),radial-gradient(rgba(0,0,0,.025) 1px,transparent 1.1px);background-size:22px 22px,34px 34px;background-position:0 0,11px 17px}' +
     '@media(min-width:700px){.ffo-panel{inset:auto 20px 20px auto;width:400px;height:min(700px,calc(100dvh - 40px));border-radius:18px;box-shadow:0 20px 60px rgba(15,23,42,.3);overflow:hidden}}' +
     '.ffo-top{display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 10px 8px;background:#008069;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.15)}' +
@@ -146,6 +146,18 @@
     '.ffo-send svg{width:22px;height:22px;margin-left:3px}' +
     '.ffo-note{font-size:12.5px;color:#92400e;background:#fffbeb;border-radius:8px;padding:8px 10px;margin-top:8px;font-weight:600}' +
     // The panel is display:flex, which would beat the [hidden] attribute: without this the close button did nothing.
+    '.ffo-more{margin-left:auto;font-size:22px}.ffo-more+.ffo-x{margin-left:4px}' +
+    '.ffo-top{position:relative}.ffo-menu{position:absolute;right:52px;top:calc(52px + env(safe-area-inset-top));background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(11,20,26,.25);padding:6px 0;z-index:5;min-width:180px}' +
+    '.ffo-menu button{display:block;width:100%;border:0;background:none;text-align:left;padding:12px 16px;font:inherit;font-size:15px;color:#111b21;cursor:pointer}.ffo-menu button:hover{background:#f0f2f5}' +
+    '.ffo-viewbar{display:flex;align-items:center;gap:10px;margin:2px 0 8px}.ffo-viewbar b{font-size:16px;color:#111b21}' +
+    '.ffo-back{border:0;background:#fff;color:#008069;border-radius:18px;padding:8px 12px;font:inherit;font-weight:600;cursor:pointer;box-shadow:0 1px .5px rgba(11,20,26,.13)}' +
+    '.ffo-hist{display:flex;flex-direction:column;gap:3px;width:100%;border:0;background:#fff;border-radius:10px;padding:11px 12px;margin-top:6px;text-align:left;font:inherit;cursor:pointer;box-shadow:0 1px .5px rgba(11,20,26,.13)}' +
+    '.ffo-hist-top{display:flex;justify-content:space-between;align-items:center;gap:8px}.ffo-hist-top b{font-size:14.5px;color:#111b21}' +
+    '.ffo-hist-prev{font-size:14px;color:#667781;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}' +
+    '.ffo-chip{font-size:11.5px;font-weight:700;border-radius:10px;padding:2px 8px;background:#fff4e5;color:#9a5b00}.ffo-chip.done{background:#e7fce3;color:#00745f}' +
+    '.ffo-empty{align-self:center;text-align:center;color:#54656f;background:#fff;border-radius:10px;padding:14px 16px;margin-top:20px;max-width:280px;font-size:14px}' +
+    '.ffo-continue{align-self:center;margin:14px 0 6px;width:auto;padding:11px 18px}' +
+    '.ffo-menu[hidden],.ffo-foot[hidden]{display:none!important}' +
     '.ffo-panel[hidden],.ffo-bg[hidden]{display:none!important}';
   function injectCss() {
     if (document.getElementById('ffo-css')) return;
@@ -211,7 +223,12 @@
     var top = h('div', 'ffo-top'); top.appendChild(avatarEl());
     var name = h('b', null, 'Olivia'); name.appendChild(aiTag());
     var t = h('div'); t.appendChild(name); var sub = h('small', null, 'online'); t.appendChild(sub); top.appendChild(t);
+    var more = h('button', 'ffo-x ffo-more', '\u22EE'); more.setAttribute('aria-label', 'Chat menu'); more.onclick = function (e) { e.stopPropagation(); toggleMenu(); }; top.appendChild(more);
     var x = h('button', 'ffo-x', '\u00D7'); x.setAttribute('aria-label', 'Close chat'); x.onclick = closeChat; top.appendChild(x);
+    var menu = h('div', 'ffo-menu'); menu.hidden = true;
+    var m1 = h('button', null, '\uD83D\uDDC2\uFE0F Past chats'); m1.type = 'button'; m1.onclick = function () { menu.hidden = true; openHistory(); };
+    var m2 = h('button', null, '\u270F\uFE0F New chat'); m2.type = 'button'; m2.onclick = function () { menu.hidden = true; newChat(); };
+    menu.appendChild(m1); menu.appendChild(m2); top.appendChild(menu);
     var list = h('div', 'ffo-list'); list.setAttribute('aria-live', 'polite');
     var foot = h('form', 'ffo-foot');
     var input = h('input', 'ffo-in'); input.placeholder = 'Message'; input.setAttribute('aria-label', 'Message'); input.autocomplete = 'off';
@@ -220,14 +237,95 @@
     foot.appendChild(input); foot.appendChild(send);
     foot.onsubmit = function (e) { e.preventDefault(); var v = input.value.trim(); if (!v || st.busy) return; input.value = ''; talk({ text: v }, v); };
     panel.appendChild(top); panel.appendChild(list); panel.appendChild(foot);
+    panel.addEventListener('click', function () { menu.hidden = true; });
     document.body.appendChild(panel);
-    ui = { panel: panel, list: list, input: input, sub: sub };
+    ui = { panel: panel, list: list, input: input, sub: sub, menu: menu, foot: foot };
+    input.addEventListener('focus', function () { setTimeout(fitToKeyboard, 60); setTimeout(fitToKeyboard, 350); });
+    input.addEventListener('blur', function () { setTimeout(fitToKeyboard, 350); });
     st.open = true;
     render();
     if (!st.convId || !st.messages.length) talk({ choice: 'start', lang: st.lang }, null);
     else if (st.pollAfter) schedulePoll(st.pollAfter);
   }
   function closeChat() { if (ui) ui.panel.hidden = true; st.open = false; }
+  function toggleMenu() { if (ui) ui.menu.hidden = !ui.menu.hidden; }
+  function newChat() {
+    clearTimeout(st.pollTimer); st.pollAfter = 0;
+    st.view = 'chat'; st.convId = ''; st.messages = []; st.busy = false; st.typing = false;
+    save(); render();
+    talk({ choice: 'start', lang: st.lang }, null);
+  }
+  function dateText(at) {
+    var d = new Date(at || Date.now());
+    if (isNaN(d.getTime())) return '';
+    var today = new Date(); var y = new Date(); y.setDate(today.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return 'Today, ' + timeText(d);
+    if (d.toDateString() === y.toDateString()) return 'Yesterday, ' + timeText(d);
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) + ', ' + timeText(d);
+  }
+  /** "Past chats": the customer's own earlier chats with Olivia (newest first). */
+  function openHistory() {
+    st.view = 'history'; st.history = null; render();
+    call('oliviaHistory', [phoneNow()]).then(function (r) { st.history = (r && r.ok && r.chats) || []; if (st.view === 'history') render(); })
+      .catch(function () { st.history = []; if (st.view === 'history') render(); });
+  }
+  function openPast(id) {
+    st.view = 'past'; st.past = null; render();
+    call('oliviaTranscript', [phoneNow(), id]).then(function (r) { st.past = r && r.ok ? r : { messages: [], error: true }; if (st.view === 'past') render(); })
+      .catch(function () { st.past = { messages: [], error: true }; if (st.view === 'past') render(); });
+  }
+  function continuePast() {
+    if (!st.past || !st.past.id) return;
+    clearTimeout(st.pollTimer); st.pollAfter = 0;
+    st.convId = st.past.id;
+    st.messages = (st.past.messages || []).map(function (m) { return { role: m.role, text: m.text, at: m.at, read: true }; });
+    st.view = 'chat'; save(); render();
+  }
+  function viewBar(title, onBack) {
+    var bar = h('div', 'ffo-viewbar');
+    var back = h('button', 'ffo-back', '\u2190 Back'); back.type = 'button'; back.onclick = onBack;
+    bar.appendChild(back); bar.appendChild(h('b', null, title));
+    return bar;
+  }
+  function renderHistory(list) {
+    list.appendChild(viewBar('Past chats', function () { st.view = 'chat'; render(); }));
+    if (!st.history) { list.appendChild(h('div', 'ffo-day', 'Loading\u2026')); return; }
+    if (!st.history.length) { list.appendChild(h('div', 'ffo-empty', 'No past chats yet. Your chats with Olivia will show up here.')); return; }
+    st.history.forEach(function (c) {
+      var item = h('button', 'ffo-hist'); item.type = 'button';
+      var row1 = h('span', 'ffo-hist-top');
+      row1.appendChild(h('b', null, dateText(c.updatedAt)));
+      row1.appendChild(h('span', 'ffo-chip' + (c.status === 'DONE' ? ' done' : ''), c.status === 'DONE' ? '\u2713 Done' : (c.id === st.convId ? 'Current' : 'Open')));
+      item.appendChild(row1);
+      item.appendChild(h('span', 'ffo-hist-prev', c.preview || (c.turns + ' messages')));
+      item.onclick = function () { openPast(c.id); };
+      list.appendChild(item);
+    });
+  }
+  function renderPast(list) {
+    list.appendChild(viewBar('Past chat', function () { openHistory(); }));
+    if (!st.past) { list.appendChild(h('div', 'ffo-day', 'Loading\u2026')); return; }
+    if (st.past.error) { list.appendChild(h('div', 'ffo-empty', 'This chat could not be opened. Please try again.')); return; }
+    var lastDay = '';
+    st.past.messages.forEach(function (m, i) {
+      var day = new Date(m.at).toDateString();
+      if (day !== lastDay) { list.appendChild(h('div', 'ffo-day', dateText(m.at).split(',')[0])); lastDay = day; }
+      list.appendChild(bubble(Object.assign({ read: true }, m), st.past.messages[i - 1]));
+    });
+    var go = h('button', 'ffo-b ffo-continue', '\uD83D\uDCAC Continue this chat'); go.type = 'button'; go.onclick = continuePast;
+    list.appendChild(go);
+  }
+  // Phone keyboards shrink only the *visual* viewport: size the chat to it, so the header stays on top, the typing bar
+  // sits right above the keyboard and the last messages stay visible (before: the page scrolled and hid them).
+  function fitToKeyboard() {
+    if (!ui || !st.open) return;
+    var vv = window.visualViewport;
+    if (!vv || window.innerWidth >= 700) { ui.panel.style.height = ''; ui.panel.style.top = ''; return; }
+    ui.panel.style.top = vv.offsetTop + 'px';
+    ui.panel.style.height = vv.height + 'px';
+    ui.list.scrollTop = ui.list.scrollHeight;
+  }
+  if (window.visualViewport) { window.visualViewport.addEventListener('resize', fitToKeyboard); window.visualViewport.addEventListener('scroll', fitToKeyboard); }
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && st.open) closeChat(); });
 
   function copyBtn(value) {
@@ -272,6 +370,9 @@
   function render() {
     if (!ui) return;
     var list = ui.list; list.innerHTML = '';
+    ui.foot.hidden = st.view === 'history' || st.view === 'past';
+    if (st.view === 'history') { renderHistory(list); list.scrollTop = 0; return; }
+    if (st.view === 'past') { renderPast(list); list.scrollTop = list.scrollHeight; return; }
     list.appendChild(h('div', 'ffo-day', 'Today'));
     st.messages.forEach(function (m, i) {
       list.appendChild(bubble(m, st.messages[i - 1]));
