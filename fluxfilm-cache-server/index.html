@@ -1105,7 +1105,10 @@ function Input({
   disabled = false,
   readOnly = false,
   style = {},
-  autoFocus = false
+  autoFocus = false,
+  inputMode,
+  autoComplete,
+  maxLength
 }) {
   const locked = disabled || readOnly;
   return React.createElement("div", {
@@ -1139,6 +1142,9 @@ function Input({
   }, prefix), React.createElement("input", {
     autoFocus: autoFocus,
     type: type,
+    inputMode: inputMode,
+    autoComplete: autoComplete,
+    maxLength: maxLength,
     placeholder: placeholder,
     value: value || '',
     onChange: onChange,
@@ -7761,7 +7767,13 @@ function RecoverScreen({
   const resolvedPhone = savedPhone || preSelectedSub?.phone || '';
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState(resolvedPhone || '');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    try {
+      return localStorage.getItem('ff_recover_email') || '';
+    } catch (_) {
+      return '';
+    }
+  });
   const [otp, setOtp] = useState('');
   const [token, setToken] = useState('');
   const [subs, setSubs] = useState([]);
@@ -7771,8 +7783,16 @@ function RecoverScreen({
     text: '',
     ok: true
   });
+  const [sentTo, setSentTo] = useState('');
+  const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const [needHelp, setNeedHelp] = useState(false);
+  const [renewHint, setRenewHint] = useState(false);
+  const busy = useRef(false);
   const phoneLocked = !!resolvedPhone;
   const activePhone = normPhone_(phone || resolvedPhone);
+  const cleanEmail = String(email || '').replace(/\s+/g, '').toLowerCase();
+  const resendLeft = Math.max(0, Math.ceil((resendAt - now) / 1000));
   useEffect(() => {
     if (!setGlobalLoading) return;
     setGlobalLoading(loading || null, loading ? 'Please wait' : null);
@@ -7781,82 +7801,124 @@ function RecoverScreen({
   useEffect(() => {
     if (resolvedPhone) setPhone(resolvedPhone);
   }, [resolvedPhone]);
-  function showMsg(text, ok) {
+  // Resend countdown: ticks only while a countdown is running.
+  useEffect(() => {
+    if (resendLeft <= 0) return;
+    const t = setTimeout(() => setNow(Date.now()), 1000);
+    return () => clearTimeout(t);
+  }, [resendLeft, now]);
+  function showMsg(text, ok, help) {
     setMsg({
       text,
       ok
     });
+    setNeedHelp(!!help);
+    setRenewHint(false);
+  }
+  function backToStart(text) {
+    setStep(1);
+    setOtp('');
+    setToken('');
+    setSubs([]);
+    showMsg(text || '', !text);
   }
   function sendOtp() {
-    if (!activePhone) return alert('Enter phone.');
-    if (!email.trim()) return alert('Enter email.');
-    setLoading('📩 Sending OTP…');
-    API.recoverSendOtp(activePhone, email.trim(), r => {
+    if (activePhone.length !== 10) return showMsg('Enter your 10-digit phone number (the one you bought with).', false);
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(cleanEmail)) return showMsg('Enter the email you used when buying, like name@gmail.com.', false);
+    if (busy.current) return;
+    busy.current = true;
+    setLoading('📩 Sending code…');
+    API.recoverSendOtp(activePhone, cleanEmail, r => {
+      busy.current = false;
       setLoading('');
-      if (!r || r.ok === false) {
-        showMsg(r?.message || 'Failed to send OTP.', false);
+      if (r && r.wait) {
+        setResendAt(Date.now() + r.wait * 1000);
+        setNow(Date.now());
+        if (r.email) setSentTo(r.email);
+        showMsg(r.message, true);
+        setStep(2);
         return;
       }
-      showMsg((r.message || 'OTP sent.') + ' Sent to: ' + (r.email || ''), true);
+      if (!r || r.ok === false) {
+        showMsg(r?.message || 'Could not send the code. Please try again.', false, r?.noEmail || r?.noPlan);
+        return;
+      }
+      try {
+        localStorage.setItem('ff_recover_email', cleanEmail);
+      } catch (_) {}
+      setSentTo(r.email || '');
+      setResendAt(Date.now() + (Number(r.resendInSec) || 30) * 1000);
+      setNow(Date.now());
+      setOtp('');
+      showMsg(r.message || 'We sent a 6-digit code to your email. Check Spam too.', true);
       setStep(2);
     }, err => {
+      busy.current = false;
       setLoading('');
-      showMsg(err?.message || String(err), false);
+      showMsg(err?.message || 'No internet? Please try again.', false);
     });
   }
-  function verifyOtp() {
-    if (!otp.trim()) return alert('Enter OTP.');
-    setLoading('✅ Verifying OTP…');
-    API.recoverVerifyOtp(activePhone, email.trim(), otp.trim(), r => {
+  function verifyOtp(code) {
+    const c = String(code == null ? otp : code).replace(/\D/g, '');
+    if (c.length !== 6) return showMsg('Enter the 6-digit code from the email.', false);
+    if (busy.current) return;
+    busy.current = true;
+    setLoading('✅ Checking code…');
+    API.recoverVerifyOtp(activePhone, cleanEmail, c, r => {
+      busy.current = false;
       setLoading('');
       if (!r || r.ok === false) {
-        showMsg(r?.message || 'OTP verify failed.', false);
+        if (r?.expired) setResendAt(0);
+        setOtp('');
+        showMsg(r?.message || 'That code did not work. Please try again.', false);
         return;
       }
       const tk = String(r.recoverToken || '');
       if (!tk) {
-        showMsg('Token missing from server.', false);
+        showMsg('Something went wrong. Please send a new code.', false);
         return;
       }
       setToken(tk);
-      showMsg(r.message || 'Verified.', true);
       loadSubs(tk);
     }, err => {
+      busy.current = false;
       setLoading('');
-      showMsg(err?.message || String(err), false);
+      showMsg(err?.message || 'No internet? Please try again.', false);
     });
   }
   function loadSubs(tk) {
-    setLoading('🎬 Loading subscriptions…');
-    API.recoverListSubscriptionsSafe(activePhone, email.trim(), tk, r => {
+    setLoading('🎬 Loading your plans…');
+    API.recoverListSubscriptionsSafe(activePhone, cleanEmail, tk, r => {
       setLoading('');
       let data = r;
       if (data?.ok === true && data.subscriptions === undefined && data.data) data = data.data;
       if (data?.ok === false) {
-        showMsg(data.message || 'Failed to load.', false);
+        if (data.sessionExpired) return backToStart(data.message);
+        showMsg(data.message || 'Could not load your plans. Please try again.', false);
         return;
       }
       const list = Array.isArray(data?.subscriptions) ? data.subscriptions : [];
       setSubs(list);
-      if (preSelectedSub) {
-        const preId = String(preSelectedSub.orderId || preSelectedSub.subId || '');
-        const match = list.find(s => String(s.orderId || s.subId || '') === preId);
-        if (match) setSelectedOid(String(match.orderId || match.subId || ''));
-      }
+      const preId = String(preSelectedSub?.orderId || preSelectedSub?.subId || '');
+      const match = preId && list.find(s => String(s.orderId || s.subId || '') === preId);
+      if (match) setSelectedOid(String(match.orderId || match.subId || ''));else if (list.length === 1) setSelectedOid(String(list[0].orderId || list[0].subId || ''));
       setStep(3);
-      showMsg(list.length ? `Found ${list.length} subscription(s).` : 'No active subscriptions found.', list.length > 0);
+      showMsg(list.length ? '✅ Verified. Pick the plan you need the login for.' : 'No plans found for this number.', list.length > 0, !list.length);
     }, err => {
+      busy.current = false;
       setLoading('');
-      showMsg(err?.message || String(err), false);
+      showMsg(err?.message || 'No internet? Please try again.', false);
     });
   }
   function revealAccess() {
-    if (!selectedOid) return alert('Select a subscription first.');
-    setLoading('🔓 Revealing access…');
-    API.recoverGetAccess(selectedOid, activePhone, email.trim(), token, r => {
+    if (!selectedOid) return showMsg('Tap a plan first.', false);
+    setLoading('🔓 Opening your login…');
+    API.recoverGetAccess(selectedOid, activePhone, cleanEmail, token, r => {
       setLoading('');
       if (!r || r.ok === false) {
-        showMsg(r?.message || 'Recover failed.', false);
+        if (r?.sessionExpired) return backToStart(r.message);
+        showMsg(r?.message || 'Could not open this login. Please try again.', false, r?.refunded);
+        if (r?.expired) setRenewHint(true);
         return;
       }
       const rawAccess = r.access || r.data?.access || r || {};
@@ -7876,10 +7938,22 @@ function RecoverScreen({
         service: svcLabel
       });
     }, err => {
+      busy.current = false;
       setLoading('');
-      showMsg(err?.message || String(err), false);
+      showMsg(err?.message || 'No internet? Please try again.', false);
     });
   }
+  const linkBtn = {
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    color: '#2563eb',
+    fontFamily: PJS,
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: 'pointer',
+    textDecoration: 'underline'
+  };
   return React.createElement(Slide, null, React.createElement("div", {
     style: {
       paddingBottom: 90
@@ -7904,6 +7978,7 @@ function RecoverScreen({
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'flex-start',
+      gap: 8,
       marginBottom: 14
     }
   }, React.createElement("div", null, React.createElement("div", {
@@ -7914,7 +7989,15 @@ function RecoverScreen({
       color: C.text,
       marginBottom: 4
     }
-  }, "🔐 Recover Access"), preSelectedSub && React.createElement("div", {
+  }, "🔐 Recover Access"), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12.5,
+      color: C.muted,
+      fontWeight: 600,
+      marginBottom: preSelectedSub ? 6 : 0
+    }
+  }, step === 1 ? 'Get your login back with a code sent to your email.' : step === 2 ? 'Enter the code from your email.' : 'Pick a plan to see its login.'), preSelectedSub && React.createElement("div", {
     style: {
       display: 'inline-flex',
       alignItems: 'center',
@@ -7931,6 +8014,7 @@ function RecoverScreen({
   }, "🎬 ", preSelectedSub.service)), React.createElement(Badge, {
     tone: "info"
   }, "Step ", step, "/3")), msg.text && React.createElement("div", {
+    role: msg.ok ? 'status' : 'alert',
     style: {
       marginBottom: 12,
       padding: '10px 13px',
@@ -7940,9 +8024,27 @@ function RecoverScreen({
       fontFamily: PJS,
       fontSize: 13,
       fontWeight: 600,
+      lineHeight: 1.5,
       color: msg.ok ? '#15803d' : C.red
     }
-  }, msg.text), step === 1 && React.createElement("div", {
+  }, msg.text, (needHelp || renewHint) && React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 8,
+      flexWrap: 'wrap',
+      marginTop: 10
+    }
+  }, renewHint && React.createElement(Btn, {
+    size: "sm",
+    variant: "primary",
+    onClick: () => window.ffGoMyPlans ? window.ffGoMyPlans() : nav('dashboard', {
+      phone: activePhone
+    })
+  }, "🔁 Renew in My plans"), needHelp && React.createElement(Btn, {
+    size: "sm",
+    variant: "ghost",
+    onClick: ffOpenHelp_
+  }, "💬 Help"))), step === 1 && React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
@@ -7971,33 +8073,45 @@ function RecoverScreen({
       marginTop: 3
     }
   }, "📱 ", activePhone)) : React.createElement(Input, {
-    label: "Phone Number",
+    label: "Phone number you bought with",
     type: "tel",
-    placeholder: "+91 XXXXX XXXXX",
+    inputMode: "tel",
+    autoComplete: "tel",
+    placeholder: "10-digit mobile number",
     prefix: "📱",
     value: phone,
     onChange: e => setPhone(e.target.value)
   }), React.createElement(Input, {
-    label: "Email Address",
+    label: "Email you bought with",
     type: "email",
-    placeholder: "Registered email",
+    inputMode: "email",
+    autoComplete: "email",
+    placeholder: "name@gmail.com",
     value: email,
     onChange: e => setEmail(e.target.value)
-  }), React.createElement(Hint, null, "📧 OTP will be sent to your registered email. Use the same email you used when buying."), React.createElement(Btn, {
+  }), React.createElement(Hint, null, "📧 We email you a 6-digit code. Use the same email you typed when buying — it is in your FluxFilm order email."), React.createElement(Btn, {
     variant: "purple",
     full: true,
     onClick: sendOtp
-  }, "📩 Send OTP")), step === 2 && React.createElement("div", {
+  }, "📩 Send code")), step === 2 && React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
       gap: 12
     }
   }, React.createElement(Input, {
-    label: "Enter OTP",
-    placeholder: "6-digit code from email",
+    label: sentTo ? 'Code sent to ' + sentTo : 'Enter the code',
+    type: "text",
+    inputMode: "numeric",
+    autoComplete: "one-time-code",
+    maxLength: 6,
+    placeholder: "6-digit code",
     value: otp,
-    onChange: e => setOtp(e.target.value),
+    onChange: e => {
+      const v = String(e.target.value || '').replace(/\D/g, '').slice(0, 6);
+      setOtp(v);
+      if (v.length === 6) verifyOtp(v);
+    },
     autoFocus: true
   }), React.createElement("div", {
     style: {
@@ -8006,18 +8120,32 @@ function RecoverScreen({
     }
   }, React.createElement(Btn, {
     variant: "ghost",
-    onClick: () => {
-      setStep(1);
-      setMsg({
-        text: '',
-        ok: true
-      });
-    }
+    onClick: () => backToStart('')
   }, "⬅️ Back"), React.createElement(Btn, {
     variant: "purple",
     full: true,
-    onClick: verifyOtp
-  }, "✅ Verify OTP"))), step === 3 && React.createElement("div", null, subs.length === 0 && React.createElement("div", {
+    onClick: () => verifyOtp()
+  }, "✅ Verify code")), React.createElement("div", {
+    style: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: 10,
+      flexWrap: 'wrap',
+      fontFamily: PJS,
+      fontSize: 13,
+      color: C.muted,
+      fontWeight: 600
+    }
+  }, resendLeft > 0 ? React.createElement("span", null, "Send a new code in ", resendLeft, " s") : React.createElement("button", {
+    type: "button",
+    style: linkBtn,
+    onClick: sendOtp
+  }, "🔄 Send a new code"), React.createElement("button", {
+    type: "button",
+    style: linkBtn,
+    onClick: () => backToStart('')
+  }, "Wrong email? Change it")), React.createElement(Hint, null, "No email? Check Spam / Promotions, and search for \"FluxFilm\". It can take a minute.")), step === 3 && React.createElement("div", null, subs.length === 0 && React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 13.5,
@@ -8025,7 +8153,7 @@ function RecoverScreen({
       fontWeight: 600,
       padding: '12px 0'
     }
-  }, "No active subscriptions found for this phone + email."), React.createElement("div", {
+  }, "No plans found for this phone number."), React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
@@ -8035,9 +8163,22 @@ function RecoverScreen({
   }, subs.map((s, i) => {
     const oid = String(s.orderId || s.subId || '');
     const sel = selectedOid === oid;
+    const ended = s.daysLeft != null && s.daysLeft <= 0;
     return React.createElement("div", {
-      key: i,
-      onClick: () => setSelectedOid(oid),
+      key: oid || i,
+      role: "button",
+      tabIndex: 0,
+      "aria-pressed": sel,
+      onClick: () => {
+        setSelectedOid(oid);
+        setRenewHint(false);
+      },
+      onKeyDown: e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setSelectedOid(oid);
+        }
+      },
       style: {
         padding: '13px 14px',
         borderRadius: 16,
@@ -8047,9 +8188,15 @@ function RecoverScreen({
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
+        gap: 10,
+        opacity: s.refunded ? .6 : 1,
         transition: '.14s'
       }
-    }, React.createElement("div", null, React.createElement("div", {
+    }, React.createElement("div", {
+      style: {
+        minWidth: 0
+      }
+    }, React.createElement("div", {
       style: {
         fontFamily: PJS,
         fontSize: 15,
@@ -8067,19 +8214,28 @@ function RecoverScreen({
     }, s.plan), s.daysLeft != null && React.createElement("div", {
       style: {
         fontFamily: PJS,
-        fontSize: 11,
-        color: C.muted,
-        fontWeight: 600,
-        marginTop: 2
+        fontSize: 11.5,
+        color: s.refunded ? C.muted : ended ? C.red : s.daysLeft <= 3 ? '#b45309' : '#15803d',
+        fontWeight: 700,
+        marginTop: 3
       }
-    }, s.daysLeft > 0 ? `${s.daysLeft} days left` : 'Expired')), React.createElement(Badge, {
+    }, s.refunded ? 'Refunded' : ended ? `Ended${s.expiryText ? ' ' + s.expiryText : ''}` : `${s.daysLeft} day${s.daysLeft === 1 ? '' : 's'} left${s.expiryText ? ' · till ' + s.expiryText : ''}`)), React.createElement(Badge, {
       tone: sel ? 'ok' : 'plain'
-    }, sel ? '✅ Selected' : '☑️ Select'));
+    }, sel ? '✅ Selected' : 'Select'));
   })), selectedOid && React.createElement(Btn, {
     variant: "primary",
     full: true,
     onClick: revealAccess
-  }, "🔓 Reveal Password")))));
+  }, "🔓 Show my login"), React.createElement("div", {
+    style: {
+      marginTop: 12,
+      textAlign: 'center'
+    }
+  }, React.createElement("button", {
+    type: "button",
+    style: linkBtn,
+    onClick: () => backToStart('')
+  }, "⬅️ Start again with another email"))))));
 }
 // Account → 🔊 Sounds / 📳 Vibration switches (this device only; the sound module is in <head>).
 function SoundRows() {
