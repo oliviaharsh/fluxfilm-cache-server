@@ -116,6 +116,8 @@ async function getAccess(orderId, phone, email, token) {
     [oid, oid, ph]);
   let s = rows[0];
   if (!s) return { ok: false, message: 'Subscription not found for this account.' };
+  // Refunds v3: a refunded plan (e.g. a delivered plan the customer took a refund for) gives no access any more.
+  if (String(s.status || '').trim().toUpperCase() === 'REFUNDED') return { ok: false, refunded: true, message: 'This plan was refunded, so its login is no longer available.' };
   // F1: every login of the purchase (same phone only), Device 1 first.
   let group = [s];
   if (groupsOn && s.group_id) {

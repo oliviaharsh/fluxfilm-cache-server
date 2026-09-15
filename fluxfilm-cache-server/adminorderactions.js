@@ -91,7 +91,14 @@ function decide(o, subs) {
   const ri = refunded ? refundsMod.refundInfo(o) : null;
   const upiDone = ri && ri.kind === 'UPI_PENDING' ? { allowed: true, state: ri.state } : no(refunded ? 'No UPI refund is waiting.' : 'Not refunded.');
 
-  return { status: st, fulfillmentStatus: fs, legacy, renew, delivered, manualPending, refunded, failed, fulfil, manual, refund, erase, upiDone };
+  // Refunds v3: a DELIVERED plan gets a refund OFFER the customer accepts in the app (refunds.js createOffer).
+  let offer;
+  if (refunded) offer = no('Already refunded.');
+  else if (st !== 'PAID') offer = no('Only paid orders can be refunded.');
+  else if (!delivered) offer = no('Not delivered — use 💸 Refund.');
+  else offer = { allowed: true };
+
+  return { status: st, fulfillmentStatus: fs, legacy, renew, delivered, manualPending, refunded, failed, fulfil, manual, refund, erase, upiDone, offer };
 }
 
 function mount(app, deps) {
@@ -175,7 +182,7 @@ function mount(app, deps) {
       };
       if (d.refunded) {
         const ri = refundsMod.refundInfo(o);
-        out.refund = { amount: ri.amount, method: ri.method, kind: ri.kind, state: ri.state, reference: ri.reference, note: s(raw.RefundNote), at: ri.at, coins: asNum(raw.RefundCoins), credit: ri.credit, bonus: ri.bonus, coupon: ri.coupon, couponExpiry: ri.couponExpiry, upi: ri.upi, todoId: ri.todoId, upiSentAt: s(raw.RefundUpiSentAt) };
+        out.refund = { amount: ri.amount, method: ri.method, kind: ri.kind, state: ri.state, reference: ri.reference, note: s(raw.RefundNote), at: ri.at, coins: asNum(raw.RefundCoins), credit: ri.credit, bonus: ri.bonus, coupon: ri.coupon, couponExpiry: ri.couponExpiry, upi: ri.upi, todoId: ri.todoId, upiSentAt: s(raw.RefundUpiSentAt), delivered: ri.delivered, offerId: ri.offerId, charge: ri.charge, paid: ri.paid, reason: s(raw.RefundReason) };
       }
       if (d.fulfil.allowed || d.failed) out.stock = await stockFor(o.service, o.plan);
       res.json(out);
@@ -358,10 +365,12 @@ function mount(app, deps) {
         summary: 'Refunded ₹' + done.amount + ' by ' + done.methodLabel + (done.coupon ? ' ' + done.coupon.code : '') + (reference ? ' (' + reference + ')' : '') + (note ? ' · ' + note : '') + ' · was ' + (up(o.fulfillment_status) || 'PENDING'),
         details: { amount: done.amount, method: done.methodLabel, reference, note, refundCredit: done.credit, coupon: done.coupon, coins: h.coins, referral: h.referral, couponsReleased: h.couponsReleased },
       });
+      // Coins / coupon chosen by the customer get the admin bonus % (💸 Refunds → settings); the owner's direct Coins / Coupon do not.
+      const bonusPct = done.how === 'UPI_ASK' ? (await R.getSettings().catch(() => ({ bonusPercent: refundsMod.BONUS_PERCENT }))).bonusPercent : refundsMod.BONUS_PERCENT;
       if (b.notify !== false) {
         if (done.how === 'COINS') R.notify(o, 'CREDIT', { amount: done.amount, credit: done.credit });
         else if (done.how === 'COUPON') R.notify(o, 'COUPON', { amount: done.amount, coupon: done.coupon.code, expiry: done.coupon.expiry });
-        else if (done.how === 'UPI_ASK') R.notify(o, 'ASK', { amount: done.amount, credit: refundsMod.bonusCredit(done.amount) });
+        else if (done.how === 'UPI_ASK') R.notify(o, 'ASK', { amount: done.amount, credit: refundsMod.bonusCredit(done.amount, bonusPct), bonusPercent: bonusPct });
         else R.notify(o, 'RECORDED', { amount: done.amount, how: done.how === 'UPI' ? 'to your UPI' : '' });
       }
       const notes = [];
@@ -371,7 +380,7 @@ function mount(app, deps) {
       if (h.coins && h.coins.reverseShort) notes.push(h.coins.reverseShort + ' earned coins were already spent and could not be taken back.');
       if (done.credit) notes.push('₹' + done.credit + ' refund credit added — the customer can use it on any plan (up to the full price).');
       if (done.coupon) notes.push('Coupon ' + done.coupon.code + ' (₹' + done.coupon.value + ' off, single use, this phone only, until ' + done.coupon.expiry.slice(0, 10) + ') created.');
-      if (done.how === 'UPI_ASK') notes.push('The customer is asked on their home screen: ' + refundsMod.bonusCredit(done.amount) + ' coins of refund credit (+' + refundsMod.BONUS_PERCENT + '%) or a UPI refund. If they choose UPI you get a Today to-do with their UPI ID.');
+      if (done.how === 'UPI_ASK') notes.push('The customer chooses on their home screen: ' + refundsMod.bonusCredit(done.amount, bonusPct) + ' coins or a ₹' + refundsMod.bonusCredit(done.amount, bonusPct) + ' coupon (+' + bonusPct + '%), or exactly ₹' + done.amount + ' to their UPI. If they choose UPI it appears in 💸 Refunds to send (and a Today to-do).');
       if (done.how === 'OTHER' && method !== 'OTHER') notes.push('This order cost ₹0, so nothing new was credited — what paid for it was given back.');
       if (h.referral && h.referral.cancelled) notes.push(h.referral.cancelled + ' unpaid referral reward(s) cancelled.');
       if (paidRewards.length) notes.push('Referral reward already paid: ' + paidRewards.map((x) => x.coins + ' coins to ' + x.to).join(', ') + ' — remove them in 🪙 Coins if you want.');

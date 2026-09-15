@@ -402,9 +402,11 @@ async function renewQuote(subId, planOverride) {
   const sid = String(subId || '').trim();
   if (!sid) return { ok: false, message: 'Missing subscription id.' };
   const subs = await db.query(
-    'SELECT sub_id, service, plan, phone, email, expiry_date, source FROM subscriptions WHERE sub_id = ? LIMIT 1', [sid]);
+    'SELECT sub_id, service, plan, phone, email, expiry_date, source, status FROM subscriptions WHERE sub_id = ? LIMIT 1', [sid]);
   const sub = subs[0];
   if (!sub) return { ok: false, message: 'Subscription not found.' };  // MySQL is master; no Sheet fallback
+  // Refunds v3: a refunded plan (refund offer accepted) can't be renewed — the customer buys a new plan instead.
+  if (String(sub.status || '').trim().toUpperCase() === 'REFUNDED') return { ok: false, renewBlocked: true, refunded: true, message: 'This plan was refunded, so it can’t be renewed. Please buy a new plan instead.' };
   const plan = String(planOverride || '').trim() || String(sub.plan || '').trim();
 
   const planRows = await db.query('SELECT price, raw_json FROM plans WHERE service = ? AND plan = ? LIMIT 1', [sub.service, plan]);

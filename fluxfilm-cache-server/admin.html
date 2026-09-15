@@ -563,7 +563,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
   ['DATA'], ['golive', '🚚', 'Go-live import'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'],
 ];
@@ -608,7 +608,7 @@ function nav(v) {
   route();
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, stock: stockView, removeusers: removeUsersView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -863,7 +863,7 @@ function subCard(s) {
     '<div class="bar' + (d != null && d <= 0 ? ' b' : d != null && d <= 7 ? ' w' : '') + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
     (creds ? '<div class="creds">' + creds + '</div>' : '') + rmUi +
     '<div class="row" style="justify-content:space-between"><div class="meta"><span class="pill p-grey">' + id + '</span>' + (s.inventory_ref ? '<span class="pill p-blue">' + esc(s.inventory_ref) + '</span>' : '') + statusPill(s.status) + (s.source ? '<span class="pill p-grey">' + esc(s.source) + '</span>' : '') + '</div>' +
-    '<span class="row" style="gap:6px"><button class="btn ghost sm" onclick="extendDialog(\'' + id + '\')">⏱ Extend</button><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a></span></div></div>';
+    '<span class="row" style="gap:6px">' + (s.login_id && !/REFUNDED|CANCEL/i.test(s.status || '') ? '<button class="btn ghost sm" onclick="offerRefundDialog(\'' + id + '\')">💸 Offer refund</button>' : '') + '<button class="btn ghost sm" onclick="extendDialog(\'' + id + '\')">⏱ Extend</button><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, remind) + '">💬 Remind</a></span></div></div>';
 }
 function saveRemoved(id) {
   var cb = document.getElementById('rm_' + id), at = document.getElementById('rmat_' + id), msg = document.getElementById('rmmsg_' + id);
@@ -1635,7 +1635,7 @@ function openOrder(id, flash) {
     var delivered = /FULFILLED|MANUAL_PENDING/i.test(o.fulfillment_status || '');
     var refundedOrder = String(o.status).toUpperCase() === 'REFUNDED';
     var steps = '<div class="osteps"><span class="' + 'on">🧾 Created<small>' + prettyDate(o.created_at_sheet, true) + '</small></span><span class="' + (paid || refundedOrder ? 'on' : '') + '">💳 Paid<small>' + (paid || refundedOrder ? prettyDate(o.verified_at, true) || '✓' : 'not yet') + '</small></span>' +
-      (refundedOrder ? '<span class="on">💸 Refunded<small>not delivered</small></span></div>' :
+      (refundedOrder ? '<span class="on">💸 Refunded<small>' + ((r.subs || []).some(function (x) { return x.login_id; }) ? 'after delivery' : 'not delivered') + '</small></span></div>' :
       '<span class="' + (delivered ? 'on' : paid ? 'bad' : '') + '">📦 Delivered<small>' + (delivered ? (/MANUAL/i.test(o.fulfillment_status) ? 'manual' : prettyDate(o.fulfilled_at, true) || '✓') : paid ? 'not yet ⚠️' : '—') + '</small></span></div>');
     var subs = (r.subs || []).map(function (s) {
       var cred = function (label, v) { return v ? '<div class="cr"><span>' + label + '</span><code>' + esc(v) + '</code><button class="copy" data-copy="' + esc(v) + '">Copy</button></div>' : ''; };
@@ -1691,8 +1691,10 @@ function orderActionsHtml(r) {
   if (r.refulfilled) h += '<div class="qnote">🔁 Delivered again after a failed attempt · ' + prettyDate(r.refulfilledAt, true) + (r.manualDelivered ? ' (by hand)' : '') + '</div>';
   // Cash refund still open (refunds.js): the owner sends the money, then marks it sent here (or ticks the Today to-do).
   if (a.upiDone && a.upiDone.allowed) h += '<div class="oabtns"><button class="btn purple" data-oa="upidone">✅ Mark UPI refund sent</button></div><div id="oa_form"></div><div id="oa_msg"></div>';
+  // 💸 Offer refund (Refunds v3): a delivered plan — the customer chooses coins / coupon / UPI in the app.
+  if (a.offer && a.offer.allowed) h += '<div class="oabtns"><button class="btn purple" data-oa="offer">💸 Offer refund</button><span class="muted" style="font-size:.75rem">No replacement, or a mid-period refund with a usage charge</span></div>' + (a.fulfil.allowed || a.manual.allowed || a.refund.allowed || a.erase.allowed ? '' : '<div id="oa_form"></div><div id="oa_msg"></div>');
   var any = a.fulfil.allowed || a.manual.allowed || a.refund.allowed || a.erase.allowed;
-  if (!any && a.upiDone && a.upiDone.allowed) return h + '</div>';
+  if (!any && ((a.upiDone && a.upiDone.allowed) || (a.offer && a.offer.allowed))) return h + '</div>';
   if (!any) return h + '<div class="muted" style="font-size:.85rem">' + (a.refunded ? 'Nothing else to do for a refunded order.' : a.delivered ? '✅ Delivered — nothing to fix.' : esc(a.refund.reason || a.fulfil.reason || '')) + '</div></div>';
   if (r.lastError && !a.delivered && a.status === 'PAID') h += '<div class="qnote bad">⚠️ Last delivery error: ' + esc(r.lastError) + (r.lastErrorAt ? ' <span class="muted">(' + prettyDate(r.lastErrorAt, true) + ')</span>' : '') + '</div>';
   if (r.stock && a.status === 'PAID') h += '<div class="qnote ' + (r.stock.stockLevel === 'OUT' ? 'bad' : r.stock.stockLevel === 'LOW' ? 'warn' : '') + '">📦 Stock for ' + esc(r.service) + ' · ' + esc(r.plan) + ': <b>' + esc(oaStockText(r.stock)) + '</b>' + (r.stock.stockLevel === 'OUT' ? ' — add an account in 📦 Stock first, or deliver manually / refund.' : '') + '</div>';
@@ -1708,9 +1710,13 @@ function orderActionsHtml(r) {
 }
 // How a refund was / is being paid (adminorderactions.js → refund.kind / state).
 function oaRefundHow(f) {
+  var off = f.delivered ? ' <span class="muted">(delivered plan · offer ' + esc(f.offerId) + ' · paid ' + money(f.paid) + (f.charge ? ' − charge ' + money(f.charge) : ', no charge') + ' · access ended)</span> ' : '';
+  return off + oaRefundHow1(f);
+}
+function oaRefundHow1(f) {
   if (f.kind === 'CREDIT') return 'as <b>' + esc(f.credit || f.coins) + ' coins of refund credit</b>' + (f.bonus ? ' (incl. +' + esc(f.bonus) + ' bonus — customer chose coins instead of cash)' : '') + ' · pays up to 100% of an order';
   if (f.kind === 'COUPON') return 'as coupon <b>' + esc(f.coupon) + '</b>' + (f.couponExpiry ? ' (single use, until ' + esc(String(f.couponExpiry).slice(0, 10)) + ')' : '');
-  if (f.kind === 'UPI_PENDING') return f.state === 'UPI_REQUESTED' ? '— <b style="color:#b91c1c">⏳ customer asked for UPI: send it to ' + esc(f.upi) + '</b>' : '— <b>⏳ waiting for the customer to choose</b> (coins +10% or UPI)';
+  if (f.kind === 'UPI_PENDING') return f.state === 'UPI_REQUESTED' ? '— <b style="color:#b91c1c">⏳ customer asked for UPI: send it to ' + esc(f.upi) + '</b>' : '— <b>⏳ waiting for the customer to choose</b> (coins / coupon with extra, or exact UPI)';
   if (f.kind === 'UPI') return 'to UPI' + (f.upi ? ' ' + esc(f.upi) : '') + (f.upiSentAt ? ' · sent ' + prettyDate(f.upiSentAt, true) : '');
   return 'by ' + esc(f.method || '—');
 }
@@ -1728,6 +1734,7 @@ function wireOrderActions(r) {
   box.onclick = function (e) {
     var b = e.target.closest('[data-oa]'); if (!b) return;
     var act = b.getAttribute('data-oa'), form = $('#oa_form'); oaMsg('');
+    if (act === 'offer') { offerRefundForm(form, { orderId: id }, function (x) { oaAfter(id, '<div class="qnote" style="margin-bottom:10px">' + esc(x.message || 'Refund offered') + '</div>'); }); return; }
     if (act === 'fulfil') {
       if (!confirm(a.fulfil.label.replace(/^\S+\s/, '') + ' ' + id + ' now? It picks a free account exactly like a website order and emails the customer.')) return;
       b.disabled = true; oaMsg('<div class="qnote">Working…</div>');
@@ -1779,9 +1786,9 @@ function wireOrderActions(r) {
       var maxA = Number(a.refund.maxAmount) || 0;
       form.innerHTML = '<div class="oaform" data-nodirty><b>💸 Refund</b><span class="muted" style="font-size:.75rem">The order becomes <b>Refunded</b> for you and the customer; coins / refund credit used on it go back to them, a coupon use is released and unpaid referral rewards are cancelled. Nothing is deleted.</span>' +
         (maxA > 0 ? '<label>How do you want to refund?<select class="inp" id="oa_method">' +
-          '<option value="Coins">🪙 Coins — refund credit, ₹1 = 1 coin, can pay the FULL price of their next plan (keeps the sale)</option>' +
-          '<option value="Coupon">🎟️ Coupon — a personal single-use coupon worth the amount</option>' +
-          '<option value="UPI_ASK">🏦 UPI cash — ask the customer (they can take coins +10% or give a UPI ID)</option>' +
+          '<option value="UPI_ASK">🙋 Let the customer choose — coins or coupon with extra %, or the exact amount to UPI (recommended)</option>' +
+          '<option value="Coins">🪙 Coins now — refund credit, ₹1 = 1 coin, no extra (can pay the FULL price of their next plan)</option>' +
+          '<option value="Coupon">🎟️ Coupon now — a personal single-use coupon worth the amount, no extra</option>' +
           '<option value="UPI">✔️ Already sent by UPI / bank (just record it)</option>' +
           '<option value="Other">✔️ Other — already refunded outside (just record it)</option></select></label>' : '<input type="hidden" id="oa_method" value="Other"/><div class="qnote">This order cost ₹0 (refund credit / coupon / coins paid for it) — refunding gives those back to the customer.</div>') +
         '<div id="oa_mhelp" class="muted" style="font-size:.75rem"></div>' +
@@ -1793,7 +1800,7 @@ function wireOrderActions(r) {
       var HELP = {
         Coins: 'Added straight away as refund credit. Unlike normal coins (max-% per order rule), refund credit can pay up to 100% of a new plan or renewal. Customer gets a push + email.',
         Coupon: 'Creates coupon RF…… worth the amount: only for this phone, single use, valid 180 days, shown in their Account → Coupons. If the next plan costs less, the rest of the coupon is lost — Coins is better for that.',
-        UPI_ASK: 'Nothing is sent yet. On their home screen the customer chooses: coins of refund credit with 10% extra, or a UPI refund (they type their UPI ID after an email code). If they choose UPI you get a 💸 Today to-do to send it.',
+        UPI_ASK: 'Nothing is sent yet. On their home screen the customer chooses: coins or a coupon with the extra % from 💸 Refunds → settings (added instantly), or the exact amount to their UPI ID (after an email code). If they choose UPI it shows in 💸 Refunds to send.',
         UPI: 'Only if you already sent the money. Add the UTR if you have it.',
         Other: 'Only if you already refunded them some other way.'
       };
@@ -1802,7 +1809,7 @@ function wireOrderActions(r) {
       mh();
       $('#oa_rgo').onclick = function () {
         var body = { orderId: id, amount: $('#oa_amt').value, method: $('#oa_method').value, reference: $('#oa_rref').value, note: $('#oa_rnote').value, notify: $('#oa_rnotify').checked };
-        var sure = { Coins: '\n\n' + money(body.amount) + ' of refund credit is added to the customer’s wallet now.', Coupon: '\n\nA single-use coupon worth ' + money(body.amount) + ' is created for this customer now.', UPI_ASK: '\n\nThe customer will be asked: coins +10% or a UPI refund. You send nothing yet.', UPI: '\n\nMake sure you have already sent the money.', Other: '\n\nMake sure you have already refunded them.' }[body.method] || '';
+        var sure = { Coins: '\n\n' + money(body.amount) + ' of refund credit is added to the customer’s wallet now.', Coupon: '\n\nA single-use coupon worth ' + money(body.amount) + ' is created for this customer now.', UPI_ASK: '\n\nThe customer will choose: coins / coupon with extra, or the exact amount to UPI. You send nothing yet.', UPI: '\n\nMake sure you have already sent the money.', Other: '\n\nMake sure you have already refunded them.' }[body.method] || '';
         if (!confirm('Refund ' + id + ': ' + money(body.amount) + ' — ' + $('#oa_method').value + '?' + sure)) return;
         this.disabled = true; var go = this;
         post('/admin/api/order/refund', body).then(function (x) {
@@ -1830,6 +1837,124 @@ function wireOrderActions(r) {
       };
       $('#oa_ereason').focus();
     }
+  };
+}
+
+/* ================= 💸 Refunds v3: offer refund on a delivered plan · refunds to send · settings ================= */
+// The customer chooses how to get a refund (coins / coupon +bonus%, instant, or the exact amount to UPI). Rules: refunds.js.
+function rfStatusPill(st) { var c = { OFFERED: 'p-warn', UPI_REQUESTED: 'p-bad', DONE: 'p-ok', CANCELLED: 'p-grey', EXPIRED: 'p-grey' }[st] || 'p-grey'; var t = { OFFERED: 'waiting for customer', UPI_REQUESTED: 'UPI to send', DONE: 'done', CANCELLED: 'cancelled', EXPIRED: 'expired' }[st] || st; return '<span class="pill ' + c + '">' + esc(t) + '</span>'; }
+function rfOfferLine(f) {
+  var how = f.method === 'COINS' ? '🪙 ' + esc(f.credit) + ' coins' : f.method === 'COUPON' ? '🎟️ coupon ' + esc(f.coupon) + ' (' + money(f.credit) + ')' : f.method === 'UPI' ? '🏦 UPI ' + esc(f.upi) + (f.reference ? ' · ref ' + esc(f.reference) : '') : '';
+  return '<b>' + money(f.refund) + '</b> ' + rfStatusPill(f.status) + ' <span class="muted" style="font-size:.75rem">' + esc(f.offerId) + ' · ' + (f.reason === 'NO_REPLACEMENT' ? 'no replacement' : 'mid-period, charge ' + money(f.charge) + (f.daysUsed != null ? ' (' + esc(f.daysUsed) + '/' + esc(f.totalDays) + ' days)' : '')) + ' · paid ' + money(f.paid) + (how ? ' · ' + how : '') + (f.status === 'OFFERED' ? ' · open until ' + prettyDate(f.expiresAt) : '') + (f.emailSent ? ' · emailed' : '') + (f.note ? ' · “' + esc(f.note) + '”' : '') + '</span>';
+}
+function offerRefundDialog(subId) {
+  modal('💸 Offer refund', '<div id="orf_box"></div>', '', '');
+  offerRefundForm($('#orf_box'), { subId: subId }, function (x) { closeModal(); toast('💸 Refund offered'); if ($('#c360') && S.cust && $('#cp')) lookup(true); });
+}
+function offerRefundForm(box, target, after) {
+  if (!box) return;
+  box.innerHTML = '<p class="muted" style="font-size:.8rem">Loading…</p>';
+  api('/admin/api/refund-offers/quote', target).then(function (q) {
+    if (!box.isConnected) return;
+    if (!q.ok) { box.innerHTML = '<div class="qnote bad">⚠️ ' + esc(q.message || 'Could not load') + '</div>'; return; }
+    var head = '<div class="qnote">' + svcIcon(q.service) + ' <b>' + esc(q.service) + ' · ' + esc(q.plan) + '</b> · ' + esc(q.orderId) + ' · ' + esc(q.name || '') + ' ' + esc(q.phone || '') +
+      '<br>Paid <b>' + money(q.paid) + '</b> · paid period ' + prettyDate(q.periodStart) + ' → ' + prettyDate(q.periodEnd) + ' · used <b>' + esc(q.daysUsed) + ' of ' + esc(q.totalDays) + ' days</b></div>' +
+      (q.offer ? '<div class="qnote">💸 ' + rfOfferLine(q.offer) + (q.offer.status === 'OFFERED' ? ' <button class="btn red sm" id="orf_cancel">🚫 Cancel offer</button>' : '') + '</div>' : '');
+    var wireCancel = function () {
+      var c = box.querySelector('#orf_cancel'); if (!c) return;
+      c.onclick = function () {
+        var why = prompt('Cancel refund offer ' + q.offer.offerId + ' (' + money(q.offer.refund) + ')? Why? (optional)', ''); if (why == null) return;
+        c.disabled = true;
+        post('/admin/api/refund-offers/cancel', { offerId: q.offer.offerId, reason: why }).then(function (x) { if (!x.ok) { c.disabled = false; alert(x.message || 'failed'); return; } toast('🚫 Offer cancelled'); offerRefundForm(box, target, after); });
+      };
+    };
+    if (!q.allowed) { box.innerHTML = '<div class="oaform" data-nodirty><b>💸 Offer refund</b>' + head + (q.offer && q.offer.status === 'OFFERED' ? '' : '<div class="qnote warn">' + esc(q.reason || '') + '</div>') + '</div>'; wireCancel(); return; }
+    box.innerHTML = '<div class="oaform" data-nodirty><b>💸 Offer refund</b><span class="muted" style="font-size:.75rem">The customer gets an email and a banner in the app, and chooses: coins or a coupon (+' + esc(q.bonusPercent) + '%, instant) or the exact amount to their UPI (you send it from ↩️ Refunds). When they take it, this plan stops working (Recover / Get OTP / renew stop). The offer stays open ' + esc(q.offerDays) + ' days.</span>' + head +
+      '<label>Reason<select class="inp" id="orf_reason"><option value="NO_REPLACEMENT">No replacement available — no charge, full ' + money(q.paid) + '</option><option value="MID_PERIOD">Mid-period refund — usage charge</option></select></label>' +
+      '<div id="orf_chargebox"><label>Usage charge (₹) <span class="muted" style="font-size:.72rem">suggested ' + money(q.suggestedCharge) + ' = ' + esc(q.daysUsed) + ' ÷ ' + esc(q.totalDays) + ' days × ' + money(q.paid) + '</span><input class="inp" id="orf_charge" type="number" min="0" step="1" max="' + esc(q.paid) + '" value="' + esc(q.suggestedCharge) + '"/></label></div>' +
+      '<label>Note shown to the customer (optional)<input class="inp" id="orf_note" maxlength="300" placeholder="e.g. Sorry, we have no replacement account right now" autocomplete="off"/></label>' +
+      '<div class="qnote" id="orf_total"></div>' +
+      '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="orf_notify" checked/> Email the customer' + (q.email ? ' (' + esc(q.email) + ')' : ' — this order has no email, they will see it in the app') + '</label>' +
+      '<button class="btn purple" id="orf_go">💸 Offer refund</button><div id="orf_msg"></div></div>';
+    var calc = function () {
+      var mid = $('#orf_reason').value === 'MID_PERIOD';
+      $('#orf_chargebox').style.display = mid ? '' : 'none';
+      var c = mid ? Math.max(0, Math.min(q.paid, Math.round(Number($('#orf_charge').value) || 0))) : 0, r = Math.max(0, q.paid - c);
+      $('#orf_total').innerHTML = 'Refund <b>' + money(r) + '</b>' + (c ? ' = paid ' + money(q.paid) + ' − charge ' + money(c) : ' (no charge)') + ' · customer can take ' + money(r + Math.round(r * q.bonusPercent / 100)) + ' as coins / coupon, or ' + money(r) + ' by UPI';
+      return { mid: mid, c: c, r: r };
+    };
+    $('#orf_reason').onchange = calc; $('#orf_charge').oninput = calc; calc();
+    $('#orf_go').onclick = function () {
+      var v = calc();
+      if (v.r < 1) { $('#orf_msg').innerHTML = '<div class="qnote bad">The charge leaves nothing to refund.</div>'; return; }
+      if (!confirm('Offer a refund of ' + money(v.r) + ' for ' + q.orderId + '?\n\nThe customer is emailed and chooses in the app. The plan stops working when they take it.')) return;
+      var go = this; go.disabled = true;
+      post('/admin/api/refund-offers', { orderId: q.orderId, reason: $('#orf_reason').value, charge: v.mid ? $('#orf_charge').value : 0, note: $('#orf_note').value, notify: $('#orf_notify').checked }).then(function (x) {
+        go.disabled = false;
+        if (!x.ok) { $('#orf_msg').innerHTML = '<div class="qnote bad">⚠️ ' + esc(x.message || 'failed') + '</div>'; return; }
+        var m = $('#modal'); if (m) m.removeAttribute('data-dirty');
+        toast('💸 Refund offered'); if (after) after(x);
+      });
+    };
+  });
+}
+var RF = { data: null };
+function refundsView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>↩️ Refunds</h1><p>UPI refunds to send, refunds the customer is still choosing, and refund offers on delivered plans</p></div><button class="btn ghost" id="rfreload">⟳ Refresh</button></div><div id="rfbody"><p class="muted">Loading…</p></div>';
+  $('#rfreload').onclick = loadRefundsView;
+  loadRefundsView();
+}
+function loadRefundsView() {
+  api('/admin/api/refunds').then(function (r) {
+    if (!$('#rfbody')) return;
+    if (!r.ok) { $('#rfbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
+    RF.data = r; renderRefundsView();
+  });
+}
+function renderRefundsView() {
+  var d = RF.data, st = d.settings || {};
+  var send = (d.toSend || []).map(function (x, i) {
+    return '<div class="li" style="align-items:flex-start"><span style="font-size:1.1rem">' + svcIcon(x.service) + '</span><div class="grow"><b>' + money(x.amount) + ' → <code>' + esc(x.upi) + '</code></b> <button class="copy" data-copy="' + esc(x.upi) + '">Copy UPI</button>' +
+      '<div class="muted" style="font-size:.75rem">' + esc(x.name || '—') + ' · ' + esc(x.phone) + ' · <a href="#" data-rfo="' + esc(x.orderId) + '">' + esc(x.orderId) + '</a> · ' + esc(x.service) + ' ' + esc(x.plan) + (x.delivered ? ' · delivered plan' + (x.charge ? ' (paid ' + money(x.paid) + ' − charge ' + money(x.charge) + ')' : ' (no charge)') : ' · not delivered') + (x.requestedAt ? ' · asked ' + prettyDate(x.requestedAt, true) : '') + '</div>' +
+      '<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><input class="inp" style="max-width:230px" placeholder="UTR / reference (optional)" id="rfutr_' + i + '" autocomplete="off"/><button class="btn green sm" data-rfdone="' + i + '">✅ Done</button></div></div></div>';
+  }).join('');
+  var choosing = (d.choosing || []).map(function (x) {
+    return '<div class="li"><span style="font-size:1.1rem">' + svcIcon(x.service) + '</span><div class="grow"><b>' + money(x.amount) + '</b> <span class="muted">· ' + esc(x.name || '—') + ' · ' + esc(x.phone) + '</span><div class="muted" style="font-size:.75rem"><a href="#" data-rfo="' + esc(x.orderId) + '">' + esc(x.orderId) + '</a> · ' + esc(x.service) + ' ' + esc(x.plan) + (x.kind === 'offer' ? ' · offer ' + esc(x.offerId) + ' (delivered plan) · open until ' + prettyDate(x.expiresAt) : ' · not delivered') + '</div></div>' +
+      (x.kind === 'offer' ? '<button class="btn ghost sm" data-rfcancel="' + esc(x.offerId) + '">🚫 Cancel</button>' : '') + '</div>';
+  }).join('');
+  var recent = (d.offers || []).filter(function (f) { return f.status !== 'OFFERED'; }).slice(0, 40).map(function (f) {
+    return '<div class="li"><span style="font-size:1.1rem">' + svcIcon(f.service) + '</span><div class="grow">' + rfOfferLine(f) + '<div class="muted" style="font-size:.72rem">' + esc(f.name || '') + ' ' + esc(f.phone) + ' · <a href="#" data-rfo="' + esc(f.orderId) + '">' + esc(f.orderId) + '</a> · ' + esc(f.service) + ' ' + esc(f.plan) + ' · offered ' + prettyDate(f.createdAt, true) + '</div></div></div>';
+  }).join('');
+  $('#rfbody').innerHTML =
+    (d.ready ? '' : '<div class="qnote warn">Run <b>db/schema-v26.sql</b> in phpMyAdmin to switch on 💸 Offer refund for delivered plans. Not-delivered refunds and the UPI list below already work.</div>') +
+    '<div class="subhead"><h3>💸 Refunds to send (' + (d.toSend || []).length + ')</h3></div><div class="card list" style="padding:6px 16px">' + (send || '<p class="muted">Nothing to send. 🎉</p>') + '<p class="muted" style="font-size:.72rem">Send the exact amount to the UPI ID (check the UPI name looks like the customer), then tap ✅ Done. The customer gets an email and a pop-up next time they open the website.</p></div>' +
+    '<div class="subhead"><h3>⏳ Customer still choosing (' + (d.choosing || []).length + ')</h3></div><div class="card list" style="padding:6px 16px">' + (choosing || '<p class="muted">None.</p>') + '</div>' +
+    '<div class="subhead"><h3>⚙️ Refund settings</h3></div><div class="card"><div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-end">' +
+    '<label>Extra for coins / coupon (%)<input class="inp" id="rfbonus" type="number" min="0" max="50" step="1" value="' + esc(st.bonusPercent) + '" style="max-width:120px"/></label>' +
+    '<label>Days the customer has to choose (delivered plans)<input class="inp" id="rfdays" type="number" min="1" max="90" step="1" value="' + esc(st.offerDays) + '" style="max-width:120px"/></label>' +
+    '<button class="btn" id="rfsave">Save</button><span class="muted" id="rfsmsg" style="font-size:.8rem"></span></div><p class="muted" style="font-size:.72rem;margin:8px 0 0">UPI refunds are always the exact amount. A new % applies to new offers (an open offer keeps the % it was made with).</p></div>' +
+    (recent ? '<div class="subhead"><h3>🕘 Recent offers</h3></div><div class="card list" style="padding:6px 16px">' + recent + '</div>' : '');
+  $('#rfsave').onclick = function () {
+    $('#rfsmsg').textContent = 'Saving…';
+    post('/admin/api/refunds/settings', { bonusPercent: $('#rfbonus').value, offerDays: $('#rfdays').value }).then(function (x) { $('#rfsmsg').textContent = x.ok ? '✅ Saved' : '⚠️ ' + (x.message || 'failed'); if (x.ok) toast('Refund settings saved'); });
+  };
+  $('#rfbody').onclick = function (e) {
+    var o = e.target.closest('[data-rfo]'); if (o) { e.preventDefault(); openOrder(o.getAttribute('data-rfo')); return; }
+    var c = e.target.closest('[data-rfcancel]');
+    if (c) {
+      var why = prompt('Cancel refund offer ' + c.getAttribute('data-rfcancel') + '? Why? (optional)', ''); if (why == null) return;
+      c.disabled = true;
+      post('/admin/api/refund-offers/cancel', { offerId: c.getAttribute('data-rfcancel'), reason: why }).then(function (x) { if (!x.ok) { c.disabled = false; alert(x.message || 'failed'); return; } toast('🚫 Offer cancelled'); loadRefundsView(); });
+      return;
+    }
+    var b = e.target.closest('[data-rfdone]'); if (!b) return;
+    var x = d.toSend[+b.getAttribute('data-rfdone')]; if (!x) return;
+    if (!confirm('You sent ' + money(x.amount) + ' to ' + x.upi + ' for ' + x.orderId + '?')) return;
+    b.disabled = true;
+    post('/admin/api/order/refund-upi-done', { orderId: x.orderId, reference: ($('#rfutr_' + b.getAttribute('data-rfdone')) || {}).value || '', notify: true }).then(function (r) {
+      if (!r.ok) { b.disabled = false; alert(r.message || 'failed'); return; }
+      toast('✅ Refund marked sent — customer told'); loadRefundsView();
+    });
   };
 }
 
