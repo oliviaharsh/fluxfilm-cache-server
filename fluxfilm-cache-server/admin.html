@@ -828,7 +828,8 @@ function renderCustomer() {
     '<div class="muted" style="font-size:.8rem;margin-top:2px">Member since ' + prettyDate(pr.member_since) + ' ' + (active.length ? '<span class="pill p-ok">ACTIVE</span>' : '<span class="pill p-grey">NO ACTIVE PLAN</span>') + '</div>' +
     '<div class="stats"><div><b>' + money(spent) + '</b><small>Total spent</small></div><div><b>' + paid.length + '</b><small>Paid orders</small></div><div><b>' + active.length + ' / ' + subs.length + '</b><small>Active subscriptions</small></div><div><b>' + (r.wallet ? esc(r.wallet.coins_balance) : 0) + '</b><small>Coins</small></div>' + (Number(r.refundCredit) ? '<div><b>' + money(r.refundCredit) + '</b><small>💸 Refund credit (pays up to 100%)</small></div>' : '') + '</div></div>' +
     '<div class="row pact" style="flex-direction:column;align-items:stretch"><a class="btn wa" target="_blank" href="' + waLink(pr.phone || r.phone, 'Hi ' + (pr.name || '') + ', ') + '">💬 WhatsApp</a>' +
-    '<button class="btn dark" onclick="openQuick(\'new\')">🆕 New order</button><button class="btn dark" onclick="openQuick(\'renew\')">🔁 Renew</button></div></div></div>' +
+    '<button class="btn dark" onclick="openQuick(\'new\')">🆕 New order</button><button class="btn dark" onclick="openQuick(\'renew\')">🔁 Renew</button>' +
+    '<button class="btn ghost" onclick="custSessions()">🔐 Logged-in devices</button></div></div></div>' +
     '<div class="subhead"><h3>🎬 Subscriptions (' + subs.length + ')</h3><div class="row">' +
     ['all', 'active', 'expired'].map(function (f) { return '<button class="btn ghost sm' + (filter === f ? ' on' : '') + '" onclick="S.subFilter=\'' + f + '\';S.showAllCards=false;renderCustomer()">' + f[0].toUpperCase() + f.slice(1) + '</button>'; }).join('') + '</div></div>' +
     (shown.length ? '<div class="subs">' + (S.showAllCards ? shown : shown.slice(0, 6)).map(subCard).join('') + '</div>' +
@@ -842,6 +843,21 @@ function renderCustomer() {
         '<b>' + money(o.final_amount) + '</b>' + statusPill(o.status) + (o.fulfillment_status ? statusPill(o.fulfillment_status) : '') + (stuck ? ' <button class="btn red sm" data-oid="' + esc(o.order_id) + '">⚡ Fix</button>' : '') + '</div>';
     }).join('') : '<p class="muted">No orders</p>') + '</div>';
   var olist = $$('#c360 .orow'); olist.forEach(function (row) { row.onclick = function () { openOrder(row.getAttribute('data-oid')); }; });
+}
+// 🔐 Email login: where this customer is logged in + "log out everywhere" (e.g. a lost phone, or a shared number).
+function custSessions() {
+  var ph = String((S.cust && ((S.cust.profile && S.cust.profile.phone) || S.cust.phone)) || '').replace(/\D/g, '').slice(-10);
+  if (ph.length !== 10) { toast('No phone number on this customer'); return; }
+  api('/admin/api/customer-sessions', { phone: ph }).then(function (r) {
+    if (!r.ok) { toast('⚠️ ' + (r.message || 'error')); return; }
+    var list = r.sessions || [];
+    var lines = list.map(function (x, i) { return (i + 1) + '. ' + x.device + ' — last used ' + prettyDate(x.lastSeen.slice(0, 16).replace('T', ' '), true); }).join('\n');
+    if (!list.length) { alert('Not logged in on any device (' + ph + ').'); return; }
+    if (!confirm('Logged in on ' + list.length + ' device' + (list.length === 1 ? '' : 's') + ':\n' + lines + '\n\nLog this customer out everywhere? They will need an email code to log in again.')) return;
+    post('/admin/api/customer-sessions/revoke', { phone: ph }).then(function (x) {
+      toast(x.ok ? '🔐 Logged out on ' + x.revoked + ' device' + (x.revoked === 1 ? '' : 's') : '⚠️ ' + (x.message || 'error'));
+    });
+  });
 }
 function subCard(s) {
   var d = daysLeft(s.expiry_date), st = istDate(s.start_date), ex = istDate(s.expiry_date);
@@ -3372,7 +3388,23 @@ function renderMaintenance() {
     '<label>Back by <span class="muted">(optional, e.g. "in 30 minutes", "by 6 pm")</span><input class="inp" id="mtback" maxlength="60" value="' + esc(s.backText) + '" placeholder="in 30 minutes"/></label></div>' +
     '<div class="rf-save"><button class="btn green" id="mtsave">💾 Save message</button><span class="rf-state" id="mtstate"></span></div></div>' +
     '<div class="card"><h3>💬 Help bubble</h3><label class="rf-tog"><input type="checkbox" id="mthelp"' + (s.helpBubble !== false ? ' checked' : '') + '/> <b>Show the small floating 💬 Help bubble</b></label>' +
-    '<p class="muted" style="margin:4px 0 0;font-size:.84rem">On Home, My plans and Account, above the bottom menu (it hides while the customer scrolls down, never on checkout or payment). The Help button at the top right always stays. Saves at once.</p><span class="rf-state" id="mthelpstate"></span></div>';
+    '<p class="muted" style="margin:4px 0 0;font-size:.84rem">On Home, My plans and Account, above the bottom menu (it hides while the customer scrolls down, never on checkout or payment). The Help button at the top right always stays. Saves at once.</p><span class="rf-state" id="mthelpstate"></span></div>' +
+    '<div class="card"' + (s.emailLogin === false ? ' style="border:2px solid #dc2626"' : '') + '><h3>🔐 Email login required</h3><label class="rf-tog"><input type="checkbox" id="mtlogin"' + (s.emailLogin !== false ? ' checked' : '') + '/> <b>Customers confirm with a 6-digit code sent to their email</b></label>' +
+    '<p class="muted" style="margin:4px 0 0;font-size:.84rem">Keep this ON. First login on a phone = a code to the email we trust for that number; then the phone stays logged in for 180 days. ' +
+    '<b>Emergency only:</b> OFF = the old phone-number login (anyone who knows a number can open that account). Every change goes in the change log. Saves at once.</p>' +
+    (s.emailLogin === false ? '<div class="rf-banner" style="margin-top:8px;background:#fef2f2;color:#991b1b">⚠️ Email login is OFF — accounts are open with just a phone number. Turn it back on as soon as the problem is fixed.</div>' : '') +
+    '<span class="rf-state" id="mtloginstate"></span></div>';
+  $('#mtlogin').onchange = function () {
+    var on = this.checked, box = this;
+    if (!on && !confirm('Turn OFF email login?\n\nEMERGENCY ONLY: anyone who knows a customer\'s phone number could open their account until you turn it back on.')) { box.checked = true; return; }
+    box.disabled = true;
+    post('/admin/api/store', { emailLogin: on }).then(function (r) {
+      box.disabled = false;
+      if (!r.ok) { box.checked = !on; toast('⚠️ Not changed: ' + (r.message || 'error')); return; }
+      MT.s = r.settings; renderMaintenance();
+      toast(on ? '🔐 Email login ON — live now' : '⚠️ Email login OFF — phone-only login is live');
+    });
+  };
   var st = function (k, x) { var el = $('#mtstate'); if (el) { el.className = 'rf-state ' + k; el.textContent = x; } };
   $('#mthelp').onchange = function () {
     var on = this.checked, box = this, el = $('#mthelpstate'); box.disabled = true;

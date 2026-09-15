@@ -117,6 +117,9 @@ const DB_STOREFRONT = Object.assign(
 );
 
 const security = require('./security');
+// 🔐 Email login + signed customer sessions. Every storefront action is listed in customerAuth.POLICY.
+let customerAuth = null; try { customerAuth = require('./customerauth'); } catch (e) { console.log('[email-login] not loaded:', e.message); }
+const AUTH_DEPS = { required: () => (storeMod ? storeMod.emailLoginRequired() : Promise.resolve(true)) };
 
 const app = express();
 // Hostinger terminates HTTPS in front of the app: trust one proxy hop for req.ip / req.secure.
@@ -162,6 +165,13 @@ const LIMITS = {
   emailSendCode: security.rateLimiter(12, 60 * 60e3),
   emailVerifyCode: security.rateLimiter(40, 15 * 60e3),
   changeProfileEmail: security.rateLimiter(20, TEN_MIN),
+  // 🔐 Email login: real caps (per phone + per email per hour, 5 tries, 30 s resend) are in emaillock.js / app_settings.
+  loginStatus: security.rateLimiter(300, TEN_MIN),
+  loginStart: security.rateLimiter(20, 60 * 60e3),
+  loginSignup: security.rateLimiter(10, 60 * 60e3),
+  loginVerify: security.rateLimiter(40, 15 * 60e3),
+  logout: security.rateLimiter(60, TEN_MIN),
+  logoutAll: security.rateLimiter(20, TEN_MIN),
   any: security.rateLimiter(3000, TEN_MIN),
 };
 const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setAvatar', 'removeProfilePhoto', 'submitRestockRequest']);
@@ -177,6 +187,9 @@ const PHONE_LIMITS = {
   setAvatar: security.rateLimiter(20, 60 * 60e3),
   emailSendCode: security.rateLimiter(8, 60 * 60e3),
   emailVerifyCode: security.rateLimiter(20, 15 * 60e3),
+  loginStart: security.rateLimiter(10, 60 * 60e3),
+  loginSignup: security.rateLimiter(6, 60 * 60e3),
+  loginVerify: security.rateLimiter(20, 15 * 60e3),
 };
 function rateLimited(req, action, args) {
   const ip = security.clientIp(req);
@@ -398,6 +411,22 @@ app.post('/api', async (req, res) => {
     return res.status(500).json({ ok: false, message: 'Something went wrong in the FluxFilm database. Nothing was sent to the old system. Please try again.', detail: process.env.NODE_ENV === 'production' ? undefined : e.message });
   };
 
+  // 🔐 Email login (customerauth.js): the login actions themselves, then the session check for everything else.
+  if (customerAuth && customerAuth.LOGIN_ACTIONS.has(action)) {
+    if (!db.ENABLED) return dbUnavailable();
+    try {
+      const out = await customerAuth.handle(action, a, req, res, AUTH_DEPS);
+      res.set('Cache-Control', 'no-store');
+      return res.type('application/json').send(JSON.stringify(out));
+    } catch (e) { return dbError('email-login', e); }
+  }
+  if (customerAuth && db.ENABLED && (DB_READ_ACTIONS.has(action) || DB_STOREFRONT_ACTIONS.has(action) || DB_RECOVER_ACTIONS.has(action) || DB_WRITE_ACTIONS.has(action))) {
+    try {
+      const g = await customerAuth.guard(action, a, req, AUTH_DEPS);
+      if (!g.ok) return res.status(g.status || 401).json(g.body);
+    } catch (e) { return dbError('email-login', e); }
+  }
+
   // Customer reads are always MySQL-only. The old READ_FROM_DB flag is retained
   // only in /health so a stale Hostinger environment cannot re-enable fallback.
   if (DB_READ_ACTIONS.has(action)) {
@@ -422,6 +451,8 @@ app.post('/api', async (req, res) => {
     if (!db.ENABLED || !DB_RECOVER[action]) return dbUnavailable();
     try {
       const out = await DB_RECOVER[action](a);
+      // A right Recover code proves an email on this phone's plan: this browser is logged in too.
+      if (action === 'recoverVerifyOtp' && customerAuth && out && out.ok && out.recoverToken) await customerAuth.afterRecoverVerified(a[0], req, res);
       res.set('X-Source', 'mysql');
       return res.type('application/json').send(JSON.stringify(out));
     } catch (e) { return dbError('node-action', e); }
@@ -588,7 +619,9 @@ if (db.ENABLED && SYNC_INTERVAL_MIN > 0) {
 
 if (db.ENABLED && payments) { try { payments.startWatcher(); } catch (e) { console.log('[imap] start error', e.message); } }
 
-app.listen(PORT, () => console.log('[FluxFilm] listening on :' + PORT + ' (MySQL-only storefront)'));
+const httpServer = app.listen(PORT, () => console.log('[FluxFilm] listening on :' + PORT + ' (MySQL-only storefront)'));
+// Tests (test/email-login.test.js) start the real app on a free port with a fake database.
+module.exports = { app, httpServer };
 // Refer & earn: every 30 min pay any referral reward that failed or was missed (e.g. a restart right after a payment).
 if (referrals && db.ENABLED) referrals.startReconcileTimer();
 // Coins: give back coins held on orders never paid, and settle paid orders (every 10 min).

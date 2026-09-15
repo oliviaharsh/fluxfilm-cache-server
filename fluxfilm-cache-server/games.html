@@ -242,8 +242,10 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--green);outline-offs
     if (S.phone) { try { var r = JSON.parse(localStorage.getItem('ff_otp_access_' + S.phone) || 'null'); if (r && r.token && Date.parse(r.expiresAt) > Date.now()) S.token = r.token; } catch (e) {} }
   }
   function api(action, args) {
-    return fetch('/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action, args: args || [] }) })
+    return fetch('/api', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action, args: args || [] }) })
       .then(function (r) { return r.json().catch(function () { return { ok: false, message: 'Something went wrong. Please try again.' }; }); })
+      // 🔐 Email login: no session on this browser → play as a visitor until they log in on the shop.
+      .then(function (j) { if (j && j.loginRequired) { S.phone = ''; S.token = ''; j.message = 'Please log in on the shop first 🔐'; } return j; })
       .catch(function () { return { ok: false, offline: true, message: 'No internet connection. Check your network and try again.' }; });
   }
   var tt; function toast(m) { var t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(tt); tt = setTimeout(function () { t.classList.remove('show'); }, 2600); }
