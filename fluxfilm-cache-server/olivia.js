@@ -186,8 +186,13 @@ function globalIntentOf(text) {
   const t = String(text || '').toLowerCase().trim();
   if (/^(in )?(english|hinglish|hindi|हिंदी)( (me|mein|please|pls|main))?( (baat|bolo|batao|karo))*$/.test(t)) return 'lang:' + (/hinglish/.test(t) ? 'hinglish' : /hindi|हिंदी/.test(t) ? 'hi' : 'en');
   if (/coupon|cupon|coupan|promo|voucher|discount code|offer code|\bcode\b.*(apply|lagao|lagana|use|dalna|daalna|hai)|(apply|use|lagao|lagana).*\bcode\b/.test(t)) return 'coupon';
+  // Refund (training run 2): never cancelled or promised by Olivia; the team decides on WhatsApp.
+  if (/\brefund|rifund|paise? wapas|paisa wapas|money back|return (my|the) money|रिफंड|पैसे वापस/.test(t)) return 'refund';
   if (/(change|badal|badlo|dusra|doosra|another|different|wrong|galat).{0,12}(plan|pack)|cancel|nahi chahiye|don'?t want/.test(t)) return 'change';
   if (/renew|रिन्यू/.test(t)) return 'renew';
+  // Off-script questions from the team's chats (training run 2). "Band ho gaya" comes before the price words ("pehle chal raha
+  // tha" is not a price question); anything about paying or a login / password goes to its own flow instead.
+  if (!/\b(pay|payment|upi|qr|gpay|g pay|paytm|phone ?pe|bhim|coupon|code|website|site|app|password|pasword|pass|login|log in|household|house hold)\b|tv code|not part of/.test(t) && /band ho|bnd ho|stop(ped)? working|not working|nahi chal (raha|rahi|rha)|nhi chal (raha|rahi|rha)|chal nahi (raha|rahi)|chal nhi (rha|rahi)|log ?out ho|logged out|signed out|kaam nahi kar|khul nahi (raha|rahi)|nahi khul|बंद हो गया|नहीं चल रहा/.test(t)) return 'stopped';
   if (/cheap|sasta|saste|kam (kar|price|daam)|discount|less price|best price|mehnga|mahanga|expensive|costly|earlier|pehle|before|last time|pichli baar|group offer|₹\s?\d+|\brs\.?\s?\d+|\d+\s?(rs|rupees|rupay)\b|kitne ka|kitna (hai|lagega)|price|rate|daam/.test(t)) return 'price';
   if (/\b(for|at|in|mein|me|mai|ka|ki|only|sirf|just)\s+\d{2,4}\b(?!\s*(months?|mahin|din|days?|years?|saal|device))/.test(t) || /\b\d{2,4}\s*(rs|rupees?|rupay|inr|ka|ki|mein|me|mai)\b/.test(t) || (/\b(bought|buy|liya|kharida|paid|mila)\b/.test(t) && /\b\d{2,4}\b(?!\s*(months?|mahin|din|days?|years?|saal|device))/.test(t))) return 'price';
   if (/\b(password|pasword|passwrd|passwod|pass|login|log in|id pass|sign in)\b|पासवर्ड|लॉगिन/.test(t) && /bhul|bhool|forgot|forget|yaad nahi|nahi mil|nhi mil|not (working|opening)|wrong|galat|incorrect|chahiye|chaiye|\bdo\b|de do|dedo|send|bhejo|kya hai|kaha|kahan|nahi chal|nhi chal|kaam nahi|khul nahi|reset|new|naya|nahi ho|nhi ho|not able|can.?t|भूल|नहीं/.test(t)) return 'login';
@@ -195,6 +200,11 @@ function globalIntentOf(text) {
   // Buying questions the team answers every day on WhatsApp (training run 1): when the login comes, how to pay, TV.
   if (/\b(login|log in|id|id pass(word)?|password|details|credentials?)\b.{0,25}\b(kab|when|kitni der|kitne (der|time|min))\b|\b(kab|when|how (long|soon|fast)|kitni der)\b.{0,25}\b(login|id|password|details|credentials?)\b|लॉगिन कब/.test(t)) return 'whenlogin';
   if (!/nahi|nhi|not|fail|error|problem|issue|kat gay|deduct/.test(t) && (/\b(gpay|g pay|google ?pay|phone ?pe|paytm|bhim|upi|scanner)\b.{0,25}(chalega|chalta|hoga|ho jayega|accept|works?|le lete|lete ho|\?)|\b(payment|pay)\b.{0,20}\b(kaise|how|method|mode|options?|kis se|kisse)\b|\b(credit|debit) card\b|\bcard se\b|net ?banking/.test(t))) return 'paymethod';
+  // Validity, 4K, how many devices, "safe hai?" (training run 2).
+  if (/validity|\bvalid\b|kitne din|kitne dino|kitne dinon|how many days|kab tak chal|kitne time tak|kab expire|expire kab|कितने दिन/.test(t)) return 'validity';
+  if (/\b(4k|uhd|full ?hd|hd)\b|quality|क्वालिटी/.test(t) && (QUESTION_RE.test(t) || /milega|milta|hai kya|hoga|chalega|aata|aayega|support|\?/.test(t))) return 'quality';
+  if (/kitne (devices?|phones?|mobiles?|screens?|log|logon|logo|jagah)|how many (devices?|screens?|phones?|people|logins?)|ek saath kitne|कितने (डिवाइस|फ़ोन|फोन)/.test(t)) return 'devicecount';
+  if (/\b(safe|legal|illegal|legit|genuine|original|trusted|fraud|scam|fake)\b|सुरक्षित|असली/.test(t)) return 'trust';
   if (/\b(tv|t\.v|television|smart ?tv|fire ?stick|firestick)\b|टीवी/.test(t) && (QUESTION_RE.test(t) || /chal(ega|egi|ta|ti| jayega| jaega)|hoga|ho jayega|work|support|dekh sakte|login ho|चलेगा|चलता/.test(t))) return 'tv';
   if (/human|agent|real person|call me|whatsapp|talk to|baat karni|baat karo|team se/.test(t)) return 'other';
   return '';
@@ -619,7 +629,7 @@ function factPack(st, ctx, lang) {
   const where = PAY_STEPS.has(st.step) ? 'The customer has an unpaid order of ' + words.rupees(st.amount) + ' open and is on the payment step.' : st.plan ? 'The customer is choosing ' + st.title + '.' : 'The customer has not chosen a plan yet.';
   return [
     'Live plans and prices:', lines.join('\n') || '- (not loaded)', where,
-    'Sharing = lowest price, you watch on a shared profile. Private = your own profile that only you use. Both play in the same quality. FluxFilm rules: payment is by UPI QR and is checked automatically from the bank; the login is delivered right after payment and emailed. Coupons can be applied before paying (tap "Apply coupon"). Group Offer plans are cheaper but need joining the FluxFilm WhatsApp group. Renewals: My plans → Renew. Netflix household or TV code problems: Household Helper. Olivia cannot see or share old passwords; use My plans or Recover. For anything else the FluxFilm team helps on WhatsApp.',
+    'Sharing = lowest price, you watch on a shared profile. Private = your own profile that only you use. Both play in the same quality. FluxFilm rules: payment is by UPI QR and is checked automatically from the bank; the login is delivered right after payment and emailed. Coupons can be applied before paying (tap "Apply coupon"). Group Offer plans are cheaper but need joining the FluxFilm WhatsApp group. Renewals: My plans → Renew. The exact end date of a plan is shown in My plans. Refunds, replacement accounts and extra days are decided only by the FluxFilm team. Netflix household or TV code problems: Household Helper. Olivia cannot see or share old passwords; use My plans or Recover. For anything else the FluxFilm team helps on WhatsApp.',
   ].join('\n');
 }
 
@@ -744,7 +754,7 @@ async function turn(c, input, ctx) {
     else if (st.step === 'backup_name' && !g && !intentOf(text) && /^[\p{L} .'-]{2,60}$/u.test(text)) action = 'payer:' + text;
     // 2. Things that can be asked at any moment.
     else if (g === 'coupon') { action = 'coupon'; code = couponCodeIn(text, false); }
-    else if (!['change', 'renew', 'login', 'household'].includes(g) && !PAY_STEPS.has(st.step) && (multi = devicesWanted(text)) >= 2) action = 'devices';
+    else if (!['change', 'renew', 'login', 'household', 'refund', 'stopped'].includes(g) && !PAY_STEPS.has(st.step) && (multi = devicesWanted(text)) >= 2) action = 'devices';
     else if (g !== 'change' && g !== 'renew' && (priced = narrowToFamily(plansByPrice(text, ctx.cat.plans), st)).length) action = (priced.length === 1 && PICK_WORDS_RE.test(text) && !QUESTION_RE.test(text) && !/earlier|pehle|before|last time|bought|liya tha|kharida/i.test(text)) ? 'pricepick' : 'pricematch';
     else if (g === 'change') action = 'change';
     else if (g === 'price') {
@@ -757,6 +767,7 @@ async function turn(c, input, ctx) {
     }
     else if (g === 'renew' || g === 'household' || g === 'other' || g === 'login') { action = g; if (g === 'renew') ents = entities(text, ctx.cat.plans); }
     else if (g === 'whenlogin' || g === 'paymethod' || (g === 'tv' && st.step !== 'tv')) { action = g; ents = entities(text, ctx.cat.plans); }
+    else if (['validity', 'quality', 'devicecount', 'refund', 'trust'].includes(g) || (g === 'stopped' && !PAY_STEPS.has(st.step))) { action = g; ents = entities(text, ctx.cat.plans); }
     // 3. The step's own answers.
     if (!action) {
       const it = intentOf(text);
@@ -872,13 +883,28 @@ async function turn(c, input, ctx) {
     if (!st.paused) st.step = action === 'other' ? 'handoff' : 'info';
     return [{ intent, buttons: withBackToPay(st, lang, b.concat([btn('menu', lang)])) }];
   }
-  if (action === 'tv' || action === 'whenlogin' || action === 'paymethod') {
+  if (action === 'refund' || action === 'stopped') {
+    // Refunds, replacement accounts and extra days are never promised here: the team decides (brain/procedures/service-interruption.md).
+    // "Band ho gaya": the team's first step today is the latest login (the password changes) or the Netflix household steps.
+    if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true;
+    const svc = ents.service || st.service || '';
+    const household = action === 'stopped' && (!svc || familyOf(svc) === 'netflix');
+    const b = action === 'refund' ? [btn('whatsapp', lang)] : [btn('myplans', lang)].concat(household ? [btn('helper', lang)] : [], [btn('whatsapp', lang)]);
+    if (!st.paused) st.step = action === 'refund' ? 'handoff' : 'info';
+    return [{ intent: action === 'refund' ? 'REFUND_TO_TEAM' : 'STOPPED_WORKING', facts: { household }, buttons: withBackToPay(st, lang, b.concat([btn('menu', lang)])) }];
+  }
+  if (action === 'trust') {
+    // "Safe / legal / original hai?": no rule to answer from, so no AI claim either; the team answers on WhatsApp, buying can go on.
+    const again = (st.lastButtons || []).length ? st.lastButtons : menuReply({}, lang).buttons;
+    return [{ intent: 'QUESTION_TO_TEAM', buttons: again.some((b) => b.id === 'whatsapp') ? again : again.concat([btn('whatsapp', lang)]), input: st.lastInput || undefined }];
+  }
+  if (action === 'tv' || action === 'whenlogin' || action === 'paymethod' || action === 'validity' || action === 'quality' || action === 'devicecount') {
     // Answered from the catalogue (benefits, device rule, fulfilment); the step's own buttons stay, so buying continues.
     const plans = ctx.cat.plans || [];
     const again = (st.lastButtons || []).length ? st.lastButtons : menuReply({}, lang).buttons;
     const withWa = (b) => (b.some((x) => x.id === 'whatsapp') ? b : b.concat([btn('whatsapp', lang)]));
     const idle = !PAY_STEPS.has(st.step) && !CHOOSING_STEPS.has(st.step);
-    if (idle && ents.service) { resetPurchase(st); st.service = ents.service; }
+    if (idle && ents.service) { resetPurchase(st); st.service = ents.service; if (ents.variant) st.variant = ents.variant; }
     const svc = ents.service || (st.plan && st.plan.service) || st.service || '';
     // Nothing being bought yet: after the answer, go on selling (which service → Sharing or Private …).
     const tail = idle ? advance(st, ctx.cat, lang, ctx.profile) : [];
@@ -886,6 +912,43 @@ async function turn(c, input, ctx) {
     if (action === 'paymethod') {
       const card = /card|net ?banking/i.test(text);
       return keep({ intent: 'PAYMENT_METHOD', facts: { paying: PAY_STEPS.has(st.step), card }, buttons: card ? withWa(again) : undefined });
+    }
+    if (action === 'validity') {
+      // Days straight from the plans (1 month · 30 din …); the exact end date lives in My plans.
+      const fam = svc ? familyOf(svc) : '';
+      const daysOf = (list) => [...new Set(list.map((p) => Number(p.durationDays) || 0).filter(Boolean))].sort((a, b) => a - b);
+      const own = daysOf(chatPlans(plans).filter((p) => fam && familyOf(p.service) === fam));
+      const days = own.length ? own : daysOf(chatPlans(plans));
+      const dayWord = lang === 'hi' ? ' दिन' : lang === 'hinglish' ? ' din' : ' days';
+      return keep({ intent: 'VALIDITY', facts: { service: own.length ? svc.split(' (')[0] : '', items: days.slice(0, 5).map((d) => words.durationLabel(d, lang) + ' · ' + d + dayWord) } });
+    }
+    if (action === 'quality') {
+      // "4K milega?": yes only when EVERY plan of that service (and kind, if chosen) lists 4K in its benefits.
+      const all4k = (x) => { const l = plans.filter((p) => p.service === x && devicesOf(p.plan) === 1 && (x !== svc || !st.variant || variantOf(p.plan) === st.variant)); return l.length > 0 && l.every((p) => (p.benefits || []).some((b) => /\b4k\b/i.test(b))); };
+      const unsure = (service) => ({ intent: 'QUALITY_UNSURE', facts: { service }, buttons: tail.length ? undefined : withWa(again) });
+      if (!svc) {
+        const q = [...new Set(servicesOf(plans).filter(all4k).map((x) => x.split(' (')[0]))];
+        return keep(q.length ? { intent: 'QUALITY_ANSWER', facts: { services: q } } : unsure(''));
+      }
+      return keep(all4k(svc) ? { intent: 'QUALITY_ANSWER', facts: { service: svc } } : unsure(svc));
+    }
+    if (action === 'devicecount') {
+      // "Kitne devices mein chalega?": each plan's own device rule (or its "1 DEVICE" benefit), plus the 2+ device plan if one is sold.
+      const ruleText = (x) => {
+        const r = deviceRuleOf(plans, x, x === svc ? st.variant : '');
+        if (/device|screen/i.test(r)) return r;
+        const b = plans.filter((p) => p.service === x && devicesOf(p.plan) === 1).flatMap((p) => p.benefits || []).find((y) => /device/i.test(y));
+        return b ? s(b).replace(/^[\p{Extended_Pictographic}️\s]+/u, '') : '';
+      };
+      const item = (x) => { const r = ruleText(x); return !r ? '' : /^[\w ]{2,20}:/.test(r) ? r : x.split(' (')[0] + ': ' + r; };
+      const toTeam = { intent: 'QUESTION_TO_TEAM', buttons: tail.length ? undefined : withWa(again) };
+      if (svc) {
+        const it = item(svc);
+        const multi = deviceServicesOf(ctx.cat, 2).includes(svc) ? Math.max(...devicePlansOf(plans, svc, 2).map((p) => devicesOf(p.plan))) : 0;
+        return keep(it ? { intent: 'DEVICES_ANSWER', facts: { service: svc.split(' (')[0], items: [it], multi } } : toTeam);
+      }
+      const items = [...new Set(servicesOf(plans).filter((x) => !isGroupService(plans, x)).map(item).filter(Boolean))];
+      return keep(items.length ? { intent: 'DEVICES_ANSWER', facts: { service: '', items } } : toTeam);
     }
     const rule = svc ? deviceRuleOf(plans, svc, st.variant) : '';
     if (action === 'whenlogin') {
