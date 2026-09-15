@@ -66,7 +66,7 @@ async function sendMail(msg, env) {
     const acc = list[i];
     const replyTo = s(e.SMTP_REPLY_TO) || list[0].user;
     try {
-      await transportFor(acc, e).sendMail({ from: '"' + name + '" <' + acc.user + '>', replyTo, to: msg.to, subject: msg.subject, html: msg.html });
+      await transportFor(acc, e).sendMail({ from: '"' + name + '" <' + acc.user + '>', replyTo, to: msg.to, subject: msg.subject, html: msg.html, text: msg.text || undefined });
       state.lastOk = { at: new Date().toISOString(), sender: acc.user };
       return { ok: true, sender: acc.user, fellBack: i > 0 };
     } catch (err) {
