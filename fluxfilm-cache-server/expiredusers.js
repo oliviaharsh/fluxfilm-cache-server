@@ -215,7 +215,7 @@ function compute(input) {
     const sec = out[g.section];
     const hasActive = g.active.length > 0;
     pending.sort((a, b) => toMs(b.expiry_date) - toMs(a.expiry_date));
-    const people = pending.map((x) => ({ subId: s(x.sub_id), orderId: s(x.order_id), name: nameOf(x), phone: s(x.phone_norm), service: s(x.service), plan: s(x.plan), expiry: s(x.expiry_date instanceof Date ? x.expiry_date.toISOString() : x.expiry_date), daysAgo: Math.max(0, Math.floor((now - toMs(x.expiry_date)) / 86400e3)), accountRef: s(x.inventory_ref), accountId: accountOfRef(x.inventory_ref) || s(x.account_id), slot: slotOf(x) }));
+    const people = pending.map((x) => ({ subId: s(x.sub_id), orderId: s(x.order_id), name: nameOf(x), phone: s(x.phone_norm), service: s(x.service), plan: s(x.plan), expiry: s(x.expiry_date instanceof Date ? x.expiry_date.toISOString() : x.expiry_date), daysAgo: Math.max(0, Math.floor((now - toMs(x.expiry_date)) / 86400e3)), accountRef: s(x.inventory_ref), accountId: accountOfRef(x.inventory_ref) || s(x.account_id), slot: slotOf(x), switchedTo: x.switched_to ? s(x.switched_to) : undefined }));
     const advice = adviceFor(pending.length, g.active.map((a) => ({ ms: toMs(a.expiry_date), name: nameOf(a) })), now, rules);
     const blank = () => ({ pending: 0, oldUsers: 0, hasActive: false, advice: 'NONE', changeOn: '' });
     for (const p of people) {
@@ -313,6 +313,8 @@ async function load(q, opts) {
     const extra = await Promise.resolve().then(() => q(REFUND_ENDED_SQL + ' AND s.sub_id IN (' + endedIds.map(() => '?').join(',') + ')', endedIds)).catch(() => []);
     subs = subs.concat((Array.isArray(extra) ? extra : []).filter((x) => !have.has(s(x.sub_id))).map((x) => Object.assign({}, x, { refund_ended: true })));
   }
+  // 🔁 Switch account: a customer moved off a login may still be logged in there until ticked removed (adminswitch.js).
+  subs = subs.concat(await require('./adminswitch').loadGhosts(q));
   const policyOf = {};
   for (const p of Array.isArray(plans) ? plans : []) {
     const k = s(p.service).toLowerCase(); const pol = up(rawOf(p.raw_json).AllocationPolicy);
