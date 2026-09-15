@@ -49,6 +49,12 @@ function renewEligibility(daysLeft) {
   if (daysLeft >= -5) return 'LATE_RENEW';
   return 'TOO_LATE';
 }
+function renewableRow(r) {
+  const st = String(r.status || '').trim().toUpperCase();
+  const fs = String(r.fulfillment_status || '').trim().toUpperCase();
+  if (st && st !== 'ACTIVE' && st !== 'EXPIRED') return false;
+  return !['REFUNDED', 'CANCELLED', 'FAILED', 'NO_STOCK'].includes(fs);
+}
 function expiryMood(daysLeft) {
   if (daysLeft == null) return { emoji: '❓', text: 'Expiry unknown' };
   if (daysLeft > 10) return { emoji: '😄', text: 'Safe' };
@@ -98,7 +104,7 @@ async function getMySubscriptions(phone) {
   const groupsOn = await deviceLogins.groupsReady(db.query);
   const allRows = await db.query(
     `SELECT sub_id, order_id, service, plan, email, start_date, expiry_date,
-            profile_number, profile_name, profile_pin, inventory_ref` + (groupsOn ? ', device_count, group_id, group_index' : '') + `
+            profile_number, profile_name, profile_pin, inventory_ref, status, fulfillment_status` + (groupsOn ? ', device_count, group_id, group_index' : '') + `
      FROM subscriptions WHERE phone_norm = ?`, [ph]);
   const infoBanner = '📱 Please enter the same phone number you used to buy subscriptions.';
   if (!allRows.length) return { ok: true, phone: ph, infoBanner, actionable: [], history: [] };
@@ -122,7 +128,9 @@ async function getMySubscriptions(phone) {
     const svc = String(r.service || '').trim();
     const plan = String(r.plan || '').trim();
     const expDate = parseDbDate(r.expiry_date);
-    const daysLeft = expDate ? Math.ceil((expDate.getTime() - nowMs) / 86400000) : null;
+    // Just past expiry is -1 day, not "-0" (Math.ceil gave -0 = "Expires today" for a whole day AFTER it ended).
+    const msLeft = expDate ? expDate.getTime() - nowMs : null;
+    const daysLeft = msLeft == null ? null : (msLeft < 0 ? Math.floor(msLeft / 86400000) : Math.ceil(msLeft / 86400000));
     const pInfo = planInfo(plansMap, svc, plan);
     const disc = calcEarlyDiscount(daysLeft, pInfo);
     const elig = renewEligibility(daysLeft);
@@ -150,7 +158,8 @@ async function getMySubscriptions(phone) {
       moodText: mood.text,
       renewEligibility: elig,
       uiTone: elig === 'CAN_RENEW' ? 'normal' : (elig === 'LATE_RENEW' ? 'faded_red' : 'faded_grey'),
-      showRenewButton: elig !== 'TOO_LATE',
+      // Refunded / cancelled / not-yet-delivered rows cannot be renewed (order.js renewQuote refuses them too).
+      showRenewButton: elig !== 'TOO_LATE' && renewableRow(r),
       inventoryRef: String(r.inventory_ref || '').trim(),
     }, devices && devices.deviceCount > 1 ? { deviceCount: devices.deviceCount, sameLogin: devices.sameLogin, devices: devices.list } : {});
   });

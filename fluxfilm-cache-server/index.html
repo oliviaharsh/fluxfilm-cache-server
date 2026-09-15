@@ -6905,13 +6905,17 @@ function RenewStartScreen({
   const currentPlan = String(sub.plan || '');
   const subId = String(sub.subId || '');
   const dl = Number(sub.daysLeft || 0);
-  const servicePlans = (boot?.plans || []).filter(p => p.service === service);
+  // A renewal keeps the same account and devices, so only the duration can change (order.js planVariant).
+  const planVariant_ = x => String(x || '').toLowerCase().replace(/\b\d+\s*(m|mo|y|yr|month|months|year|years)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const servicePlans = (boot?.plans || []).filter(p => p.service === service && planVariant_(p.plan) === planVariant_(currentPlan));
   const defaultPlanObj = servicePlans.find(p => p.plan === currentPlan) || servicePlans[0] || null;
   const [selectedPlan, setSelectedPlan] = useState(defaultPlanObj?.plan || currentPlan);
   const chosenPlanObj = servicePlans.find(p => p.plan === selectedPlan) || defaultPlanObj;
   const isSamePlan = selectedPlan === currentPlan;
   const isExpired = dl <= 0;
-  const earlyDisc = !isExpired && isSamePlan ? Number(sub.earlyRenewDiscountEligible || 0) || Math.max(Number(sub.earlyDiscount8Plus || 0), Number(sub.earlyDiscount7to2 || 0)) || 0 : 0;
+  // Only the discount the server will really give (reads.js earlyRenewDiscountEligible) — the old fallback to the
+  // plan's biggest tier showed ₹ off that the pay screen then did not take.
+  const earlyDisc = !isExpired && isSamePlan ? Number(sub.earlyRenewDiscountEligible || 0) || 0 : 0;
   const tier = !isExpired && isSamePlan ? sub.earlyRenewDiscountTier === '8PLUS' ? '8+ days early' : sub.earlyRenewDiscountTier === '7TO2' ? '2–7 days early' : '' : '';
   const basePrice = Number(chosenPlanObj?.price || 0);
   const finalPrice = Math.max(0, basePrice - earlyDisc - (couponState.applied ? couponState.discount : 0));

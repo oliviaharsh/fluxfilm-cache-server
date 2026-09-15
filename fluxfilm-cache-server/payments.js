@@ -44,10 +44,17 @@ async function findByRef(orderId, ref, amount) {
   const oid = String(orderId || '').toUpperCase();
   const cleanRef = String(ref || '').replace(/\D/g, '');
   if (!cleanRef) return null;
+  // A typed UTR may only pay THIS order with a payment made for it: not one whose bank note names another
+  // order, and not an old one (received more than REF_WINDOW_MIN before the order was created). Before, any
+  // unused credit with the same UTR + amount worked — e.g. an old go-site payment, or a UTR from someone
+  // else's screenshot — so a customer could get a new order marked PAID without paying again.
   const r = await db.query(
     `UPDATE bank_credits SET consumed_order_id = ?
-     WHERE consumed_order_id IS NULL AND upi_ref = ? AND ROUND(amount) = ROUND(?) LIMIT 1`,
-    [oid, cleanRef, amount]);
+     WHERE consumed_order_id IS NULL AND upi_ref = ? AND ROUND(amount) = ROUND(?)
+       AND (COALESCE(order_ids, '') = '' OR FIND_IN_SET(?, order_ids) > 0)
+       AND received_at >= (SELECT DATE_SUB(o.created_at_sheet, INTERVAL ? MINUTE) FROM orders o WHERE o.order_id = ? LIMIT 1)
+     LIMIT 1`,
+    [oid, cleanRef, amount, oid, REF_WINDOW_MIN, oid]);
   if (r && r.affectedRows > 0) {
     const rows = await db.query('SELECT * FROM bank_credits WHERE upi_ref = ? LIMIT 1', [cleanRef]);
     return rows[0] || { ok: true };
@@ -55,9 +62,18 @@ async function findByRef(orderId, ref, amount) {
   return null;
 }
 
+// Minutes a bank credit may arrive BEFORE its order was created and still be claimed by typing its UTR (clock skew).
+const REF_WINDOW_MIN = 10;
+
 const HOST = () => process.env.IMAP_HOST || 'imap.gmail.com';
 const FOLDER = () => process.env.IMAP_FOLDER || '[Gmail]/All Mail';
 const SENDER = () => process.env.BANK_SENDER || 'esfb-alerts@equitas.bank.in';
+
+function fromBank(parsed) {
+  const want = String(SENDER()).trim().toLowerCase();
+  const list = (parsed && parsed.from && parsed.from.value) || [];
+  return list.length === 1 && String(list[0].address || '').trim().toLowerCase() === want;
+}
 
 async function scanInbox(client, hours) {
   const { simpleParser } = require('mailparser');
@@ -67,11 +83,15 @@ async function scanInbox(client, hours) {
     const since = new Date(Date.now() - (hours || 6) * 3600 * 1000);
     const uids = await client.search({ from: SENDER(), since });
     if (uids && uids.length) {
-      for await (const msg of client.fetch(uids.slice(-60), { source: true, envelope: true })) {
+      for await (const msg of client.fetch(uids.slice(-60), { source: true, envelope: true, internalDate: true })) {
         try {
           const parsed = await simpleParser(msg.source);
+          // IMAP "from" search is a substring match (display names, look-alike domains), so check the real
+          // sender address exactly before trusting a "credited" email.
+          if (!fromBank(parsed)) { console.log('[imap] skipped a credit-like mail not from', SENDER()); continue; }
           const c = parseEquitasCredit(parsed.text || parsed.html || '');
-          if (c) { found++; if (await ingestCredit(c, (msg.envelope && msg.envelope.date) || new Date())) ingested++; }
+          // Time = when Gmail received it (the Date header is written by the sender and can be faked).
+          if (c) { found++; if (await ingestCredit(c, msg.internalDate || (msg.envelope && msg.envelope.date) || new Date())) ingested++; }
         } catch (_) {}
       }
     }
@@ -156,4 +176,4 @@ async function startWatcher() {
   })();
 }
 
-module.exports = { parseEquitasCredit, ingestCredit, findByOrder, findByRef, startWatcher, manualScan };
+module.exports = { parseEquitasCredit, ingestCredit, findByOrder, findByRef, startWatcher, manualScan, _internal: { fromBank, REF_WINDOW_MIN } };
