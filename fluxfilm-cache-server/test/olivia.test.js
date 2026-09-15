@@ -54,7 +54,7 @@ const PLANS = [
 ];
 const STOCK = { 'JioHotstar|||1 Month': { stockLevel: 'OUT' } };
 const calls = [];
-const shop = { subs: [], renewMode: 'SAME', paid: false, paused: false, fulfillment: 'FULFILLED', profile: { ok: true, name: 'Ramesh Kumar', email: 'ramesh@example.com' }, claim: 'WAITING', backupOk: true, nflxAccounts: [], hhCode: '' };
+const shop = { subs: [], renewMode: 'SAME', paid: false, paused: false, fulfillment: 'FULFILLED', profile: { ok: true, name: 'Ramesh Kumar', email: 'ramesh@example.com' }, claim: 'WAITING', backupOk: true, nflxAccounts: [], hhCode: '', hhUpdated: false, hhUpdateOn: false };
 const tools = {
   catalogFor: async () => ({ plans: PLANS, stock: STOCK }),
   profile: async (ph) => (ph === '9876543210' || ph === '9000000001' ? shop.profile : { ok: false }),
@@ -102,6 +102,8 @@ const tools = {
   // Netflix household auto-fix (oliviahousehold.js): the customer's own active Netflix accounts, and the travel code.
   netflixAccounts: async (phone) => { calls.push(['netflixAccounts', phone]); return { ok: true, accounts: (shop.nflxAccounts || []) }; },
   householdCode: async (acc) => { calls.push(['householdCode', acc && acc.subId, acc && acc.kind]); return shop.hhCode ? { ok: true, code: shop.hhCode } : { ok: false, manual: true }; },
+  householdUpdate: async (acc) => { calls.push(['householdUpdate', acc && acc.subId, acc && acc.kind]); return shop.hhUpdated ? { ok: true, updated: true } : { ok: false, manual: true }; },
+  householdUpdateEnabled: () => shop.hhUpdateOn === true,
 };
 olivia._internal.setDeps({ tools });
 
@@ -751,10 +753,31 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   await say({ choice: 'menu' });
   r = await say({ text: 'netflix household problem' });
   ok('household with NO resolvable Netflix account → the manual Helper only, no auto-fix button', last(r).intent === 'HOUSEHOLD_HELPER' && !ids(last(r)).includes('hhcode'), last(r));
-  // oliviahousehold: kind, the travel-code parser (spaced digits), and a blocked sign-in / reCAPTCHA page
-  const hhmod = require('../oliviahousehold.js')._internal;
-  ok('household module: NFLX-H = ours, NFLX-D = darkflix, other = unknown', hhmod.kindOfRef('NFLX-H01#2') === 'H' && hhmod.kindOfRef('nflx-d11') === 'D' && hhmod.kindOfRef('PRIME-1') === '');
-  ok('travel-code parser reads spaced digits, and refuses a sign-in / reCAPTCHA / expired page', hhmod.readTravelPage('<h1>Enter this code on the requesting device for temporary access</h1><b>4 1 6 2</b><p>expires after 15 minutes</p>').code === '4162' && hhmod.readTravelPage('<form><input type="password" id="id_password"></form>recaptcha').blocked === true && !hhmod.readTravelPage('<p>hello</p>').code);
+  // ── permanent "Update household" — off by default, shown only when OLIVIA_HH_UPDATE=on ──
+  shop.nflxAccounts = [{ subId: 'S1', service: 'Netflix', ref: 'NFLX-D11', email: 'jess@example.com', kind: 'D', tag: '' }];
+  shop.hhUpdateOn = false;
+  await say({ choice: 'menu' });
+  r = await say({ text: 'tv par household code maang raha hai' });
+  ok('update off by default → only "Get my code now", no permanent-update button', ids(last(r))[0] === 'hhcode' && !ids(last(r)).includes('hhupdate'), last(r));
+  shop.hhUpdateOn = true; shop.hhUpdated = true;
+  await say({ choice: 'menu' });
+  r = await say({ text: 'household problem aa raha hai tv par' });
+  ok('update on → both "Get my code now" and "Make this TV my home"', ids(last(r)).includes('hhcode') && ids(last(r)).includes('hhupdate'), last(r));
+  r = await say({ choice: 'hhupdate' });
+  ok('Make this TV my home → HH_UPDATE_DONE when the update confirms, calls householdUpdate', last(r).intent === 'HH_UPDATE_DONE' && /home set ho gaya|home/.test(last(r).text) && calls.some((c) => c[0] === 'householdUpdate' && c[1] === 'S1'), last(r));
+  shop.hhUpdated = false;
+  await say({ choice: 'menu' });
+  r = await say({ text: 'tv code maang raha hai household' });
+  r = await say({ choice: 'hhupdate' });
+  ok('update could not confirm → manual Household Helper, nothing claimed done', last(r).intent === 'HOUSEHOLD_HELPER' && !r.messages.some((m) => m.intent === 'HH_UPDATE_DONE'), r.messages);
+  shop.hhUpdateOn = false; shop.hhUpdated = false;
+  // oliviahousehold: kind, tag, the travel-code parser (spaced digits), and a blocked sign-in / reCAPTCHA page
+  const hhmod = require('../oliviahousehold.js');
+  const hhi = hhmod._internal;
+  ok('household module: NFLX-H = ours, NFLX-D = darkflix, other = unknown', hhi.kindOfRef('NFLX-H01#2') === 'H' && hhi.kindOfRef('nflx-d11') === 'D' && hhi.kindOfRef('PRIME-1') === '');
+  ok('household tag comes from the account raw_json ([FF][ACCn] label), not the login email', hhi.tagOf('NFLX-H01', JSON.stringify({ HouseholdTag: 'ACC1' })) === 'ACC1' && hhi.tagOf('NFLX-H09', null) === '' && hhi.tagOf('NFLX-H02', null, 'harshwalia8888@gmail.com') === '');
+  ok('permanent update is OFF unless OLIVIA_HH_UPDATE=on', hhmod.updateEnabled() === false);
+  ok('travel-code parser reads spaced digits, and refuses a sign-in / reCAPTCHA / expired page', hhi.readTravelPage('<h1>Enter this code on the requesting device for temporary access</h1><b>4 1 6 2</b><p>expires after 15 minutes</p>').code === '4162' && hhi.readTravelPage('<form><input type="password" id="id_password"></form>recaptcha').blocked === true && hhi.isBlocked('This link has expired') === true && !hhi.readTravelPage('<p>hello</p>').code);
   await say({ choice: 'lang:hinglish' });
   // Paid but no login (payment-without-order-id.md): never "payment verified" from a chat.
   const subCalls = calls.filter((c) => c[0] === 'mySubscriptions').length;
