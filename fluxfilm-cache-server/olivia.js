@@ -305,7 +305,11 @@ function advance(st, cat, lang, profile) {
   }
   if (isGroupService(cat.plans, st.service) && !st.groupJoined) {
     st.step = 'group';
-    out.push({ intent: 'GROUP_JOIN', facts: { service: st.service }, buttons: [urlBtn('groupjoin', lang, groupLinkOf(cat.plans, st.service)), btn('joined', lang), btn('change', lang)] });
+    const gp = st.plan && cat.plans.find((x) => x.service === st.plan.service && x.plan === st.plan.plan);
+    const normal = gp && twinPlan(cat.plans, gp, false);
+    out.push({ intent: 'GROUP_JOIN', facts: { service: st.service, title: gp ? titleOf(gp, lang) : '', price: gp ? gp.price : 0, normalPrice: normal && normal.price > gp.price ? normal.price : 0 },
+      buttons: [urlBtn('groupjoin', lang, groupLinkOf(cat.plans, st.service)), btn('joined', lang)].concat(normal ? [btn('normal', lang, words.buttonLabel('normal', lang) + ' · ' + words.rupees(normal.price))] : [btn('change', lang)]) });
+    if (normal) st.twin = { service: normal.service, plan: normal.plan };
     return out;
   }
   if (needsVariant(cat.plans, st.service) && !st.variant) {
@@ -376,7 +380,7 @@ const firstName = (n) => s(n).split(/\s+/)[0].replace(/[^\p{L}.'-]/gu, '').slice
 function resetPurchase(st) { for (const k of ['service', 'variant', 'days', 'plan', 'extraValue', 'options', 'title', 'price', 'coupon', 'groupJoined', 'flow', 'renew', 'renewSubs', 'renewOptions']) delete st[k]; }
 
 // Buttons that create, change or cancel an order: only an explicit tap or clear words, never an AI guess.
-const MONEY_BUTTONS = new Set(['pay', 'paid', 'change', 'rchange', 'cantpay', 'nocoupon', 'switch', 'twin', 'joined']);
+const MONEY_BUTTONS = new Set(['pay', 'paid', 'change', 'rchange', 'cantpay', 'nocoupon', 'switch', 'twin', 'joined', 'normal']);
 const CHOOSING_STEPS = new Set(['service', 'variant', 'duration', 'tv', 'extra_email', 'own_email', 'group', 'confirm', 'coupon', 'renew_pick', 'renew_duration', 'renew_confirm']);
 const PAY_STEPS = new Set(['paying', 'backup_name', 'backup_review', 'delivering']);
 const payButtons = (lang) => [btn('paid', lang), btn('cantpay', lang), btn('coupon', lang), btn('change', lang)];
@@ -765,6 +769,7 @@ async function turn(c, input, ctx) {
     if (sw) { st.service = sw.service; if (sw.variant) st.variant = sw.variant; if (sw.days) st.days = sw.days; }
     return [{ intent: 'OLD_QR_CANCELLED' }].concat(advance(st, ctx.cat, lang, ctx.profile));
   }
+  if (action === 'normal') action = 'twin'; // from the Group Offer explanation: the same plan without the group
   if (action === 'twin') {
     if (!st.twin) return priceReplies(st, ctx, lang);
     const done = await paidAlready(c, ctx);

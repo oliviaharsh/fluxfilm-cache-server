@@ -101,7 +101,7 @@
     '.ffo-opt b{display:block;font-size:16px;color:#0f172a}.ffo-opt div>span{display:block;font-size:13px;color:#64748b;font-weight:600}.ffo-opt i{font-style:normal;font-size:30px}' +
     '.ffo-opt.ai{border-color:#25d366;background:#f0fdf4}' +
     // WhatsApp-style chat
-    '.ffo-panel{position:fixed;inset:0;z-index:91;display:flex;flex-direction:column;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Plus Jakarta Sans",sans-serif;background-color:#efeae2;' +
+    '.ffo-panel{position:fixed;inset:0;bottom:auto;height:100%;height:100dvh;overscroll-behavior:contain;z-index:91;display:flex;flex-direction:column;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Plus Jakarta Sans",sans-serif;background-color:#efeae2;' +
       'background-image:radial-gradient(rgba(0,0,0,.035) 1.2px,transparent 1.3px),radial-gradient(rgba(0,0,0,.025) 1px,transparent 1.1px);background-size:22px 22px,34px 34px;background-position:0 0,11px 17px}' +
     '@media(min-width:700px){.ffo-panel{inset:auto 20px 20px auto;width:400px;height:min(700px,calc(100dvh - 40px));border-radius:18px;box-shadow:0 20px 60px rgba(15,23,42,.3);overflow:hidden}}' +
     '.ffo-top{display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 10px 8px;background:#008069;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.15)}' +
@@ -222,12 +222,25 @@
     panel.appendChild(top); panel.appendChild(list); panel.appendChild(foot);
     document.body.appendChild(panel);
     ui = { panel: panel, list: list, input: input, sub: sub };
+    input.addEventListener('focus', function () { setTimeout(fitToKeyboard, 60); setTimeout(fitToKeyboard, 350); });
+    input.addEventListener('blur', function () { setTimeout(fitToKeyboard, 350); });
     st.open = true;
     render();
     if (!st.convId || !st.messages.length) talk({ choice: 'start', lang: st.lang }, null);
     else if (st.pollAfter) schedulePoll(st.pollAfter);
   }
   function closeChat() { if (ui) ui.panel.hidden = true; st.open = false; }
+  // Phone keyboards shrink only the *visual* viewport: size the chat to it, so the header stays on top, the typing bar
+  // sits right above the keyboard and the last messages stay visible (before: the page scrolled and hid them).
+  function fitToKeyboard() {
+    if (!ui || !st.open) return;
+    var vv = window.visualViewport;
+    if (!vv || window.innerWidth >= 700) { ui.panel.style.height = ''; ui.panel.style.top = ''; return; }
+    ui.panel.style.top = vv.offsetTop + 'px';
+    ui.panel.style.height = vv.height + 'px';
+    ui.list.scrollTop = ui.list.scrollHeight;
+  }
+  if (window.visualViewport) { window.visualViewport.addEventListener('resize', fitToKeyboard); window.visualViewport.addEventListener('scroll', fitToKeyboard); }
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && st.open) closeChat(); });
 
   function copyBtn(value) {
