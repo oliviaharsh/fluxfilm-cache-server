@@ -323,4 +323,4 @@ async function getAccess(orderId, phone, email, token) {
   return { ok: true, access, postPaymentMessage };
 }
 
-module.exports = { sendOtp, verifyOtp, listSubscriptions, getAccess, NO_ACTIVE, _internal: { checkToken, otpStore, tokenStore, maskEmail, unlockedGroups, otpKey, tokKey, otpHash, key, claimAttempt, expiryMs } };
+module.exports = { sendOtp, verifyOtp, listSubscriptions, getAccess, NO_ACTIVE, _internal: { checkToken, rowInactive, otpStore, tokenStore, maskEmail, unlockedGroups, otpKey, tokKey, otpHash, key, claimAttempt, expiryMs } };

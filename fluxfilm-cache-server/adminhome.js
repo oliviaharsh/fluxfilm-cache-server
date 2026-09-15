@@ -40,7 +40,7 @@ function mount(app, deps) {
   app.get('/admin/api/today', async (req, res) => {
     if (!auth(req, res)) return;
     try {
-      const [unpaid, undelivered, manual, ending, endingList, expiredOn, restock, unmatched, todos, stock, stuckList, upiRefunds] = await Promise.all([
+      const [unpaid, undelivered, manual, ending, endingList, expiredOn, restock, unmatched, todos, stock, stuckList, upiRefunds, openOffers, manualLate, refundRequests] = await Promise.all([
         // Checkouts started on the new site in the last 3 days but not paid: worth a nudge.
         one("SELECT COUNT(*) n FROM orders WHERE UPPER(status) = 'CREATED' AND source = 'node' AND created_at_sheet > NOW() - INTERVAL 3 DAY"),
         one('SELECT COUNT(*) n FROM orders o WHERE ' + UNDELIVERED),
@@ -58,10 +58,18 @@ function mount(app, deps) {
         many('SELECT o.order_id, o.name, o.phone_norm, o.service, o.plan, o.final_amount, o.fulfillment_status, o.created_at_sheet FROM orders o WHERE ' + UNDELIVERED + ' ORDER BY o.created_at_sheet DESC LIMIT 5'),
         // 💸 Cash refunds still open (refunds.js): the customer is choosing (ASK_CUSTOMER) or gave a UPI ID (UPI_REQUESTED).
         many("SELECT o.order_id, o.name, o.phone_norm, o.service, o.plan, o.final_amount, o.raw_json, o.created_at_sheet FROM orders o WHERE UPPER(o.status) = 'REFUNDED' AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_json, '$.RefundMethod')) = 'UPI_PENDING' ORDER BY o.created_at_sheet DESC LIMIT 50"),
+        // 💸 Refund offers on delivered plans the customer has not chosen yet (db/schema-v26; [] before it is run).
+        many("SELECT offer_id, order_id, phone_norm, service, plan, refund_amount FROM refund_offers WHERE status = 'OFFERED' AND expires_at > NOW() ORDER BY created_at DESC LIMIT 50"),
+        // 🛠 Manual plans: the 48 hours count from the PAYMENT (verified_at, else when the order was created).
+        one("SELECT COUNT(*) n FROM subscriptions s JOIN orders o ON o.order_id = s.order_id WHERE UPPER(COALESCE(s.fulfillment_status, '')) = 'MANUAL_PENDING' AND UPPER(s.status) = 'ACTIVE' AND COALESCE(o.verified_at, o.created_at_sheet) < NOW() - INTERVAL 48 HOUR"),
+        // 📨 Customer "Request refund" waiting for an answer (refundrequests.js, db/schema-v26; [] before it is run).
+        many("SELECT request_id, order_id, phone_norm, service, plan, paid_amount, kind FROM refund_requests WHERE status = 'OPEN' ORDER BY created_at LIMIT 50"),
       ]);
       const openRefunds = (Array.isArray(upiRefunds) ? upiRefunds : []).map((o) => { const r = require("./refunds").refundInfo(o); return { order_id: o.order_id, name: o.name, phone_norm: o.phone_norm, service: o.service, plan: o.plan, final_amount: r.amount, fulfillment_status: r.state === 'UPI_REQUESTED' ? 'UPI_REFUND_REQUESTED' : 'CUSTOMER_CHOOSING', state: r.state }; });
       const toSend = openRefunds.filter((x) => x.state === 'UPI_REQUESTED');
-      const choosing = openRefunds.filter((x) => x.state !== 'UPI_REQUESTED');
+      const choosing = openRefunds.filter((x) => x.state !== 'UPI_REQUESTED')
+        .concat((Array.isArray(openOffers) ? openOffers : []).map((x) => ({ order_id: x.order_id, name: '', phone_norm: x.phone_norm, service: x.service, plan: x.plan, final_amount: Number(x.refund_amount) || 0, fulfillment_status: 'REFUND_OFFERED', state: 'OFFERED' })));
+      const lateManual = +manualLate.n || 0;
       const levels = (stock && stock.levels) || {};
       const out = Object.keys(levels).filter((k) => levels[k].stockLevel === 'OUT').map((k) => k.replace('|||', ' · '));
       const low = Object.keys(levels).filter((k) => levels[k].stockLevel === 'LOW').map((k) => k.replace('|||', ' · ') + ' (' + levels[k].stock + ')');
@@ -70,9 +78,10 @@ function mount(app, deps) {
         ok: true,
         items: [
           { key: 'undelivered', icon: '⚠️', title: 'Paid but not delivered', count: +undelivered.n || 0, tone: 'bad', go: { view: 'orders', orders: 'undelivered' }, orders: Array.isArray(stuckList) ? stuckList : [] },
-          { key: 'upirefunds', icon: '💸', title: 'UPI refunds to send', count: toSend.length, tone: 'bad', go: { view: 'orders', orders: 'all' }, orders: toSend.slice(0, 5) },
-          { key: 'refundchoice', icon: '⏳', title: 'Cash refunds: customer still choosing (coins +10% or UPI)', count: choosing.length, tone: 'info', go: { view: 'orders', orders: 'all' }, orders: choosing.slice(0, 5) },
-          { key: 'manual', icon: '🛠', title: 'Manual plans to activate', count: +manual.n || 0, tone: 'warn', go: { view: 'orders', orders: 'manual' } },
+          { key: 'refundrequests', icon: '📨', title: 'Refund requests from customers', count: Array.isArray(refundRequests) ? refundRequests.length : 0, tone: 'bad', go: { view: 'refunds' }, orders: (Array.isArray(refundRequests) ? refundRequests : []).slice(0, 5).map((x) => ({ order_id: x.order_id, name: '', phone_norm: x.phone_norm, service: x.service, plan: x.plan, final_amount: Number(x.paid_amount) || 0, fulfillment_status: String(x.kind || '') === 'UNDELIVERED' ? 'NOT_DELIVERED' : 'DELIVERED' })) },
+          { key: 'upirefunds', icon: '💸', title: 'Refunds to send (UPI)', count: toSend.length, tone: 'bad', go: { view: 'refunds' }, orders: toSend.slice(0, 5) },
+          { key: 'refundchoice', icon: '⏳', title: 'Refunds: customer still choosing (coins / coupon or UPI)', count: choosing.length, tone: 'info', go: { view: 'refunds' }, orders: choosing.slice(0, 5) },
+          { key: 'manual', icon: '🛠', title: 'Manual plans to activate', count: +manual.n || 0, tone: lateManual ? 'bad' : 'warn', sub: lateManual ? lateManual + ' waiting over 48 h since payment' : '', late: lateManual, go: { view: 'orders', orders: 'manual' } },
           { key: 'unmatched', icon: '💸', title: 'Payments since go-live not matched to an order', count: +unmatched.n || 0, tone: 'warn', go: { view: 'bank' } },
           { key: 'ending', icon: '⏳', title: 'Plans ending in 3 days', count: +ending.n || 0, tone: 'warn', go: { view: 'reminders' }, list: endingList },
           { key: 'out', icon: '🔴', title: 'Plans out of stock', count: out.length, tone: 'bad', names: out, go: { view: 'stock' } },

@@ -137,7 +137,10 @@ const ADVICE_ORDER = { NOW: 0, WAIT_DATE: 1, WAIT_FEW: 2, NONE: 3 };
 
 const isRemoved = (x) => Number(x.removed) === 1 || x.removed === true || up(x.removed) === 'TRUE';
 const isActive = (x, now) => up(x.status) === 'ACTIVE' && toMs(x.expiry_date) > now;
-const isExpired = (x, now) => toMs(x.expiry_date) < now;
+// Refunds v3: a DELIVERED plan refunded through a refund offer (refunds.js) ended early but the customer may still be
+// logged in, so it counts like an expired customer until ticked removed (load() flags these rows refund_ended).
+const isRefundEnded = (x) => x.refund_ended === true && up(x.status) === 'REFUNDED';
+const isExpired = (x, now) => toMs(x.expiry_date) < now || isRefundEnded(x);
 
 /** "Profile 3" (from NFLX-D1#P3) / "2 devices · TV" (Prime, device-aware) / '' when unknown. */
 function slotOf(x) {
@@ -177,7 +180,7 @@ function compute(input) {
 
   const groups = new Map();
   for (const x of inp.subs || []) {
-    if (EXCLUDED_STATUS.includes(up(x.status))) continue;
+    if (EXCLUDED_STATUS.includes(up(x.status)) && !isRefundEnded(x)) continue;
     const accId = accountOfRef(x.inventory_ref) || s(x.account_id);
     const login = loginKey(x.login_id) || accLogin.get(accId) || '';
     if (!login && !accId) continue; // never placed on an account (manual placeholder)
@@ -295,18 +298,29 @@ const SUBS_SQL =
 /** Read MySQL and apply the rule. q = db.query-style (sql, params) → rows. */
 async function load(q, opts) {
   const o = opts || {};
-  const [subs, accounts, plans, rules] = await Promise.all([
+  const [subs0, accounts, plans, offers, rules] = await Promise.all([
     q(SUBS_SQL, []),
     q('SELECT account_id, login_id, service FROM inventory_accounts', []).catch(() => []),
     q('SELECT service, raw_json FROM plans', []).catch(() => []),
+    // Refunds v3: subscriptions whose access ended by an accepted refund offer ([] before db/schema-v26.sql).
+    Promise.resolve().then(() => q("SELECT sub_ids FROM refund_offers WHERE status IN ('UPI_REQUESTED', 'DONE') AND COALESCE(sub_ids, '') <> ''", [])).catch(() => []),
     o.rules ? Promise.resolve(o.rules) : loadRules(q),
   ]);
+  let subs = Array.isArray(subs0) ? subs0 : [];
+  const endedIds = [...new Set((Array.isArray(offers) ? offers : []).flatMap((r) => s(r.sub_ids).split(',').map(s).filter(Boolean)))].slice(0, 500);
+  if (endedIds.length) {
+    const have = new Set(subs.map((x) => s(x.sub_id)));
+    const extra = await Promise.resolve().then(() => q(REFUND_ENDED_SQL + ' AND s.sub_id IN (' + endedIds.map(() => '?').join(',') + ')', endedIds)).catch(() => []);
+    subs = subs.concat((Array.isArray(extra) ? extra : []).filter((x) => !have.has(s(x.sub_id))).map((x) => Object.assign({}, x, { refund_ended: true })));
+  }
   const policyOf = {};
   for (const p of Array.isArray(plans) ? plans : []) {
     const k = s(p.service).toLowerCase(); const pol = up(rawOf(p.raw_json).AllocationPolicy);
     if (k && pol && !policyOf[k]) policyOf[k] = pol;
   }
-  return compute({ subs: Array.isArray(subs) ? subs : [], accounts: Array.isArray(accounts) ? accounts : [], policyOf, rules, now: o.now });
+  return compute({ subs, accounts: Array.isArray(accounts) ? accounts : [], policyOf, rules, now: o.now });
 }
+// Refunded-by-offer rows still on an account and not ticked removed (their expiry date may still be in the future).
+const REFUND_ENDED_SQL = SUBS_SQL.slice(0, SUBS_SQL.indexOf('AND ((')) + "AND UPPER(s.status) = 'REFUNDED' AND COALESCE(s.removed, 0) = 0";
 
-module.exports = { compute, load, summarize, todayNames, todoLine, adviceFor, istDay, validateRules, loadRules, saveRules, DEFAULT_RULES, RULES_KEY, slotOf, familyOf, sectionOf, toMs, SUBS_SQL, OTHER_SERVICES };
+module.exports = { compute, load, summarize, todayNames, todoLine, adviceFor, istDay, validateRules, loadRules, saveRules, DEFAULT_RULES, RULES_KEY, slotOf, familyOf, sectionOf, toMs, SUBS_SQL, REFUND_ENDED_SQL, OTHER_SERVICES };

@@ -168,7 +168,7 @@ function checkPage(name, html, pathName) {
     /'✅ Continue to Pay'\)\), React\.createElement\(RefundPolicyLink, \{\s*lead: "Instant delivery"\s*\}\)/.test(store) &&
     /function RefundPolicyLink\([\s\S]{0,700}href: "\/refund-policy",\s*target: "_blank",\s*rel: "noopener"/.test(store) &&
     /\['\/refund-policy', '📄 Refund policy'\], \['\/faq', '❓ FAQ'\], \['\/about', 'ℹ️ About FluxFilm'\]/.test(store) &&
-    /"Decide later"\)\), React\.createElement\(RefundPolicyLink, \{\s*key: "rp"/.test(store) &&
+    /"Decide later"\)\), (isOffer && [\s\S]{0,300}?, )?React\.createElement\(RefundPolicyLink, \{\s*key: "rp"/.test(store) &&
     /<noscript>[\s\S]*href="\/refund-policy"[\s\S]*<\/noscript>/.test(store));
   ok('index.html: the checkout policy line is a link, not a blocking checkbox', !/type: "checkbox"[\s\S]{0,300}[Rr]efund/.test(store));
 

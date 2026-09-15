@@ -49,6 +49,7 @@ function run(sqlIn, p = []) {
   if (/^SELECT email FROM orders WHERE phone_norm = \? AND UPPER\(status\) = 'PAID' AND UPPER\(fulfillment_status\) = 'FULFILLED'/.test(sql)) return DB.orders.filter((o) => o.phone_norm === p[0] && o.status === 'PAID' && o.fulfillment_status === 'FULFILLED').map((o) => ({ email: o.email }));
   if (/^SELECT order_id, email, status, raw_json FROM orders WHERE phone_norm = \? AND UPPER\(status\) = 'REFUNDED'/.test(sql)) return DB.orders.filter((o) => o.phone_norm === p[0] && o.status === 'REFUNDED').map(clone);
   if (/^SELECT order_id, service, plan, name, email, phone, phone_norm, status, final_amount, raw_json FROM orders WHERE order_id = \? LIMIT 1 FOR UPDATE$/.test(sql)) return DB.orders.filter((o) => o.order_id === p[0]).map(clone);
+  if (/refund_offers/.test(sql)) { const e = new Error("Table 'u.refund_offers' doesn't exist"); e.code = 'ER_NO_SUCH_TABLE'; throw e; } // offers: refunds-v3.test.js
   if (/^INSERT INTO admin_todos/.test(sql)) { DB.todos.push({ id: DB.todos.length + 1, title: p[0] }); return { affectedRows: 1, insertId: DB.todos.length }; }
   if (/^UPDATE orders SET raw_json = \? WHERE order_id = \? LIMIT 1$/.test(sql)) { DB.orders.find((o) => o.order_id === p[1]).raw_json = p[0]; return { affectedRows: 1 }; }
   throw new Error('unmocked SQL: ' + sql);

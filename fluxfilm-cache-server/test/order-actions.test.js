@@ -61,6 +61,7 @@ function run(sql, p) {
   if (/^SELECT \* FROM coupon_usage WHERE order_id = \?$/.test(sql)) return S.couponUsage.filter((c) => c.order_id === p[0]).map(clone);
   if (/^UPDATE coupon_usage SET action = 'RELEASED'/.test(sql)) { let n = 0; for (const c of S.couponUsage) if (c.order_id === p[0] && String(c.action).toUpperCase() === 'USED') { c.action = 'RELEASED'; n++; } return { affectedRows: n }; }
   if (/payment_claims/.test(sql)) noTable('payment_claims');
+  if (/refund_offers/.test(sql)) noTable('refund_offers'); // Refunds v3 offers: covered in refunds-v3.test.js (before schema-v26 here)
   if (/^SELECT setting_key FROM app_settings WHERE setting_key = \? LIMIT 1$/.test(sql)) return S.settings[p[0]] ? [{ setting_key: p[0] }] : [];
   if (/^INSERT INTO app_settings \(setting_key, value\) VALUES \(\?, \?\) ON DUPLICATE KEY UPDATE/.test(sql)) { S.settings[p[0]] = p[1]; return { affectedRows: 1 }; }
   if (/^SELECT value FROM app_settings WHERE setting_key = \?/.test(sql)) return S.settings[p[0]] ? [{ value: S.settings[p[0]] }] : [];
@@ -381,7 +382,8 @@ const rawOrder = (id) => { const r = order(id).raw_json; return typeof r === 'st
   u = await R.requestUpi(PH, 'FF50', 'rahul.k@okhdfcbank', 'good-' + PH);
   const todo = S.todos[0] || {};
   ok('UPI ID saved: state UPI_REQUESTED + one Today to-do with amount, UPI, order, masked phone', u.ok && rawOrder('FF50').RefundState === 'UPI_REQUESTED' && rawOrder('FF50').RefundUpi === 'rahul.k@okhdfcbank' && rawOrder('FF50').RefundTodoId === todo.id && /Send ₹89 UPI refund to rahul\.k@okhdfcbank for FF50 \(62••••••36\)/.test(todo.title) && /\[upi-refund:FF50\]/.test(todo.note) && !/6281151936/.test(todo.title), { u, todo, raw: rawOrder('FF50') });
-  ok('customer sees neutral wording ("soon") and a masked UPI', /soon/.test(u.message) && !/24|48|hour/.test(u.message) && /^rah•+@okhdfcbank$/.test(u.upi), u);
+  // Refunds v3 (owner 15 Sep): "Request received — we'll send ₹X to name@upi within 24 hours, you'll get a message when it's done".
+  ok('customer sees "request received … within 24 hours" with the UPI they typed; the returned upi field stays masked', /Request received/.test(u.message) && /₹89 to rahul\.k@okhdfcbank within 24 hours/.test(u.message) && /^rah•+@okhdfcbank$/.test(u.upi), u);
   u = await R.requestUpi(PH, 'FF50', 'other@ybl', 'good-' + PH);
   ok('asking again: already requested, no second to-do, UPI not changed', u.ok && u.already && S.todos.length === 1 && rawOrder('FF50').RefundUpi === 'rahul.k@okhdfcbank', u);
   cv = await R.convertToCredit(PH, 'FF50');
@@ -520,8 +522,9 @@ const rawOrder = (id) => { const r = order(id).raw_json; return typeof r === 'st
   let iparsed = true; for (const sc of iscripts) { try { new Function(sc); } catch (e) { iparsed = false; console.log('   index parse error:', e.message); } }
   ok('index.html scripts parse', iparsed);
   ok('storefront: Refunded badge with UPI/Coins + no Verify button; Re-delivered note', /'💸 Refunded'/.test(idx) && /'💸 Refunded to UPI'/.test(idx) && /'💸 Refunded as coins'/.test(idx) && /!fulfilled && !refunded && React\.createElement/.test(idx) && /Re-delivered/.test(idx));
-  ok('storefront: coupon / UPI requested / choose badges + button that opens the refund pop-up', /'🎟️ Refunded as coupon ' \+ \(o\.refundCoupon/.test(idx) && /'⏳ UPI refund requested'/.test(idx) && /new Event\('ff-refunds-open'\)/.test(idx) && /window\.addEventListener\('ff-refunds-open', open\)/.test(idx));
-  ok('storefront: refund pop-up offers coins +10% or UPI (with email code), mounted for logged-in customers', /function RefundChoice\(/.test(idx) && /Take ₹\$\{item\.amount\} \+ \$\{item\.bonusPercent \|\| 10\}% = \$\{item\.credit\} coins instead \(use on any plan\)/.test(idx) && /🏦 Continue with UPI refund/.test(idx) && /API\.refundSendCode\(ph/.test(idx) && /sessionPhone && React\.createElement\(RefundChoice, \{/.test(idx) && /You chose a cash refund\./.test(idx));
+  ok('storefront: coupon / UPI requested / choose badges + button that opens the refund pop-up', /'🎟️ Refunded as coupon ' \+ \(o\.refundCoupon/.test(idx) && /'⏳ UPI refund requested'/.test(idx) && /new Event\('ff-refunds-open'\)/.test(idx) && /window\.addEventListener\('ff-refunds-open', onOpen\)/.test(idx));
+  // Refunds v3: three choices (coins / coupon +bonus%, exact UPI) — details in refunds-v3.test.js.
+  ok('storefront: refund pop-up offers coins / coupon (+bonus%) or exact UPI (with email code), mounted for logged-in customers', /function RefundChoice\(/.test(idx) && /🪙 Coins — ₹\$\{item\.amount\} \+ \$\{pct\}% = \$\{item\.credit\} coins \(instant\)/.test(idx) && /🏦 UPI — exact ₹\$\{item\.amount\} to your UPI/.test(idx) && /API\.refundSendCode\(ph/.test(idx) && /sessionPhone && React\.createElement\(RefundChoice, \{/.test(idx));
   ok('admin: refund dialog has Coins / Coupon / UPI ask / already sent / other + Mark UPI refund sent', ['value="Coins"', 'value="Coupon"', 'value="UPI_ASK"', 'value="UPI"', 'value="Other"'].every((v) => adminHtml.includes(v)) && adminHtml.includes("'/admin/api/order/refund-upi-done'") && /data-oa="upidone"/.test(adminHtml) && /Refund credit \(pays up to 100%\)/.test(adminHtml));
   ok('storefront checkout stops on a refunded order', /if \(r\?\.refunded\) \{ goToDone/.test(idx) && /isRefunded \? '💸 Order Refunded'/.test(idx));
 

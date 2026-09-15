@@ -281,6 +281,27 @@ input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; 
 .ff-sheet-ic { display: flex; justify-content: center; }
 .ff-sheet-ic .ff-tool-ic { margin: 0; width: 60px; height: 60px; font-size: 30px; border-radius: 18px; }
 .ff-sheet-emoji { font-size: 52px; line-height: 1; margin-top: 4px; }
+.ff-refund-banner { position: fixed; left: 12px; right: 12px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 29; display: flex; align-items: center; gap: 10px; width: auto; max-width: 520px; margin: 0 auto; border: 0; border-radius: 16px; padding: 12px 14px; background: #0f766e; color: #fff; font-family: inherit; font-size: 14px; font-weight: 700; line-height: 1.35; text-align: left; box-shadow: 0 10px 28px rgba(15,118,110,.35); cursor: pointer; animation: slideUp .22s ease; }
+.ff-refund-banner span:nth-child(2) { flex: 1; } .ff-refund-banner span:first-child { font-size: 22px; }
+.ff-refund-x { position: absolute; top: -8px; right: -6px; width: 36px; height: 36px; border: 0; border-radius: 999px; background: #f1f5f9; color: #334155; font-size: 16px; font-weight: 800; cursor: pointer; }
+.ff-refund-sum { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 10px 14px; margin: 6px auto 12px; max-width: 400px; text-align: left; }
+.ff-refund-what { font-size: 12.5px; font-weight: 700; color: #64748b; margin-bottom: 4px; }
+.ff-refund-row { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; color: #475569; padding: 3px 0; } .ff-refund-row b { color: #0f172a; }
+.ff-refund-row.strong { border-top: 1px dashed #cbd5e1; margin-top: 4px; padding-top: 7px; font-size: 15.5px; } .ff-refund-row.strong b { color: #0f766e; }
+.ff-refund-why { font-size: 12.5px; color: #64748b; font-weight: 600; margin: 2px 0 4px; line-height: 1.45; }
+.ff-rq-list { display: grid; gap: 10px; margin: 6px 0 10px; }
+.ff-rq-item { border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; overflow: hidden; }
+.ff-rq-item > button { display: block; width: 100%; border: 0; background: none; text-align: left; padding: 12px 14px; cursor: pointer; font-family: inherit; min-height: 56px; }
+.ff-rq-item > button:disabled { cursor: default; }
+.ff-rq-item.off { background: #f8fafc; } .ff-rq-item.off .ff-rq-top b { color: #64748b; }
+.ff-rq-help { padding: 0 14px 12px; background: #fffbeb; }
+.ff-rq-top { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; color: #0f172a; }
+.ff-rq-sub { display: block; font-size: 12.5px; font-weight: 600; color: #64748b; margin-top: 3px; }
+.ff-rq-why { font-size: 12.5px; font-weight: 600; color: #92400e; background: #fffbeb; padding: 8px 14px; line-height: 1.45; }
+.ff-rq-reasons { display: grid; gap: 8px; margin: 8px 0 10px; }
+.ff-rq-reason { min-height: 50px; border: 2px solid #e2e8f0; border-radius: 14px; background: #fff; font-family: inherit; font-size: 15px; font-weight: 700; color: #0f172a; text-align: left; padding: 10px 14px; cursor: pointer; }
+.ff-rq-reason.on { border-color: #0f766e; background: #f0fdfa; }
+.ff-rq-text { width: 100%; box-sizing: border-box; border: 2px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; font-family: inherit; font-size: 15px; margin-bottom: 8px; }
 .ff-sheet-which { text-align: left; font-size: 13.5px; font-weight: 600; color: #475569; line-height: 1.6; padding: 12px 14px; border-radius: 14px; background: #f8fafc; border: 1px solid rgba(15,23,42,.08); }
 .ff-sheet-which b { color: #0f172a; }
 .ff-sheet-which span { color: #1e40af; font-weight: 800; }
@@ -4308,7 +4329,7 @@ function DashboardScreen({
         marginTop: 10
       },
       onClick: () => window.dispatchEvent(new Event('ff-refunds-open'))
-    }, "💸 Choose: coins +10% or UPI"), fulfilled && o.redelivered && React.createElement("div", {
+    }, "💸 Choose: coins, coupon or UPI"), fulfilled && o.redelivered && React.createElement("div", {
       style: {
         marginTop: 8,
         fontFamily: PJS,
@@ -10047,7 +10068,9 @@ function AccountScreen({
   }), section === 'referral' && React.createElement(ReferralPanel, {
     phone: phone,
     name: name
-  }), !section && React.createElement("nav", {
+  }), !section && React.createElement(RefundRequestButton, {
+    phone: phone
+    }), !section && React.createElement("nav", {
     className: "ff-acc-policies",
     "aria-label": "FluxFilm information",
     style: {
@@ -11533,15 +11556,24 @@ function PromoCard({
     onClick: () => promoAct_(p, nav)
   }, p.ctaText, " ›")));
 }
-// 💸 Cash refund pop-up (refunds.js): FluxFilm refunded an order and the owner chose "UPI cash — ask the customer".
-// The customer can take the refund as refund credit with 10% extra, or give a UPI ID (after the email code) — the owner
-// then gets a Today to-do and sends it. Shown on the home / My plans screen once per visit, and from the Orders button.
+// 💸 Refunds v3 (refunds.js): the CUSTOMER chooses how to get a refund. Two kinds come from getPendingRefunds:
+//   items  = a not-delivered order FluxFilm refunded ("let the customer choose") — pops up once per visit;
+//   offers = a refund offered on a delivered plan — a banner "Your refund of ₹X is ready" (and the email link ?refund=1).
+// Choices: 🪙 coins (+bonus%, instant) · 🎟️ coupon (+bonus%, instant, one use) · 🏦 exact amount to a UPI ID (email code
+// to the order's own email → the team sends it). sent = a UPI refund the team sent: a one-time "✅ sent" pop-up.
+// ✕ / Back / tapping outside only close the sheet — the refund stays until the customer chooses.
 const FF_UPI_RE_ = /^[a-zA-Z0-9][a-zA-Z0-9._-]{1,99}@[a-zA-Z][a-zA-Z0-9]{1,49}$/;
 function RefundChoice({
   screen,
   phone
 }) {
+  const [data, setData] = useState({
+    items: [],
+    offers: [],
+    sent: []
+  });
   const [item, setItem] = useState(null);
+  const [sentItem, setSentItem] = useState(null);
   const [step, setStep] = useState('choose');
   const [upi, setUpi] = useState('');
   const [code, setCode] = useState('');
@@ -11552,12 +11584,44 @@ function RefundChoice({
   const [done, setDone] = useState('');
   const ph = normPhone_(phone || '');
   const seenKey = id => 'ff_refund_seen_' + id;
+  const open = x => {
+    setItem(x);
+    setStep('choose');
+    setMsg('');
+    setDone('');
+    setVerify(null);
+    setCode('');
+  };
   function load(force) {
     if (!ph) return;
     API.getPendingRefunds(ph, r => {
-      const ask = (r && r.ok && r.items || []).filter(x => x.state === 'ASK_CUSTOMER');
+      if (!r || !r.ok) return;
+      const d = {
+        items: r.items || [],
+        offers: r.offers || [],
+        sent: r.sent || []
+      };
+      setData(d);
+      const ask = d.items.filter(x => x.state === 'ASK_CUSTOMER');
+      let wantOpen = false;
+      try {
+        wantOpen = force || /[?&]refund=1\b/.test(location.search);
+      } catch (e) {}
+      if (wantOpen) {
+        const first = d.offers[0] || ask[0];
+        if (first) return open(first);
+      }
+      // A UPI refund the team sent: tell the customer once (marked seen on the server straight away).
+      if (d.sent.length && !force) {
+        const s0 = d.sent[0];
+        const show = () => {
+          if (window.ffPromoOpen) return setTimeout(show, 1500);
+          setSentItem(s0);
+          API.refundSentSeen(ph, s0.orderId, () => {}, () => {});
+        };
+        return show();
+      }
       const first = ask.find(x => {
-        if (force) return true;
         try {
           return !sessionStorage.getItem(seenKey(x.orderId));
         } catch (e) {
@@ -11570,16 +11634,13 @@ function RefundChoice({
         try {
           sessionStorage.setItem(seenKey(first.orderId), '1');
         } catch (e) {}
-        setItem(first);
-        setStep('choose');
-        setMsg('');
-        setDone('');
+        open(first);
       };
       show();
     }, () => {});
   }
   useEffect(() => {
-    if (!ph || !['home', 'dashboard'].includes(screen)) return;
+    if (!ph || !['home', 'dashboard', 'account'].includes(screen)) return;
     let t = null;
     // Never on top of an offer pop-up that is already open: wait until it is closed.
     const tryLoad = () => {
@@ -11589,31 +11650,60 @@ function RefundChoice({
     return () => clearTimeout(t);
   }, [ph, screen]);
   useEffect(() => {
-    window.ffRefundOpen = !!item;
+    window.ffRefundOpen = !!(item || sentItem);
     return () => {
       window.ffRefundOpen = false;
     };
-  }, [item]);
+  }, [item, sentItem]);
   useEffect(() => {
-    const open = () => load(true);
-    window.addEventListener('ff-refunds-open', open);
-    return () => window.removeEventListener('ff-refunds-open', open);
+    const onOpen = () => load(true);
+    window.addEventListener('ff-refunds-open', onOpen);
+    return () => window.removeEventListener('ff-refunds-open', onOpen);
   }, [ph]);
-  if (!item) return null;
+  const bannerOffer = data.offers[0];
+  const banner = !item && !sentItem && bannerOffer && ['home', 'dashboard', 'account', 'feed'].includes(screen) ? React.createElement("button", {
+    type: "button",
+    className: "ff-refund-banner",
+    "data-ff": "refund-banner",
+    onClick: () => open(bannerOffer)
+  }, React.createElement("span", {
+    "aria-hidden": "true"
+  }, "💸"), React.createElement("span", null, "Your refund of ", React.createElement("b", null, "₹", bannerOffer.amount), " is ready — choose how you want it"), React.createElement("span", {
+    "aria-hidden": "true"
+  }, "›")) : null;
+  if (sentItem) {
+    const closeSent = () => setSentItem(null);
+    return React.createElement(ToolsSheet, {
+      onClose: closeSent
+    }, React.createElement("div", {
+      "data-ff": "refund-sent"
+    }, React.createElement("div", {
+      className: "ff-sheet-emoji"
+    }, "✅"), React.createElement("h3", null, "Refund sent"), React.createElement("p", null, "Your refund of ", React.createElement("b", null, "₹", sentItem.amount), " was sent to ", React.createElement("b", null, sentItem.upi || 'your UPI'), sentItem.reference ? ' (ref ' + sentItem.reference + ')' : '', "."), React.createElement("p", null, sentItem.service, " ", sentItem.plan, " · order ", sentItem.orderId), React.createElement("div", {
+      className: "ff-sheet-btns"
+    }, React.createElement(Btn, {
+      variant: "primary",
+      full: true,
+      onClick: closeSent
+    }, "👍 OK"))));
+  }
+  if (!item) return banner;
   const close = () => {
     if (busy) return;
     setItem(null);
   };
-  const takeCoins = () => {
+  const reload = () => load(false);
+  const take = method => {
     setBusy(true);
     setMsg('');
-    API.convertRefundToCredit(ph, item.orderId, r => {
+    API.chooseRefund(ph, item.id || item.orderId, method, r => {
       setBusy(false);
       if (r && r.ok) {
         window.ffSound?.('coins');
-        setDone(`🪙 ${r.credit} coins of refund credit added. Use them on any plan — they can pay the full price.`);
+        setDone(method === 'COUPON' ? `🎟️ Coupon ${r.coupon} added: ₹${r.couponValue || item.couponValue} off any plan, one use, valid ${item.couponDays || 180} days. Find it in Account → Coupons.` : `🪙 ${r.credit} coins of refund credit added. Use them on any plan — they can pay the full price.`);
         setStep('done');
-      } else setMsg('⚠️ ' + (r && r.message || 'Could not add the coins. Please try again.'));
+        reload();
+      } else setMsg('⚠️ ' + (r && r.message || 'Could not add it. Please try again.'));
     }, () => {
       setBusy(false);
       setMsg('⚠️ Network problem — please try again.');
@@ -11624,11 +11714,12 @@ function RefundChoice({
     if (!FF_UPI_RE_.test(id)) return setMsg('⚠️ Enter a UPI ID like name@okhdfcbank.');
     setBusy(true);
     setMsg('');
-    API.requestUpiRefund(ph, item.orderId, id, r => {
+    API.requestUpiRefund(ph, item.id || item.orderId, id, r => {
       setBusy(false);
       if (r && r.ok) {
-        setDone(r.message || '✅ Thanks! We\'ll send your refund soon.');
+        setDone(r.message || `✅ Request received — we'll send ₹${item.amount} to ${id} within 24 hours. You'll get a message when it's done.`);
         setStep('done');
+        reload();
         return;
       }
       if (r && r.needsVerify) {
@@ -11643,7 +11734,7 @@ function RefundChoice({
       setMsg('⚠️ Network problem — please try again.');
     });
   };
-  // No email hints: the customer types the email on the refunded order; every "no" gets one generic message.
+  // No email hints: the customer types the email on the order; every "no" gets one generic message.
   const sendCode = () => {
     const em = refEmail.replace(/\s+/g, '').toLowerCase();
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(em)) return setMsg('⚠️ Enter your email, like name@gmail.com.');
@@ -11696,9 +11787,33 @@ function RefundChoice({
       color: /^⚠️/.test(msg) ? '#b91c1c' : '#1e40af'
     }
   }, msg) : null;
-  const what = React.createElement("p", null, "Your order ", React.createElement("b", null, item.orderId), " (", React.createElement("b", null, item.service, " ", item.plan), ", ₹", item.amount, ") was refunded. You chose a cash refund.");
+  const pct = item.bonusPercent != null ? item.bonusPercent : 10;
+  const x = React.createElement("button", {
+    key: "x",
+    type: "button",
+    className: "ff-refund-x",
+    "aria-label": "Close",
+    onClick: close
+  }, "✕");
+  const row = (k, label, value, strong) => React.createElement("div", {
+    key: k,
+    className: 'ff-refund-row' + (strong ? ' strong' : '')
+  }, React.createElement("span", null, label), React.createElement("b", null, value));
+  const isOffer = item.kind === 'offer';
+  const summary = React.createElement("div", {
+    key: "sum",
+    className: "ff-refund-sum"
+  }, React.createElement("div", {
+    className: "ff-refund-what"
+  }, item.service, " ", item.plan, " · order ", item.orderId), isOffer ? [row('p', 'You paid', '₹' + item.paid), row('c', item.charge > 0 ? 'Usage charge' : 'Charge', item.charge > 0 ? '− ₹' + item.charge : 'No charge'), item.charge > 0 || item.reasonLabel ? React.createElement("div", {
+    key: "why",
+    className: "ff-refund-why"
+  }, item.reason === 'NO_REPLACEMENT' ? 'We could not replace your account, so you get everything back.' : `Mid-period refund: charge for the time you used${item.daysUsed != null && item.totalDays ? ` (${item.daysUsed} of ${item.totalDays} days)` : ''}.`) : null, item.note ? React.createElement("div", {
+    key: "note",
+    className: "ff-refund-why"
+  }, "Note from FluxFilm: ", item.note) : null, row('r', 'Your refund', '₹' + item.amount, true)] : row('r', 'Refund', '₹' + item.amount, true));
   let body;
-  if (step === 'done') body = [React.createElement("div", {
+  if (step === 'done') body = [x, React.createElement("div", {
     key: "e",
     className: "ff-sheet-emoji"
   }, "💚"), React.createElement("h3", {
@@ -11712,20 +11827,20 @@ function RefundChoice({
     variant: "primary",
     full: true,
     onClick: () => setItem(null)
-  }, "👍 OK"))];else if (step === 'upi') body = [React.createElement("div", {
+  }, "👍 OK"))];else if (step === 'upi') body = [x, React.createElement("div", {
     key: "e",
     className: "ff-sheet-emoji"
   }, "🏦"), React.createElement("h3", {
     key: "h"
   }, "UPI refund"), React.createElement("p", {
     key: "p"
-  }, "Type the UPI ID we should send ", React.createElement("b", null, "₹", item.amount), " to."), React.createElement(Input, {
+  }, "Type the UPI ID we should send exactly ", React.createElement("b", null, "₹", item.amount), " to."), React.createElement(Input, {
     key: "i",
     label: "Your UPI ID",
     placeholder: "name@okhdfcbank",
     value: upi,
     autoFocus: true,
-    onChange: e => setUpi(e.target.value)
+    onChange: e => setUpi(e.target.value.slice(0, 150))
   }), note, React.createElement("div", {
     key: "b",
     className: "ff-sheet-btns"
@@ -11741,7 +11856,7 @@ function RefundChoice({
       setStep('choose');
       setMsg('');
     }
-  }, "⬅️ Back"))];else if (step === 'verify') body = [React.createElement("div", {
+  }, "⬅️ Back"))];else if (step === 'verify') body = [x, React.createElement("div", {
     key: "e",
     className: "ff-sheet-emoji"
   }, "🔒"), React.createElement("h3", {
@@ -11787,16 +11902,14 @@ function RefundChoice({
       setStep('upi');
       setMsg('');
     }
-  }, "⬅️ Back"))];else body = [React.createElement("div", {
+  }, "⬅️ Back"))];else body = [x, React.createElement("div", {
     key: "e",
     className: "ff-sheet-emoji"
   }, "💸"), React.createElement("h3", {
     key: "h"
-  }, "One order was refunded"), React.createElement(React.Fragment, {
-    key: "w"
-  }, what), React.createElement("p", {
+  }, isOffer ? `Your refund of ₹${item.amount} is ready` : 'One order was refunded'), summary, React.createElement("p", {
     key: "o"
-  }, "Want to keep shopping? Take it as coins with ", React.createElement("b", null, item.bonusPercent || 10, "% extra"), " — they can pay the full price of any plan."), note, React.createElement("div", {
+  }, "How do you want it?"), note, React.createElement("div", {
     key: "b",
     className: "ff-sheet-btns"
   }, React.createElement(Btn, {
@@ -11807,8 +11920,17 @@ function RefundChoice({
       minHeight: 54,
       fontSize: 15.5
     },
-    onClick: takeCoins
-  }, busy ? '⏳ Adding…' : `🪙 Take ₹${item.amount} + ${item.bonusPercent || 10}% = ${item.credit} coins instead (use on any plan)`), React.createElement(Btn, {
+    onClick: () => take('COINS')
+  }, busy ? '⏳ Adding…' : `🪙 Coins — ₹${item.amount} + ${pct}% = ${item.credit} coins (instant)`), React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    disabled: busy,
+    style: {
+      minHeight: 54,
+      fontSize: 15.5
+    },
+    onClick: () => take('COUPON')
+  }, `🎟️ Coupon — ₹${item.amount} + ${pct}% = ₹${item.couponValue || item.credit} coupon, valid ${item.couponDays || 180} days, one use`), React.createElement(Btn, {
     variant: "ghost",
     full: true,
     disabled: busy,
@@ -11816,19 +11938,314 @@ function RefundChoice({
       setStep('upi');
       setMsg('');
     }
-  }, "🏦 Continue with UPI refund"), React.createElement(Btn, {
+  }, `🏦 UPI — exact ₹${item.amount} to your UPI`), React.createElement(Btn, {
     variant: "ghost",
     full: true,
     size: "sm",
     onClick: close
-  }, "Decide later")), React.createElement(RefundPolicyLink, {
+  }, "Decide later")), isOffer &&   React.createElement("p", {
+    key: "fine",
+    style: {
+      fontSize: 12,
+      marginTop: 12
+    }
+  }, 'When you take the refund, this plan stops working.'), React.createElement(RefundPolicyLink, {
     key: "rp",
-    lead: "Coins give you extra value; cash is the exact amount"
+    lead: "Coins and the coupon get extra value; UPI is the exact amount"
   })];
   return React.createElement(ToolsSheet, {
     onClose: close
   }, React.createElement("div", {
-    "data-ff": "refund-choice"
+    "data-ff": "refund-choice",
+    style: {
+      position: 'relative'
+    }
+  }, body));
+}
+// 💸 Request refund (Account → Request refund, refundrequests.js). Step 1 pick a plan / order (the server says what can be
+// requested and why not — 48 h from payment for undelivered orders, India time), step 2 the reason, step 3 our answer.
+// A request refunds nothing by itself: the team replies with a refund offer (email + banner) or a message.
+function RefundRequestButton({
+  phone
+}) {
+  const [open, setOpen] = useState(false);
+  return React.createElement(React.Fragment, null, React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    style: {
+      marginTop: 18
+    },
+    "data-ff": "refund-request-open",
+    onClick: () => setOpen(true)
+  }, "💸 Request refund"), open && React.createElement(RefundRequestSheet, {
+    phone: phone,
+    onClose: () => setOpen(false)
+  }));
+}
+const FF_RQ_REASONS_ = [['NOT_WORKING', '🔧 Not working'], ['NOT_RECEIVED', '📭 Didn’t receive'], ['NOT_NEEDED', '🙅 Don’t need anymore'], ['QUALITY', '📉 Quality changed'], ['OTHER', '✏️ Other']];
+function ffRqLeft_(ms) {
+  if (!(ms > 0)) return 'any moment now';
+  const m = Math.ceil(ms / 60000);
+  const h = Math.floor(m / 60);
+  return (h ? h + 'h ' : '') + m % 60 + 'm left';
+}
+function ffRqDate_(v) {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? +m[3] + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+m[2] - 1] + ' ' + m[1] : '';
+}
+function RefundRequestSheet({
+  phone,
+  onClose
+}) {
+  const ph = normPhone_(phone || '');
+  const [data, setData] = useState(null);
+  const [skew, setSkew] = useState(0);
+  const [pick, setPick] = useState(null);
+  const [reason, setReason] = useState('');
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [done, setDone] = useState('');
+  const [, setTick] = useState(0);
+  const load = () => {
+    setData(null);
+    API.getRefundRequestItems(ph, r => {
+      setData(r && r.ok ? r : {
+        ok: false,
+        message: r && r.message || 'Could not load your plans.'
+      });
+      if (r && r.serverNow) setSkew(r.serverNow - Date.now());
+    }, () => setData({
+      ok: false,
+      message: 'Network problem — please try again.'
+    }));
+  };
+  useEffect(() => {
+    load();
+  }, [ph]);
+  useEffect(() => {
+    const t = setInterval(() => setTick(x => x + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
+  const close = () => {
+    if (!busy) onClose();
+  };
+  const x = React.createElement("button", {
+    key: "x",
+    type: "button",
+    className: "ff-refund-x",
+    "aria-label": "Close",
+    onClick: close
+  }, "✕");
+  const note = msg ? React.createElement("p", {
+    key: "n",
+    style: {
+      color: /^⚠️/.test(msg) ? '#b91c1c' : '#1e40af'
+    }
+  }, msg) : null;
+  const submit = () => {
+    if (!reason) return setMsg('⚠️ Choose a reason.');
+    if (reason === 'OTHER' && text.trim().length < 3) return setMsg('⚠️ Tell us a little about why.');
+    setBusy(true);
+    setMsg('');
+    API.createRefundRequest(ph, {
+      orderId: pick.type === 'order' ? pick.orderId : '',
+      subId: pick.type === 'sub' ? pick.subId : '',
+      reason,
+      text: text.trim().slice(0, 300)
+    }, r => {
+      setBusy(false);
+      if (r && r.ok) {
+        setDone(r.message || '✅ Request received.');
+        load();
+      } else setMsg('⚠️ ' + (r && r.message || 'Could not send your request.'));
+    }, () => {
+      setBusy(false);
+      setMsg('⚠️ Network problem — please try again.');
+    });
+  };
+  let body;
+  if (done) body = [x, React.createElement("div", {
+    key: "e",
+    className: "ff-sheet-emoji"
+  }, "📨"), React.createElement("h3", {
+    key: "h"
+  }, "Request sent"), React.createElement("p", {
+    key: "p"
+  }, done), React.createElement("div", {
+    key: "b",
+    className: "ff-sheet-btns"
+  }, React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    onClick: onClose
+  }, "👍 OK"))];else if (!data) body = [x, React.createElement("div", {
+    key: "e",
+    className: "ff-sheet-emoji"
+  }, "💸"), React.createElement("p", {
+    key: "p"
+  }, "Loading your plans…")];else if (!data.ok) body = [x, React.createElement("div", {
+    key: "e",
+    className: "ff-sheet-emoji"
+  }, "😕"), React.createElement("p", {
+    key: "p"
+  }, data.message), React.createElement("div", {
+    key: "b",
+    className: "ff-sheet-btns"
+  }, React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    onClick: load
+  }, "🔄 Try again"))];else if (pick) {
+    const delivered = pick.kind === 'DELIVERED';
+    const est = pick.estimate || {};
+    body = [x, React.createElement("div", {
+      key: "e",
+      className: "ff-sheet-emoji"
+    }, "💸"), React.createElement("h3", {
+      key: "h"
+    }, "Why do you want a refund?"), React.createElement("div", {
+      key: "sum",
+      className: "ff-refund-sum"
+    }, React.createElement("div", {
+      className: "ff-refund-what"
+    }, pick.service, " ", pick.plan, " · ", pick.type === 'sub' ? 'plan' : 'order ' + pick.orderId), React.createElement("div", {
+      className: "ff-refund-row"
+    }, React.createElement("span", null, "You paid"), React.createElement("b", null, "₹", pick.amount)), delivered ? [React.createElement("div", {
+      key: "c",
+      className: "ff-refund-row"
+    }, React.createElement("span", null, "Usage charge (estimate — team decides)"), React.createElement("b", null, "≈ ₹", est.charge || 0)), React.createElement("div", {
+      key: "why",
+      className: "ff-refund-why"
+    }, "This plan is already active, so a usage charge applies for the days used (", est.daysUsed, " of ", est.totalDays, " days so far). Our team will check and send you the refund amount. You’ll get an email and a banner here to choose Coins +10% / Coupon +10% / UPI."), React.createElement("div", {
+      key: "r",
+      className: "ff-refund-row strong"
+    }, React.createElement("span", null, "Estimated refund"), React.createElement("b", null, "≈ ₹", est.refund || 0))] : [React.createElement("div", {
+      key: "why",
+      className: "ff-refund-why"
+    }, "This order was not delivered, so it’s a full refund with no charge. You’ll get an email and a banner here to choose UPI (exact amount) or Coins / Coupon +10%."), React.createElement("div", {
+      key: "r",
+      className: "ff-refund-row strong"
+    }, React.createElement("span", null, "Refund"), React.createElement("b", null, "₹", pick.amount))]), React.createElement("div", {
+      key: "reasons",
+      className: "ff-rq-reasons"
+    }, FF_RQ_REASONS_.map(([k, label]) => React.createElement("button", {
+      key: k,
+      type: "button",
+      className: 'ff-rq-reason' + (reason === k ? ' on' : ''),
+      "aria-pressed": reason === k,
+      onClick: () => {
+        setReason(k);
+        setMsg('');
+      }
+    }, label))), delivered && reason === 'NOT_WORKING' && React.createElement("p", {
+      key: "nw",
+      style: {
+        color: '#1e40af'
+      }
+    }, "We’ll first try to give you a replacement account. We only refund if we can’t replace it."), reason === 'OTHER' && React.createElement("textarea", {
+      key: "t",
+      className: "ff-rq-text",
+      rows: 3,
+      maxLength: 300,
+      placeholder: "Tell us why (max 300 characters)",
+      value: text,
+      onChange: e => setText(e.target.value.slice(0, 300))
+    }), note, React.createElement("div", {
+      key: "b",
+      className: "ff-sheet-btns"
+    }, React.createElement(Btn, {
+      variant: "primary",
+      full: true,
+      disabled: busy,
+      onClick: submit
+    }, busy ? '⏳ Sending…' : '📨 Send refund request'), React.createElement(Btn, {
+      variant: "ghost",
+      full: true,
+      onClick: () => {
+        setPick(null);
+        setReason('');
+        setText('');
+        setMsg('');
+      }
+    }, "⬅️ Back"))];
+  } else {
+    const items = data.items || [];
+    const reqs = (data.requests || []).filter(r => r.status !== 'OPEN').slice(0, 3);
+    const REQ_TXT = {
+      OFFERED: '💸 Refund offered — choose how you want it from the banner.',
+      APPROVED: '✅ Full refund approved — choose how you want it.',
+      REJECTED: '❌ Not refunded'
+    };
+    body = [x, React.createElement("div", {
+      key: "e",
+      className: "ff-sheet-emoji"
+    }, "💸"), React.createElement("h3", {
+      key: "h"
+    }, "Request refund"), React.createElement("p", {
+      key: "p"
+    }, "Which plan or order is it for?"), items.length ? React.createElement("div", {
+      key: "list",
+      className: "ff-rq-list"
+    }, items.map(it => {
+      const left = it.waitUntilMs ? it.waitUntilMs - (Date.now() + skew) : 0;
+      return React.createElement("div", {
+        key: it.key,
+        className: 'ff-rq-item' + (it.canRequest ? '' : ' off')
+      }, React.createElement("button", {
+        type: "button",
+        disabled: !it.canRequest,
+        onClick: () => {
+          setPick(it);
+          setReason('');
+          setText('');
+          setMsg('');
+        }
+      }, React.createElement("span", {
+        className: "ff-rq-top"
+      }, React.createElement("b", null, it.service, " ", it.plan), React.createElement("b", null, "₹", it.amount)), React.createElement("span", {
+        className: "ff-rq-sub"
+      }, ffRqDate_(it.date), " · ", it.statusLabel, it.canRequest ? ' · tap to continue ›' : '')), !it.canRequest && it.disabledReason && React.createElement("div", {
+        className: "ff-rq-why"
+      }, it.disabledReason, it.waiting && left > 0 ? ' (' + ffRqLeft_(left) + ')' : ''), it.waiting && React.createElement("div", {
+        className: "ff-rq-help"
+      }, React.createElement(Btn, {
+        variant: "ghost",
+        size: "sm",
+        onClick: () => API.openWhatsApp()
+      }, "💬 Help")));
+    })) : React.createElement("p", {
+      key: "none"
+    }, "No plans or paid orders on this number yet."), reqs.length > 0 && React.createElement("div", {
+      key: "reqs",
+      className: "ff-refund-sum"
+    }, React.createElement("div", {
+      className: "ff-refund-what"
+    }, "Your recent requests"), reqs.map(r => React.createElement("div", {
+      key: r.requestId,
+      className: "ff-refund-why"
+    }, React.createElement("b", null, r.service, " ", r.plan), ": ", REQ_TXT[r.status] || r.status, r.status === 'REJECTED' && r.adminMessage ? ' — ' + r.adminMessage : ''))), React.createElement("div", {
+      key: "b",
+      className: "ff-sheet-btns"
+    }, React.createElement(Btn, {
+      variant: "ghost",
+      full: true,
+      onClick: () => API.openWhatsApp()
+    }, "💬 Help"), React.createElement(Btn, {
+      variant: "ghost",
+      full: true,
+      size: "sm",
+      onClick: close
+    }, "Close"))];
+  }
+  return React.createElement(ToolsSheet, {
+    onClose: close
+  }, React.createElement("div", {
+    "data-ff": "refund-request",
+    style: {
+      position: 'relative',
+      textAlign: 'left'
+    }
   }, body));
 }
 // ⏳ Renewal reminder pop-up (admin → 🚧 Maintenance → "⏳ Renewal reminder pop-up", on by default).
@@ -16482,6 +16899,20 @@ const API = {
   },
   requestUpiRefund(phone, orderId, upiId, onSuccess, onFailure) {
     apiCall_('requestUpiRefund', [phone, orderId, upiId, getOtpToken_(phone)], onSuccess, onFailure);
+  },
+  // Refunds v3: id = FF… (not-delivered refund) or RO… (offer on a delivered plan); method COINS | COUPON.
+  chooseRefund(phone, id, method, onSuccess, onFailure) {
+    apiCall_('chooseRefund', [phone, id, method], onSuccess, onFailure);
+  },
+  refundSentSeen(phone, orderId, onSuccess, onFailure) {
+    apiCall_('refundSentSeen', [phone, orderId], onSuccess, onFailure);
+  },
+  // Account → Request refund: the server decides what can be requested; only { orderId | subId, reason, text } are sent.
+  getRefundRequestItems(phone, onSuccess, onFailure) {
+    apiCall_('getRefundRequestItems', [phone], onSuccess, onFailure);
+  },
+  createRefundRequest(phone, req, onSuccess, onFailure) {
+    apiCall_('createRefundRequest', [phone, req], onSuccess, onFailure);
   },
   getNetflixHouseholdLink(email, onSuccess, onFailure) {
     apiCall_('getNetflixHouseholdLink', [email], onSuccess, onFailure);
