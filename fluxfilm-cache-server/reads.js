@@ -213,6 +213,16 @@ async function getCustomerOrders(phone, limit) {
   return { ok: true, orders };
 }
 
+/** Saved avatar-creator settings, only if they still pass the strict check. */
+function avatarConfigOf(raw) {
+  try { const v = raw && raw.AvatarConfig && require('./avatarmaker').validate(raw.AvatarConfig); return v && v.ok ? v.config : null; } catch (_) { return null; }
+}
+
+function avatarUrlOf(raw) {
+  const c = avatarConfigOf(raw);
+  return c ? require('./avatarmaker').url(c) : '';
+}
+
 async function getCustomerProfile(phone) {
   const ph = normPhone(phone);
   if (!ph) return { ok: false, message: 'Phone required' };
@@ -236,6 +246,8 @@ async function getCustomerProfile(phone) {
     totalSpent: Number(pick(['TotalSpent'], 0)) || 0,
     status: String(pick(['Status'], '') || ''),
     profilePicUrl: String(r.profile_pic_url || pick(['ProfilePicUrl', 'AvatarUrl', 'PhotoUrl'], '') || ''),
+    avatarConfig: avatarConfigOf(raw), // ✨ avatar creator settings (avatars.js), or null
+    avatarUrl: avatarUrlOf(raw),       // …and its picture link, so the picker can offer it again after a photo
   };
 }
 
