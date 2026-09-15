@@ -369,7 +369,7 @@ async function faqPage() {
 
 function postImage(src) {
   const v = s(src);
-  return /^\/((?:poster|tmdb-img\/t\/p)\/w\d+\/[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)|feed-img\/fp[0-9a-f]{10}(\?v=[\w%.:-]*)?)$/.test(v) ? v.replace(/^\/(?:poster|tmdb-img\/t\/p)\/w\d+\//, '/poster/w185/') : '';
+  return /^\/((?:poster|tmdb-img\/t\/p)\/w\d+\/[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)|feed-img\/fp[0-9a-f]{10}t?(\?v=[\w%.:-]*)?)$/.test(v) ? v.replace(/^\/(?:poster|tmdb-img\/t\/p)\/w\d+\//, '/poster/w185/') : '';
 }
 // Post with a video (Instagram Reel, or a YouTube trailer that plays in the app): a plain "Watch" link to the post — no embeds here.
 function postVideoLabel(p) {
@@ -383,10 +383,13 @@ async function whatsNewPage() {
   const svcFor = (name) => { const n = s(name).toLowerCase(); return n ? services.find((x) => x.name.toLowerCase() === n) || services.find((x) => x.name.toLowerCase().startsWith(n)) : null; };
   const items = posts.map((p) => {
     const img = postImage(p.image);
-    const svc = svcFor(p.service);
+    // "on Netflix" (brand) · the plan link / price of the plan the post sells (ctaService, e.g. Netflix (Group Offer)).
+    const svc = svcFor(p.ctaService || p.service);
+    const brand = s(p.brand) || s(p.service);
     const cap = s(p.caption).replace(/\s+/g, ' ');
     return '<article class="card post">' + (img ? '<img src="' + esc(img) + '" alt="' + esc(p.title) + ' poster" width="92" height="138" loading="lazy">' : '') +
-      '<div><h3><a href="/?post=' + p.id + '">' + esc(p.title) + '</a></h3><div class="muted">' + esc([p.type === 'series' ? 'Series' : p.type === 'movie' ? 'Movie' : 'News', s(p.service) && 'on ' + s(p.service)].filter(Boolean).join(' ')) + '</div>' +
+      '<div><h3><a href="/?post=' + p.id + '">' + esc(p.title) + '</a></h3><div class="muted">' + esc([p.type === 'series' ? 'Series' : p.type === 'movie' ? 'Movie' : 'News', brand && 'on ' + brand].filter(Boolean).join(' ')) + '</div>' +
+      (Array.isArray(p.genres) && p.genres.length ? '<div class="muted">' + esc(p.genres.slice(0, 3).map(s).join(' · ')) + '</div>' : '') +
       (cap ? '<p>' + esc(cap.length > 180 ? cap.slice(0, 177).replace(/\s+\S*$/, '') + '…' : cap) + '</p>' : '') +
       (postVideoLabel(p) ? '<p class="watch"><a href="/?post=' + p.id + '">▶ Watch ' + postVideoLabel(p) + '</a></p>' : '') +
       (svc ? '<a href="/plans/' + svc.slug + '">' + esc(svc.name) + ' plans from ' + inr(svc.minPrice) + '</a>' : '') + '</div></article>';

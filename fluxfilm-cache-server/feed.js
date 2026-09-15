@@ -3,9 +3,16 @@
  * No schema change. app_settings keys:
  *   feed_posts        JSON list of posts (max 200)
  *   feed_img_<id>     uploaded picture (data URL, shrunk in the admin page first)
+ *   feed_img_<id>t    📸 Instagram thumbnail fetched by the server (feedthumb.js) — served at /feed-img/<id>t, so customers
+ *                     never load anything from Instagram before they tap play
  *   feed_stats        { <id>: { views, likes, clicks, shares, plays } }  (plays = video / trailer taps; buffered in memory, written once a minute)
- *   feed_settings     { tmdbKey, autoPublish, platforms, languages, minPopularity, minVotes, maxPerDay,
- *                       autoHideDays, providerMap }  — tmdbKey never leaves the server
+ *   feed_settings     { tmdbKey, metaToken, autoPublish, platforms, languages, minPopularity, minVotes, maxPerDay,
+ *                       autoHideDays, providerMap }  — tmdbKey / metaToken never leave the server
+ *
+ * Post fields (v3): brand = what the header shows ("Netflix", with the catalog's Netflix logo) · ctaService = the catalog
+ * service the "Get … from ₹X" button sells ("Netflix (Group Offer)"). `service` is kept equal to ctaService for older code.
+ * Older posts get brand = normalised service, ctaService = service when read (list()). sourceCaption = the Reel's own
+ * caption (for ✨ AI fill; never sent to customers).
  *   feed_job          last import run: { lastRun, nextRun, lastResult, lastError, day, dayCount, seen[] }
  *
  * Post status: OFF (switched off / draft) · SCHEDULED (before "publish at") · HIDDEN (after "hide after") · LIVE.
@@ -32,6 +39,7 @@ const TYPES = ['movie', 'series', 'announcement'];
 const CTAS = ['service', 'none'];
 const KINDS = ['view', 'like', 'unlike', 'click', 'share', 'play'];
 const IMG_MAX = 450000; // ~330 KB picture; the admin page shrinks uploads first
+const THUMB_GOOD = 120 * 1024; // an Instagram thumbnail above this is shrunk by the admin page after saving
 const IMG_HOSTS = ['image.tmdb.org', 'i.ytimg.com', 'img.youtube.com'];
 const TRAILER_HOSTS = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'];
 const TMDB_API = 'https://api.themoviedb.org/3';
@@ -77,6 +85,46 @@ function cleanTags(v, max) {
   for (const x of list) { const t = clean(x, max); if (t && !out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t); if (out.length >= 6) break; }
   return out;
 }
+/**
+ * 🏷️ Brands: the real platform a title streams on. The catalog can sell several plans of one brand
+ * ("Netflix", "Netflix (Group Offer)"; "Prime Video", "Prime Video + Shopping").
+ */
+const BRANDS = [
+  { name: 'Netflix', re: /netflix/i, emoji: '🔴' },
+  { name: 'Prime Video', re: /prime|amazon/i, emoji: '📦' },
+  { name: 'JioHotstar', re: /hotstar|jio ?cinema/i, emoji: '⭐' },
+  { name: 'SonyLIV', re: /sony/i, emoji: '🔵' },
+  { name: 'Zee5', re: /zee ?5|\bzee\b/i, emoji: '🟣' },
+  { name: 'Crunchyroll', re: /crunchyroll/i, emoji: '🎌' },
+  { name: 'YouTube', re: /youtube/i, emoji: '▶️' },
+  { name: 'Apple TV+', re: /apple/i, emoji: '🍎' },
+];
+/** "Netflix (Group Offer)" → "Netflix", "Prime Video + Shopping" → "Prime Video", "SonyLiv Premium" → "SonyLIV", "MX Player Gold" → "MX Player Gold". */
+function brandOf(v) {
+  const t = clean(v, 60);
+  if (!t) return '';
+  const b = BRANDS.find((x) => x.re.test(t));
+  if (b) return b.name;
+  const stripped = clean(t.replace(/\([^)]*\)/g, ' ').replace(/\+\s*[A-Za-z]+/g, ' ').replace(/\b(premium|sharing|private|group offer|plans?|subscription)\b/gi, ' '), 40);
+  return stripped || t.slice(0, 40);
+}
+/** The plan a brand's button sells by default: the shortest catalog service of that brand ("Netflix" before "Netflix (Group Offer)"). */
+function mainServiceFor(brand, services) {
+  const list = (services || []).map((x) => clean(x, 60)).filter((x) => x && brandOf(x) === brand);
+  return list.sort((a, b) => a.length - b.length || a.localeCompare(b))[0] || '';
+}
+function cleanSource(v) {
+  return s(v).replace(/\r\n?/g, '\n').replace(/[<>]/g, '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, 2200);
+}
+/** Older posts (before brand / ctaService) read as if they had them. */
+function migrate(p) {
+  if (!p || typeof p !== 'object') return p;
+  if (p.ctaService == null || p.ctaService === '') p.ctaService = s(p.service);
+  if (p.brand == null || p.brand === '') p.brand = brandOf(p.ctaService || p.service);
+  if (p.service !== p.ctaService && p.ctaService) p.service = p.ctaService;
+  return p;
+}
+
 function hostOk(url, hosts) {
   try { const u = new URL(url); return u.protocol === 'https:' && hosts.includes(u.hostname.toLowerCase()) && !/[\s"'<>]/.test(url); } catch (_) { return false; }
 }
@@ -117,9 +165,14 @@ function validate(input, existing) {
   out.type = TYPES.includes(i.type) ? i.type : 'movie';
   out.title = clean(i.title, 100);
   if (!out.title) errors.push('Write a title.');
-  out.service = clean(i.service, 60);
-  if (out.type !== 'announcement' && !out.service) errors.push('Pick the platform (e.g. Netflix).');
+  // ctaService = the plan the button sells; brand = the platform shown. Old clients send only `service`.
+  out.ctaService = clean(s(i.ctaService) ? i.ctaService : i.service, 60);
+  out.service = out.ctaService;
+  const known = BRANDS.find((b) => b.name.toLowerCase() === clean(i.brand, 40).toLowerCase());
+  out.brand = known ? known.name : (clean(i.brand, 40) || brandOf(out.ctaService));
+  if (out.type !== 'announcement' && !out.brand) errors.push('Pick the platform (e.g. Netflix).');
   out.caption = cleanCaption(i.caption);
+  out.sourceCaption = i.sourceCaption !== undefined ? cleanSource(i.sourceCaption) : s(existing && existing.sourceCaption);
   const rd = s(i.releaseDate).slice(0, 10);
   if (rd && !/^\d{4}-\d{2}-\d{2}$/.test(rd)) errors.push('Release date is not valid.');
   out.releaseDate = /^\d{4}-\d{2}-\d{2}$/.test(rd) ? rd : '';
@@ -144,16 +197,20 @@ function validate(input, existing) {
   out.source = existing && existing.source ? existing.source : (i.source === 'tmdb' ? 'tmdb' : 'manual');
   out.tmdbKey = existing && existing.tmdbKey ? existing.tmdbKey : (/^(movie|tv):\d{1,9}$/.test(s(i.tmdbKey)) ? s(i.tmdbKey) : '');
   out.hasImage = !!(existing && existing.hasImage);
+  // A new / changed Reel link: the old thumbnail belongs to another video (save() deletes it).
+  out.hasThumb = !!(existing && existing.hasThumb && existing.instagramUrl === out.instagramUrl);
+  out.thumbAt = out.hasThumb ? s(existing.thumbAt) : '';
+  if (existing && existing.instagramUrl !== out.instagramUrl) out.sourceCaption = '';
   out.importedAt = existing ? (existing.importedAt || '') : (out.source === 'tmdb' && i.importedAt === true ? now : '');
   // An imported post whose words / picture / dates the owner changed is never touched by the import job again.
-  const CONTENT = ['type', 'title', 'service', 'caption', 'releaseDate', 'imageUrl', 'trailerUrl', 'instagramUrl', 'cta', 'languages', 'genres'];
+  const CONTENT = ['type', 'title', 'service', 'brand', 'ctaService', 'caption', 'releaseDate', 'imageUrl', 'trailerUrl', 'instagramUrl', 'cta', 'languages', 'genres'];
   out.edited = !!(existing && (existing.edited || (existing.source === 'tmdb' && CONTENT.some((k) => JSON.stringify(existing[k] == null ? '' : existing[k]) !== JSON.stringify(out[k])))));
   out.createdAt = (existing && existing.createdAt) || now;
   out.updatedAt = now;
   return { ok: !errors.length, post: out, errors };
 }
 
-async function list() { const x = parseJson(await readKey(KEY), []); return Array.isArray(x) ? x : []; }
+async function list() { const x = parseJson(await readKey(KEY), []); return Array.isArray(x) ? x.map(migrate) : []; }
 async function saveAll(items) { await writeKey(KEY, JSON.stringify(items)); cache = null; }
 
 async function save(input) {
@@ -163,9 +220,11 @@ async function save(input) {
   const v = validate(input, idx >= 0 ? items[idx] : null);
   if (!v.ok) return { ok: false, message: v.errors.join(' '), errors: v.errors };
   if (idx < 0 && items.length >= MAX_POSTS) return { ok: false, message: 'Too many posts — delete old ones first (max ' + MAX_POSTS + ').' };
+  const igChanged = idx >= 0 ? items[idx].instagramUrl !== v.post.instagramUrl : !!v.post.instagramUrl;
+  if (idx >= 0 && items[idx].hasThumb && !v.post.hasThumb) { try { await db.query('DELETE FROM app_settings WHERE setting_key = ?', [IMG_PREFIX + v.post.id + 't']); } catch (_) {} }
   if (idx >= 0) items[idx] = v.post; else items.unshift(v.post);
   await saveAll(items);
-  return { ok: true, post: v.post, created: idx < 0 };
+  return { ok: true, post: v.post, created: idx < 0, igChanged };
 }
 async function remove(id) {
   const items = await list();
@@ -173,25 +232,32 @@ async function remove(id) {
   if (!p) return { ok: false, message: 'Post not found.' };
   await saveAll(items.filter((x) => x.id !== id));
   try { await db.query('DELETE FROM app_settings WHERE setting_key = ?', [IMG_PREFIX + id]); } catch (_) {}
+  try { await db.query('DELETE FROM app_settings WHERE setting_key = ?', [IMG_PREFIX + id + 't']); } catch (_) {}
   return { ok: true, post: p };
 }
-async function setImage(id, dataUrl) {
+/** kind '' = the owner's uploaded picture (feed_img_<id>), 't' = the Instagram thumbnail (feed_img_<id>t). */
+async function storePicture(id, dataUrl, kind) {
   const items = await list();
   const p = items.find((x) => x.id === id);
   if (!p) return { ok: false, message: 'Save the post first, then add a picture.' };
   const v = s(dataUrl);
   if (v && !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v)) return { ok: false, message: 'Please upload a PNG, JPG or WebP picture.' };
   if (v.length > IMG_MAX) return { ok: false, message: 'That picture is too big — please use a smaller one.' };
+  const key = IMG_PREFIX + id + (kind === 't' ? 't' : '');
   try {
-    if (v) await writeKey(IMG_PREFIX + id, v); else await db.query('DELETE FROM app_settings WHERE setting_key = ?', [IMG_PREFIX + id]);
+    if (v) await writeKey(key, v); else await db.query('DELETE FROM app_settings WHERE setting_key = ?', [key]);
   } catch (e) {
     if (/Data too long/i.test(String(e.message))) return { ok: false, message: 'Run db/schema-v17.sql first (it makes room for pictures).' };
     throw e;
   }
-  p.hasImage = !!v; p.updatedAt = new Date().toISOString();
+  const now = new Date().toISOString();
+  if (kind === 't') { p.hasThumb = !!v; p.thumbAt = v ? now : ''; } else p.hasImage = !!v;
+  p.updatedAt = now;
   await saveAll(items);
-  return { ok: true, hasImage: p.hasImage, post: p };
+  return { ok: true, hasImage: !!p.hasImage, hasThumb: !!p.hasThumb, post: p };
 }
+const setImage = (id, dataUrl) => storePicture(id, dataUrl, '');
+const setThumb = (id, dataUrl) => storePicture(id, dataUrl, 't');
 async function image(id) {
   const v = s(await readKey(IMG_PREFIX + safeId(id)));
   const m = v.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/);
@@ -232,19 +298,32 @@ function sortPosts(items) {
 }
 
 // ---- public ----
+/** Picture order: 📸 fetched Instagram thumbnail (Reel posts) → the owner's uploaded picture → poster link → none (gradient). */
+function pictureOf(p, ig) {
+  if (p.hasThumb && ig) return '/feed-img/' + p.id + 't?v=' + encodeURIComponent(p.thumbAt || p.updatedAt || '');
+  if (p.hasImage) return '/feed-img/' + p.id + '?v=' + encodeURIComponent(p.updatedAt || '');
+  return posterPath(p.imageUrl);
+}
+async function commentCounts() {
+  try { return await require('./feedcomments').counts(); } catch (_) { return {}; }
+}
 let cache = null; let cacheAt = 0;
 async function publicList(now) {
   if (!now && cache && Date.now() - cacheAt < 30e3) return cache;
-  const [items, st] = await Promise.all([list(), stats().catch(() => ({}))]);
+  const [items, st, cc] = await Promise.all([list(), stats().catch(() => ({})), commentCounts()]);
   const live = sortPosts(items.filter((p) => statusOf(p, now) === 'LIVE')).slice(0, 60);
   const out = {
     ok: true,
-    posts: live.map((p) => ({
-      id: p.id, type: p.type, title: p.title, service: p.service, caption: p.caption, releaseDate: p.releaseDate,
-      languages: p.languages || [], genres: p.genres || [], trailerUrl: p.trailerUrl, instagramUrl: instagramUrl(p.instagramUrl) || '', cta: p.cta, pinned: !!p.pinned,
-      date: sortDate(p), likes: (st[p.id] || {}).likes || 0,
-      image: p.hasImage ? '/feed-img/' + p.id + '?v=' + encodeURIComponent(p.updatedAt || '') : posterPath(p.imageUrl),
-    })),
+    posts: live.map((p) => {
+      const ig = instagramUrl(p.instagramUrl) || '';
+      return {
+        id: p.id, type: p.type, title: p.title, brand: p.brand || brandOf(p.service), ctaService: p.ctaService || p.service, service: p.ctaService || p.service,
+        caption: p.caption, releaseDate: p.releaseDate,
+        languages: p.languages || [], genres: p.genres || [], trailerUrl: p.trailerUrl, instagramUrl: ig, cta: p.cta, pinned: !!p.pinned,
+        date: sortDate(p), likes: (st[p.id] || {}).likes || 0, comments: cc[p.id] || 0,
+        image: pictureOf(p, ig),
+      };
+    }),
   };
   if (!now) { cache = out; cacheAt = Date.now(); }
   return out;
@@ -253,7 +332,7 @@ async function publicList(now) {
 async function trendingLines() {
   try {
     const r = await publicList();
-    return r.posts.slice(0, 8).map((p) => '🍿 ' + p.title + (p.service ? ' on ' + p.service : ''));
+    return r.posts.slice(0, 8).map((p) => '🍿 ' + p.title + (p.brand || p.service ? ' on ' + (p.brand || p.service) : ''));
   } catch (_) { return []; }
 }
 
@@ -311,6 +390,8 @@ async function getSettings() {
   const x = parseJson(await readKey(SETTINGS_KEY), {});
   return {
     tmdbKey: s(x.tmdbKey),
+    // Optional Meta app token ("appid|secret" or a long-lived token) for Instagram's official oEmbed thumbnails.
+    metaToken: s(x.metaToken),
     // ON by default once a key is saved; only an explicit false turns it off.
     autoPublish: x.autoPublish !== false,
     platforms: Array.isArray(x.platforms) ? x.platforms.map((p) => clean(p, 60)).filter(Boolean) : [],
@@ -326,6 +407,7 @@ async function getSettings() {
 function publicSettings(st) {
   return {
     hasKey: !!st.tmdbKey, keyType: st.tmdbKey ? (isV4(st.tmdbKey) ? 'read access token' : 'API key') : '',
+    hasMetaToken: !!st.metaToken, aiKeySet: !!process.env.DEEPSEEK_API_KEY,
     autoPublish: st.autoPublish, platforms: st.platforms, languages: st.languages, minPopularity: st.minPopularity, minVotes: st.minVotes,
     maxPerDay: st.maxPerDay, autoHideDays: st.autoHideDays, providerMap: Object.assign({}, DEFAULT_PROVIDERS, st.providerMap),
     defaultProviders: DEFAULT_PROVIDERS, languageNames: LANGS, defaultLanguages: DEFAULT_LANGS,
@@ -343,6 +425,12 @@ async function saveSettings(input) {
     const k = s(i.tmdbKey);
     if (!/^[A-Za-z0-9._-]{20,600}$/.test(k)) return { ok: false, message: 'That does not look like a TMDB API key or read access token.' };
     if (k !== cur.tmdbKey) { changed.push('TMDB key saved'); next.tmdbKey = k; }
+  }
+  if (i.clearMetaToken === true) { if (cur.metaToken) changed.push('Meta token removed'); next.metaToken = ''; }
+  else if (s(i.metaToken)) {
+    const k = s(i.metaToken);
+    if (!/^[A-Za-z0-9|_.-]{20,600}$/.test(k)) return { ok: false, message: 'That does not look like a Meta app token (app id|app secret, or an access token).' };
+    if (k !== cur.metaToken) { changed.push('Meta token saved'); next.metaToken = k; }
   }
   if (i.autoPublish != null) set('autoPublish', i.autoPublish === true || i.autoPublish === 'true', 'auto-publish ' + ((i.autoPublish === true || i.autoPublish === 'true') ? 'on' : 'off'));
   if (Array.isArray(i.platforms)) set('platforms', i.platforms.map((p) => clean(p, 60)).filter(Boolean).slice(0, 30), 'platforms');
@@ -412,6 +500,8 @@ function draftFrom(row, media, service, gmap) {
     type: mt === 'tv' ? 'series' : 'movie',
     title: clean(mt === 'tv' ? (row.name || row.original_name) : (row.title || row.original_title), 100),
     service: clean(service, 60),
+    ctaService: clean(service, 60),
+    brand: brandOf(service),
     caption: cleanCaption(row.overview),
     releaseDate: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '',
     languages: row.original_language && LANGS[row.original_language] ? [LANGS[row.original_language]] : [],
@@ -448,6 +538,87 @@ async function tmdbDetails(key, tmdbKey, service) {
   const row = await tmdbGet(key, '/' + m[1] + '/' + m[2], { language: 'en-US', append_to_response: 'videos' });
   return draftFrom(row, m[1], service, null);
 }
+/**
+ * 🔎 Best TMDB match for a free-text title ("🎥Front of the class (2008)"): movies / series only, same year and kind
+ * preferred, must have a poster. → a draft (genres named, date, poster, language, trailer) or null. Needs a TMDB key.
+ */
+function searchTitle(v) {
+  const raw = s(v);
+  const year = (raw.match(/\((19|20)\d\d\)/) || [''])[0].replace(/\D/g, '');
+  const t = raw.replace(/\((19|20)\d\d\)/g, ' ').replace(/[^\p{L}\p{N}\s:'’&.,!?-]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return { q: clean(t.replace(/^[:\s-]+|[:\s-]+$/g, ''), 80), year };
+}
+async function tmdbMatch(title, opts) {
+  const o = opts || {};
+  const st = await getSettings();
+  if (!st.tmdbKey) return null;
+  const { q, year } = searchTitle(title);
+  const y = o.year || year;
+  if (q.length < 2) return null;
+  const [r, g] = await Promise.all([tmdbGet(st.tmdbKey, '/search/multi', { query: q, include_adult: 'false', language: 'en-US', page: 1 }), genres(st.tmdbKey)]);
+  const rows = (r.results || []).filter((x) => (x.media_type === 'movie' || x.media_type === 'tv') && x.poster_path);
+  const norm = (x) => s(x).toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const score = (x) => {
+    const name = x.media_type === 'tv' ? (x.name || x.original_name) : (x.title || x.original_title);
+    const date = s(x.media_type === 'tv' ? x.first_air_date : x.release_date);
+    return (norm(name) === norm(q) ? 4 : norm(name).includes(norm(q)) ? 1 : 0) + (y && date.startsWith(y) ? 3 : 0) +
+      (o.type === 'series' && x.media_type === 'tv' ? 1 : o.type === 'movie' && x.media_type === 'movie' ? 1 : 0) + Math.min(1, (Number(x.popularity) || 0) / 100);
+  };
+  const best = rows.map((x) => [score(x), x]).sort((a, b) => b[0] - a[0])[0];
+  if (!best || best[0] < 1) return null;
+  const d = draftFrom(best[1], best[1].media_type, o.service || '', g);
+  try { const det = await tmdbDetails(st.tmdbKey, d.tmdbKey, o.service || ''); if (det && det.title) return Object.assign(d, { genres: det.genres.length ? det.genres : d.genres, trailerUrl: det.trailerUrl || '' }); } catch (_) {}
+  return d;
+}
+
+/**
+ * 📸 Instagram thumbnail + the Reel's caption, fetched by the server (feedthumb.js). Stored as feed_img_<id>t.
+ * Nothing fetched → the uploaded picture / picture link is used; neither → the poster of the matching title (TMDB).
+ * opts: { http, budgetMs } (tests pass a fake http).
+ */
+async function refreshThumb(id, opts) {
+  const o = opts || {};
+  const items = await list();
+  const p = items.find((x) => x.id === id);
+  if (!p) return { ok: false, message: 'Post not found.' };
+  const ig = instagramUrl(p.instagramUrl);
+  if (!ig) return { ok: false, message: 'This post has no Instagram link.' };
+  const st = await getSettings();
+  const thumbs = require('./feedthumb');
+  const info = await thumbs.instagramInfo(ig, { metaToken: st.metaToken, http: o.http, budgetMs: o.budgetMs });
+  const out = { ok: true, thumb: false, caption: false, poster: false, source: info.source || '', reason: info.reason || '', bytes: 0 };
+  let dirty = false;
+  const now = new Date().toISOString();
+  if (info.caption) { const c = cleanSource(info.caption); if (c) { out.caption = true; if (c !== p.sourceCaption) { p.sourceCaption = c; dirty = true; } } }
+  const cands = (info.images && info.images.length ? info.images.map((c) => c.url) : [info.imageUrl]).filter(Boolean).slice(0, 3);
+  if (cands.length) {
+    // First picture ≤ 120 KB wins; otherwise the smallest one that downloaded (the admin page shrinks it after).
+    let img = null;
+    for (const url of cands) {
+      const got = await thumbs.downloadImage(url, { http: o.http });
+      if (!got.ok) { if (!img) out.reason = got.reason; continue; }
+      if (!img || !img.ok || got.buf.length < img.buf.length) img = got;
+      if (got.buf.length <= THUMB_GOOD) break;
+    }
+    img = img || { ok: false, reason: out.reason };
+    if (img.ok) {
+      const dataUrl = 'data:' + img.type + ';base64,' + img.buf.toString('base64');
+      if (dataUrl.length <= IMG_MAX) {
+        try { await writeKey(IMG_PREFIX + id + 't', dataUrl); p.hasThumb = true; p.thumbAt = now; dirty = true; out.thumb = true; out.bytes = img.buf.length; }
+        catch (e) { out.reason = /Data too long/i.test(String(e.message)) ? 'run schema-v17' : 'save failed'; }
+      } else out.reason = 'picture too big';
+    } else out.reason = img.reason || 'picture blocked';
+  }
+  if (!p.hasThumb && !p.hasImage && !p.imageUrl && st.tmdbKey && p.title) {
+    try { const m = await tmdbMatch(p.title, { type: p.type }); if (m && m.imageUrl) { p.imageUrl = m.imageUrl; dirty = true; out.poster = true; } } catch (_) {}
+  }
+  if (dirty) { p.updatedAt = now; await saveAll(items); }
+  out.post = p;
+  out.message = out.thumb ? '📸 Thumbnail saved' + (out.caption ? ' (+ Reel caption for ✨ AI fill)' : '')
+    : (out.poster ? '🎬 Instagram blocked the thumbnail — used the title\'s poster instead' : p.hasImage || p.imageUrl ? '⚠️ No Instagram thumbnail (' + (out.reason || 'blocked') + ') — your picture is used' : '⚠️ No Instagram thumbnail (' + (out.reason || 'blocked') + ') — upload a picture, or add a TMDB key for posters');
+  return out;
+}
+
 /** Owner picked a title (search / suggestions): full details + trailer → saved post. publish=false = draft (OFF). */
 async function tmdbCreate(tmdbKey, service, publish) {
   if (!/^(movie|tv):\d{1,9}$/.test(s(tmdbKey))) return { ok: false, message: 'Pick a title from the TMDB results.' };
@@ -469,15 +640,26 @@ const istDay = (ms) => new Date((ms || Date.now()) + 330 * 60000).toISOString().
 
 /** Active catalog services (the platforms FluxFilm sells). */
 async function catalogServices() {
+  return (await catalogServiceInfo()).map((x) => x.service);
+}
+/** [{ service, brand, minPrice, logoUrl }] of active catalog services (admin "Sell button uses plan" list with live prices). */
+async function catalogServiceInfo() {
   try {
-    const rows = await db.query('SELECT service, is_active, raw_json FROM plans', []);
-    const out = new Set();
+    const rows = await db.query('SELECT service, price, logo_url, is_active, raw_json FROM plans', []);
+    const by = new Map();
     for (const r of rows) {
       let raw = {}; try { raw = typeof r.raw_json === 'object' && r.raw_json ? r.raw_json : JSON.parse(r.raw_json || '{}'); } catch (_) {}
       const act = r.is_active != null && r.is_active !== '' ? r.is_active : raw.IsActive;
-      if (String(act).toUpperCase() === 'TRUE' || act === 1 || act === true) out.add(s(r.service || raw.Service));
+      if (!(String(act).toUpperCase() === 'TRUE' || act === 1 || act === true)) continue;
+      const name = s(r.service || raw.Service); if (!name) continue;
+      const price = Number(r.price != null && r.price !== '' ? r.price : raw.Price) || 0;
+      const logo = s(r.logo_url || raw.LogoUrl);
+      const cur = by.get(name) || { service: name, brand: brandOf(name), minPrice: 0, logoUrl: '' };
+      if (price > 0 && (!cur.minPrice || price < cur.minPrice)) cur.minPrice = price;
+      if (!cur.logoUrl && /^https:\/\/[^\s"'<>]+$/i.test(logo)) cur.logoUrl = logo;
+      by.set(name, cur);
     }
-    return [...out].filter(Boolean).sort((a, b) => a.localeCompare(b));
+    return [...by.values()].sort((a, b) => a.service.localeCompare(b.service));
   } catch (_) { return []; }
 }
 
@@ -498,7 +680,8 @@ async function discover(st, services, opts) {
     const ids = providersFor(svc, map);
     if (!ids) { skipped.push(svc); continue; }
     if (seenIds.has(ids)) continue;
-    seenIds.add(ids); unique.push([svc, ids]);
+    // The button sells the brand's main plan ("Netflix", not "Netflix (Group Offer)") when both are listed.
+    seenIds.add(ids); unique.push([mainServiceFor(brandOf(svc), services) || svc, ids]);
   }
   for (const [svc, ids] of unique) {
     const anyLang = ANY_LANGUAGE.some((k) => svc.toLowerCase().includes(k));
@@ -626,8 +809,9 @@ function startTimer(deps) {
 module.exports = {
   posterPath, posterImage,
   TYPES, CTAS, IMG_HOSTS, TRAILER_HOSTS, IG_HOSTS, DEFAULT_PROVIDERS, DEFAULT_LANGS, MAX_POSTS,
-  validate, instagramUrl, youtubeId, list, save, remove, setImage, image, statusOf, sortPosts, publicList, trendingLines, record, flushStats, stats,
-  getSettings, publicSettings, saveSettings, tmdbSearch, tmdbCreate, tmdbSuggest, tmdbProviders, providersFor, draftFrom, catalogServices,
+  validate, instagramUrl, youtubeId, list, save, remove, setImage, setThumb, image, statusOf, sortPosts, publicList, trendingLines, record, flushStats, stats,
+  getSettings, publicSettings, saveSettings, tmdbSearch, tmdbCreate, tmdbSuggest, tmdbProviders, providersFor, draftFrom, catalogServices, catalogServiceInfo,
   discover, runImport, jobStatus, startTimer, toIso,
+  BRANDS, brandOf, mainServiceFor, migrate, searchTitle, tmdbMatch, refreshThumb, pictureOf, LANGS,
   _internal: { pending, liked, genreCache, setFetch: (f) => { fetchImpl = f; }, reset: () => { cache = null; pending.clear(); liked.clear(); genreCache.at = 0; running = false; } },
 };

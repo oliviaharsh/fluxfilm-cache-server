@@ -213,6 +213,19 @@ if (feedMod) {
   LIMITS.getFeed = security.rateLimiter(200, TEN_MIN);
   LIMITS.feedEvent = security.rateLimiter(300, TEN_MIN);
 }
+// 💬 Feed comments (feedcomments.js): anyone reads; a logged-in customer writes (a = [phone, postId, text]), moderated
+// before saving. Until db/schema-v24.sql is run: "Comments coming soon".
+let feedCommentsMod = null; try { feedCommentsMod = require('./feedcomments'); } catch (e) { console.log('[feed comments] not loaded:', e.message); }
+if (feedMod && feedCommentsMod) {
+  Object.assign(DB_STOREFRONT, {
+    getFeedComments: (a) => feedCommentsMod.list(a[0], a[1]),
+    addFeedComment: (a, req) => feedCommentsMod.add(a[0], a[1], a[2], { ip: security.clientIp(req) }),
+  });
+  DB_STOREFRONT_ACTIONS.add('getFeedComments'); DB_STOREFRONT_ACTIONS.add('addFeedComment');
+  LIMITS.getFeedComments = security.rateLimiter(300, TEN_MIN);
+  LIMITS.addFeedComment = security.rateLimiter(40, TEN_MIN);
+  PHONE_LIMITS.addFeedComment = security.rateLimiter(10, TEN_MIN);
+}
 
 // 🎮 Games (/games page, admin → 🎮 Games). a = [phone, deviceToken, ...]. The server decides and scores every game.
 let gamesMod = null; try { gamesMod = require('./games'); } catch (e) { console.log('[games] not loaded:', e.message); }
