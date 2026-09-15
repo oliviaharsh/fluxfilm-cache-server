@@ -414,6 +414,7 @@ async function _markPaid(orderId, txnRef) {
 
 // Refunded by the owner: the checkout page stops waiting and says so (no bank credit is taken for it).
 const REFUNDED_VERIFY = { ok: true, found: false, paid: false, refunded: true, fulfillment: 'REFUNDED', message: '💸 This order was refunded. Please contact WhatsApp support if this looks wrong.' };
+const CREDIT_VERIFY = { ok: true, found: true, paid: false, credit: true, message: '✅ This renewal is already active. FluxFilm will confirm your payment — message WhatsApp support if you have paid.' };
 const FREE_VERIFY = { ok: true, found: false, paid: false, freeCheckout: true, message: 'Nothing to pay on this order — go back and tap “Confirm” to use your credit.' };
 
 async function verifyPayment(orderId) {
@@ -422,6 +423,8 @@ async function verifyPayment(orderId) {
   if (o.source !== 'node') return { ok: false, found: false, message: 'This legacy order cannot be verified on the new checkout. Please contact support.' };
   if (String(o.status || '').toUpperCase() === 'REFUNDED') return REFUNDED_VERIFY;
   if (String(o.status || '').toUpperCase() === 'PAID') return { ok: true, found: true, paid: true, message: '✅ Payment confirmed.' };
+  // 💳 Admin credit renewal (credit.js): already active; the owner records the payment, never a bank line matched here.
+  if (String(o.status || '').toUpperCase() === 'CREDIT') return CREDIT_VERIFY;
   // ₹0 order: nothing to find in the bank (and no ₹0 bank line may ever "pay" it) — it is confirmed with confirmFreeOrder.
   if (!(asNum(o.final_amount) > 0)) return FREE_VERIFY;
   const credit = await pay.findByOrder(orderId, o.final_amount);
@@ -440,6 +443,8 @@ async function verifyPaymentByRef(orderId, ref) {
   if (o.source !== 'node') return { ok: false, found: false, message: 'This legacy order cannot be verified on the new checkout. Please contact support.' };
   if (String(o.status || '').toUpperCase() === 'REFUNDED') return REFUNDED_VERIFY;
   if (String(o.status || '').toUpperCase() === 'PAID') return { ok: true, found: true, paid: true, message: '✅ Payment confirmed.' };
+  // 💳 Admin credit renewal (credit.js): already active; the owner records the payment, never a bank line matched here.
+  if (String(o.status || '').toUpperCase() === 'CREDIT') return CREDIT_VERIFY;
   if (!(asNum(o.final_amount) > 0)) return FREE_VERIFY;
   const credit = await pay.findByRef(orderId, ref, o.final_amount);
   if (credit) { await _markPaid(orderId, credit.upi_ref); return { ok: true, found: true, paid: true }; }
@@ -700,6 +705,8 @@ async function adminMarkPaid(orderId, txnRef) {
   if (!o) return { ok: false, message: 'Order not found.' };
   if (o.source !== 'node') return { ok: false, message: 'Legacy (Sheet) orders cannot be marked paid here.' };
   if (String(o.status || '').toUpperCase() === 'REFUNDED') return { ok: false, message: 'This order was refunded — it cannot be marked paid again. Create a new order instead.' };
+  if (String(o.status || '').toUpperCase() === 'CREDIT') return { ok: false, credit: true, message: 'This renewal is on credit — use 💳 Mark paid on the order (Today → Receivables) so the amount is recorded.' };
+  if (String(o.status || '').toUpperCase() === 'WRITTEN_OFF') return { ok: false, message: 'This credit was cancelled (written off) — it cannot be marked paid.' };
   await _markPaid(orderId, txnRef);
   return { ok: true };
 }

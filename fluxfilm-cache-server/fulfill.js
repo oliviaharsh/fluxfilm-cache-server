@@ -73,9 +73,11 @@ const mailer = require('./mailer');
 function afterFulfillHook(payload) {
   const p = payload || {};
   const event = p.event || (String(p.orderType || '').toUpperCase() === 'RENEW' ? 'RENEW' : 'NEW_PURCHASE');
-  coins.awardCoins({ event, orderId: p.orderId, phone: p.phone, service: p.service, plan: p.plan, amount: p.amount })
-    .then((r) => console.log('[coins]', p.orderId, JSON.stringify(r)))
-    .catch((e) => console.log('[coins] failed:', e.message));
+  if (!p.skipCoins) {
+    coins.awardCoins({ event, orderId: p.orderId, phone: p.phone, service: p.service, plan: p.plan, amount: p.amount })
+      .then((r) => console.log('[coins]', p.orderId, JSON.stringify(r)))
+      .catch((e) => console.log('[coins] failed:', e.message));
+  }
   mailer.sendAccessEmail(p)
     .then(() => console.log('[mail] sent for', p.orderId))
     .catch((e) => console.log('[mail] failed:', e.message));
@@ -178,7 +180,10 @@ async function _fulfill(orderId, opts) {
   // allowLegacy: the owner delivering an old-site (imported) order from the admin panel. Old-site renewals are
   // refused by the admin route before this point; the storefront never passes it.
   if (o.source !== 'node' && !(opts && opts.allowLegacy)) return { ok: false, found: false, fulfillment: 'ERROR', message: 'This legacy order cannot be fulfilled on the new checkout. Please contact support.' };
-  if (String(o.status || '').toUpperCase() !== 'PAID') return { ok: true, found: false, fulfillment: 'PENDING', retryAfterSec: 3, message: 'Processing your order…' };
+  // 💳 Admin credit renewal (credit.js): a CREDIT order is delivered before it is paid — only when the admin route asks
+  // (opts.allowCredit) and the server marked the renewal as credit. The storefront never passes allowCredit.
+  const creditOk = !!(opts && opts.allowCredit) && String(o.status || '').toUpperCase() === 'CREDIT' && rawOf(o.raw_json).Credit === true && String(o.order_type || '').toUpperCase() === 'RENEW';
+  if (String(o.status || '').toUpperCase() !== 'PAID' && !creditOk) return { ok: true, found: false, fulfillment: 'PENDING', retryAfterSec: 3, message: 'Processing your order…' };
 
   if (String(o.fulfillment_status || '').toUpperCase() === 'FULFILLED') {
     const ex = await _existingAccess(orderId);
@@ -971,10 +976,15 @@ async function _fulfillRenew(o) {
 
     // How many days the late renewal costs — agreed rules in renewal.js (F4).
     const rem = _purchaseRemoval(rows);
-    const rn = computeRenewal({
+    // Admin renewals may choose where the new period starts (raw_json RenewBase, quickorders.js). Only admin-created
+    // orders carry it; every other renewal uses the normal rule.
+    const oraw = rawOf(o.raw_json);
+    const adminBase = oraw.CreatedVia === 'ADMIN' ? String(oraw.RenewBase || '').toUpperCase() : '';
+    const rp = {
       expiry: s.expiry_date, removed: rem.removed, removedAt: rem.removedAt,
       now: new Date(), durationDays: asNum(o.duration_days) || 30,
-    });
+    };
+    const rn = (adminBase === 'EXPIRY' || adminBase === 'TODAY') ? require('./renewal').computeAdminRenewal(Object.assign({ base: adminBase }, rp)) : computeRenewal(rp);
     const newExpiry = rn.newExpiry;
     const release = addDays(newExpiry, COOLDOWN_DAYS);
     const moved = d.mode === 'MOVE' || d.mode === 'SPLIT';
@@ -1049,6 +1059,8 @@ async function _fulfillRenew(o) {
       event: 'RENEW',
       orderId: o.order_id, phone: o.phone, email: o.email, name: o.name,
       service: o.service, plan: o.plan, amount: o.final_amount,
+      // 💳 Credit renewal: no coins until it is paid (credit.js awards them when the owner marks it paid).
+      skipCoins: String(o.status || '').toUpperCase() === 'CREDIT',
       expiry: fmtDt(newExpiry), postPaymentMessage: '',
       access: access.logins ? access : { user: access.user, pass: access.pass, profileName: access.profileName, profilePin: access.profilePin, deviceType: access.deviceType },
       loginNotice: notice,
@@ -1110,7 +1122,12 @@ async function fulfillAndGetAccess(orderId, proof) {
 }
 
 /** Admin endpoint only (key-protected): full result including credentials. opts.allowLegacy: old-site order. */
-async function fulfillForAdmin(orderId, opts) { return _fulfillSafe(orderId, opts && opts.allowLegacy ? { allowLegacy: true } : undefined); }
+async function fulfillForAdmin(orderId, opts) {
+  const o = {};
+  if (opts && opts.allowLegacy) o.allowLegacy = true;
+  if (opts && opts.allowCredit) o.allowCredit = true;
+  return _fulfillSafe(orderId, Object.keys(o).length ? o : undefined);
+}
 
 module.exports = { fulfillAndGetAccess, fulfillForAdmin, planRenewal, checkDeviceLogins, pickDeviceLogins, allocatePrimeSeparate, allocateProfileSeparate, allocatePrime, allocateProfile, allocateNetflix, allocateWholeAccount, allocateOtp, _internal: { withLock, genSubId, freeSubId, monthsFromDays, notesAllowMonths, otpRowServes, OCC_ACTIVE, _deliveredRowsGuard,
   // 🔁 Switch account (adminswitch.js) counts capacity with exactly these.

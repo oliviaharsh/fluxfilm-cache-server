@@ -134,4 +134,34 @@ function finish(out) {
   return out;
 }
 
-module.exports = { computeRenewal, cfgFromEnv, toDate, hms, DAY };
+/**
+ * Admin only (Quick order → Renew, owner request 16 Sep 2026): the owner picks where the new period starts.
+ *   base 'EXPIRY' → new expiry = old expiry + plan (the customer kept watching unpaid, so no free days)
+ *   base 'TODAY'  → new expiry = today + plan (a fresh start; days still left on a running plan are dropped)
+ *   anything else → the normal rule above (computeRenewal), exactly what the storefront does.
+ * The storefront never sends a base: RenewBase is only written by quickorders.js into raw_json (server-side).
+ */
+const RENEW_BASES = ['AUTO', 'EXPIRY', 'TODAY'];
+function normBase(v) { const b = String(v == null ? '' : v).trim().toUpperCase(); return RENEW_BASES.includes(b) ? b : 'AUTO'; }
+function computeAdminRenewal(p) {
+  const base = normBase(p && p.base);
+  if (base === 'AUTO') return Object.assign(computeRenewal(p), { base });
+  const D = Math.max(1, Number(p.durationDays) || 30);
+  const T = toDate(p.now) || new Date();
+  const E = toDate(p.expiry);
+  const out = { case: '', base, counted: 0, accessDays: 0, gifted: 0, accessMs: 0, daysSinceRemoval: null, message: '', bubble: '' };
+  if (base === 'EXPIRY' && E) {
+    out.case = 'ADMIN_FROM_EXPIRY';
+    out.newExpiry = addDays(E, D);
+    out.message = 'Renewed from the old expiry date (' + prettyDate(E) + ') — the new period continues from there.';
+  } else {
+    out.case = base === 'EXPIRY' ? 'NO_EXPIRY' : 'ADMIN_FROM_TODAY';
+    out.newExpiry = addDays(T, D);
+    out.message = E && E.getTime() > T.getTime()
+      ? 'Starts fresh from today — the days left on the current plan are not added.'
+      : 'Starts fresh from today.';
+  }
+  return finish(out);
+}
+
+module.exports = { computeRenewal, computeAdminRenewal, normBase, RENEW_BASES, prettyDate, cfgFromEnv, toDate, hms, DAY };

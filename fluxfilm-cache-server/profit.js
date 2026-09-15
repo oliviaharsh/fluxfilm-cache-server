@@ -140,8 +140,11 @@ function mount(app, deps) {
       // Revenue on accounts that are no longer in inventory (deleted / renamed).
       for (const [key, rv] of revByAcc) { noAccount.revenue += rv.revenue; noAccount.earned += rv.earned; noAccount.orders += rv.orders; }
 
+      // 💳 Credit renewals (status CREDIT) are not PAID, so none of the numbers above include them — shown as a label.
+      let creditDue = null;
+      try { const cr = await (deps.credit || require('./credit')).receivables((sql, p) => db.query(sql, p)); creditDue = { total: cr.total, count: cr.count }; } catch (_) { creditDue = null; }
       res.json({
-        ok: true, range, costsReady,
+        ok: true, range, costsReady, creditDue,
         totals: { revenue: r2(revenue), earned: r2(earnedTotal), paidAhead: r2(ahead), cost: r2(cost), monthlyCost: r2(monthlyTotal), profit: r2(earnedTotal - cost), margin: earnedTotal > 0 ? Math.round(((earnedTotal - cost) / earnedTotal) * 1000) / 10 : null, orders: orderCount, renewals, newOrders: orderCount - renewals, accountsWithoutCost: accRows.filter((a) => a.isActive && a.monthlyCost == null).length },
         services: [...bySvc.values()].map((x) => ({ family: x.family, services: [...x.services].sort(), revenue: r2(x.revenue), earned: r2(x.earned), orders: x.orders, renewals: x.renewals, cost: r2(x.cost), profit: r2(x.earned - x.cost), accounts: x.accounts, accountsWithoutCost: x.accountsWithoutCost })).sort((a, b) => b.revenue - a.revenue),
         accounts: accRows,

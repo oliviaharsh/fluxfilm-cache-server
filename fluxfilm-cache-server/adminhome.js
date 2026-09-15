@@ -65,6 +65,9 @@ function mount(app, deps) {
         // 📨 Customer "Request refund" waiting for an answer (refundrequests.js, db/schema-v26; [] before it is run).
         many("SELECT request_id, order_id, phone_norm, service, plan, paid_amount, kind FROM refund_requests WHERE status = 'OPEN' ORDER BY created_at LIMIT 50"),
       ]);
+      // 💳 Receivables: admin credit renewals not paid yet (credit.js, orders only). Never breaks the Today screen.
+      const credit = deps.credit || require('./credit');
+      const recv = await credit.receivables((sql, p) => db.query(sql, p)).catch((e) => ({ error: e.message }));
       const openRefunds = (Array.isArray(upiRefunds) ? upiRefunds : []).map((o) => { const r = require("./refunds").refundInfo(o); return { order_id: o.order_id, name: o.name, phone_norm: o.phone_norm, service: o.service, plan: o.plan, final_amount: r.amount, fulfillment_status: r.state === 'UPI_REQUESTED' ? 'UPI_REFUND_REQUESTED' : 'CUSTOMER_CHOOSING', state: r.state }; });
       const toSend = openRefunds.filter((x) => x.state === 'UPI_REQUESTED');
       const choosing = openRefunds.filter((x) => x.state !== 'UPI_REQUESTED')
@@ -81,6 +84,7 @@ function mount(app, deps) {
           { key: 'refundrequests', icon: '📨', title: 'Refund requests from customers', count: Array.isArray(refundRequests) ? refundRequests.length : 0, tone: 'bad', go: { view: 'refunds' }, orders: (Array.isArray(refundRequests) ? refundRequests : []).slice(0, 5).map((x) => ({ order_id: x.order_id, name: '', phone_norm: x.phone_norm, service: x.service, plan: x.plan, final_amount: Number(x.paid_amount) || 0, fulfillment_status: String(x.kind || '') === 'UNDELIVERED' ? 'NOT_DELIVERED' : 'DELIVERED' })) },
           { key: 'upirefunds', icon: '💸', title: 'Refunds to send (UPI)', count: toSend.length, tone: 'bad', go: { view: 'refunds' }, orders: toSend.slice(0, 5) },
           { key: 'refundchoice', icon: '⏳', title: 'Refunds: customer still choosing (coins / coupon or UPI)', count: choosing.length, tone: 'info', go: { view: 'refunds' }, orders: choosing.slice(0, 5) },
+          credit.todayCard(recv),
           { key: 'manual', icon: '🛠', title: 'Manual plans to activate', count: +manual.n || 0, tone: lateManual ? 'bad' : 'warn', sub: lateManual ? lateManual + ' waiting over 48 h since payment' : '', late: lateManual, go: { view: 'orders', orders: 'manual' } },
           { key: 'unmatched', icon: '💸', title: 'Payments since go-live not matched to an order', count: +unmatched.n || 0, tone: 'warn', go: { view: 'bank' } },
           { key: 'ending', icon: '⏳', title: 'Plans ending in 3 days', count: +ending.n || 0, tone: 'warn', go: { view: 'reminders' }, list: endingList },
