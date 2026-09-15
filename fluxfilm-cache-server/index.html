@@ -107,6 +107,37 @@ html.ff-lite .ff-slide { animation-duration: .2s; }
 .ff-photo-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
 .ff-photo-note { font-size: 12.5px; font-weight: 600; color: #64748b; margin-top: 6px; line-height: 1.4; }
 .ff-photo-note.bad { color: #b91c1c; }
+/* ✨ Avatar creator (AvatarCreator; drawing code = /avatar-maker.js, loaded only when opened) */
+.ff-avc { position: fixed; inset: 0; z-index: 95; background: #f8fafc; display: flex; flex-direction: column; animation: ffAvcIn .2s ease-out; }
+@keyframes ffAvcIn { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+.ff-avc-top { display: flex; align-items: center; gap: 8px; padding: calc(10px + env(safe-area-inset-top)) 12px 6px; }
+.ff-avc-top h2 { flex: 1; min-width: 0; margin: 0; font-size: 17px; font-weight: 900; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ff-avc-ib { min-width: 44px; min-height: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(15,23,42,.10); background: #fff; font-family: inherit; font-size: 14px; font-weight: 800; color: #0f172a; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex-shrink: 0; }
+.ff-avc-ib:disabled { opacity: .4; }
+.ff-avc-ib:active, .ff-avc-op:active, .ff-avc-sw:active { transform: scale(.94); }
+.ff-avc-prev { flex-shrink: 0; display: grid; place-items: center; padding: 6px 0 10px; }
+.ff-avc-big { width: min(46vw, 30vh, 210px); height: min(46vw, 30vh, 210px); border-radius: 999px; overflow: hidden; box-shadow: 0 10px 30px rgba(15,23,42,.18); background: #e2e8f0; }
+.ff-avc-big svg, .ff-avc-th svg { width: 100%; height: 100%; display: block; }
+.ff-avc-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 4px 12px 10px; scrollbar-width: none; flex-shrink: 0; }
+.ff-avc-tabs::-webkit-scrollbar, .ff-avc-row::-webkit-scrollbar { display: none; }
+.ff-avc-tab { flex-shrink: 0; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(15,23,42,.10); background: #fff; font-family: inherit; font-size: 13.5px; font-weight: 800; color: #475569; cursor: pointer; white-space: nowrap; }
+.ff-avc-tab.on { background: #0f172a; border-color: #0f172a; color: #fff; }
+.ff-avc-body { flex: 1; min-height: 0; overflow-y: auto; background: #fff; border-radius: 22px 22px 0 0; box-shadow: 0 -4px 20px rgba(15,23,42,.06); padding: 12px 0 8px; overscroll-behavior: contain; }
+.ff-avc-lbl { font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: #64748b; padding: 4px 16px 6px; }
+.ff-avc-row { display: flex; gap: 10px; overflow-x: auto; padding: 2px 16px 12px; scrollbar-width: none; }
+.ff-avc-op { flex-shrink: 0; width: 76px; border: 2px solid rgba(15,23,42,.08); background: #fff; border-radius: 18px; padding: 4px 4px 6px; cursor: pointer; font-family: inherit; transition: border-color .12s; }
+.ff-avc-op.on { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.18); }
+.ff-avc-th { display: block; width: 64px; height: 64px; border-radius: 14px; overflow: hidden; margin: 0 auto; }
+.ff-avc-op small { display: block; margin-top: 4px; font-size: 11px; font-weight: 700; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ff-avc-sw { flex-shrink: 0; width: 48px; height: 48px; margin: 3px 0; border-radius: 999px; border: 3px solid #fff; box-shadow: 0 0 0 1.5px rgba(15,23,42,.14); cursor: pointer; }
+.ff-avc-sw.on { box-shadow: 0 0 0 3px #22c55e; }
+.ff-avc-foot { display: flex; gap: 10px; padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid rgba(15,23,42,.06); }
+.ff-avc-msg { font-size: 13px; font-weight: 700; color: #b91c1c; text-align: center; padding: 0 16px 6px; background: #fff; }
+.ff-avc-new { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px; margin-bottom: 14px; border-radius: 18px; border: 0; background: linear-gradient(135deg,#0f172a,#1e3a2f); color: #fff; text-align: left; cursor: pointer; font-family: inherit; min-height: 64px; }
+.ff-avc-new b { display: block; font-size: 15px; font-weight: 900; }
+.ff-avc-new span { font-size: 12.5px; font-weight: 600; opacity: .8; }
+.ff-avc-new i { font-style: normal; font-size: 30px; }
+@media (prefers-reduced-motion: reduce) { .ff-avc { animation: none; } }
 .ff-photo-rm { margin-top: 6px; min-height: 36px; border: 0; background: none; color: #b91c1c; font-size: 13px; font-weight: 800; padding: 6px 0; cursor: pointer; font-family: inherit; }
 .ff-alist { margin-top: 12px; padding: 4px 0 !important; }
 .ff-arow { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: none; border: 0; text-align: left; cursor: pointer; font-family: inherit; }
@@ -433,34 +464,78 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 @keyframes ffPromoBounce { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-6px) rotate(4deg); } }
 @keyframes ffPromoGlow { from { transform: translateX(0); opacity: .6; } to { transform: translateX(-30%); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ff-promo-pop, .ff-promo-big, .ff-promo-glow, .ff-promo-bg { animation: none; } }
-/* ── 🍿 What's new feed (Instagram-style posts; images keep a fixed 4:5 box so nothing jumps) ── */
-.ff-feed { max-width: 520px; margin: 0 auto; }
+/* ── 🍿 What's new feed — run 4 look: app-like posts (brand header, rounded 4:5 media, compact actions, comment previews,
+   comments bottom sheet, sticky CTA pill, collapsible filters). Images keep a fixed 4:5 box so nothing jumps. ── */
+.ff-feed { max-width: 520px; margin: 0 auto; position: relative; }
+.ff-feed-h { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .ff-feed-sub { margin: -4px 0 12px; font-size: 13px; font-weight: 600; color: #64748b; }
-.ff-feed-chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 12px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.ff-feed-top { position: sticky; top: var(--ff-top-h, 0px); z-index: 12; margin: 0 -6px 12px; padding: 8px 6px 6px; background: rgba(244,246,249,.96); transition: transform .24s ease, opacity .24s ease; }
+.ff-feed-top.hide { transform: translateY(-110%); opacity: 0; pointer-events: none; }
+.ff-feed-bar { display: flex; gap: 8px; align-items: center; }
+.ff-feed-fbtn { flex: none; position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(15,23,42,.1); background: #fff; font: inherit; font-size: 13.5px; font-weight: 800; color: #0f172a; cursor: pointer; box-shadow: 0 1px 2px rgba(15,23,42,.05); }
+.ff-feed-fbtn.on { background: #0f172a; border-color: #0f172a; color: #fff; }
+.ff-feed-fbtn b { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #22c55e; color: #fff; font-size: 11px; line-height: 18px; text-align: center; box-sizing: border-box; }
+.ff-feed-fbtn i { font-style: normal; font-size: 11px; transition: transform .2s ease; }
+.ff-feed-fbtn[aria-expanded="true"] i { transform: rotate(180deg); }
+.ff-feed-panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .24s ease; }
+.ff-feed-panel.open { grid-template-rows: 1fr; }
+.ff-feed-panel > div { min-height: 0; overflow: hidden; }
+.ff-feed-panel > div > :first-child { margin-top: 10px; }
+.ff-feed-chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 10px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .ff-feed-chips::-webkit-scrollbar { display: none; }
-.ff-feed-chips button { flex: none; min-height: 38px; padding: 0 14px; border-radius: 999px; border: 1.5px solid rgba(15,23,42,.12); background: #fff; font: inherit; font-size: 13px; font-weight: 700; color: #334155; cursor: pointer; white-space: nowrap; }
+.ff-feed-chips button { flex: none; min-height: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(15,23,42,.12); background: #fff; font: inherit; font-size: 13px; font-weight: 700; color: #334155; cursor: pointer; white-space: nowrap; }
 .ff-feed-chips button.on { background: #0f172a; border-color: #0f172a; color: #fff; }
-.ff-feed-post { background: #fff; border: 1px solid rgba(15,23,42,.09); border-radius: 22px; overflow: hidden; margin: 0 0 16px; box-shadow: 0 1px 3px rgba(15,23,42,.05); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+.ff-feed-chips.sm { padding-bottom: 6px; }
+.ff-feed-chips.sm button { min-height: 34px; padding: 0 12px; font-size: 12.5px; }
+.ff-feed-chips i { flex: none; width: 1px; margin: 6px 2px; background: rgba(15,23,42,.12); }
+.ff-feed-chips.act { padding: 8px 0 2px; }
+.ff-feed-chips.act button { min-height: 32px; padding: 0 10px 0 12px; background: #ecfdf5; border-color: #a7f3d0; color: #065f46; font-size: 12.5px; }
+.ff-feed-count { margin: 8px 0 0; font-size: 12.5px; font-weight: 700; color: #64748b; display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 20px; }
+.ff-feed-count button { border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 800; color: #15803d; cursor: pointer; padding: 6px 0; }
+.ff-feed-find { position: relative; flex: 1; min-width: 0; margin: 0; }
+.ff-feed-find input { width: 100%; box-sizing: border-box; min-height: 44px; padding: 0 40px 0 38px; border: 1px solid rgba(15,23,42,.1); border-radius: 999px; background: #fff; font: inherit; font-size: 15px; font-weight: 600; color: #0f172a; -webkit-appearance: none; appearance: none; box-shadow: 0 1px 2px rgba(15,23,42,.05); }
+.ff-feed-find input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.ff-feed-find input:focus { outline: none; border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.15); }
+.ff-feed-find > span { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); font-size: 14px; pointer-events: none; }
+.ff-feed-find button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border: 0; border-radius: 50%; background: none; font-size: 16px; color: #64748b; cursor: pointer; }
+/* pull to refresh */
+.ff-feed-ptr { position: absolute; left: 50%; top: -46px; z-index: 13; width: 38px; height: 38px; margin-left: -19px; border-radius: 50%; background: #fff; box-shadow: 0 4px 14px rgba(15,23,42,.14); display: grid; place-items: center; opacity: 0; pointer-events: none; font-size: 17px; color: #16a34a; }
+.ff-feed-ptr::before { content: ''; width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid #bbf7d0; border-top-color: #16a34a; }
+.ff-feed-ptr.ready::before { border-color: #16a34a; border-top-color: #bbf7d0; }
+.ff-feed-ptr.spin::before { animation: ffFeedSpin .7s linear infinite; }
+.ff-feed-ptr.back { transition: transform .2s ease, opacity .2s ease; }
+@keyframes ffFeedSpin { to { transform: rotate(360deg); } }
+/* post */
+.ff-feed-post { position: relative; background: #fff; border: 1px solid rgba(15,23,42,.07); border-radius: 24px; margin: 0 0 14px; box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 8px 24px rgba(15,23,42,.04); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; animation: ffFeedIn .32s ease backwards; }
+@keyframes ffFeedIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .ff-feed-post.hl { box-shadow: 0 0 0 3px rgba(22,163,74,.35), 0 8px 24px rgba(15,23,42,.1); }
-.ff-feed-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
-.ff-feed-av { width: 38px; height: 38px; border-radius: 50%; flex: none; overflow: hidden; padding: 2px; background: linear-gradient(135deg,#f59e0b,#db2777,#7c3aed); }
-.ff-feed-av img, .ff-feed-av span { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: #fff; display: grid; place-items: center; color: #0f172a; font-size: 15px; font-weight: 900; }
+.ff-feed-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px 10px; }
+.ff-feed-av { width: 38px; height: 38px; border-radius: 50%; flex: none; overflow: hidden; padding: 2px; box-sizing: border-box; background: linear-gradient(135deg,#f59e0b,#db2777,#7c3aed); }
+.ff-feed-av img, .ff-feed-av span { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: #fff; display: grid; place-items: center; color: #0f172a; font-size: 15px; font-weight: 900; box-shadow: inset 0 0 0 2px #fff; }
+.ff-feed-av.logo img { object-fit: contain; padding: 3px; box-sizing: border-box; }
+.ff-feed-av .em { font-size: 17px; }
 .ff-feed-name { min-width: 0; flex: 1; line-height: 1.25; }
-.ff-feed-name b { display: block; font-size: 14px; font-weight: 800; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ff-feed-name span { font-size: 12px; font-weight: 600; color: #64748b; }
-.ff-feed-pin { flex: none; font-size: 12px; font-weight: 700; color: #b45309; }
-.ff-feed-media { position: relative; aspect-ratio: 4 / 5; overflow: hidden; background: linear-gradient(110deg,#eef2f7 30%,#f8fafc 50%,#eef2f7 70%); background-size: 200% 100%; user-select: none; -webkit-user-select: none; }
+.ff-feed-name b { display: block; font-size: 14.5px; font-weight: 800; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ff-feed-name span { display: block; font-size: 12px; font-weight: 600; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ff-feed-pin { flex: none; font-size: 11.5px; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 999px; padding: 3px 8px; }
+.ff-feed-season { flex: none; padding: 4px 10px; border-radius: 999px; background: linear-gradient(135deg,#ecfdf5,#d1fae5); border: 1px solid #a7f3d0; font-size: 11.5px; font-weight: 800; color: #047857; white-space: nowrap; }
+.ff-feed-mwrap { position: relative; margin: 0 10px; }
+.ff-feed-media { position: relative; aspect-ratio: 4 / 5; overflow: hidden; border-radius: 18px; background: linear-gradient(110deg,#eef2f7 30%,#f8fafc 50%,#eef2f7 70%); background-size: 200% 100%; user-select: none; -webkit-user-select: none; }
 .ff-feed-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .ff-feed-noimg { position: absolute; inset: 0; display: grid; place-items: center; font-size: 64px; background: linear-gradient(135deg,#0f172a,#1e293b); }
-/* 🎬 Feed video: tap-to-play card → YouTube (16:9 inside the same 4:5 box, no jump) or Instagram's embed (grows from the box height). */
-.ff-feed-mwrap { position: relative; }
 .ff-feed-noimg.ig { background: linear-gradient(135deg,#f59e0b,#db2777 55%,#7c3aed); }
-.ff-feed-play { position: absolute; inset: 0; width: 100%; border: 0; padding: 0; margin: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; font: inherit; color: #fff; background: linear-gradient(180deg,rgba(15,23,42,0) 35%,rgba(15,23,42,.6)); -webkit-tap-highlight-color: transparent; }
-.ff-feed-play b { width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center; font-size: 30px; background: rgba(220,38,38,.92); box-shadow: 0 8px 24px rgba(0,0,0,.35); transition: transform .15s ease; }
+.ff-feed-badge { position: absolute; right: 10px; top: 10px; z-index: 1; padding: 5px 11px; border-radius: 999px; background: rgba(15,23,42,.74); color: #fff; font-size: 12px; font-weight: 800; pointer-events: none; letter-spacing: .01em; }
+.ff-feed-badge.soon { background: linear-gradient(135deg,rgba(124,58,237,.92),rgba(219,39,119,.92)); }
+.ff-feed-media.ig ~ .ff-feed-badge, .ff-feed-media.vid ~ .ff-feed-badge { display: none; }
+/* 🎬 Feed video: tap-to-play card → YouTube (16:9 inside the same 4:5 box, no jump) or Instagram's embed (grows from the box height). */
+.ff-feed-play { position: absolute; inset: 0; width: 100%; border: 0; padding: 0; margin: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; font: inherit; color: #fff; background: linear-gradient(180deg,rgba(15,23,42,0) 40%,rgba(15,23,42,.55)); -webkit-tap-highlight-color: transparent; }
+.ff-feed-play b { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font-size: 28px; background: rgba(220,38,38,.92); box-shadow: 0 8px 24px rgba(0,0,0,.35), 0 0 0 6px rgba(255,255,255,.18); transition: transform .15s ease; }
 .ff-feed-play.ig b { background: linear-gradient(135deg,#f59e0b,#db2777,#7c3aed); }
 .ff-feed-play span { max-width: 90%; padding: 6px 14px; border-radius: 999px; background: rgba(15,23,42,.72); font-size: 14px; font-weight: 800; }
 .ff-feed-play:active b { transform: scale(.94); }
+.ff-feed-play.ig.thumb { background: linear-gradient(180deg,rgba(15,23,42,0) 50%,rgba(15,23,42,.42)); }
 .ff-feed-play-sm { position: absolute; left: 10px; bottom: 10px; min-height: 36px; padding: 0 12px; border: 0; border-radius: 999px; background: rgba(15,23,42,.8); color: #fff; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.ff-feed-igchip { position: absolute; left: 10px; top: 10px; z-index: 1; padding: 4px 10px; border-radius: 999px; background: rgba(15,23,42,.72); color: #fff; font-size: 12px; font-weight: 800; pointer-events: none; }
 .ff-feed-media.vid { background: #000; }
 .ff-feed-yt { position: absolute; left: 0; top: 50%; width: 100%; aspect-ratio: 16 / 9; transform: translateY(-50%); border: 0; }
 .ff-feed-vclose { position: absolute; top: 8px; right: 8px; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(15,23,42,.75); color: #fff; font-size: 17px; font-weight: 800; cursor: pointer; }
@@ -471,83 +546,133 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-feed-vbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid rgba(15,23,42,.08); }
 .ff-feed-vbar a, .ff-feed-vbar button { min-height: 36px; display: inline-flex; align-items: center; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 800; color: #475569; cursor: pointer; text-decoration: none; }
 .ff-feed-vbar a { color: #be185d; }
-.ff-feed-acts .ff-feed-trailer.sm { background: none; color: #64748b; font-size: 12.5px; }
-.ff-feed-tile-v { position: absolute; right: 6px; bottom: 6px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; background: rgba(15,23,42,.72); }
 .ff-feed-burst { position: absolute; left: 50%; top: 50%; font-size: 90px; line-height: 1; margin: -45px 0 0 -45px; opacity: 0; pointer-events: none; animation: ffFeedBurst .7s ease both; }
 @keyframes ffFeedBurst { 0% { transform: scale(0); opacity: 0; } 30% { transform: scale(1.15); opacity: 1; } 70% { transform: scale(1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
-.ff-feed-acts { display: flex; align-items: center; gap: 2px; padding: 6px 6px 0; }
-.ff-feed-acts button { min-width: 44px; min-height: 44px; border: 0; background: none; border-radius: 12px; font: inherit; font-size: 14px; font-weight: 800; color: #0f172a; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; }
-.ff-feed-acts button span { font-size: 22px; line-height: 1; }
-.ff-feed-acts .ff-feed-trailer { margin-left: auto; min-height: 36px; background: #fee2e2; color: #b91c1c; font-size: 13px; }
-.ff-feed-body { padding: 4px 14px 14px; }
-.ff-feed-title { font-size: 16px; font-weight: 900; color: #0f172a; line-height: 1.25; }
+/* compact action row: ❤️ n · 💬 n · 📤 ··· 🔖 */
+.ff-feed-acts { display: flex; align-items: center; gap: 0; padding: 4px 6px 0; }
+.ff-feed-acts button { min-width: 44px; min-height: 44px; border: 0; background: none; border-radius: 12px; font: inherit; font-size: 14px; font-weight: 800; color: #0f172a; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; }
+.ff-ic { display: block; flex: none; transition: transform .18s ease; }
+.ff-feed-acts button:active .ff-ic { transform: scale(.84); }
+.ff-ic-heart.on { color: #ef4444; animation: ffLikePop .35s ease; }
+.ff-ic-share { transform: translateY(-1px); }
+.ff-feed-acts .ff-feed-save { margin-left: auto; }
+@keyframes ffLikePop { 0% { transform: scale(.7); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
+.ff-feed-body { padding: 0 16px 14px; }
+.ff-feed-title { font-size: 16.5px; font-weight: 900; color: #0f172a; line-height: 1.25; letter-spacing: -.01em; }
 .ff-feed-rel { margin-top: 3px; font-size: 12.5px; font-weight: 700; color: #15803d; }
-.ff-feed-season { flex: none; margin-left: 6px; padding: 3px 9px; border-radius: 999px; background: #ecfdf5; border: 1px solid #a7f3d0; font-size: 11.5px; font-weight: 800; color: #047857; white-space: nowrap; }
-.ff-feed-cap { margin-top: 6px; font-size: 14px; font-weight: 500; color: #334155; line-height: 1.5; white-space: pre-line; }
+.ff-feed-rel span { color: #64748b; font-weight: 600; }
+.ff-feed-cap { margin-top: 6px; font-size: 14px; font-weight: 500; color: #334155; line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; }
 .ff-feed-cap.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.ff-feed-more { border: 0; background: none; padding: 2px 0; font: inherit; font-size: 13.5px; font-weight: 800; color: #64748b; cursor: pointer; }
+.ff-feed-more { border: 0; background: none; padding: 4px 0; font: inherit; font-size: 13.5px; font-weight: 800; color: #64748b; cursor: pointer; }
 .ff-feed-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .ff-feed-tags span { padding: 3px 9px; border-radius: 999px; background: #f1f5f9; font-size: 11.5px; font-weight: 700; color: #475569; }
-.ff-feed-cta { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; margin-top: 12px; min-height: 50px; padding: 10px 16px; border: 0; border-radius: 16px; background: linear-gradient(135deg,#16a34a,#22c55e); color: #fff; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; text-align: left; box-shadow: 0 6px 16px rgba(22,163,74,.25); }
-.ff-feed-cta small { display: block; font-size: 11.5px; font-weight: 600; opacity: .92; }
-.ff-feed-cta > span:last-child { font-size: 24px; }
-.ff-feed-cta.renew { background: linear-gradient(135deg,#7c3aed,#a855f7); box-shadow: 0 6px 16px rgba(124,58,237,.25); }
+.ff-feed-tags button { min-height: 30px; padding: 3px 11px; border-radius: 999px; border: 1px solid rgba(15,23,42,.1); background: #f8fafc; font: inherit; font-size: 12px; font-weight: 700; color: #334155; cursor: pointer; }
+.ff-feed-tags button.on { background: #0f172a; border-color: #0f172a; color: #fff; }
+.ff-feed-ytbtn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; margin-top: 10px; padding: 0 14px; border: 1.5px solid #fecaca; border-radius: 999px; background: #fff5f5; color: #b91c1c; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.ff-feed-ytbtn:active { background: #fee2e2; }
 .ff-feed-note { margin-top: 8px; font-size: 12.5px; font-weight: 700; color: #15803d; }
-.ff-feed-skel .ff-feed-media { animation: ffFeedShimmer 1.2s linear infinite; }
-.ff-feed-skel i { display: block; height: 12px; margin: 10px 14px; border-radius: 6px; background: #eef2f7; }
+/* comment previews under a post */
+.ff-feed-cprev { margin-top: 10px; display: grid; gap: 3px; }
+.ff-feed-cprev > button { justify-self: start; border: 0; background: none; padding: 4px 0; font: inherit; font-size: 13.5px; font-weight: 700; color: #64748b; cursor: pointer; text-align: left; }
+.ff-feed-cprev p { margin: 0; font-size: 13.5px; line-height: 1.45; color: #334155; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.ff-feed-cprev p b { color: #0f172a; font-weight: 800; margin-right: 5px; }
+.ff-feed-cadd { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 8px; min-height: 40px; padding: 0 4px 0 0; border: 0; background: none; font: inherit; font-size: 13.5px; font-weight: 600; color: #94a3b8; cursor: pointer; text-align: left; }
+.ff-feed-cadd i { width: 28px; height: 28px; flex: none; border-radius: 50%; background: #e2e8f0; display: grid; place-items: center; font-style: normal; font-size: 12px; font-weight: 800; color: #334155; }
+/* "Get <service> from ₹X": pill button in the post + a small floating copy while that post's own button is off screen */
+.ff-feed-cta { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; margin-top: 12px; min-height: 50px; padding: 6px 6px 6px 18px; border: 0; border-radius: 999px; background: linear-gradient(135deg,#15803d,#22c55e); color: #fff; font: inherit; font-size: 14.5px; font-weight: 800; cursor: pointer; text-align: left; box-shadow: 0 8px 22px rgba(22,163,74,.28); }
+.ff-feed-cta > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ff-feed-cta small { display: block; font-size: 11.5px; font-weight: 600; opacity: .92; overflow: hidden; text-overflow: ellipsis; }
+.ff-feed-cta > span:last-child { flex: none; width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.22); display: grid; place-items: center; font-size: 22px; line-height: 1; }
+.ff-feed-cta.renew { background: linear-gradient(135deg,#6d28d9,#a855f7); box-shadow: 0 8px 22px rgba(124,58,237,.28); }
+.ff-feed-float { position: fixed; left: 50%; bottom: calc(var(--ff-bnav-h, 0px) + 12px); z-index: 24; display: flex; align-items: center; gap: 10px; max-width: calc(100% - 32px); min-height: 46px; padding: 5px 5px 5px 16px; border: 0; border-radius: 999px; background: rgba(15,23,42,.92); color: #fff; font: inherit; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-size: 13.5px; font-weight: 800; cursor: pointer; box-shadow: 0 10px 26px rgba(15,23,42,.28); transform: translateX(-50%); animation: ffFloatIn .24s ease both; white-space: nowrap; }
+.ff-feed-float span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ff-feed-float b { flex: none; width: 36px; height: 36px; border-radius: 50%; background: #22c55e; display: grid; place-items: center; font-size: 20px; line-height: 1; }
+.ff-feed-float.renew b { background: #a855f7; }
+@keyframes ffFloatIn { from { opacity: 0; transform: translate(-50%, 14px); } to { opacity: 1; transform: translate(-50%, 0); } }
+/* skeletons */
+.ff-feed-skel { animation: none; }
+.ff-feed-skel .ff-feed-media, .ff-feed-skel i, .ff-feed-skel .ff-feed-av { animation: ffFeedShimmer 1.2s linear infinite; background: linear-gradient(110deg,#eef2f7 30%,#f8fafc 50%,#eef2f7 70%); background-size: 200% 100%; }
+.ff-feed-skel i { display: block; height: 12px; margin: 9px 0; border-radius: 6px; }
+.ff-feed-skel .ff-feed-name i { margin: 5px 0; }
+.ff-feed-skel .ff-feed-body { padding-top: 10px; }
 @keyframes ffFeedShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .ff-feed-attr { margin: 8px 0 0; font-size: 11px; font-weight: 600; color: #94a3b8; text-align: center; line-height: 1.5; }
-.ff-feed-strip { margin: 4px 0 16px; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
-.ff-feed-strip-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.ff-feed-strip-h b { font-size: 15px; font-weight: 800; color: #0f172a; }
-.ff-feed-strip-h button { border: 0; background: none; font: inherit; font-size: 13px; font-weight: 800; color: #15803d; cursor: pointer; min-height: 40px; }
-.ff-feed-strip-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+/* Home / My plans "New this week" strip */
+.ff-feed-strip { margin: 4px 0 18px; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+.ff-feed-strip-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.ff-feed-strip-h b { font-size: 15.5px; font-weight: 900; color: #0f172a; letter-spacing: -.01em; }
+.ff-feed-strip-h button { border: 0; background: #ecfdf5; border-radius: 999px; padding: 0 12px; font: inherit; font-size: 12.5px; font-weight: 800; color: #15803d; cursor: pointer; min-height: 34px; }
+.ff-feed-strip-row { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 6px; margin: 0 -2px; scrollbar-width: none; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
 .ff-feed-strip-row::-webkit-scrollbar { display: none; }
-.ff-feed-tile { flex: none; width: 104px; border: 0; background: none; padding: 0; text-align: left; font: inherit; cursor: pointer; scroll-snap-align: start; }
-.ff-feed-tile-img { position: relative; display: block; width: 104px; height: 130px; border-radius: 16px; overflow: hidden; background: #eef2f7; }
+.ff-feed-tile { flex: none; width: 108px; border: 0; background: none; padding: 0; text-align: left; font: inherit; cursor: pointer; scroll-snap-align: start; }
+.ff-feed-tile-img { position: relative; display: block; width: 108px; height: 135px; border-radius: 18px; overflow: hidden; background: #eef2f7; box-shadow: 0 4px 14px rgba(15,23,42,.12); transition: transform .15s ease; }
+.ff-feed-tile:active .ff-feed-tile-img { transform: scale(.96); }
 .ff-feed-tile-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ff-feed-tile-img::after { content: ''; position: absolute; inset: 55% 0 0; background: linear-gradient(180deg,rgba(15,23,42,0),rgba(15,23,42,.55)); pointer-events: none; }
 .ff-feed-tile-img i { position: absolute; inset: 0; display: grid; place-items: center; font-style: normal; font-size: 34px; background: linear-gradient(135deg,#0f172a,#334155); }
-.ff-feed-tile-t { margin-top: 6px; font-size: 12.5px; font-weight: 800; color: #0f172a; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ff-feed-tile-v { position: absolute; right: 6px; bottom: 6px; z-index: 1; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; background: rgba(15,23,42,.72); }
+.ff-feed-tile-b { position: absolute; left: 6px; top: 6px; z-index: 1; padding: 2px 7px; border-radius: 999px; background: rgba(15,23,42,.72); color: #fff; font-size: 10.5px; font-weight: 800; }
+.ff-feed-tile-b.soon { background: rgba(124,58,237,.9); }
+.ff-feed-tile-t { margin-top: 7px; font-size: 12.5px; font-weight: 800; color: #0f172a; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .ff-feed-tile-s { display: block; font-size: 11px; font-weight: 600; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ff-feed-tile.skel .ff-feed-tile-img, .ff-feed-tile.skel .ff-feed-tile-t { animation: ffFeedShimmer 1.2s linear infinite; background: linear-gradient(110deg,#eef2f7 30%,#f8fafc 50%,#eef2f7 70%); background-size: 200% 100%; box-shadow: none; }
+.ff-feed-tile.skel .ff-feed-tile-img::after { display: none; }
+.ff-feed-tile.skel .ff-feed-tile-t { height: 12px; width: 80%; border-radius: 6px; }
 @media (prefers-reduced-motion: reduce) { .ff-feed-burst, .ff-feed-skel .ff-feed-media { animation: none; } }
-/* 🍿 Feed v3: brand logo, Instagram chip, genre chips, YouTube button, filters + search, comments */
-.ff-feed-av.logo img { object-fit: contain; padding: 3px; }
-.ff-feed-av .em { font-size: 17px; }
-.ff-feed-igchip { position: absolute; left: 10px; top: 10px; z-index: 1; padding: 4px 10px; border-radius: 999px; background: rgba(15,23,42,.72); color: #fff; font-size: 12px; font-weight: 800; pointer-events: none; }
-.ff-feed-play.ig.thumb { background: linear-gradient(180deg,rgba(15,23,42,0) 45%,rgba(15,23,42,.45)); }
-.ff-feed-tags button { min-height: 30px; padding: 3px 11px; border-radius: 999px; border: 1px solid rgba(15,23,42,.1); background: #f1f5f9; font: inherit; font-size: 12px; font-weight: 700; color: #334155; cursor: pointer; }
-.ff-feed-tags button.on { background: #0f172a; border-color: #0f172a; color: #fff; }
-.ff-feed-ytbtn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 46px; margin-top: 10px; padding: 8px 14px; border: 1.5px solid #fecaca; border-radius: 14px; background: #fff5f5; color: #b91c1c; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
-.ff-feed-ytbtn:active { background: #fee2e2; }
-.ff-feed-find { position: relative; margin: 0 0 8px; }
-.ff-feed-find input { width: 100%; box-sizing: border-box; min-height: 44px; padding: 0 40px 0 38px; border: 1.5px solid rgba(15,23,42,.12); border-radius: 14px; background: #fff; font: inherit; font-size: 15px; font-weight: 600; color: #0f172a; -webkit-appearance: none; appearance: none; }
-.ff-feed-find input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
-.ff-feed-find input:focus { outline: none; border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.15); }
-.ff-feed-find > span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 15px; pointer-events: none; }
-.ff-feed-find button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border: 0; border-radius: 50%; background: none; font-size: 16px; color: #64748b; cursor: pointer; }
-.ff-feed-chips.sm { padding-bottom: 8px; }
-.ff-feed-chips.sm button { min-height: 34px; padding: 0 12px; font-size: 12.5px; }
-.ff-feed-chips i { flex: none; width: 1px; margin: 6px 2px; background: rgba(15,23,42,.12); }
-.ff-feed-count { margin: 0 0 10px; font-size: 12.5px; font-weight: 700; color: #64748b; display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 20px; }
-.ff-feed-count button { border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 800; color: #15803d; cursor: pointer; padding: 0; }
-.ff-feed-cm { border-top: 1px solid rgba(15,23,42,.08); margin-top: 12px; padding-top: 10px; }
-.ff-feed-cm-form { display: flex; gap: 8px; align-items: flex-end; }
-.ff-feed-cm-form textarea { flex: 1; min-width: 0; min-height: 44px; max-height: 120px; padding: 10px 12px; border: 1.5px solid rgba(15,23,42,.12); border-radius: 14px; font: inherit; font-size: 14px; resize: vertical; box-sizing: border-box; }
-.ff-feed-cm-form button, .ff-feed-cm-login { flex: none; min-height: 44px; padding: 0 14px; border: 0; border-radius: 14px; background: #0f172a; color: #fff; font: inherit; font-size: 13.5px; font-weight: 800; cursor: pointer; }
-.ff-feed-cm-form button:disabled { opacity: .5; }
-.ff-feed-cm-login { width: 100%; background: #f1f5f9; color: #0f172a; }
-.ff-feed-cm-meta { display: flex; justify-content: space-between; margin-top: 4px; font-size: 11.5px; font-weight: 600; color: #94a3b8; }
-.ff-feed-cm-msg { margin-top: 6px; font-size: 12.5px; font-weight: 700; color: #15803d; }
-.ff-feed-cm-msg.bad { color: #b91c1c; }
-.ff-feed-cm-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
-.ff-feed-cm-list li { display: flex; gap: 8px; align-items: flex-start; }
-.ff-feed-cm-av { width: 30px; height: 30px; border-radius: 50%; flex: none; overflow: hidden; background: #e2e8f0; display: grid; place-items: center; font-size: 13px; font-weight: 800; color: #334155; }
+@media (prefers-reduced-motion: reduce) { .ff-feed-post, .ff-feed-skel i, .ff-feed-skel .ff-feed-av, .ff-feed-tile.skel .ff-feed-tile-img, .ff-cs, .ff-cs-bg, .ff-feed-ptr.spin::before, .ff-feed-float, .ff-ic-heart.on, .ff-feed-cm-list li.new { animation: none; } .ff-feed-top, .ff-feed-panel, .ff-hb { transition: none; } }
+/* 💬 Comments bottom sheet (Instagram-style): newest first, box at the bottom, lifted above the keyboard (visualViewport → --ff-kb) */
+.ff-cs-bg { position: fixed; inset: 0; z-index: 80; background: rgba(15,23,42,.42); animation: ffCsFade .2s ease both; }
+.ff-cs { position: fixed; left: 0; right: 0; bottom: var(--ff-kb, 0px); z-index: 81; max-width: 560px; margin: 0 auto; height: 76vh; height: min(76dvh, calc(var(--ff-vvh, 100dvh) - 24px)); display: flex; flex-direction: column; background: #fff; border-radius: 22px 22px 0 0; box-shadow: 0 -12px 40px rgba(15,23,42,.22); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; animation: ffCsUp .3s cubic-bezier(.2,.9,.3,1) both; overscroll-behavior: contain; }
+.ff-cs.kb { height: calc(var(--ff-vvh, 100dvh) - 12px); }
+.ff-cs.out { transform: translateY(100%); transition: transform .2s ease-in; }
+.ff-cs-bg.out { opacity: 0; transition: opacity .2s ease-in; }
+.ff-cs.drag { transition: none; }
+@keyframes ffCsUp { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes ffCsFade { from { opacity: 0; } to { opacity: 1; } }
+.ff-cs-h { position: relative; flex: none; padding: 10px 52px 10px; text-align: center; border-bottom: 1px solid rgba(15,23,42,.08); touch-action: none; cursor: grab; }
+.ff-cs-grab { display: block; width: 40px; height: 4px; margin: 0 auto 8px; border-radius: 2px; background: #cbd5e1; }
+.ff-cs-h b { display: block; font-size: 15px; font-weight: 900; color: #0f172a; }
+.ff-cs-h span { display: block; font-size: 12px; font-weight: 600; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ff-cs-x { position: absolute; right: 8px; top: 12px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: #f1f5f9; font-size: 16px; font-weight: 800; color: #334155; cursor: pointer; }
+.ff-cs-list { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 6px 16px 12px; }
+.ff-cs-form { flex: none; display: flex; gap: 8px; align-items: flex-end; padding: 8px 12px 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid rgba(15,23,42,.08); background: #fff; }
+.ff-cs.kb .ff-cs-form { padding-bottom: 10px; }
+.ff-cs-form textarea { flex: 1; min-width: 0; min-height: 44px; max-height: 110px; padding: 11px 16px; border: 1px solid rgba(15,23,42,.14); border-radius: 22px; font: inherit; font-size: 16px; line-height: 1.35; resize: none; box-sizing: border-box; background: #f8fafc; color: #0f172a; }
+.ff-cs-form textarea:focus { outline: none; border-color: #16a34a; background: #fff; box-shadow: 0 0 0 3px rgba(22,163,74,.14); }
+.ff-cs-send { flex: none; min-width: 64px; min-height: 44px; padding: 0 16px; border: 0; border-radius: 22px; background: #16a34a; color: #fff; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
+.ff-cs-send:disabled { background: #bbf7d0; color: #fff; }
+.ff-cs-meta { flex: none; display: flex; justify-content: space-between; padding: 0 18px 6px; font-size: 11.5px; font-weight: 600; color: #94a3b8; background: #fff; }
+.ff-cs-proxy { position: fixed; top: 40%; left: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; font-size: 16px; pointer-events: none; }
+.ff-feed-cm-login { flex: 1; min-height: 46px; padding: 0 14px; border: 0; border-radius: 23px; background: #0f172a; color: #fff; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
+.ff-feed-cm-msg { flex: none; margin: 0; padding: 6px 18px; font-size: 12.5px; font-weight: 700; color: #15803d; background: #f0fdf4; }
+.ff-feed-cm-msg.bad { color: #b91c1c; background: #fef2f2; }
+.ff-feed-cm-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.ff-feed-cm-list li { display: flex; gap: 10px; align-items: flex-start; }
+.ff-feed-cm-list li.new { animation: ffFeedIn .3s ease both; }
+.ff-feed-cm-av { width: 34px; height: 34px; border-radius: 50%; flex: none; overflow: hidden; background: linear-gradient(135deg,#dcfce7,#bbf7d0); display: grid; place-items: center; font-size: 13px; font-weight: 800; color: #166534; }
 .ff-feed-cm-av img { width: 100%; height: 100%; object-fit: cover; }
-.ff-feed-cm-b { min-width: 0; flex: 1; font-size: 13.5px; line-height: 1.45; color: #334155; overflow-wrap: anywhere; }
-.ff-feed-cm-b b { color: #0f172a; font-weight: 800; margin-right: 6px; }
-.ff-feed-cm-b small { display: block; font-size: 11px; font-weight: 600; color: #94a3b8; }
-.ff-feed-cm-more { margin-top: 8px; border: 0; background: none; padding: 6px 0; font: inherit; font-size: 13px; font-weight: 800; color: #64748b; cursor: pointer; }
-.ff-feed-cm-soon { font-size: 13px; font-weight: 600; color: #64748b; }
+.ff-feed-cm-b { min-width: 0; flex: 1; font-size: 14px; line-height: 1.45; color: #334155; overflow-wrap: anywhere; }
+.ff-feed-cm-b b { color: #0f172a; font-weight: 800; margin-right: 6px; font-size: 13px; }
+.ff-feed-cm-b small { display: block; margin-top: 2px; font-size: 11.5px; font-weight: 600; color: #94a3b8; }
+.ff-feed-cm-more { display: block; margin: 10px auto 0; border: 0; background: #f1f5f9; border-radius: 999px; padding: 8px 16px; font: inherit; font-size: 13px; font-weight: 800; color: #475569; cursor: pointer; }
+.ff-feed-cm-soon { padding: 28px 8px; text-align: center; font-size: 14px; font-weight: 600; color: #64748b; }
+.ff-feed-cm-soon b { display: block; font-size: 30px; margin-bottom: 6px; }
+/* 💬 Floating Help bubble (Home / My plans / Account, phones): above the bottom menu, hides while scrolling down */
+.ff-hb { position: fixed; right: 14px; bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 12px); z-index: 25; width: 56px; height: 56px; padding: 0; border: 0; border-radius: 50%; background: linear-gradient(135deg,#15803d,#22c55e); color: #fff; font: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; cursor: pointer; box-shadow: 0 10px 24px rgba(22,163,74,.34), 0 2px 6px rgba(15,23,42,.16); transition: transform .26s ease, opacity .26s ease; -webkit-tap-highlight-color: transparent; }
+.ff-hb span { font-size: 21px; line-height: 1; }
+.ff-hb small { font-size: 10.5px; font-weight: 800; line-height: 1.2; letter-spacing: .02em; }
+.ff-hb:active { transform: scale(.94); }
+.ff-hb.hide { transform: translateY(calc(100% + 30px)); opacity: 0; pointer-events: none; }
+.ff-has-bnav.ff-has-hb { padding-bottom: calc(max(72px + env(safe-area-inset-bottom), var(--ff-bnav-h, 0px)) + 88px); }
+@media (min-width: 900px) { .ff-hb { display: none; } .ff-has-bnav.ff-has-hb { padding-bottom: 32px; } }
+/* "Need help?" card at the end of My plans */
+.ff-needhelp { display: flex; align-items: center; gap: 12px; margin: 22px 0 6px; padding: 14px 14px 14px 16px; border-radius: 20px; background: linear-gradient(135deg,#f0fdf4,#ecfeff); border: 1px solid #bbf7d0; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+.ff-needhelp-ic { flex: none; width: 44px; height: 44px; border-radius: 14px; background: #fff; display: grid; place-items: center; font-size: 22px; box-shadow: 0 2px 8px rgba(22,163,74,.15); }
+.ff-needhelp-t { flex: 1; min-width: 0; }
+.ff-needhelp-t b { display: block; font-size: 15px; font-weight: 900; color: #0f172a; }
+.ff-needhelp-t span { display: block; margin-top: 2px; font-size: 12.5px; font-weight: 600; color: #475569; line-height: 1.4; }
+.ff-needhelp button { flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px; background: #16a34a; color: #fff; font: inherit; font-size: 14px; font-weight: 800; cursor: pointer; }
+@media (max-width: 360px) { .ff-needhelp { flex-wrap: wrap; } .ff-needhelp button { width: 100%; } .ff-feed-fbtn { padding: 0 11px; } .ff-feed-acts button { padding: 0 6px; } }
 /* ── Install app pop-up (fixed, outside any animated screen) ── */
 .ff-install-bg { position: fixed; inset: 0; z-index: 70; display: flex; align-items: flex-end; justify-content: center; background: rgba(15,23,42,.28); padding: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom)); animation: ffInstallFade .2s ease both; }
 .ff-install { width: 100%; max-width: 440px; background: #fff; border-radius: 22px; padding: 16px; box-shadow: 0 20px 50px rgba(15,23,42,.25); animation: ffInstallUp .28s cubic-bezier(.2,.9,.3,1.2) both; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
@@ -740,16 +865,20 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
 </script>
 <script>
 // 😏 Greeting on My plans (customer feedback run 2). OWNER: edit the lines below freely.
-// Each line = [text, emoji]. {name} = first name, {service} = plan name, {days} = number of days.
+// Each line = [text, emoji] or [text, emoji, 'live']. {name} = first name, {service} = plan name, {days} = number of days.
+// 'live' = only shown when the customer has at least one active plan (for lines like "Plans are all good").
+// Dates and hours always use India time (Asia/Kolkata), not the phone clock.
 // Admin → 🚧 Maintenance → "Sassy greeting" OFF shows the plain "Welcome back, Name 👋" instead.
 window.FF_GREETING_LINES = {
   first: [['Welcome to the club, {name}! Popcorn ready?', '🍿'], ['{name}, your binge era starts now', '✨'], ['Hi {name}! Shows are waiting, no pressure', '😌']],
   ending: [["Your {service} ends in {days} days — don't leave me on read", '👀'], ['{name}, {service} is packing its bags in {days} days', '🧳'], ['{days} days of {service} left. Cliffhanger ka risk mat lo', '😬']],
   ending1: [["Your {service} ends tomorrow — don't leave me on read", '👀'], ['{service} ends tomorrow, {name}. Renew before the cliffhanger', '😬']],
+  ending0: [["Your {service} ends today — don't leave me on read", '👀'], ['{service} ends today, {name}. Renew before the cliffhanger', '😬']],
   renewed: [['Fresh plan, fresh binge. Sorted, {name}!', '😎'], ["All set, {name}! Shows won't watch themselves", '🎬'], ['Plan ready, {name}. Main character energy', '✨']],
-  away: [['Missed me?? Here we go again!!', '😏'], ['{days} days without me, {name}? Rude', '🙄'], ['{name}! Kahan the aap? Shows missed you', '🥺']],
+  away: [['Missed me?? Here we go again!!', '😏'], ['{days} days without me, {name}? I counted', '👀'], ['{name}! Kahan the aap? Shows missed you', '🥺']],
+  expired: [['Your plans are taking a little break, {name}. Renew anytime', '🍿'], ['Shows miss you, {name}! Renew when you are ready', '🎬']],
   lateNight: [["Binge o'clock, {name}. One more episode?", '🌙'], ['Still awake, {name}? Same', '🦉'], ["Three episodes later… who's counting?", '🌙']],
-  morning: [['Rise and stream, {name}', '☀️'], ['Chai + one episode = perfect morning', '☕'], ['Good morning, {name}! Plans are all good', '🌤️']],
+  morning: [['Rise and stream, {name}', '☀️'], ['Chai + one episode = perfect morning', '☕'], ['Good morning, {name}! Plans are all good', '🌤️', 'live']],
   afternoon: [["Lunch break binge, {name}? We won't tell", '🤫'], ['Hey {name}! Quick episode break?', '🍿']],
   evening: [['Sofa, snacks, shows. Ready, {name}?', '🛋️'], ['Shaam ho gayi, {name}. Binge time!', '🌆'], ['So {name}, what are we watching tonight?', '🎬']],
   night: [['Remote in hand, {name}? Night shift begins', '📺'], ['Just one episode, {name}. Pakka?', '😴']],
@@ -763,7 +892,7 @@ window.FF_GREETING_LINES = {
     '2027-03-22': ['Happy Holi, {name}! Colours outside, shows inside', '🎨']
   }
 };
-window.FF_GREETING_KICK = { first: 'Welcome', ending: 'Heads up', ending1: 'Heads up', renewed: 'Nice one', away: 'Welcome back', lateNight: "Binge o'clock", morning: 'Good morning', afternoon: 'Good afternoon', evening: 'Good evening', night: 'Late show', weekend: 'Weekend mode', festival: 'Festive mode', plain: 'My plans' };
+window.FF_GREETING_KICK = { first: 'Welcome', ending: 'Heads up', ending1: 'Heads up', ending0: 'Heads up', expired: 'Welcome back', renewed: 'Nice one', away: 'Welcome back', lateNight: "Binge o'clock", morning: 'Good morning', afternoon: 'Good afternoon', evening: 'Good evening', night: 'Late show', weekend: 'Weekend mode', festival: 'Festive mode', plain: 'My plans' };
 (function () {
   var DAY = 86400000;
   function firstName(n) {
@@ -775,32 +904,75 @@ window.FF_GREETING_KICK = { first: 'Welcome', ending: 'Heads up', ending1: 'Head
   function hash(s) { var h = 7; s = String(s); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function bucketOfHour(h) { return h < 5 ? 'lateNight' : h < 12 ? 'morning' : h < 17 ? 'afternoon' : h < 22 ? 'evening' : 'night'; }
-  // ctx: { name, subs:[{service, daysLeft, startDate}], lastSeen (ms or null), now (Date), sassy (default true), seed, skip }
+  // India time (no daylight saving, so +5:30 is an exact fallback when Intl is missing).
+  var IST_OFF = 330 * 60000, istFmt = null;
+  function ist(ms) {
+    try {
+      if (istFmt === null) istFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
+      var o = {}; istFmt.formatToParts(new Date(ms)).forEach(function (p) { o[p.type] = p.value; });
+      var y = Number(o.year), m = Number(o.month), d = Number(o.day), h = Number(o.hour) % 24;
+      if (y && m && d && !isNaN(h)) return { y: y, m: m, d: d, h: h };
+    } catch (e) { istFmt = false; }
+    var z = new Date(ms + IST_OFF);
+    return { y: z.getUTCFullYear(), m: z.getUTCMonth() + 1, d: z.getUTCDate(), h: z.getUTCHours() };
+  }
+  function dayNo(p) { return Math.round(Date.UTC(p.y, p.m - 1, p.d) / DAY); }
+  // Safari-safe date reader (no Date.parse on "YYYY-MM-DD HH:mm:ss"). No zone = India wall time.
+  // → { ms, y, m, d } (y/m/d = India calendar date) or null.
+  function readTs(v) {
+    var m = String(v == null ? '' : v).trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i);
+    if (!m) return null;
+    var y = +m[1], mo = +m[2], d = +m[3], dateOnly = m[4] == null;
+    var off = IST_OFF;
+    if (m[7]) off = /^z$/i.test(m[7]) ? 0 : (m[7].charAt(0) === '-' ? -1 : 1) * (Number(m[7].substr(1, 2)) * 60 + Number(m[7].replace(':', '').substr(3, 2))) * 60000;
+    var ms = dateOnly ? Date.UTC(y, mo - 1, d + 1) - IST_OFF : Date.UTC(y, mo - 1, d, +m[4], +m[5], +(m[6] || 0)) - off;
+    if (isNaN(ms)) return null;
+    if (m[7] && !dateOnly) { var p = ist(ms); return { ms: ms, y: p.y, m: p.m, d: p.d }; }
+    return { ms: ms, y: y, m: mo, d: d };
+  }
+  // Calendar days left in India (0 = ends today) + whether the plan is still running.
+  function planDays(s, t, todayNo) {
+    var e = readTs(s.expiryDate || s.expiry_date || s.expiry);
+    if (e) return { days: dayNo(e) - todayNo, live: e.ms > t };
+    var n = Number(s.daysLeft);
+    if (s.daysLeft == null || s.daysLeft === '' || !isFinite(n)) return null;
+    return { days: Math.round(n), live: n > 0 };
+  }
+  // ctx: { name, subs:[{service, expiryDate, daysLeft, startDate}], lastSeen (ms or null), isNew (never bought anything),
+  //        now (Date), sassy (default true), seed, skip }
   // → { key, kick, text, emoji }. Same inputs → same line (no flicker on re-render); skip = taps on the greeting.
   function pick(ctx) {
     ctx = ctx || {};
     var L = window.FF_GREETING_LINES, K = window.FF_GREETING_KICK;
     var now = ctx.now instanceof Date && !isNaN(ctx.now) ? ctx.now : new Date();
     var t = now.getTime(), name = firstName(ctx.name), subs = Array.isArray(ctx.subs) ? ctx.subs : [];
-    var vars = { name: name, service: '', days: '' }, key = 'plain', pool = L.plain;
+    var today = ist(t), todayNo = dayNo(today);
+    var vars = { name: name, service: '', days: '' }, key = 'plain', pool = L.plain, hasLive = false;
     if (ctx.sassy !== false) {
-      var live = subs.filter(function (s) { return s && Number(s.daysLeft) > 0; });
-      var ending = live.filter(function (s) { return Number(s.daysLeft) <= 3; }).sort(function (a, b) { return Number(a.daysLeft) - Number(b.daysLeft); })[0];
-      var renewed = live.some(function (s) { var st = Date.parse(s.startDate || ''); return st && t - st >= -DAY && t - st <= 2 * DAY; });
+      var live = [];
+      subs.forEach(function (s) { var p = s && planDays(s, t, todayNo); if (p && p.live) live.push({ s: s, days: Math.max(0, p.days) }); });
+      hasLive = live.length > 0;
+      var ending = live.filter(function (x) { return x.days <= 3; }).sort(function (a, b) { return a.days - b.days; })[0];
+      var renewed = live.some(function (x) { var st = readTs(x.s.startDate); return st && t - st.ms >= -DAY && t - st.ms <= 2 * DAY; });
       var away = ctx.lastSeen ? Math.floor((t - Number(ctx.lastSeen)) / DAY) : 0;
-      var md = pad(now.getMonth() + 1) + '-' + pad(now.getDate());
-      var fest = L.festivals && (L.festivals[now.getFullYear() + '-' + md] || L.festivals[md]);
-      var hour = bucketOfHour(now.getHours()), wkend = now.getDay() === 0 || now.getDay() === 6;
-      if (ending) { key = Number(ending.daysLeft) === 1 ? 'ending1' : 'ending'; vars.service = String(ending.service || 'plan').trim().slice(0, 24) || 'plan'; vars.days = String(Math.round(Number(ending.daysLeft))); }
+      var md = pad(today.m) + '-' + pad(today.d);
+      var fest = L.festivals && (L.festivals[today.y + '-' + md] || L.festivals[md]);
+      var wd = new Date(Date.UTC(today.y, today.m - 1, today.d)).getUTCDay();
+      var hour = bucketOfHour(today.h), wkend = wd === 0 || wd === 6;
+      if (ending) { key = ending.days === 0 ? 'ending0' : ending.days === 1 ? 'ending1' : 'ending'; vars.service = String(ending.s.service || 'plan').trim().slice(0, 24) || 'plan'; vars.days = String(ending.days); }
       else if (renewed) key = 'renewed';
       else if (fest) { key = 'festival'; pool = [fest]; }
-      else if (ctx.lastSeen == null) key = 'first';
-      else if (away >= 3) { key = 'away'; vars.days = String(away); }
+      else if (ctx.isNew === true) key = 'first';
+      else if (ctx.lastSeen != null && away >= 3) { key = 'away'; vars.days = String(away); }
+      else if (!hasLive && subs.length) key = 'expired';
       else if (wkend && hash(ctx.seed + '|' + md) % 2 === 0 && hour !== 'lateNight') key = 'weekend';
       else key = hour;
-      if (key !== 'festival') pool = L[key] && L[key].length ? L[key] : L.plain;
+      if (key !== 'festival') {
+        pool = (L[key] || []).filter(function (l) { return l && (hasLive || l[2] !== 'live'); });
+        if (!pool.length) pool = L.plain;
+      }
     }
-    var day = now.getFullYear() + '-' + (now.getMonth() + 1) + '-' + now.getDate();
+    var day = today.y + '-' + today.m + '-' + today.d;
     var line = pool[(hash((ctx.seed || '') + '|' + day + '|' + key) + (Number(ctx.skip) || 0)) % pool.length] || L.plain[0];
     var text = String(line[0]).replace(/\{(name|service|days)\}/g, function (_, k) { return vars[k]; });
     return { key: key, kick: K[key] || '', text: text, emoji: String(line[1] || '') };
@@ -3597,10 +3769,14 @@ function DashboardScreen({
     lastSeen: null
   });
   const [helloTap, setHelloTap] = useState(0);
+  // "New customer" comes from their data (no plans and no orders ever), never from this phone's storage.
+  const helloPhone = normPhone_(phone || '');
+  const helloIsNew = !!dashData?._checked && allSubs.length === 0 && !!helloPhone && ordersPhone === helloPhone && !ordersLoading && orders.length === 0;
   const hello = window.ffGreeting ? window.ffGreeting({
     name,
     subs: allSubs,
     lastSeen: helloVisit.lastSeen,
+    isNew: helloIsNew,
     sassy,
     seed: normPhone_(phone || ''),
     skip: helloTap
@@ -3702,10 +3878,26 @@ function DashboardScreen({
       phone,
       manageResp: dashData,
       profile
-    })
+    }),
+    onKeyDown: e => {
+      if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+      e.preventDefault();
+      nav('account', {
+        subs: allSubs,
+        phone,
+        manageResp: dashData,
+        profile
+      });
+    }
   }, profile?.profilePicUrl ? React.createElement("img", {
-    src: profile.profilePicUrl,
-    alt: ""
+    // ✨ creator avatars wink for 3 days after a plan starts or is renewed
+    src: ffAvatarMood_(profile.profilePicUrl, actionable.some(s => s.startDate && Date.now() - new Date(s.startDate).getTime() < 3 * 86400e3) ? 'wink' : ''),
+    alt: "",
+    style: {
+      width: '100%',
+      height: '100%',
+      objectFit: 'cover'
+    }
   }) : name ? name[0].toUpperCase() : '👤')), React.createElement("div", {
     className: "ff-dash-stats",
     style: {
@@ -3996,7 +4188,7 @@ function DashboardScreen({
         service: o.service
       })
     }, "✅ Verify Payment")));
-  }))));
+  })), React.createElement(NeedHelpCard, null)));
 }
 function Buy1Screen({
   nav,
@@ -8312,6 +8504,288 @@ function ffSquarePhoto_(file) {
     img.src = src;
   });
 }
+// ✨ Avatar creator. The drawing code (avatarmaker.js) loads only when the sheet opens; the saved picture is
+// /avatar/<code>.svg, drawn by the server, so every <img> that shows a profile picture works unchanged.
+let ffAvatarMakerP_ = null;
+function ffLoadAvatarMaker_() {
+  if (window.FFAvatar) return Promise.resolve(window.FFAvatar);
+  if (!ffAvatarMakerP_) ffAvatarMakerP_ = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = '/avatar-maker.js?v=1';
+    s.async = true;
+    s.onload = () => window.FFAvatar ? res(window.FFAvatar) : rej(new Error('Avatar maker missing'));
+    s.onerror = () => {
+      ffAvatarMakerP_ = null;
+      rej(new Error('Could not load the avatar maker. Check your internet and try again.'));
+    };
+    document.head.appendChild(s);
+  });
+  return ffAvatarMakerP_;
+}
+// Same creator avatar with another expression (a wink on My plans right after a plan starts). Other pictures unchanged.
+function ffAvatarMood_(url, mood) {
+  const m = /^\/avatar\/(1[0-9a-z]{15})\.svg$/.exec(url || '');
+  const i = {
+    grin: '1',
+    wink: '2'
+  }[mood];
+  return m && i ? '/avatar/' + m[1].slice(0, 7) + i + m[1].slice(8) + '.svg' : url;
+}
+const FF_AVC_TABS = [{
+  k: 'face',
+  label: '🙂 Face',
+  rows: ['face', 'skin']
+}, {
+  k: 'hair',
+  label: '💇 Hair',
+  rows: ['hair', 'hairColor']
+}, {
+  k: 'eyes',
+  label: '👀 Eyes',
+  rows: ['eyes', 'brows']
+}, {
+  k: 'mood',
+  label: '😜 Mood',
+  rows: ['mood']
+}, {
+  k: 'beard',
+  label: '🧔 Beard',
+  rows: ['beard']
+}, {
+  k: 'glasses',
+  label: '🕶️ Glasses',
+  rows: ['glasses']
+}, {
+  k: 'jewel',
+  label: '💎 Jewellery',
+  rows: ['jewel']
+}, {
+  k: 'outfit',
+  label: '👕 Outfit',
+  rows: ['top', 'topColor', 'logo']
+}, {
+  k: 'fun',
+  label: '🍿 Fun',
+  rows: ['prop', 'bg']
+}];
+const FF_AVC_ROW = {
+  face: 'Face shape',
+  skin: 'Skin tone',
+  hair: 'Hair style',
+  hairColor: 'Hair colour',
+  eyes: 'Eyes',
+  brows: 'Eyebrows',
+  mood: 'Expression',
+  beard: 'Facial hair',
+  glasses: 'Glasses',
+  jewel: 'Bindi & earrings',
+  top: 'Top',
+  topColor: 'Top colour',
+  logo: 'Logo',
+  prop: 'Props',
+  bg: 'Background'
+};
+// Close-up crop for the small option pictures (full picture for outfit / logo / props).
+const FF_AVC_CROP = {
+  eyes: '58 66 84 84',
+  brows: '58 60 84 84',
+  glasses: '58 66 84 84',
+  hair: '28 10 144 144',
+  top: '0 0 200 200',
+  logo: '0 0 200 200',
+  prop: '0 0 200 200'
+};
+// React only touches the DOM when the SVG text really changed (dangerouslySetInnerHTML compares __html).
+function AvcThumb({
+  svg
+}) {
+  return React.createElement("span", {
+    className: "ff-avc-th",
+    "aria-hidden": "true",
+    dangerouslySetInnerHTML: {
+      __html: svg
+    }
+  });
+}
+function AvatarCreator({
+  phone,
+  initial,
+  onClose,
+  onSaved
+}) {
+  const [A, setA] = useState(window.FFAvatar || null);
+  const [cfg, setCfg] = useState(null);
+  const [hist, setHist] = useState([]);
+  const [tab, setTab] = useState('face');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const bigRef = useRef(null);
+  const frame = useRef(0);
+  useEffect(() => {
+    let live = true;
+    ffLoadAvatarMaker_().then(M => {
+      if (!live) return;
+      const v = M.validate(initial || {});
+      setA(M);
+      setCfg(v.ok ? v.config : Object.assign({}, M.DEFAULT));
+    }, e => live && setMsg(e.message));
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      live = false;
+      document.body.style.overflow = prevOverflow;
+      cancelAnimationFrame(frame.current);
+    };
+  }, []);
+  // Live preview: only the big SVG is redrawn, at most once per frame (fast taps collapse into one draw).
+  useEffect(() => {
+    if (!A || !cfg) return;
+    cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => {
+      if (bigRef.current) bigRef.current.innerHTML = A.svg(cfg);
+    });
+  }, [A, cfg]);
+  const push = next => {
+    setHist(h => h.concat([cfg]).slice(-40));
+    setCfg(next);
+    setMsg('');
+  };
+  const change = (k, v) => {
+    if (cfg && cfg[k] !== v) push({
+      ...cfg,
+      [k]: v
+    });
+  };
+  const undo = () => {
+    if (!hist.length) return;
+    setCfg(hist[hist.length - 1]);
+    setHist(h => h.slice(0, -1));
+  };
+  const save = () => {
+    if (!cfg || saving) return;
+    setSaving(true);
+    API.setAvatar(phone, cfg, r => {
+      setSaving(false);
+      if (r && r.ok) onSaved(r);else setMsg(r?.message || 'Could not save your avatar. Please try again.');
+    }, err => {
+      setSaving(false);
+      setMsg('Could not save your avatar: ' + (err?.message || err));
+    });
+  };
+  const current = FF_AVC_TABS.find(t => t.k === tab) || FF_AVC_TABS[0];
+  const wrapped = cfg && (cfg.hair === 'turban' || cfg.hair === 'hijab');
+  const row = key => {
+    const opts = A.OPTIONS[key];
+    const colors = key === 'hairColor' && wrapped ? A.WRAP : A.COLORS[key];
+    const label = key === 'hairColor' && wrapped ? cfg.hair === 'turban' ? 'Turban colour' : 'Hijab colour' : FF_AVC_ROW[key];
+    return React.createElement(React.Fragment, {
+      key: key
+    }, React.createElement("div", {
+      className: "ff-avc-lbl"
+    }, label), React.createElement("div", {
+      className: "ff-avc-row",
+      role: "radiogroup",
+      "aria-label": label
+    }, opts.map((o, n) => {
+      const on = cfg[key] === o;
+      if (colors) return React.createElement("button", {
+        key: o,
+        type: "button",
+        role: "radio",
+        "aria-checked": on,
+        "aria-label": label + ' ' + (n + 1),
+        className: "ff-avc-sw" + (on ? ' on' : ''),
+        style: {
+          background: colors[o]
+        },
+        onClick: () => change(key, o)
+      });
+      return React.createElement("button", {
+        key: o,
+        type: "button",
+        role: "radio",
+        "aria-checked": on,
+        className: "ff-avc-op" + (on ? ' on' : ''),
+        onClick: () => change(key, o)
+      }, React.createElement(AvcThumb, {
+        svg: A.svg({
+          ...cfg,
+          // headphones would hide the hair in the small hair pictures
+          prop: key === 'hair' && cfg.prop === 'headphones' ? 'none' : cfg.prop,
+          [key]: o
+        }, {
+          viewBox: FF_AVC_CROP[key] || '34 22 132 132'
+        })
+      }), React.createElement("small", null, A.LABELS[key] && A.LABELS[key][o] || o));
+    })));
+  };
+  return React.createElement("div", {
+    className: "ff-avc",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": "Create your avatar"
+  }, React.createElement("div", {
+    className: "ff-avc-top"
+  }, React.createElement("button", {
+    type: "button",
+    className: "ff-avc-ib",
+    onClick: onClose,
+    disabled: saving,
+    "aria-label": "Close"
+  }, "✕"), React.createElement("h2", null, "✨ Your avatar"), React.createElement("button", {
+    type: "button",
+    className: "ff-avc-ib",
+    onClick: undo,
+    disabled: !hist.length || saving,
+    "aria-label": "Undo"
+  }, "↩️"), React.createElement("button", {
+    type: "button",
+    className: "ff-avc-ib",
+    "data-ff": "avc-random",
+    onClick: () => A && push(A.random()),
+    disabled: !A || saving
+  }, "🎲 Random")), React.createElement("div", {
+    className: "ff-avc-prev"
+  }, React.createElement("div", {
+    className: "ff-avc-big",
+    ref: bigRef,
+    role: "img",
+    "aria-label": "Your avatar preview"
+  })), A && cfg ? React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "ff-avc-tabs",
+    role: "tablist"
+  }, FF_AVC_TABS.map(t => React.createElement("button", {
+    key: t.k,
+    type: "button",
+    role: "tab",
+    "aria-selected": tab === t.k,
+    className: "ff-avc-tab" + (tab === t.k ? ' on' : ''),
+    onClick: () => setTab(t.k)
+  }, t.label))), React.createElement("div", {
+    className: "ff-avc-body"
+  }, current.rows.map(row))) : React.createElement("div", {
+    className: "ff-avc-body",
+    style: {
+      display: 'grid',
+      placeItems: 'center'
+    }
+  }, msg ? null : React.createElement(Spinner, null)), msg && React.createElement("div", {
+    className: "ff-avc-msg",
+    role: "alert"
+  }, msg), React.createElement("div", {
+    className: "ff-avc-foot"
+  }, React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    disabled: saving,
+    onClick: onClose
+  }, "Cancel"), React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    disabled: saving || !cfg,
+    onClick: save
+  }, saving ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), "Saving…") : '✅ Save avatar')));
+}
 function AccountScreen({
   nav,
   subs,
@@ -8342,6 +8816,7 @@ function AccountScreen({
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState('');
   const [photoMsg, setPhotoMsg] = useState(null);
+  const [showCreator, setShowCreator] = useState(false);
   // Account → Notifications row (renewal reminders on this device).
   const [pushSt, setPushSt] = useState('off');
   useEffect(() => {
@@ -8431,6 +8906,23 @@ function AccountScreen({
     });
   }
   const hasOwnPhoto = /^\/profile-photo\//.test(profile?.profilePicUrl || '');
+  // ✨ The customer's own creator avatar stays in the list even after they switch to a photo or another avatar.
+  const myAvatarUrl = profile?.avatarUrl || '';
+  const pickList = myAvatarUrl ? [myAvatarUrl].concat(AVATARS) : AVATARS;
+  function avatarCreated(r) {
+    setProfile(p => ({
+      ...(p || {}),
+      profilePicUrl: r.profilePicUrl,
+      avatarUrl: r.profilePicUrl,
+      avatarConfig: r.avatarConfig
+    }));
+    onProfileUpdated && onProfileUpdated(r.profilePicUrl, {
+      avatarUrl: r.profilePicUrl,
+      avatarConfig: r.avatarConfig
+    });
+    setShowCreator(false);
+    closePicker();
+  }
   function closePicker() {
     setShowAvatarPicker(false);
     setPendingAvatar('');
@@ -8823,7 +9315,13 @@ function AccountScreen({
       fontWeight: 600,
       marginBottom: 14
     }
-  }, "Upload your own photo, or tap an avatar. Then tap Save."), React.createElement("div", {
+  }, "Upload your own photo, or tap an avatar. Then tap Save."), React.createElement("button", {
+    type: "button",
+    className: "ff-avc-new",
+    "data-ff": "avc-open",
+    disabled: avatarSaving,
+    onClick: () => setShowCreator(true)
+  }, React.createElement("i", null, "✨"), React.createElement("div", null, React.createElement("b", null, myAvatarUrl ? 'Edit your avatar' : 'Create your avatar'), React.createElement("span", null, "Pick face, hair, outfit & fun props"))), React.createElement("div", {
     className: "ff-photo-up" + (pendingPhoto ? ' on' : '')
   }, React.createElement("div", {
     className: "ff-photo-prev"
@@ -8859,7 +9357,7 @@ function AccountScreen({
       gap: 8,
       marginBottom: 16
     }
-  }, AVATARS.map((url, i) => {
+  }, pickList.map((url, i) => {
     const sel = pendingAvatar === url || !pendingAvatar && !pendingPhoto && profile?.profilePicUrl === url;
     return React.createElement("button", {
       key: i,
@@ -8916,7 +9414,12 @@ function AccountScreen({
     full: true,
     disabled: avatarSaving || !pendingAvatar && !pendingPhoto,
     onClick: pendingPhoto ? savePhoto : saveAvatar
-  }, avatarSaving ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), "Saving…") : '✅ Save Picture')))), section === 'profile' && React.createElement(Card, {
+  }, avatarSaving ? React.createElement(React.Fragment, null, React.createElement(Spinner, null), "Saving…") : '✅ Save Picture')))), showCreator && React.createElement(AvatarCreator, {
+    phone: phone,
+    initial: profile?.avatarConfig,
+    onClose: () => setShowCreator(false),
+    onSaved: avatarCreated
+  }), section === 'profile' && React.createElement(Card, {
     style: {
       marginTop: 10
     }
@@ -8978,6 +9481,14 @@ function AccountScreen({
       marginTop: 4
     }
   }, s.label))))), section === 'profile' && React.createElement(Btn, {
+    variant: "primary",
+    full: true,
+    style: {
+      marginTop: 10
+    },
+    "data-ff": "avc-open-profile",
+    onClick: () => setShowCreator(true)
+  }, myAvatarUrl ? '✨ Edit your avatar' : '✨ Create your avatar'), section === 'profile' && React.createElement(Btn, {
     variant: "ghost",
     full: true,
     style: {
@@ -11280,10 +11791,112 @@ function feedShare_(p, info, done) {
   }
   copyText_(msg.text, () => done && done('copied'));
 }
+// 🔖 Saved posts (this phone only).
+function feedSaved_() {
+  try {
+    const x = JSON.parse(localStorage.getItem('ff_feed_saved') || '[]');
+    return Array.isArray(x) ? x : [];
+  } catch (e) {
+    return [];
+  }
+}
+function feedSetSaved_(id, on) {
+  try {
+    const l = feedSaved_().filter(x => x !== id);
+    if (on) l.push(id);
+    localStorage.setItem('ff_feed_saved', JSON.stringify(l.slice(-200)));
+  } catch (e) {}
+}
+function feedUpcoming_(p, now) {
+  const t = /^\d{4}-\d{2}-\d{2}$/.test(p && p.releaseDate || '') ? Date.parse(p.releaseDate + 'T00:00:00+05:30') : 0;
+  return t > (now || Date.now());
+}
+// Scroll direction → hide on the way down, show on the way up / near the top (one passive listener, one frame at a time).
+function useScrollHide_(on) {
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    if (!on) {
+      setHidden(false);
+      return;
+    }
+    let last = window.scrollY || 0;
+    let raf = 0;
+    let cur = false;
+    const tick = () => {
+      raf = 0;
+      const y = window.scrollY || 0;
+      const nearEnd = window.innerHeight + y >= document.documentElement.scrollHeight - 40;
+      let next = cur;
+      if (y < 80 || nearEnd) next = false;else if (y - last > 12) next = true;else if (last - y > 8) next = false;else return;
+      last = y;
+      if (next !== cur) {
+        cur = next;
+        setHidden(next);
+      }
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(tick);
+    };
+    window.addEventListener('scroll', onScroll, {
+      passive: true
+    });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [on]);
+  return hidden;
+}
+// 💬 Floating Help bubble: Home / My plans / Account only (never checkout / pay), above the bottom menu, hides while
+// scrolling down and while the keyboard is open. Admin → 🚧 Maintenance → "Help bubble" turns it off. Same ffOpenHelp_.
+const HELP_BUBBLE_SCREENS = {
+  home: 1,
+  dashboard: 1,
+  account: 1
+};
+function HelpBubble({
+  show
+}) {
+  const hidden = useScrollHide_(show);
+  const [kb, setKb] = useState(false);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!show || !vv) return;
+    const f = () => setKb(window.innerHeight - vv.height > 150);
+    vv.addEventListener('resize', f);
+    f();
+    return () => vv.removeEventListener('resize', f);
+  }, [show]);
+  if (!show) return null;
+  return React.createElement("button", {
+    type: "button",
+    className: "ff-hb" + (hidden || kb ? ' hide' : ''),
+    "data-ff": "help-bubble",
+    "aria-label": "Help and support",
+    onClick: ffOpenHelp_
+  }, React.createElement("span", {
+    "aria-hidden": "true"
+  }, "💬"), React.createElement("small", {
+    "aria-hidden": "true"
+  }, "Help"));
+}
+function NeedHelpCard() {
+  return React.createElement("div", {
+    className: "ff-needhelp"
+  }, React.createElement("span", {
+    className: "ff-needhelp-ic",
+    "aria-hidden": "true"
+  }, "💬"), React.createElement("div", {
+    className: "ff-needhelp-t"
+  }, React.createElement("b", null, "Need help?"), React.createElement("span", null, "Login not working, payment or anything else — we reply fast.")), React.createElement("button", {
+    type: "button",
+    onClick: ffOpenHelp_
+  }, "Get help"));
+}
 function FeedStrip({
   nav
 }) {
-  const [posts, setPosts] = useState(null);
+  const [posts, setPosts] = useState(() => feedStore_.data ? feedStore_.data.posts || [] : null);
   useEffect(() => {
     let live = true;
     feedLoad_(r => {
@@ -11293,50 +11906,79 @@ function FeedStrip({
       live = false;
     };
   }, []);
-  if (!posts || !posts.length) return null;
-  return React.createElement("section", {
-    className: "ff-feed-strip",
-    "aria-label": "New this week"
-  }, React.createElement("div", {
+  if (posts && !posts.length) return null;
+  const head = React.createElement("div", {
     className: "ff-feed-strip-h"
   }, React.createElement("b", null, "🍿 New this week"), React.createElement("button", {
     type: "button",
     onClick: () => nav('feed', {})
-  }, "See all ›")), React.createElement("div", {
+  }, "See all ›"));
+  // Skeleton tiles keep the space while the feed loads (no jump when it arrives).
+  if (!posts) return React.createElement("section", {
+    className: "ff-feed-strip",
+    "aria-label": "New this week",
+    "aria-busy": "true"
+  }, head, React.createElement("div", {
     className: "ff-feed-strip-row"
-  }, posts.slice(0, 5).map(p => React.createElement("button", {
-    key: p.id,
-    type: "button",
-    className: "ff-feed-tile",
-    onClick: () => nav('feed', {
-      postId: p.id
-    })
+  }, [0, 1, 2, 3].map(i => React.createElement("span", {
+    key: i,
+    className: "ff-feed-tile skel",
+    "aria-hidden": "true"
   }, React.createElement("span", {
     className: "ff-feed-tile-img"
-  }, p.image ? React.createElement("img", {
-    src: feedThumb_(p.image),
-    alt: "",
-    loading: "lazy",
-    decoding: "async",
-    width: 104,
-    height: 130
-  }) : React.createElement("i", {
-    "aria-hidden": "true"
-  }, "🍿"), (feedIgUrl_(p.instagramUrl) || feedYouTubeId_(p.trailerUrl)) && React.createElement("span", {
-    className: "ff-feed-tile-v",
-    "aria-label": "Has a video"
-  }, "▶️")), React.createElement("span", {
+  }), React.createElement("span", {
     className: "ff-feed-tile-t"
-  }, p.title), React.createElement("span", {
-    className: "ff-feed-tile-s"
-  }, p.brand || p.service || 'FluxFilm')))));
+  })))));
+  return React.createElement("section", {
+    className: "ff-feed-strip",
+    "aria-label": "New this week"
+  }, head, React.createElement("div", {
+    className: "ff-feed-strip-row"
+  }, posts.slice(0, 6).map(p => {
+    const soon = feedUpcoming_(p);
+    const season = p.type === 'series' && /^Season (\d{1,3})$/.test(p.seasonLabel || '') ? 'S' + p.seasonLabel.slice(7) : '';
+    return React.createElement("button", {
+      key: p.id,
+      type: "button",
+      className: "ff-feed-tile",
+      onClick: () => nav('feed', {
+        postId: p.id
+      })
+    }, React.createElement("span", {
+      className: "ff-feed-tile-img"
+    }, p.image ? React.createElement("img", {
+      src: feedThumb_(p.image),
+      alt: "",
+      loading: "lazy",
+      decoding: "async",
+      width: 108,
+      height: 135
+    }) : React.createElement("i", {
+      "aria-hidden": "true"
+    }, "🍿"), (soon || season) && React.createElement("span", {
+      className: 'ff-feed-tile-b' + (soon ? ' soon' : '')
+    }, soon ? 'Soon' : '🆕 ' + season), (feedIgUrl_(p.instagramUrl) || feedYouTubeId_(p.trailerUrl)) && React.createElement("span", {
+      className: "ff-feed-tile-v",
+      "aria-label": "Has a video"
+    }, "▶️")), React.createElement("span", {
+      className: "ff-feed-tile-t"
+    }, p.title), React.createElement("span", {
+      className: "ff-feed-tile-s"
+    }, p.brand || p.service || 'FluxFilm'));
+  })));
 }
-// 💬 Comments under a post (feedcomments.js). Everyone reads; a logged-in customer writes; the server moderates first.
+// 💬 Comments bottom sheet (feedcomments.js). Everyone reads; a logged-in customer writes; the server moderates first.
+// Opened from 💬 / "View all N comments" / "Add a comment…". The tap already focused a hidden input (FeedScreen proxy),
+// so moving focus to the real box here keeps the phone keyboard open (iOS / Android only open it inside a tap).
+// Closes with ✕, a swipe down on the header, a tap outside, Escape or the phone's Back button (one history entry).
 function FeedComments({
   p,
   phone,
+  focus,
   onLogin,
-  onCount
+  onCount,
+  onPosted,
+  onClose
 }) {
   const [items, setItems] = useState(null);
   const [next, setNext] = useState(null);
@@ -11344,6 +11986,17 @@ function FeedComments({
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [out, setOut] = useState(false);
+  const [kb, setKb] = useState(false);
+  const [fresh, setFresh] = useState(0);
+  const sheetRef = useRef(null);
+  const taRef = useRef(null);
+  const listRef = useRef(null);
+  const closed = useRef(false);
+  const drag = useRef({
+    y: -1,
+    dy: 0
+  });
   function load(cursor) {
     setBusy(true);
     try {
@@ -11375,6 +12028,72 @@ function FeedComments({
   useEffect(() => {
     load(0);
   }, [p.id]);
+  function close() {
+    if (closed.current) return;
+    closed.current = true;
+    setOut(true);
+    setTimeout(onClose, 190);
+  }
+  React.useLayoutEffect(() => {
+    if (focus && phone && taRef.current) try {
+      taRef.current.focus({
+        preventScroll: true
+      });
+    } catch (e) {}
+  }, []);
+  useEffect(() => {
+    // Keyboard: lift the sheet by the part of the screen the keyboard covers (--ff-kb) and fit the visible height.
+    const vv = window.visualViewport;
+    const el = sheetRef.current;
+    const upd = () => {
+      if (!el) return;
+      const h = vv ? vv.height : window.innerHeight;
+      const cover = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+      el.style.setProperty('--ff-kb', Math.round(cover) + 'px');
+      el.style.setProperty('--ff-vvh', Math.round(h) + 'px');
+      setKb(window.innerHeight - h > 150);
+    };
+    upd();
+    if (vv) {
+      vv.addEventListener('resize', upd);
+      vv.addEventListener('scroll', upd);
+    }
+    const html = document.documentElement;
+    const prev = html.style.overflow;
+    html.style.overflow = 'hidden';
+    let popped = false;
+    try {
+      window.history.pushState(Object.assign({}, window.history.state || {}, {
+        ffSheet: 1
+      }), '');
+    } catch (e) {}
+    const onPop = () => {
+      popped = true;
+      close();
+    };
+    const onKey = e => {
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      if (vv) {
+        vv.removeEventListener('resize', upd);
+        vv.removeEventListener('scroll', upd);
+      }
+      html.style.overflow = prev;
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('keydown', onKey);
+      if (!popped) try {
+        if (window.history.state && window.history.state.ffSheet) window.history.back();
+      } catch (e) {}
+    };
+  }, []);
+  function grow(el) {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(110, el.scrollHeight) + 'px';
+  }
   function send() {
     const t = text.trim();
     if (!t || busy) return;
@@ -11384,9 +12103,18 @@ function FeedComments({
       setBusy(false);
       if (r && r.ok) {
         setText('');
+        if (taRef.current) taRef.current.style.height = '';
         if (r.comment) {
           setItems(x => [r.comment].concat(x || []));
+          setFresh(r.comment.id);
           onCount && onCount(1);
+          onPosted && onPosted(r.comment);
+          try {
+            listRef.current && listRef.current.scrollTo({
+              top: 0,
+              behavior: 'smooth'
+            });
+          } catch (e) {}
         }
         setMsg({
           bad: false,
@@ -11407,44 +12135,44 @@ function FeedComments({
       });
     });
   }
-  if (!ready) return React.createElement("div", {
-    className: "ff-feed-cm"
-  }, React.createElement("div", {
+  const dragStart = e => {
+    drag.current = {
+      y: e.touches[0].clientY,
+      dy: 0
+    };
+  };
+  const dragMove = e => {
+    const d = drag.current;
+    if (d.y < 0 || !sheetRef.current) return;
+    d.dy = Math.max(0, e.touches[0].clientY - d.y);
+    sheetRef.current.classList.add('drag');
+    sheetRef.current.style.transform = d.dy ? 'translateY(' + d.dy + 'px)' : '';
+  };
+  const dragEnd = () => {
+    const d = drag.current;
+    const el = sheetRef.current;
+    drag.current = {
+      y: -1,
+      dy: 0
+    };
+    if (!el) return;
+    el.classList.remove('drag');
+    if (d.dy > 90) close();else el.style.transform = '';
+  };
+  let listBody;
+  if (!ready) listBody = React.createElement("div", {
     className: "ff-feed-cm-soon"
-  }, "💬 Comments coming soon"));
-  return React.createElement("div", {
-    className: "ff-feed-cm"
-  }, phone ? React.createElement("div", null, React.createElement("div", {
-    className: "ff-feed-cm-form"
-  }, React.createElement("textarea", {
-    rows: 1,
-    maxLength: 280,
-    value: text,
-    placeholder: "Add a comment…",
-    "aria-label": 'Comment on ' + p.title,
-    onChange: e => setText(e.target.value)
-  }), React.createElement("button", {
-    type: "button",
-    disabled: busy || !text.trim(),
-    onClick: send
-  }, "Post")), React.createElement("div", {
-    className: "ff-feed-cm-meta"
-  }, React.createElement("span", null, "Be kind · no numbers or links"), React.createElement("span", null, text.length, " / 280"))) : React.createElement("button", {
-    type: "button",
-    className: "ff-feed-cm-login",
-    onClick: onLogin
-  }, "🔐 Log in to comment"), msg && React.createElement("div", {
-    className: 'ff-feed-cm-msg' + (msg.bad ? ' bad' : ''),
-    role: "status"
-  }, msg.text), items === null ? React.createElement("div", {
-    className: "ff-feed-cm-soon",
-    style: {
-      marginTop: 10
-    }
-  }, "Loading comments…") : items.length ? React.createElement("ul", {
+  }, "💬 Comments coming soon");else if (items === null) listBody = React.createElement("div", {
+    className: "ff-feed-cm-soon"
+  }, "Loading comments…");else if (!items.length) listBody = React.createElement("div", {
+    className: "ff-feed-cm-soon"
+  }, React.createElement("b", {
+    "aria-hidden": "true"
+  }, "💬"), "No comments yet — be the first!");else listBody = React.createElement("ul", {
     className: "ff-feed-cm-list"
   }, items.map(c => React.createElement("li", {
-    key: c.id
+    key: c.id,
+    className: c.id === fresh ? 'new' : ''
   }, React.createElement("span", {
     className: "ff-feed-cm-av",
     "aria-hidden": "true"
@@ -11452,21 +12180,104 @@ function FeedComments({
     src: c.avatar,
     alt: "",
     loading: "lazy",
-    width: 30,
-    height: 30
+    width: 34,
+    height: 34
   }) : String(c.name || '?').charAt(0).toUpperCase()), React.createElement("div", {
     className: "ff-feed-cm-b"
-  }, React.createElement("b", null, c.name), c.text, React.createElement("small", null, feedWhen_(c.at)))))) : React.createElement("div", {
-    className: "ff-feed-cm-soon",
-    style: {
-      marginTop: 10
-    }
-  }, "No comments yet — be the first!"), next && React.createElement("button", {
+  }, React.createElement("b", null, c.name), c.text, React.createElement("small", null, feedWhen_(c.at))))));
+  return ReactDOM.createPortal(React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "ff-cs-bg" + (out ? ' out' : ''),
+    onClick: close,
+    "aria-hidden": "true"
+  }), React.createElement("section", {
+    ref: sheetRef,
+    className: "ff-cs" + (out ? ' out' : '') + (kb ? ' kb' : ''),
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": 'Comments on ' + p.title
+  }, React.createElement("div", {
+    className: "ff-cs-h",
+    onTouchStart: dragStart,
+    onTouchMove: dragMove,
+    onTouchEnd: dragEnd,
+    onTouchCancel: dragEnd
+  }, React.createElement("i", {
+    className: "ff-cs-grab",
+    "aria-hidden": "true"
+  }), React.createElement("b", null, "Comments"), React.createElement("span", null, p.title), React.createElement("button", {
+    type: "button",
+    className: "ff-cs-x",
+    "aria-label": "Close comments",
+    onClick: close
+  }, "✕")), React.createElement("div", {
+    className: "ff-cs-list",
+    ref: listRef
+  }, listBody, next && React.createElement("button", {
     type: "button",
     className: "ff-feed-cm-more",
     disabled: busy,
     onClick: () => load(next)
-  }, busy ? 'Loading…' : 'Load more comments'));
+  }, busy ? 'Loading…' : 'Load more comments')), msg && React.createElement("div", {
+    className: 'ff-feed-cm-msg' + (msg.bad ? ' bad' : ''),
+    role: "status"
+  }, msg.text), ready && (phone ? React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "ff-cs-form"
+  }, React.createElement("textarea", {
+    ref: taRef,
+    rows: 1,
+    maxLength: 280,
+    value: text,
+    enterKeyHint: "send",
+    placeholder: 'Add a comment…',
+    "aria-label": 'Comment on ' + p.title,
+    onChange: e => {
+      setText(e.target.value);
+      grow(e.target);
+    }
+  }), React.createElement("button", {
+    type: "button",
+    className: "ff-cs-send",
+    disabled: busy || !text.trim(),
+    onClick: send
+  }, busy ? '…' : 'Post')), text.length > 0 && React.createElement("div", {
+    className: "ff-cs-meta"
+  }, React.createElement("span", null, "Be kind · no numbers or links"), React.createElement("span", null, text.length, " / 280"))) : React.createElement("div", {
+    className: "ff-cs-form"
+  }, React.createElement("button", {
+    type: "button",
+    className: "ff-feed-cm-login",
+    onClick: () => {
+      close();
+      onLogin && onLogin();
+    }
+  }, "🔐 Log in to comment"))))), document.body);
+}
+// Outline icons for the post action row: crisp at any size and the same on every phone (emoji fonts differ a lot).
+const FEED_ICONS_ = {
+  heart: 'M12 20.3s-7.6-4.6-9.4-9.3C1.3 7.7 3.5 4.3 7.1 4.3c2.1 0 3.7 1.1 4.9 2.9 1.2-1.8 2.8-2.9 4.9-2.9 3.6 0 5.8 3.4 4.5 6.7-1.8 4.7-9.4 9.3-9.4 9.3z',
+  comment: 'M20.6 11.7c0 4.3-3.9 7.8-8.6 7.8-1.2 0-2.4-.2-3.4-.7L3.4 20.2l1.4-4.1c-.9-1.3-1.4-2.8-1.4-4.4 0-4.3 3.9-7.8 8.6-7.8s8.6 3.5 8.6 7.8z',
+  share: 'M21 3.5 10.4 14.1M21 3.5l-6.6 17.3-4-6.7-6.9-3.9L21 3.5z',
+  save: 'M6.2 3.6h11.6c.4 0 .7.3.7.7v16l-6.5-4.7-6.5 4.7v-16c0-.4.3-.7.7-.7z'
+};
+function FeedIcon({
+  name,
+  on
+}) {
+  return React.createElement("svg", {
+    className: 'ff-ic ff-ic-' + name + (on ? ' on' : ''),
+    viewBox: "0 0 24 24",
+    width: 26,
+    height: 26,
+    fill: on ? 'currentColor' : 'none',
+    stroke: "currentColor",
+    strokeWidth: 1.9,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true",
+    focusable: "false"
+  }, React.createElement("path", {
+    d: FEED_ICONS_[name]
+  }));
 }
 function FeedPost({
   p,
@@ -11478,19 +12289,21 @@ function FeedPost({
   brandInfo,
   genre,
   onGenre,
-  phone,
-  onLogin
+  preview,
+  extra,
+  onNear,
+  onComments
 }) {
   const [liked, setLiked] = useState(() => feedLiked_().includes(p.id));
   const [likes, setLikes] = useState(Number(p.likes) || 0);
+  const [saved, setSaved] = useState(() => feedSaved_().includes(p.id));
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
   const [burst, setBurst] = useState(0);
-  const [talk, setTalk] = useState(false);
-  const [ncomments, setNcomments] = useState(Number(p.comments) || 0);
   const [overflow, setOverflow] = useState(false);
   const ref = useRef(null);
   const capRef = useRef(null);
+  const ncomments = Math.max((Number(p.comments) || 0) + (extra || 0), preview ? Number(preview.total) || 0 : 0);
   // Captions start at 3 lines; "more" shows when the text is really cut (measured), whatever its length.
   useEffect(() => {
     const el = capRef.current;
@@ -11502,6 +12315,7 @@ function FeedPost({
     if (!el) return;
     if (typeof IntersectionObserver === 'undefined') {
       feedEvent_(p.id, 'view');
+      onNear && onNear(p);
       return;
     }
     const io = new IntersectionObserver(es => {
@@ -11513,7 +12327,23 @@ function FeedPost({
       threshold: 0.5
     });
     io.observe(el);
-    return () => io.disconnect();
+    // Comment previews: asked for (in one batch with the other posts) only when the post comes near the screen.
+    let near = null;
+    if (onNear && Number(p.comments) > 0) {
+      near = new IntersectionObserver(es => {
+        if (es.some(e => e.isIntersecting)) {
+          onNear(p);
+          near.disconnect();
+        }
+      }, {
+        rootMargin: '600px 0px'
+      });
+      near.observe(el);
+    }
+    return () => {
+      io.disconnect();
+      if (near) near.disconnect();
+    };
   }, [p.id]);
   function like(force) {
     const on = force === true ? true : !liked;
@@ -11524,10 +12354,18 @@ function FeedPost({
     feedSetLiked_(p.id, on);
     feedEvent_(p.id, on ? 'like' : 'unlike');
   }
+  function save() {
+    const on = !saved;
+    setSaved(on);
+    feedSetSaved_(p.id, on);
+    setNote(on ? '🔖 Saved — find it under Filters → Saved' : '');
+    if (on) setTimeout(() => setNote(''), 2200);
+  }
   const caption = String(p.caption || '');
   const long = overflow || caption.length > 140 || caption.split('\n').length > 3;
   const rel = feedRelease_(p.releaseDate, p.type, 0, p.seasonLabel);
   const seasonChip = feedSeasonChip_(p);
+  const soon = feedUpcoming_(p);
   const typeLabel = {
     movie: '🎬 Movie',
     series: '📺 Series',
@@ -11541,10 +12379,14 @@ function FeedPost({
   };
   const name = bi.name;
   const genres = p.genres || [];
+  const langs = p.languages || [];
+  const pv = preview && preview.comments || [];
   return React.createElement("article", {
     ref: ref,
     className: "ff-feed-post" + (highlight ? ' hl' : ''),
-    id: 'post-' + p.id
+    id: 'post-' + p.id,
+    "data-id": p.id,
+    "data-cta": p.cta === 'service' && info ? '1' : undefined
   }, React.createElement("div", {
     className: "ff-feed-head"
   }, React.createElement("div", {
@@ -11554,22 +12396,25 @@ function FeedPost({
     src: bi.logoUrl,
     alt: "",
     loading: "lazy",
-    width: 32,
-    height: 32
+    width: 34,
+    height: 34
   }) : React.createElement("span", {
     className: bi.emoji ? 'em' : ''
   }, bi.emoji || String(name).charAt(0).toUpperCase())), React.createElement("div", {
     className: "ff-feed-name"
-  }, React.createElement("b", null, name), React.createElement("span", null, typeLabel, typeLabel && p.date ? ' · ' : '', feedWhen_(p.date))), seasonChip && React.createElement("span", {
+  }, React.createElement("b", null, name), React.createElement("span", null, typeLabel, typeLabel && p.date ? ' · ' : '', feedWhen_(p.date))), p.pinned && React.createElement("span", {
+    className: "ff-feed-pin",
+    "aria-label": "Pinned"
+  }, "📌"), seasonChip && React.createElement("span", {
     className: "ff-feed-season"
-  }, seasonChip), p.pinned && React.createElement("span", {
-    className: "ff-feed-pin"
-  }, "📌 Pinned")), React.createElement("div", {
+  }, seasonChip)), React.createElement("div", {
     className: "ff-feed-mwrap"
   }, React.createElement(FeedMedia, {
     p: p,
     onLike: () => like(true)
-  }), burst > 0 && React.createElement("span", {
+  }), soon && React.createElement("span", {
+    className: "ff-feed-badge soon"
+  }, "🗓️ Coming soon"), burst > 0 && React.createElement("span", {
     key: burst,
     className: "ff-feed-burst",
     "aria-hidden": "true"
@@ -11580,9 +12425,17 @@ function FeedPost({
     "aria-pressed": liked,
     "aria-label": liked ? 'Unlike' : 'Like',
     onClick: () => like()
-  }, React.createElement("span", {
-    "aria-hidden": "true"
-  }, liked ? '❤️' : '🤍'), likes > 0 ? likes : ''), React.createElement("button", {
+  }, React.createElement(FeedIcon, {
+    name: "heart",
+    on: liked
+  }), likes > 0 ? likes : ''), React.createElement("button", {
+    type: "button",
+    "aria-haspopup": "dialog",
+    "aria-label": 'Comments' + (ncomments ? ' (' + ncomments + ')' : ''),
+    onClick: () => onComments(p, true)
+  }, React.createElement(FeedIcon, {
+    name: "comment"
+  }), ncomments > 0 ? ncomments : ''), React.createElement("button", {
     type: "button",
     "aria-label": "Share",
     onClick: () => feedShare_(p, shareInfo, how => {
@@ -11591,20 +12444,31 @@ function FeedPost({
         setTimeout(() => setNote(''), 2500);
       }
     })
-  }, React.createElement("span", {
-    "aria-hidden": "true"
-  }, "📤"), "Share"), React.createElement("button", {
+  }, React.createElement(FeedIcon, {
+    name: "share"
+  })), React.createElement("button", {
     type: "button",
-    "aria-expanded": talk,
-    "aria-label": 'Comments' + (ncomments ? ' (' + ncomments + ')' : ''),
-    onClick: () => setTalk(o => !o)
-  }, React.createElement("span", {
-    "aria-hidden": "true"
-  }, "💬"), ncomments > 0 ? ncomments : '')), React.createElement("div", {
+    className: 'ff-feed-save' + (saved ? ' on' : ''),
+    "aria-pressed": saved,
+    "aria-label": saved ? 'Remove from saved' : 'Save',
+    onClick: save
+  }, React.createElement(FeedIcon, {
+    name: "save",
+    on: saved
+  }))), React.createElement("div", {
     className: "ff-feed-body"
   }, React.createElement("div", {
     className: "ff-feed-title"
-  }, p.title), genres.length > 0 && React.createElement("div", {
+  }, p.title), (rel || langs.length > 0) && React.createElement("div", {
+    className: "ff-feed-rel"
+  }, rel, langs.length > 0 && React.createElement("span", null, (rel ? ' · ' : '') + langs.join(', '))), caption && React.createElement("div", {
+    ref: capRef,
+    className: "ff-feed-cap" + (open ? '' : ' clamp')
+  }, caption), long && React.createElement("button", {
+    type: "button",
+    className: "ff-feed-more",
+    onClick: () => setOpen(o => !o)
+  }, open ? 'less' : 'more'), genres.length > 0 && React.createElement("div", {
     className: "ff-feed-tags",
     "aria-label": "Genres"
   }, genres.map(g => React.createElement("button", {
@@ -11613,27 +12477,28 @@ function FeedPost({
     className: genre === g ? 'on' : '',
     "aria-pressed": genre === g,
     onClick: () => onGenre && onGenre(genre === g ? '' : g)
-  }, g))), rel && React.createElement("div", {
-    className: "ff-feed-rel"
-  }, rel), caption && React.createElement("div", {
-    ref: capRef,
-    className: "ff-feed-cap" + (open ? '' : ' clamp')
-  }, caption), long && React.createElement("button", {
-    type: "button",
-    className: "ff-feed-more",
-    onClick: () => setOpen(o => !o)
-  }, open ? 'less' : 'more'), (p.languages || []).length > 0 && React.createElement("div", {
-    className: "ff-feed-tags"
-  }, p.languages.map(t => React.createElement("span", {
-    key: t
-  }, t))), p.trailerUrl && React.createElement("button", {
+  }, g))), p.trailerUrl && React.createElement("button", {
     type: "button",
     className: "ff-feed-ytbtn",
     onClick: () => openExternal_(p.trailerUrl)
   }, feedYouTubeId_(p.trailerUrl) ? '▶️ Watch on YouTube' : '▶ Watch the trailer'), note && React.createElement("div", {
     className: "ff-feed-note",
     role: "status"
-  }, note), p.cta === 'service' && info && React.createElement("button", {
+  }, note), (pv.length > 0 || ncomments > 0) && React.createElement("div", {
+    className: "ff-feed-cprev"
+  }, ncomments > pv.length && React.createElement("button", {
+    type: "button",
+    onClick: () => onComments(p, false)
+  }, ncomments === 1 ? 'View 1 comment' : 'View all ' + ncomments + ' comments'), pv.map(c => React.createElement("p", {
+    key: c.id,
+    onClick: () => onComments(p, false)
+  }, React.createElement("b", null, c.name), c.text))), React.createElement("button", {
+    type: "button",
+    className: "ff-feed-cadd",
+    onClick: () => onComments(p, true)
+  }, React.createElement("i", {
+    "aria-hidden": "true"
+  }, "💬"), "Add a comment…"), p.cta === 'service' && info && React.createElement("button", {
     type: "button",
     className: "ff-feed-cta" + (renewSub ? ' renew' : ''),
     onClick: () => {
@@ -11642,12 +12507,7 @@ function FeedPost({
     }
   }, React.createElement("span", null, renewSub ? '🔁 Renew ' + info.service : 'Get ' + info.service + ' from ₹' + info.price, React.createElement("small", null, renewSub ? 'Keep watching — renew your plan' : 'Streaming on ' + name)), React.createElement("span", {
     "aria-hidden": "true"
-  }, "›")), talk && React.createElement(FeedComments, {
-    p: p,
-    phone: phone,
-    onLogin: onLogin,
-    onCount: n => setNcomments(c => c + n)
-  })));
+  }, "›"))));
 }
 function FeedSkeleton() {
   return React.createElement("div", {
@@ -11657,18 +12517,40 @@ function FeedSkeleton() {
     className: "ff-feed-head"
   }, React.createElement("div", {
     className: "ff-feed-av"
+  }), React.createElement("div", {
+    className: "ff-feed-name"
+  }, React.createElement("i", {
+    style: {
+      width: '38%'
+    }
   }), React.createElement("i", {
     style: {
-      flex: 1,
-      margin: 0
+      width: '24%',
+      height: 10
     }
-  })), React.createElement("div", {
+  }))), React.createElement("div", {
+    className: "ff-feed-mwrap"
+  }, React.createElement("div", {
     className: "ff-feed-media"
+  })), React.createElement("div", {
+    className: "ff-feed-body"
+  }, React.createElement("i", {
+    style: {
+      width: '30%'
+    }
   }), React.createElement("i", {
     style: {
-      width: '60%'
+      width: '55%'
     }
-  }), React.createElement("i", null));
+  }), React.createElement("i", {
+    style: {
+      width: '92%'
+    }
+  }), React.createElement("i", {
+    style: {
+      width: '70%'
+    }
+  })));
 }
 function FeedScreen({
   nav,
@@ -11684,8 +12566,19 @@ function FeedScreen({
   const [query, setQuery] = useState('');
   const [pinId, setPinId] = useState(postId || '');
   const [shown, setShown] = useState(6);
+  const [panel, setPanel] = useState(false);
+  const [talk, setTalk] = useState(null);
+  const [previews, setPreviews] = useState({});
+  const [extra, setExtra] = useState({});
   const moreRef = useRef(null);
   const topRef = useRef(null);
+  const ptrRef = useRef(null);
+  const proxyRef = useRef(null);
+  const pv = useRef({
+    asked: new Set(),
+    queue: new Set(),
+    timer: 0
+  });
   function load(force) {
     feedLoad_(r => setData(r), force);
   }
@@ -11700,19 +12593,118 @@ function FeedScreen({
     const t = setTimeout(() => setQuery(q), 220);
     return () => clearTimeout(t);
   }, [q]);
+  // The filter bar sticks under the header (its real height) and slides away while scrolling down.
+  useEffect(() => {
+    const tb = document.querySelector('.ff-topbar');
+    const root = document.documentElement;
+    const upd = () => tb && root.style.setProperty('--ff-top-h', Math.round(tb.getBoundingClientRect().height) + 'px');
+    upd();
+    window.addEventListener('resize', upd);
+    return () => {
+      window.removeEventListener('resize', upd);
+      root.style.removeProperty('--ff-top-h');
+    };
+  }, []);
+  // 🔄 Pull down at the very top to refresh (the browser's own pull-to-reload is switched off on this screen).
+  useEffect(() => {
+    const el = topRef.current;
+    const ind = ptrRef.current;
+    if (!el || !ind) return;
+    const html = document.documentElement;
+    const prevOb = html.style.overscrollBehaviorY;
+    html.style.overscrollBehaviorY = 'contain';
+    let y0 = -1;
+    let d = 0;
+    let busy = false;
+    const reset = () => {
+      ind.classList.add('back');
+      ind.classList.remove('spin', 'ready');
+      ind.style.transform = '';
+      ind.style.opacity = '0';
+    };
+    const start = e => {
+      y0 = !busy && e.touches.length === 1 && (window.scrollY || 0) <= 0 ? e.touches[0].clientY : -1;
+      d = 0;
+    };
+    const move = e => {
+      if (y0 < 0) return;
+      const dy = e.touches[0].clientY - y0;
+      if (dy <= 0 || (window.scrollY || 0) > 0) {
+        d = 0;
+        ind.style.opacity = '0';
+        return;
+      }
+      d = Math.min(96, dy * 0.5);
+      ind.classList.remove('back');
+      ind.style.transform = 'translateY(' + d + 'px)';
+      ind.style.opacity = String(Math.min(1, d / 56));
+      ind.classList.toggle('ready', d >= 64);
+    };
+    const end = () => {
+      if (y0 < 0) return;
+      y0 = -1;
+      if (d < 64) return reset();
+      busy = true;
+      ind.classList.add('spin', 'back');
+      ind.style.transform = 'translateY(62px)';
+      const t0 = Date.now();
+      feedLoad_(r => setTimeout(() => {
+        setData(r);
+        pv.current.asked.clear();
+        setPreviews({});
+        setExtra({});
+        busy = false;
+        reset();
+      }, Math.max(0, 600 - (Date.now() - t0))), true);
+    };
+    el.addEventListener('touchstart', start, {
+      passive: true
+    });
+    el.addEventListener('touchmove', move, {
+      passive: true
+    });
+    el.addEventListener('touchend', end, {
+      passive: true
+    });
+    el.addEventListener('touchcancel', reset, {
+      passive: true
+    });
+    return () => {
+      html.style.overscrollBehaviorY = prevOb;
+      el.removeEventListener('touchstart', start);
+      el.removeEventListener('touchmove', move);
+      el.removeEventListener('touchend', end);
+      el.removeEventListener('touchcancel', reset);
+    };
+  }, []);
   const posts = data && data.posts || [];
   const platforms = feedBrands_(posts);
   const genreList = feedGenres_(posts);
-  const active = filter !== 'all' || !!genre || when !== 'all' || !!query.trim();
-  const list = feedFilter_(posts, {
+  const savedIds = when === 'saved' ? feedSaved_() : null;
+  const nActive = (filter !== 'all' ? 1 : 0) + (genre ? 1 : 0) + (when !== 'all' ? 1 : 0);
+  const active = nActive > 0 || !!query.trim();
+  const list = feedFilter_(savedIds ? posts.filter(p => savedIds.includes(p.id)) : posts, {
     q: query,
     genre,
     brand: filter === 'all' ? '' : filter,
-    date: when
+    date: savedIds ? 'all' : when
   });
   // A shared link (?post=) shows that post first until the customer filters.
   const target = pinId && posts.find(p => p.id === pinId);
   const ordered = target ? [target].concat(list.filter(p => p !== target)) : list;
+  const barHidden = useScrollHide_(!panel && !talk);
+  // An open filter panel folds itself away once the customer scrolls on through the posts.
+  useEffect(() => {
+    if (!panel) return;
+    const y0 = window.scrollY || 0;
+    const onScroll = () => {
+      if (Math.abs((window.scrollY || 0) - y0) > 160) setPanel(false);
+    };
+    window.addEventListener('scroll', onScroll, {
+      passive: true
+    });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [panel]);
   function change(fn) {
     fn();
     setShown(6);
@@ -11748,6 +12740,56 @@ function FeedScreen({
     io.observe(el);
     return () => io.disconnect();
   }, [ordered.length, shown]);
+  // 💬 Latest 3 comments under posts near the screen: collected for a moment, then ONE request (≤ 12 posts).
+  function wantPreview(p) {
+    const s = pv.current;
+    if (s.asked.has(p.id)) return;
+    s.asked.add(p.id);
+    s.queue.add(p.id);
+    if (s.timer) return;
+    s.timer = setTimeout(function flush() {
+      s.timer = 0;
+      const ids = [...s.queue].slice(0, 12);
+      ids.forEach(id => s.queue.delete(id));
+      if (s.queue.size) s.timer = setTimeout(flush, 150);
+      if (!ids.length) return;
+      try {
+        API.getFeedCommentPreviews(ids, r => {
+          if (r && r.ok && r.previews) setPreviews(x => Object.assign({}, x, r.previews));
+        }, () => ids.forEach(id => s.asked.delete(id)));
+      } catch (e) {}
+    }, 150);
+  }
+  // Focus a hidden input INSIDE the tap, so the phone opens its keyboard; the sheet then moves focus to its own box.
+  function openComments(p, focus) {
+    const f = !!(focus && phone);
+    if (f && proxyRef.current) try {
+      proxyRef.current.focus({
+        preventScroll: true
+      });
+    } catch (e) {}
+    setTalk({
+      p,
+      focus: f
+    });
+  }
+  function onPosted(p, c) {
+    setExtra(x => Object.assign({}, x, {
+      [p.id]: (x[p.id] || 0) + 1
+    }));
+    setPreviews(x => {
+      const cur = x[p.id] || {
+        total: Number(p.comments) || 0,
+        comments: []
+      };
+      return Object.assign({}, x, {
+        [p.id]: {
+          total: Math.max(Number(cur.total) || 0, Number(p.comments) || 0) + 1,
+          comments: [c].concat(cur.comments || []).slice(0, 3)
+        }
+      });
+    });
+  }
   const plans = boot && boot.plans || [];
   const subs = manageResp && manageResp.actionable || [];
   function onCta(p, info, renewSub) {
@@ -11757,6 +12799,45 @@ function FeedScreen({
       service: info.service
     });
   }
+  // Floating "Get … from ₹X": for the post in the middle of the screen, only while that post's own button is off screen.
+  const [float, setFloat] = useState('');
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      raf = 0;
+      const vh = window.innerHeight;
+      const mid = vh * 0.45;
+      const low = vh - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ff-bnav-h')) || 0) - 60;
+      let id = '';
+      for (const el of document.querySelectorAll('.ff-feed-post[data-cta]')) {
+        const r = el.getBoundingClientRect();
+        if (r.top > mid) break;
+        if (r.bottom < mid) continue;
+        const c = el.querySelector('.ff-feed-cta');
+        const cr = c && c.getBoundingClientRect();
+        // Never over the ❤️ 💬 row: only once it has scrolled up past the pill, while the post's own button is not in view.
+        const acts = el.querySelector('.ff-feed-acts');
+        const ar = acts && acts.getBoundingClientRect();
+        if (cr && ar && ar.bottom < low - 16 && (cr.top > low || cr.bottom < 70)) id = el.getAttribute('data-id') || '';
+        break;
+      }
+      setFloat(f => f === id ? f : id);
+    };
+    const on = () => {
+      if (!raf) raf = requestAnimationFrame(tick);
+    };
+    window.addEventListener('scroll', on, {
+      passive: true
+    });
+    window.addEventListener('resize', on);
+    on();
+    return () => {
+      window.removeEventListener('scroll', on);
+      window.removeEventListener('resize', on);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [data, shown, query, filter, genre, when]);
+  const ctaOf = {};
   let body;
   if (!data) body = [React.createElement(FeedSkeleton, {
     key: 's1'
@@ -11803,14 +12884,14 @@ function FeedScreen({
       fontSize: 40,
       marginBottom: 8
     }
-  }, "🔎"), React.createElement("div", {
+  }, when === 'saved' ? '🔖' : '🔎'), React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 15,
       fontWeight: 800,
       color: C.text
     }
-  }, "No posts match"), React.createElement("div", {
+  }, when === 'saved' ? 'No saved posts yet' : "No posts match"), React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 13,
@@ -11818,13 +12899,18 @@ function FeedScreen({
       color: C.muted,
       margin: '6px 0 14px'
     }
-  }, "Try another word, genre or app."), React.createElement(Btn, {
+  }, when === 'saved' ? 'Tap 🔖 on a post to keep it here.' : 'Try another word, genre or app.'), React.createElement(Btn, {
     variant: "ghost",
     onClick: clearAll
   }, "✖ Clear filters"));else body = ordered.slice(0, shown).map(p => {
     const plan = p.ctaService || p.service;
     const info = p.cta === 'service' ? feedServiceInfo_(plan, plans) : null;
     const renewSub = info ? subs.find(s => s && s.service === info.service && s.showRenewButton !== false) || null : null;
+    if (info) ctaOf[p.id] = {
+      p,
+      info,
+      renewSub
+    };
     return React.createElement(FeedPost, {
       key: p.id,
       p: p,
@@ -11836,8 +12922,10 @@ function FeedScreen({
       brandInfo: feedBrandInfo_(feedPostBrand_(p), plans),
       genre: genre,
       onGenre: pickGenre,
-      phone: phone,
-      onLogin: () => nav('home', {})
+      preview: previews[p.id],
+      extra: extra[p.id] || 0,
+      onNear: wantPreview,
+      onComments: openComments
     });
   });
   const chip = (key, label, on, onClick) => React.createElement("button", {
@@ -11847,15 +12935,38 @@ function FeedScreen({
     className: on ? 'on' : '',
     onClick: onClick
   }, label);
+  const hasSaved = feedSaved_().length > 0 || when === 'saved';
+  // Filters folded away by default; what is on shows as small removable chips under the search.
+  const activeChips = [filter !== 'all' && chip('x-app', filter + ' ✕', false, () => change(() => setFilter('all'))), when !== 'all' && chip('x-when', ({
+    week: '🆕 Latest',
+    month: '📅 This month',
+    saved: '🔖 Saved'
+  }[when] || when) + ' ✕', false, () => change(() => setWhen('all'))), genre && chip('x-genre', genre + ' ✕', false, () => change(() => setGenre('')))].filter(Boolean);
   return React.createElement(Slide, null, React.createElement("div", {
     className: "ff-feed",
     ref: topRef,
     style: {
       paddingBottom: 90
     }
-  }, React.createElement(SectionHead, null, "🍿 What's new"), React.createElement("p", {
-    className: "ff-feed-sub"
-  }, "New movies & shows on the apps you can get from FluxFilm."), posts.length > 1 && React.createElement("div", {
+  }, React.createElement("h2", {
+    className: "ff-feed-h"
+  }, "What's new"), React.createElement("div", {
+    ref: ptrRef,
+    className: "ff-feed-ptr",
+    "aria-hidden": "true"
+  }), React.createElement("input", {
+    ref: proxyRef,
+    className: "ff-cs-proxy",
+    type: "text",
+    tabIndex: -1,
+    "aria-hidden": "true",
+    readOnly: false,
+    defaultValue: ""
+  }), posts.length > 1 && React.createElement("div", {
+    className: "ff-feed-top" + (barHidden ? ' hide' : '')
+  }, React.createElement("div", {
+    className: "ff-feed-bar"
+  }, React.createElement("div", {
     className: "ff-feed-find"
   }, React.createElement("span", {
     "aria-hidden": "true"
@@ -11877,24 +12988,40 @@ function FeedScreen({
       setQ('');
       setQuery('');
     })
-  }, "✕")), platforms.length > 1 && React.createElement("div", {
+  }, "✕")), React.createElement("button", {
+    type: "button",
+    className: "ff-feed-fbtn" + (panel ? ' on' : ''),
+    "aria-expanded": panel,
+    "aria-controls": "ff-feed-panel",
+    onClick: () => setPanel(o => !o)
+  }, "Filters", nActive > 0 && React.createElement("b", null, nActive), React.createElement("i", {
+    "aria-hidden": "true"
+  }, "▾"))), React.createElement("div", {
+    id: "ff-feed-panel",
+    className: "ff-feed-panel" + (panel ? ' open' : ''),
+    inert: panel ? undefined : ''
+  }, React.createElement("div", null, platforms.length > 1 && React.createElement("div", {
     className: "ff-feed-chips",
     role: "group",
     "aria-label": "Filter by app"
-  }, ['all'].concat(platforms).map(k => chip(k, k === 'all' ? 'All apps' : k, filter === k, () => change(() => setFilter(k))))), posts.length > 1 && React.createElement("div", {
+  }, ['all'].concat(platforms).map(k => chip(k, k === 'all' ? 'All apps' : k, filter === k, () => change(() => setFilter(k))))), React.createElement("div", {
     className: "ff-feed-chips sm",
     role: "group",
     "aria-label": "Filter by date and genre"
-  }, [['all', 'All time'], ['week', '🆕 Latest'], ['month', '📅 This month']].map(([k, l]) => chip('d-' + k, l, when === k, () => change(() => setWhen(k)))), genreList.length > 0 && React.createElement("i", {
+  }, [['all', 'All time'], ['week', '🆕 Latest'], ['month', '📅 This month']].map(([k, l]) => chip('d-' + k, l, when === k, () => change(() => setWhen(k)))), hasSaved && chip('d-saved', '🔖 Saved', when === 'saved', () => change(() => setWhen(when === 'saved' ? 'all' : 'saved'))), genreList.length > 0 && React.createElement("i", {
     key: "sep",
     "aria-hidden": "true"
-  }), genreList.map(g => chip('g-' + g, g, genre === g, () => change(() => setGenre(genre === g ? '' : g))))), data && posts.length > 1 && React.createElement("div", {
+  }), genreList.map(g => chip('g-' + g, g, genre === g, () => change(() => setGenre(genre === g ? '' : g))))))), !panel && activeChips.length > 0 && React.createElement("div", {
+    className: "ff-feed-chips sm act",
+    role: "group",
+    "aria-label": "Filters on"
+  }, activeChips), data && active && React.createElement("div", {
     className: "ff-feed-count",
     role: "status"
-  }, React.createElement("span", null, active ? list.length + ' of ' + posts.length + ' posts' : posts.length + ' posts'), active && React.createElement("button", {
+  }, React.createElement("span", null, list.length + ' of ' + posts.length + ' posts'), React.createElement("button", {
     type: "button",
     onClick: clearAll
-  }, "✖ Clear filters")), body, data && ordered.length > shown && React.createElement("div", {
+  }, "✖ Clear filters"))), body, data && ordered.length > shown && React.createElement("div", {
     ref: moreRef,
     style: {
       textAlign: 'center',
@@ -11903,7 +13030,27 @@ function FeedScreen({
   }, React.createElement(Btn, {
     variant: "ghost",
     onClick: () => setShown(n => n + 6)
-  }, "Show more"))));
+  }, "Show more"))), talk && React.createElement(FeedComments, {
+    key: talk.p.id,
+    p: talk.p,
+    phone: phone,
+    focus: talk.focus,
+    onLogin: () => nav('home', {}),
+    onCount: () => {},
+    onPosted: c => onPosted(talk.p, c),
+    onClose: () => setTalk(null)
+  }), !talk && float && ctaOf[float] && React.createElement("button", {
+    key: 'float-' + float,
+    type: "button",
+    className: "ff-feed-float" + (ctaOf[float].renewSub ? ' renew' : ''),
+    onClick: () => {
+      const x = ctaOf[float];
+      feedEvent_(x.p.id, 'click');
+      onCta(x.p, x.info, x.renewSub);
+    }
+  }, React.createElement("span", null, ctaOf[float].renewSub ? '🔁 Renew ' + ctaOf[float].info.service : 'Get ' + ctaOf[float].info.service + ' from ₹' + ctaOf[float].info.price), React.createElement("b", {
+    "aria-hidden": "true"
+  }, "›")));
   // Data-source credit moved off the feed to the /about page's Credits (owner 2026-09-15; TMDB terms allow an About/Credits page).
 }
 function RestoringScreen({
@@ -13548,6 +14695,8 @@ function App() {
     account: 1
   };
   const showBnav = !!BNAV_SCREENS[screen];
+  // 💬 Floating Help bubble: phone screens with the bottom menu except Buy / New (admin switch in 🚧 Maintenance).
+  const showHelpBubble = showBnav && !!HELP_BUBBLE_SCREENS[screen] && !restoring && !loadingMsg && !(storeStatus && storeStatus.helpBubble === false);
   const activeKey = {
     home: 'home',
     dashboard: 'home',
@@ -13623,7 +14772,7 @@ function App() {
     navItems: navItems,
     activeKey: activeKey
   }), !restoring && React.createElement("div", {
-    className: "page-inner " + (WIDE_SCREENS[screen] ? 'ff-w-wide' : 'ff-w-flow') + (showBnav ? ' ff-has-bnav' : ''),
+    className: "page-inner " + (WIDE_SCREENS[screen] ? 'ff-w-wide' : 'ff-w-flow') + (showBnav ? ' ff-has-bnav' : '') + (showHelpBubble ? ' ff-has-hb' : ''),
     key: screen
   }, React.createElement(CheckoutSteps, {
     flow: storeBlocked ? '' : flow,
@@ -13784,11 +14933,12 @@ function App() {
     setCouponCache: setCouponCache,
     initialCoupons: d.coupons,
     initialSection: d.accountSection,
-    onProfileUpdated: url => {
+    onProfileUpdated: (url, extra) => {
       setScreenData(prev => ({
         ...(prev || {}),
         profile: {
           ...(prev?.profile || {}),
+          ...(extra || {}),
           profilePicUrl: url
         }
       }));
@@ -13806,7 +14956,9 @@ function App() {
     manageResp: d.manageResp
   }), screen === 'home' && React.createElement(FeedStrip, {
     nav: nav
-  })),!restoring && showBnav && React.createElement(BottomNav, {
+  })),React.createElement(HelpBubble, {
+    show: showHelpBubble
+  }),!restoring && showBnav && React.createElement(BottomNav, {
     items: navItems,
     activeKey: activeKey
   }), showRecoverModal && React.createElement(RecoverPickerModal, {
@@ -13910,6 +15062,9 @@ const API = {
   addFeedComment(phone, postId, text, onSuccess, onFailure) {
     apiCall_('addFeedComment', [phone, postId, text], onSuccess, onFailure);
   },
+  getFeedCommentPreviews(postIds, onSuccess, onFailure) {
+    apiCall_('getFeedCommentPreviews', [postIds], onSuccess, onFailure);
+  },
   getMySubscriptions(phone, onSuccess, onFailure) {
     apiCall_('getMySubscriptions', [phone], onSuccess, onFailure);
   },
@@ -13930,6 +15085,9 @@ const API = {
   },
   removeProfilePhoto(phone, avatarUrl, onSuccess, onFailure) {
     apiCall_('removeProfilePhoto', [phone, avatarUrl], onSuccess, onFailure);
+  },
+  setAvatar(phone, config, onSuccess, onFailure) {
+    apiCall_('setAvatar', [phone, config], onSuccess, onFailure);
   },
   getActiveCouponsForCustomer(phone, onSuccess, onFailure) {
     apiCall_('getActiveCouponsForCustomer', [phone], onSuccess, onFailure);

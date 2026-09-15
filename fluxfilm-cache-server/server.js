@@ -36,6 +36,7 @@ let pushMod = null; try { pushMod = require('./push'); } catch (e) { console.log
 let feedMod = null; try { feedMod = require('./feed'); } catch (e) { console.log('[feed] not loaded:', e.message); }
 let oliviaMod = null; try { oliviaMod = require('./olivia'); } catch (e) { console.log('[olivia] not loaded:', e.message); }
 let photosMod = null; try { photosMod = require('./photos'); } catch (e) { console.log('[photos] not loaded:', e.message); }
+let avatarsMod = null; try { avatarsMod = require('./avatars'); } catch (e) { console.log('[avatars] not loaded:', e.message); }
 // Self-contained Node actions (recover + Get-OTP tool) — MySQL/IMAP, no Apps Script.
 const DB_RECOVER = Object.assign(
   recover ? {
@@ -89,6 +90,8 @@ const DB_STOREFRONT = Object.assign(
     setProfilePhoto: (a) => photosMod.setProfilePhoto(a[0], a[1]),
     removeProfilePhoto: (a) => photosMod.removeProfilePhoto(a[0], a[1]),
   } : {},
+  // ✨ Avatar creator (avatars.js). a = [phone, config object] — checked strictly on the server.
+  avatarsMod ? { setAvatar: (a) => avatarsMod.setAvatar(a[0], a[1]) } : {},
   paymatch ? {
     // Payment fallback. a[1] = { token, phone } proving the order is theirs (same proof as fulfillAndGetAccess).
     getBackupPayment: (a) => paymatch.getBackupPayment(a[0], a[1]),
@@ -149,7 +152,7 @@ const LIMITS = {
   setProfilePhoto: security.rateLimiter(10, TEN_MIN),
   any: security.rateLimiter(3000, TEN_MIN),
 };
-const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'removeProfilePhoto', 'submitRestockRequest']);
+const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setAvatar', 'removeProfilePhoto', 'submitRestockRequest']);
 // Per-phone limits (independent of IP) for actions that email or reveal codes.
 const PHONE_LIMITS = {
   recoverSendOtp: security.rateLimiter(3, 15 * 60e3),
@@ -159,6 +162,7 @@ const PHONE_LIMITS = {
   pushSubscribe: security.rateLimiter(10, 60 * 60e3),
   setProfilePhoto: security.rateLimiter(6, 60 * 60e3),
   removeProfilePhoto: security.rateLimiter(10, 60 * 60e3),
+  setAvatar: security.rateLimiter(20, 60 * 60e3),
 };
 function rateLimited(req, action, args) {
   const ip = security.clientIp(req);
@@ -197,7 +201,7 @@ const DB_WRITES = order ? {
   },
 } : {};
 const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
-const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setProfilePhoto', 'removeProfilePhoto', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent', 'getPushKey', 'pushSubscribe', 'pushUnsubscribe']);
+const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setProfilePhoto', 'removeProfilePhoto', 'setAvatar', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent', 'getPushKey', 'pushSubscribe', 'pushUnsubscribe']);
 const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota', 'otpSendCode', 'otpVerifyCode']);
 const DB_WRITE_ACTIONS = new Set(['createOrder', 'createRenewOrder', 'validateCoupon', 'verifyPayment', 'verifyPaymentByRef', 'fulfillAndGetAccess']);
 const DB_NOT_YET_PORTED = new Set(['recoverReassignAccount']);
@@ -220,9 +224,12 @@ if (feedMod && feedCommentsMod) {
   Object.assign(DB_STOREFRONT, {
     getFeedComments: (a) => feedCommentsMod.list(a[0], a[1]),
     addFeedComment: (a, req) => feedCommentsMod.add(a[0], a[1], a[2], { ip: security.clientIp(req) }),
+    // a = [[postId, …]] → newest 3 visible comments per post (posts near the screen, ≤ 12, cached 30 s).
+    getFeedCommentPreviews: (a) => feedCommentsMod.previews(a[0]),
   });
-  DB_STOREFRONT_ACTIONS.add('getFeedComments'); DB_STOREFRONT_ACTIONS.add('addFeedComment');
+  DB_STOREFRONT_ACTIONS.add('getFeedComments'); DB_STOREFRONT_ACTIONS.add('addFeedComment'); DB_STOREFRONT_ACTIONS.add('getFeedCommentPreviews');
   LIMITS.getFeedComments = security.rateLimiter(300, TEN_MIN);
+  LIMITS.getFeedCommentPreviews = security.rateLimiter(300, TEN_MIN);
   LIMITS.addFeedComment = security.rateLimiter(40, TEN_MIN);
   PHONE_LIMITS.addFeedComment = security.rateLimiter(10, TEN_MIN);
 }
@@ -487,6 +494,21 @@ app.get('/profile-photo/:id', async (req, res) => {
     res.set('X-Content-Type-Options', 'nosniff');
     res.type(img.type).send(img.buf);
   } catch (e) { res.status(500).type('text/plain').send('error'); }
+});
+
+// ✨ Creator avatars: the SVG is drawn by the server from the short code (avatars.js). Same code = same picture.
+app.get('/avatar/:file', (req, res) => {
+  const svg = avatarsMod && avatarsMod.render(req.params.file);
+  if (!svg) return res.status(404).type('text/plain').send('not found');
+  res.set('Cache-Control', 'public, max-age=31536000, immutable');
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+  res.type('image/svg+xml').send(svg);
+});
+// The avatar creator's drawing code for the browser — loaded only when "✨ Create your avatar" opens.
+app.get('/avatar-maker.js', (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=0');
+  res.set('Content-Type', 'application/javascript; charset=utf-8').sendFile(path.join(__dirname, 'avatarmaker.js'));
 });
 
 // 🎮 Games page: its own small file (the shop page stays as light as before). Same site = same saved login.

@@ -2715,7 +2715,7 @@ function fdEdit(p) {
   $('#fdbody').innerHTML = '<div class="pr-edit"><div class="card"><div class="row" style="justify-content:space-between"><h3 style="margin:0">' + (e.id ? '✏️ Edit post' : '➕ New post') + '</h3><button class="btn ghost sm" id="fdback">← Back</button></div>' +
     '<div class="pr-f"><label>Kind<div class="pr-types">' + FD_TYPES.map(function (x) { return '<button type="button" class="pr-type' + (e.type === x[0] ? ' on' : '') + '" data-type="' + x[0] + '"><b>' + x[1] + '</b><span>' + x[2] + '</span></button>'; }).join('') + '</div></label>' +
     '<label>Title<input class="inp" data-k="title" maxlength="100" value="' + esc(e.title || '') + '" placeholder="Name of the movie or show"/></label>' +
-    '<div class="fd-ai"><button type="button" class="btn ghost sm" id="fdai">✨ AI fill</button><span class="muted" style="font-size:.75rem">' + (e.sourceCaption ? 'Uses the Reel\'s own caption' : 'Uses the title / caption') + ' → title, caption, genres, date, poster. Nothing is saved until you tap 💾 Save.' + (FD.settings.aiKeySet ? '' : ' <b>No AI key yet</b> — only genres / date / poster.') + '</span><div id="fdaimsg"></div></div>' +
+    '<div class="fd-ai"><button type="button" class="btn ghost sm" id="fdai">✨ AI fill</button>' + (e.caption && (FD.settings.aiKeySet || FD.settings.hasGeminiKey) ? '<button type="button" class="btn ghost sm" id="fdairw" title="Write the caption again with a different hook">✨ Rewrite</button>' : '') + '<span class="muted" style="font-size:.75rem">' + (e.sourceCaption ? 'Uses the Reel\'s own caption' : 'Uses the title / caption') + ' → title, caption, genres, date, poster. Nothing is saved until you tap 💾 Save.' + (FD.settings.aiKeySet || FD.settings.hasGeminiKey ? '' : ' <b>No AI key yet</b> — only genres / date / poster.') + '</span><div id="fdaimsg"></div></div>' +
     '<div class="pr-two"><label>Platform shown <span class="muted">(header + logo)</span><select class="inp" data-k="brand">' + fdBrandOpts(e.brand) + '</select></label>' +
     '<label>Sell button uses plan:<select class="inp" data-k="ctaService">' + fdPlanOpts(e.ctaService, e.brand) + '</select></label></div>' +
     '<label>Button<select class="inp" data-k="cta"><option value="service"' + (e.cta !== 'none' ? ' selected' : '') + '>“Get ' + esc(e.ctaService || 'plan') + ' from ₹…” → its plans</option><option value="none"' + (e.cta === 'none' ? ' selected' : '') + '>No button</option></select></label>' +
@@ -2774,12 +2774,19 @@ function fdEdit(p) {
     });
   };
   if ($('#fdthumbdel')) $('#fdthumbdel').onclick = function () { post('/admin/api/feed/thumb', { id: FD.edit.id, dataUrl: '' }).then(function (r) { if (r.ok) { FD.edit.hasThumb = false; FD.edit.thumbAt = ''; fdEdit(FD.edit); } else toast('⚠️ ' + (r.message || 'error')); }); };
-  $('#fdai').onclick = function () {
-    var b = this, out = $('#fdaimsg'); b.disabled = true; b.textContent = '⏳ Thinking…'; out.innerHTML = '';
-    post('/admin/api/feed/ai-fill', { title: FD.edit.title, caption: FD.edit.caption, sourceCaption: FD.edit.sourceCaption, type: FD.edit.type, brand: FD.edit.brand, ctaService: FD.edit.ctaService }).then(function (r) {
-      b.disabled = false; b.textContent = '✨ AI fill';
+  // ✨ AI fill = everything; ✨ Rewrite = only a new caption with a different hook (rewrite count → next angle).
+  var fdAi = function (b, rewrite) {
+    var out = $('#fdaimsg'), label = b.textContent; b.disabled = true; b.textContent = '⏳ Thinking…'; out.innerHTML = '';
+    if (rewrite) FD.rewrites = (FD.rewriteId === FD.edit.id ? FD.rewrites || 0 : 0) + 1; FD.rewriteId = FD.edit.id;
+    post('/admin/api/feed/ai-fill', { title: FD.edit.title, caption: FD.edit.caption, sourceCaption: FD.edit.sourceCaption, type: FD.edit.type, brand: FD.edit.brand, ctaService: FD.edit.ctaService, rewrite: rewrite ? FD.rewrites : 0, previousCaption: rewrite ? FD.edit.caption : '' }).then(function (r) {
+      b.disabled = false; b.textContent = label;
       if (!r.ok) { out.innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'; return; }
       var f = r.fields || {}, ed = FD.edit;
+      if (rewrite) {
+        if (f.caption) { ed.caption = f.caption; fdEdit(ed); rfStateSet('dirty', '● Check the ✨ new caption, then 💾 Save'); }
+        $('#fdaimsg').innerHTML = '<div class="qnote">' + (f.caption ? '✨ New caption' + (r.angle ? ' — hook: ' + esc(r.angle) : '') + (r.provider ? ' (' + esc(r.provider) + ')' : '') : '⚠️ No new caption this time') + (r.notes && r.notes.length ? '<br>' + r.notes.filter(function (n) { return /caption|AI/.test(n); }).map(esc).join('<br>') : '') + '</div>';
+        return;
+      }
       ['title', 'caption'].forEach(function (k) { if (f[k]) ed[k] = f[k]; });
       if (f.type && ed.type !== 'announcement') ed.type = f.type;
       // 📅 Date (+ "Season N" for a new season) marked "auto" — the owner can change it.
@@ -2792,6 +2799,8 @@ function fdEdit(p) {
       $('#fdaimsg').innerHTML = '<div class="qnote">' + esc(r.message || '') + (r.notes && r.notes.length ? '<br>' + r.notes.map(esc).join('<br>') : '') + '</div>';
     });
   };
+  $('#fdai').onclick = function () { fdAi(this, false); };
+  if ($('#fdairw')) $('#fdairw').onclick = function () { fdAi(this, true); };
   var fi = $('#fdimg');
   if (fi) fi.onchange = function () {
     var f = fi.files[0]; if (!f) return;
@@ -2896,7 +2905,9 @@ function fdSettings() {
     '<h4 style="margin:20px 0 4px">📸 Instagram thumbnails — Meta token (optional)</h4><p class="muted" style="margin:0;font-size:.84rem">' + (st.hasMetaToken ? '✅ A Meta token is saved. It stays on the server and is never shown again.' : 'Without it the shop still tries Instagram\'s public embed page for the thumbnail (Instagram may block it sometimes).') + '</p>' +
     '<ol class="fd-steps"><li><b>developers.facebook.com</b> → My Apps → Create app (type “Business”) → add the <b>oEmbed Read</b> product.</li><li>App settings → Basic: copy the <b>App ID</b> and <b>App secret</b>.</li><li>Paste them here as <b>App ID|App secret</b> (with the | in the middle).</li></ol>' +
     '<div class="row"><input class="inp grow" id="fdmeta" type="password" autocomplete="off" spellcheck="false" placeholder="' + (st.hasMetaToken ? 'Paste a new token to replace it' : 'App ID|App secret') + '"/><button class="btn green" id="fdmetasave">💾 Save token</button>' + (st.hasMetaToken ? '<button class="btn ghost" id="fdmetadel">Remove</button>' : '') + '</div>' +
-    '<h4 style="margin:20px 0 4px">✨ AI fill</h4><p class="muted" style="margin:0;font-size:.84rem">' + (st.aiKeySet ? '✅ Uses the AI key Olivia uses (DEEPSEEK_API_KEY) for captions.' : 'No AI key: ✨ AI fill only adds genres, date and poster. For captions add <b>DEEPSEEK_API_KEY</b> in Hostinger → the Node app → Environment variables (the same key Olivia uses).') + '</p>' +
+    '<h4 style="margin:20px 0 4px">✨ AI fill — captions</h4><p class="muted" style="margin:0;font-size:.84rem">' + (st.hasGeminiKey ? '✅ <b>Gemini</b> writes the captions (with Google Search for very new titles)' + (st.aiKeySet ? '; DeepSeek is the backup.' : '.') : st.aiKeySet ? '✅ Uses the AI key Olivia uses (DEEPSEEK_API_KEY) for captions. Add a Gemini key below to use Gemini instead.' : 'No AI key: ✨ AI fill only adds genres, date and poster. Add a Gemini key below, or <b>DEEPSEEK_API_KEY</b> in Hostinger → the Node app → Environment variables (the same key Olivia uses).') + '</p>' +
+    '<ol class="fd-steps"><li>Open <b>aistudio.google.com</b> → sign in with Google → <b>Get API key</b> → Create API key.</li><li>Copy the key (starts with <b>AIza</b>) and paste it here. It stays on the server and is never shown again.</li><li>Order: Gemini if a key is saved, else DeepSeek.</li></ol>' +
+    '<div class="row"><input class="inp grow" id="fdgem" type="password" autocomplete="off" spellcheck="false" placeholder="' + (st.hasGeminiKey ? 'Paste a new Gemini key to replace it' : 'Paste Gemini (Google AI Studio) key') + '"/><button class="btn green" id="fdgemsave">💾 Save Gemini key</button>' + (st.hasGeminiKey ? '<button class="btn ghost" id="fdgemdel">Remove</button>' : '') + '</div>' +
     '<h4 style="margin:20px 0 4px">🤖 Automatic import (every 6 hours)</h4><label class="rf-tog"><input type="checkbox" id="fdauto"' + (st.autoPublish ? ' checked' : '') + '/> <b>Publish imported posts by themselves</b></label>' +
     '<p class="muted" style="margin:0 0 10px;font-size:.8rem">ON: new titles go live at once. OFF: they wait as drafts (⏸ Off) until you turn them on. Posts you edit are never changed by the import.</p>' +
     '<div class="muted" style="font-size:.8rem;margin-bottom:4px">Platforms <span>(none ticked = every platform you sell)</span></div><div class="row" style="gap:12px">' + FD.services.map(function (s) { return '<label class="rf-tog" style="margin:0"><input type="checkbox" data-plat="' + esc(s) + '"' + ((st.platforms || []).indexOf(s) >= 0 ? ' checked' : '') + '/> ' + esc(s) + '</label>'; }).join('') + '</div>' +
@@ -2918,6 +2929,8 @@ function fdSettings() {
   $('#fdkeysave').onclick = function () { var k = $('#fdkey').value.trim(); if (!k) return toast('Paste the key first'); post('/admin/api/feed/settings', { tmdbKey: k }).then(function (r) { $('#fdkey').value = ''; toast(r.ok ? '✅ Key saved' : '⚠️ ' + (r.message || 'error')); after(r); }); };
   $('#fdmetasave').onclick = function () { var k = $('#fdmeta').value.trim(); if (!k) return toast('Paste the token first'); post('/admin/api/feed/settings', { metaToken: k }).then(function (r) { $('#fdmeta').value = ''; toast(r.ok ? '✅ Meta token saved' : '⚠️ ' + (r.message || 'error')); after(r); }); };
   if ($('#fdmetadel')) $('#fdmetadel').onclick = function () { if (confirm('Remove the Meta token? Thumbnails already saved stay.')) post('/admin/api/feed/settings', { clearMetaToken: true }).then(function (r) { toast(r.ok ? 'Meta token removed' : '⚠️ ' + (r.message || 'error')); after(r); }); };
+  $('#fdgemsave').onclick = function () { var k = $('#fdgem').value.trim(); if (!k) return toast('Paste the Gemini key first'); post('/admin/api/feed/settings', { geminiKey: k }).then(function (r) { $('#fdgem').value = ''; toast(r.ok ? '✅ Gemini key saved' : '⚠️ ' + (r.message || 'error')); after(r); }); };
+  if ($('#fdgemdel')) $('#fdgemdel').onclick = function () { if (confirm('Remove the Gemini key? ✨ AI fill will use DeepSeek (if set).')) post('/admin/api/feed/settings', { clearGeminiKey: true }).then(function (r) { toast(r.ok ? 'Gemini key removed' : '⚠️ ' + (r.message || 'error')); after(r); }); };
   if ($('#fdkeydel')) $('#fdkeydel').onclick = function () { if (confirm('Remove the TMDB key? Posts already made stay.')) post('/admin/api/feed/settings', { clearKey: true }).then(function (r) { toast(r.ok ? 'Key removed' : '⚠️ ' + (r.message || 'error')); after(r); }); };
   if ($('#fdprov')) $('#fdprov').onclick = function () {
     var out = $('#fdprovout'); out.innerHTML = '<p class="muted">Asking TMDB…</p>';
@@ -3367,6 +3380,8 @@ function renderMaintenance() {
     '<div class="card"><h3>💬 What customers see</h3><div class="mt-f"><label>Message<textarea class="inp" id="mtmsg" rows="3" maxlength="300">' + esc(s.message) + '</textarea></label>' +
     '<label>Back by <span class="muted">(optional, e.g. "in 30 minutes", "by 6 pm")</span><input class="inp" id="mtback" maxlength="60" value="' + esc(s.backText) + '" placeholder="in 30 minutes"/></label></div>' +
     '<div class="rf-save"><button class="btn green" id="mtsave">💾 Save message</button><span class="rf-state" id="mtstate"></span></div></div>' +
+    '<div class="card"><h3>💬 Help bubble</h3><label class="rf-tog"><input type="checkbox" id="mthelp"' + (s.helpBubble !== false ? ' checked' : '') + '/> <b>Show the small floating 💬 Help bubble</b></label>' +
+    '<p class="muted" style="margin:4px 0 0;font-size:.84rem">On Home, My plans and Account, above the bottom menu (it hides while the customer scrolls down, never on checkout or payment). The Help button at the top right always stays. Saves at once.</p><span class="rf-state" id="mthelpstate"></span></div>' +
     '<div class="card"><h3>😏 Greeting on My plans</h3><label class="row" style="gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="mtsass"' + (s.sassyGreeting !== false ? ' checked' : '') + ' style="width:22px;height:22px;flex:none;margin-top:2px"/>' +
     '<span><b>Sassy greeting</b><br><span class="muted">ON: a fun line that changes with the time, the day and the customer\'s plans (e.g. "Missed me?? Here we go again!! 😏", "Your Netflix ends in 2 days — don\'t leave me on read 👀"). OFF: plain "Welcome back, Name 👋". Saves at once.</span></span></label></div>';
   $('#mtsass').onchange = function () {
@@ -3378,6 +3393,14 @@ function renderMaintenance() {
     });
   };
   var st = function (k, x) { var el = $('#mtstate'); if (el) { el.className = 'rf-state ' + k; el.textContent = x; } };
+  $('#mthelp').onchange = function () {
+    var on = this.checked, box = this, el = $('#mthelpstate'); box.disabled = true;
+    post('/admin/api/store', { helpBubble: on }).then(function (r) {
+      box.disabled = false;
+      if (!r.ok) { box.checked = !on; toast('⚠️ Not changed: ' + (r.message || 'error')); return; }
+      MT.s = r.settings; if (el) { el.className = 'rf-state ok'; el.textContent = on ? '✅ Bubble on — live now' : '✅ Bubble off — live now'; }
+    });
+  };
   var body = function (extra) { return Object.assign({ message: $('#mtmsg').value, backText: $('#mtback').value }, extra || {}); };
   $('#mtsave').onclick = function () { saveSettingsBtn(this, '/admin/api/store', body(), st, function (r) { MT.s = r.settings; refreshPauseBar(r.settings); }); };
   $('#mttog').onclick = function () {
