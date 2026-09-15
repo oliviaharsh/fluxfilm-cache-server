@@ -16,7 +16,7 @@
  *   POST /admin/api/feed/cleanup/hide      { ids[] }            hide those (hideAfter = now; never deleted; change log)
  *   POST /admin/api/feed/thumb/refresh     { id }                📸 fetch the Instagram thumbnail + Reel caption again (server-side)
  *   POST /admin/api/feed/thumb             { id, dataUrl }       the admin page's shrunk copy of a big thumbnail ('' removes it)
- *   POST /admin/api/feed/ai-fill           { title, caption, sourceCaption, type }   ✨ suggestions only (nothing saved)
+ *   POST /admin/api/feed/ai-fill           { title, caption, sourceCaption, type, rewrite?, previousCaption? }   ✨ suggestions only (nothing saved); rewrite = ✨ Rewrite count
  *   GET  /admin/api/feed/comments          ?status=pending|visible|hidden|all&post=<id>   💬 list + counts
  *   POST /admin/api/feed/comments/action   { id, action: approve|hide|delete|block|unblock }
  */
@@ -79,8 +79,8 @@ function mount(app, deps) {
 
   route('/admin/api/feed/ai-fill', async (req, res, b) => {
     if (aiLimit && !aiLimit.hit('admin').ok) return res.status(429).json({ ok: false, message: 'Too many ✨ AI fills — wait a few minutes.' });
-    const r = await ai.aiFill({ title: b.title, caption: b.caption, sourceCaption: b.sourceCaption, type: b.type, brand: b.brand, ctaService: b.ctaService });
-    if (r.ok && r.tokens) console.log('[feed] AI fill used ' + r.tokens + ' tokens');
+    const r = await ai.aiFill({ title: b.title, caption: b.caption, sourceCaption: b.sourceCaption, type: b.type, brand: b.brand, ctaService: b.ctaService, rewrite: b.rewrite, previousCaption: b.previousCaption });
+    if (r.ok && r.tokens) console.log('[feed] AI ' + (b.rewrite ? 'rewrite' : 'fill') + ' used ' + r.tokens + ' tokens' + (r.provider ? ' (' + r.provider + ')' : ''));
     res.status(r.ok ? 200 : 400).json(r);
   });
 

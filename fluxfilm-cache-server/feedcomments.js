@@ -91,6 +91,35 @@ async function counts() {
   } catch (_) { return countCache || {}; }
 }
 
+// ---- previews under each post ----
+const PREVIEW_N = 3;
+const PREVIEW_MAX_POSTS = 12;
+const PREVIEW_MS = 30e3;
+const previewCache = new Map(); // postId → { at, comments }
+/**
+ * The newest 3 visible comments for up to 12 posts (the ones near the customer's screen) in ONE query, cached 30 s per
+ * post. → { ok, ready, previews: { <postId>: { total, comments: [3 newest] } } }. Posts without comments get total 0.
+ */
+async function previews(postIds) {
+  const ids = [...new Set((Array.isArray(postIds) ? postIds : []).map(safePost).filter(Boolean))].slice(0, PREVIEW_MAX_POSTS);
+  if (!ids.length) return { ok: true, ready: true, previews: {} };
+  if (!(await ready())) return { ok: true, ready: false, previews: {} };
+  const now = Date.now();
+  const need = ids.filter((id) => { const h = previewCache.get(id); return !h || now - h.at >= PREVIEW_MS; });
+  if (need.length) {
+    // One bounded query: (… post A … LIMIT 3) UNION ALL (… post B … LIMIT 3) — never reads a popular post's whole thread.
+    const sql = need.map(() => '(SELECT id, post_id, name, avatar_url, text, created_at FROM feed_comments WHERE post_id = ? AND status = ? ORDER BY id DESC LIMIT ' + PREVIEW_N + ')').join(' UNION ALL ');
+    const rows = await db.query(sql, need.flatMap((id) => [id, 'visible']));
+    const by = {}; for (const r of rows) (by[s(r.post_id)] = by[s(r.post_id)] || []).push(r);
+    for (const id of need) previewCache.set(id, { at: now, comments: (by[id] || []).sort((a, b) => Number(b.id) - Number(a.id)).slice(0, PREVIEW_N).map(publicRow) });
+    if (previewCache.size > 500) for (const [k, v] of previewCache) if (now - v.at >= PREVIEW_MS) previewCache.delete(k);
+  }
+  const cc = await counts();
+  const out = {};
+  for (const id of ids) { const list = (previewCache.get(id) || {}).comments || []; out[id] = { total: Math.max(Number(cc[id]) || 0, list.length), comments: list }; }
+  return { ok: true, ready: true, previews: out };
+}
+
 // ---- public write ----
 const recent = new Map(); // phone → [ms, ...] (comment tries in the last 10 minutes)
 const lastTexts = new Map(); // phone → [{ key, at }]
@@ -144,6 +173,7 @@ async function add(phone, postId, text, meta) {
   if (lastTexts.size > 20000) lastTexts.clear();
   countCache = null;
   if (status === 'pending') return { ok: true, status, message: m.message };
+  previewCache.delete(pid);
   return { ok: true, status, comment: publicRow({ id: r && r.insertId, name, avatar_url: avatar, text: m.text, created_at: at }), message: '💬 Comment posted' };
 }
 
@@ -181,6 +211,8 @@ async function adminAction(id, action) {
   if (!rows.length) return { ok: false, message: 'Comment not found.' };
   const c = rows[0]; const at = istString();
   countCache = null;
+  // A hidden / deleted / blocked comment must leave the previews at once (block can touch many posts).
+  if (action === 'block') previewCache.clear(); else previewCache.delete(s(c.post_id));
   if (action === 'approve') await db.query('UPDATE feed_comments SET status = ?, updated_at = ? WHERE id = ?', ['visible', at, cid]);
   else if (action === 'hide') await db.query('UPDATE feed_comments SET status = ?, updated_at = ? WHERE id = ?', ['hidden', at, cid]);
   else if (action === 'delete') await db.query('DELETE FROM feed_comments WHERE id = ?', [cid]);
@@ -193,6 +225,6 @@ async function adminAction(id, action) {
 }
 
 module.exports = {
-  list, add, counts, ready, adminList, adminAction, displayName, safeAvatar, NOT_READY, PER_PHONE,
-  _internal: { recent, lastTexts, blockedCounts, reset: () => { readyVal = null; readyAt = 0; countCache = null; recent.clear(); lastTexts.clear(); }, setFeed: (f) => { feedRef = f; }, istString, istParse },
+  list, add, counts, previews, ready, adminList, adminAction, displayName, safeAvatar, NOT_READY, PER_PHONE, PREVIEW_N, PREVIEW_MAX_POSTS,
+  _internal: { recent, lastTexts, blockedCounts, previewCache, reset: () => { readyVal = null; readyAt = 0; countCache = null; recent.clear(); lastTexts.clear(); previewCache.clear(); }, setFeed: (f) => { feedRef = f; }, istString, istParse },
 };
