@@ -157,6 +157,8 @@ function mountAdmin(app, deps) {
   require('./accounttools').mount(app, Object.assign({ db, auth, audit }, deps.tools || {}));
   // Profit view + extend subscription days (profit.js).
   require('./profit').mount(app, Object.assign({ db, auth, audit }, deps.profit || {}));
+  // Rename / split an inventory AccountID everywhere, in one transaction (accountid.js).
+  require('./accountid').mount(app, Object.assign({ db, auth, audit }, deps.accountId || {}));
   // Refer & earn settings, overview and "fix missed rewards" (adminreferrals.js).
   require('./adminreferrals').mount(app, Object.assign({ db, auth, audit }, deps.referrals || {}));
   // Coins: earning + paying with coins settings, overview, add/remove coins (admincoins.js).
