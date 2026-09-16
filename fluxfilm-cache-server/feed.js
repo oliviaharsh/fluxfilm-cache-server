@@ -653,18 +653,52 @@ function continuousShow(det, now) {
 }
 function weeklyReason(kind) { return 'Weekly / daily show' + (kind ? ' (' + kind + ')' : '') + ' — not a new release'; }
 /**
+ * 🆕 The LATEST season of a series (owner rule, 16 Sep 2026: "when AI fills about series ask it to pick the latest
+ * season"). det = TMDB /tv/<id> details. Specials (season 0) are ignored, and so are seasons with no air date.
+ *   → { number, name, episodes, airDate, overview, coming, days } | null
+ * The highest season number that has ALREADY aired (air date ≤ today, India) wins. A later season that starts within
+ * the next 30 days beats it and is marked coming: true ("Season 4 lands next week"). A show whose only dated season is
+ * still ahead also comes back with coming: true. last/next_episode_to_air fill in for a stale seasons[] list.
+ */
+const SEASON_SOON_DAYS = 30;
+function latestSeason(det, now) {
+  const d = det || {};
+  const today = istDay(now || Date.now());
+  const soon = istDay((now || Date.now()) + SEASON_SOON_DAYS * DAY_MS);
+  const rows = new Map(); // season number → { number, name, episodes, airDate, overview }
+  for (const x of Array.isArray(d.seasons) ? d.seasons : []) {
+    const n = Number(x && x.season_number);
+    const date = ymd10(x && x.air_date);
+    if (!(n >= 1) || !isYmd(date)) continue;
+    rows.set(n, { number: n, name: clean(x.name, 60) || 'Season ' + n, episodes: Number(x.episode_count) || 0, airDate: date, overview: s(x.overview).slice(0, 700) });
+  }
+  // TMDB sometimes has a newer season only on last/next_episode_to_air.
+  for (const e of [d.last_episode_to_air, d.next_episode_to_air]) {
+    const n = Number(e && e.season_number);
+    const date = ymd10(e && e.air_date);
+    if (!(n >= 1) || !isYmd(date) || rows.has(n)) continue;
+    rows.set(n, { number: n, name: 'Season ' + n, episodes: 0, airDate: Number(e.episode_number) === 1 ? date : '', overview: '' });
+  }
+  const all = [...rows.values()].filter((x) => isYmd(x.airDate)).sort((a, b) => b.number - a.number);
+  if (!all.length) return null;
+  const aired = all.filter((x) => x.airDate <= today)[0] || null;
+  const ahead = all.filter((x) => x.airDate > today && x.airDate <= soon).sort((a, b) => (a.airDate < b.airDate ? -1 : 1))[0] || null;
+  const pick = ahead && (!aired || ahead.number > aired.number) ? ahead : (aired || all.filter((x) => x.airDate > today).sort((a, b) => (a.airDate < b.airDate ? -1 : 1))[0]);
+  if (!pick) return null;
+  const coming = pick.airDate > today;
+  return Object.assign({}, pick, { coming, days: coming ? Math.round((Date.parse(pick.airDate + 'T00:00:00+05:30') - Date.parse(today + 'T00:00:00+05:30')) / DAY_MS) : 0 });
+}
+/**
  * The date a customer cares about for a series picked by title (manual posts / ✨ AI fill): a new season that premiered
- * in the last 90 days or starts in the next 90 → its premiere + "Season N"; else a season ≥ 2 that premiered in the
- * last year → same; else the show's first air date.
+ * in the last 90 days or starts in the next 90 → its premiere + "Season N"; else the LATEST season the show has (so a
+ * post about a long-running series talks about season 5, never season 1); else the show's first air date.
  */
 function showDates(det, now) {
   const w = newWindow({ releasedDays: 90, upcomingDays: 90 }, now);
   const q = seriesNews(det, w);
   if (q.ok) return { releaseDate: q.date, seasonLabel: q.kind === 'new-season' ? q.seasonLabel : '' };
-  const yearAgo = istDay(Date.parse(w.today + 'T00:00:00+05:30') - 365 * DAY_MS);
-  const last = (Array.isArray(det && det.seasons) ? det.seasons : []).map((x) => ({ n: Number(x && x.season_number), date: ymd10(x && x.air_date) }))
-    .filter((x) => x.n >= 2 && isYmd(x.date) && x.date >= yearAgo && x.date <= w.to).sort((a, b) => b.n - a.n)[0];
-  if (last) return { releaseDate: last.date, seasonLabel: 'Season ' + last.n };
+  const last = latestSeason(det, now);
+  if (last && last.number >= 2) return { releaseDate: last.airDate, seasonLabel: 'Season ' + last.number };
   const first = ymd10(det && det.first_air_date);
   return { releaseDate: isYmd(first) ? first : '', seasonLabel: '' };
 }
@@ -740,8 +774,9 @@ async function tmdbDetails(key, tmdbKey, service) {
  * ✨ Story facts for the AI caption writer (server-side only, never saved or sent to the storefront):
  * overview, tagline, top cast (+ character), director / creator, genres, release / season info, language, runtime / seasons.
  */
-function storyFrom(raw, d) {
+function storyFrom(raw, d, opts) {
   const r = raw || {}; const x = d || {};
+  const o = opts || {};
   const cast = ((r.credits && r.credits.cast) || []).slice(0, 4)
     .map((c) => { const n = clean(c && c.name, 40); const ch = clean(s(c && c.character).split('/')[0], 40); return n ? n + (ch ? ' (as ' + ch + ')' : '') : ''; }).filter(Boolean);
   const creators = (r.created_by || []).map((c) => clean(c && c.name, 40)).filter(Boolean).slice(0, 2);
@@ -753,7 +788,24 @@ function storyFrom(raw, d) {
     genres: (x.genres || []).slice(0, 4), releaseDate: s(x.releaseDate), seasonLabel: s(x.seasonLabel),
     language: LANGS[r.original_language] || LANGS[x.originalLanguage] || s(r.original_language), country: [].concat(r.origin_country || [], (r.production_countries || []).map((c) => c && c.iso_3166_1)).filter(Boolean).slice(0, 2).join(', '),
     runtime: Number(r.runtime) || 0, seasons: Number(r.number_of_seasons) || 0,
+    // 🆕 The latest season, so the AI writes about season 5 of a 5-season show — never season 1 (owner, 16 Sep 2026).
+    season: x.type === 'series' ? (o.season || latestSeason(r, o.now) || null) : null,
   };
+}
+/** The overview of one season (TMDB /tv/<id>/season/<n>) when seasons[] has none. Cached 12 h; failure = no overview. */
+const seasonCache = new Map();
+async function seasonOverview(key, id, n) {
+  const k = String(Number(id)) + ':' + String(Number(n));
+  const hit = seasonCache.get(k);
+  if (hit && Date.now() - hit.at < 12 * 3600e3) return hit.text;
+  let text = '';
+  try {
+    const row = await tmdbGet(key, '/tv/' + Number(id) + '/season/' + Number(n), { language: 'en-US' });
+    text = s(row && row.overview).slice(0, 700);
+  } catch (_) { text = ''; }
+  seasonCache.set(k, { at: Date.now(), text });
+  while (seasonCache.size > 300) seasonCache.delete(seasonCache.keys().next().value);
+  return text;
 }
 /**
  * 🔎 Best TMDB match for a free-text title ("🎥Front of the class (2008)"): movies / series only, same year and kind
@@ -825,8 +877,16 @@ async function tmdbMatch(title, opts) {
       if (d.type === 'series' && det.raw) { const sd = showDates(det.raw, o.now); if (sd.releaseDate) Object.assign(d, sd); }
     }
   } catch (_) {}
+  // 🆕 Series: the latest season (number, name, episode count, air date, overview) goes to the ✨ AI fill prompt, and
+  // its "Season N" is what the badge and the date use. A season row with no overview gets one extra TMDB call.
+  let season = null;
+  if (d.type === 'series') {
+    season = latestSeason(raw, o.now);
+    if (season && !season.overview && Number(raw && raw.id)) season = Object.assign({}, season, { overview: await seasonOverview(st.tmdbKey, raw.id, season.number) });
+    if (season && season.number >= 2 && !d.seasonLabel) d.seasonLabel = 'Season ' + season.number;
+  }
   // Not enumerable: ✨ AI fill reads it; it never ends up in a saved post or any JSON answer.
-  Object.defineProperty(d, 'story', { value: storyFrom(raw, d), enumerable: false });
+  Object.defineProperty(d, 'story', { value: storyFrom(raw, d, { season, now: o.now }), enumerable: false });
   return d;
 }
 /**
@@ -1255,7 +1315,7 @@ module.exports = {
   getSettings, publicSettings, saveSettings, tmdbSearch, tmdbCreate, tmdbSuggest, tmdbProviders, providersFor, draftFrom, catalogServices, catalogServiceInfo,
   discover, runImport, jobStatus, startTimer, toIso,
   newWindow, seriesNews, movieNews, indiaReleaseDate, notNewCandidates, hideNotNew,
-  weeklyShow, continuousShow, showDates, refreshDates, autoDate, NO_DATE,
+  weeklyShow, continuousShow, showDates, latestSeason, seasonOverview, SEASON_SOON_DAYS, refreshDates, autoDate, NO_DATE,
   accountLikes, BRANDS, brandOf, mainServiceFor, migrate, searchTitle, tmdbMatch, storyFrom, refreshThumb, pictureOf, LANGS,
-  _internal: { pending, liked, genreCache, setFetch: (f) => { fetchImpl = f; }, reset: () => { cache = null; pending.clear(); liked.clear(); genreCache.at = 0; running = false; tvCache.clear(); } },
+  _internal: { pending, liked, genreCache, setFetch: (f) => { fetchImpl = f; }, reset: () => { cache = null; pending.clear(); liked.clear(); genreCache.at = 0; running = false; tvCache.clear(); seasonCache.clear(); } },
 };
