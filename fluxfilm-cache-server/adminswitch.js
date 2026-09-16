@@ -382,8 +382,11 @@ function create(deps) {
       else if (wantEmail) {
         let rows = [Object.assign({}, sub, fresh)];
         if (s(sub.group_id)) {
-          const g = await db.query('SELECT sub_id, login_id, password, profile_name, profile_pin, profile_number, device_type, device_count, tv_count, group_index FROM subscriptions WHERE group_id = ? ORDER BY group_index', [s(sub.group_id)]);
+          const g = await db.query('SELECT sub_id, service, inventory_ref, account_id, login_id, password, profile_name, profile_pin, profile_number, device_type, device_count, tv_count, group_index FROM subscriptions WHERE group_id = ? ORDER BY group_index', [s(sub.group_id)]);
           if (Array.isArray(g) && g.length) rows = g.map((r) => (s(r.sub_id) === s(sub.sub_id) ? Object.assign({}, r, fresh) : r));
+          // 🔑 The other devices keep their own login — make sure it is the one their account has now
+          // (accesspassword.js). The switched row already carries the fresh values from this switch.
+          await require('./accesspassword').refreshAccessSafe(db.query, rows.filter((r) => s(r.sub_id) !== s(sub.sub_id)));
         }
         const access = deviceLogins.accessWithLogins(rows);
         const gi = groupInfo(sub);

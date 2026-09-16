@@ -272,8 +272,10 @@ input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; 
 .ff-tools-live button { border-style: solid; border-color: rgba(22,163,74,.28); background: rgba(22,163,74,.06); color: #14532d; }
 .ff-tools-live b.ff-new { color: #15803d; background: rgba(22,163,74,.14); }
 .ff-tools-soon b { margin-left: auto; flex-shrink: 0; font-size: 10.5px; font-weight: 800; color: #92400e; background: rgba(245,158,11,.12); border-radius: 999px; padding: 2px 7px; }
-.ff-sheet-bg { position: fixed; inset: 0; z-index: 60; background: rgba(15,23,42,.50); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: flex; align-items: flex-end; justify-content: center; padding: 0 0 16px; animation: ffFadeIn .18s ease both; }
-.ff-sheet { width: min(520px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; background: #fff; border-radius: 24px 24px 18px 18px; padding: 6px 20px calc(20px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 40px rgba(15,23,42,.22); animation: slideUp .22s ease; text-align: center; }
+/* The sheet scrolls itself; the page behind it must not (owner report 16 Sep 2026). overscroll-behavior stops
+   the scroll chaining to the page once the sheet hits its end, and ffScrollLock_ locks the page meanwhile. */
+.ff-sheet-bg { position: fixed; inset: 0; z-index: 60; background: rgba(15,23,42,.50); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: flex; align-items: flex-end; justify-content: center; padding: 0 0 16px; animation: ffFadeIn .18s ease both; overscroll-behavior: contain; touch-action: none; }
+.ff-sheet { width: min(520px, 100%); box-sizing: border-box; max-height: min(88dvh, calc(100dvh - 32px)); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; background: #fff; border-radius: 24px 24px 18px 18px; padding: 6px 20px calc(20px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 40px rgba(15,23,42,.22); animation: slideUp .22s ease; text-align: center; }
 .ff-sheet-grip { width: 40px; height: 4px; border-radius: 999px; background: #e2e8f0; margin: 10px auto 18px; }
 .ff-sheet h3 { font-size: 20px; font-weight: 800; color: #0f172a; margin: 10px 0 6px; }
 .ff-sheet p { font-size: 14px; font-weight: 600; color: #64748b; line-height: 1.55; margin: 0 auto 14px; max-width: 400px; }
@@ -2757,6 +2759,42 @@ function CredCard({
     }
   }, "Credentials not yet available — please check your email or contact support."));
 }
+// ── Bottom sheets: the SHEET scrolls, the page behind it does not.
+// Owner report 16 Sep 2026: on the phone the picker sheet ("Prime Video · 1 Month ›" rows with Cancel at the
+// bottom) had no height limit of its own, so a swipe scrolled the page behind it and the last rows and the
+// Cancel button could not be reached. One rule now, used by every sheet:
+//   SHEET_PANEL_  — the panel is capped and scrolls itself, and the scroll never chains to the page.
+//   SHEET_LIST_   — a long list inside a flex-column panel: it takes the leftover height and scrolls.
+//   SHEET_BG_     — the dim background swallows touch moves, so nothing behind it can be dragged.
+//   useSheetLock_ — locks the page while the sheet is open and always unlocks when it closes
+//                   (ffScrollLock_ is counted, so sheets closing in any order still unlock).
+const SHEET_PANEL_ = {
+  maxHeight: 'min(88dvh, calc(100dvh - 24px))',
+  overflowY: 'auto',
+  overscrollBehavior: 'contain',
+  WebkitOverflowScrolling: 'touch',
+  touchAction: 'pan-y'
+};
+const SHEET_LIST_ = {
+  flex: '1 1 auto',
+  minHeight: 0,
+  maxHeight: 'min(70vh, calc(100dvh - 220px))',
+  overflowY: 'auto',
+  overscrollBehavior: 'contain',
+  WebkitOverflowScrolling: 'touch',
+  touchAction: 'pan-y'
+};
+const SHEET_BG_ = {
+  overscrollBehavior: 'contain',
+  touchAction: 'none'
+};
+function useSheetLock_(open) {
+  const on = open !== false;
+  useEffect(() => {
+    if (!on) return undefined;
+    return ffScrollLock_();
+  }, [on]);
+}
 function AccountCreateModal({
   open,
   initialPhone = '',
@@ -2782,6 +2820,7 @@ function AccountCreateModal({
     setMsg('');
     setLoading(false);
   }, [open, initialPhone, initialName, initialEmail]);
+  useSheetLock_(open);
   if (!open) return null;
   const set = k => e => setForm(f => ({
     ...f,
@@ -2819,7 +2858,7 @@ function AccountCreateModal({
     });
   }
   return React.createElement("div", {
-    style: {
+    style: Object.assign({
       position: 'fixed',
       inset: 0,
       zIndex: 90,
@@ -2829,18 +2868,22 @@ function AccountCreateModal({
       alignItems: 'flex-end',
       justifyContent: 'center',
       padding: '0 14px 16px'
-    },
+    }, SHEET_BG_),
     onClick: loading ? undefined : onClose
   }, React.createElement("div", {
     onClick: e => e.stopPropagation(),
-    style: {
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": "Create your account",
+    style: Object.assign({
       width: 'min(520px,100%)',
+      boxSizing: 'border-box',
       background: '#fff',
       borderRadius: '26px 26px 20px 20px',
       padding: 18,
       boxShadow: '0 -8px 46px rgba(15,23,42,.25)',
       animation: 'slideUp .22s ease'
-    }
+    }, SHEET_PANEL_)
   }, React.createElement("div", {
     style: {
       width: 42,
@@ -3000,6 +3043,7 @@ function EmailLoginSheet({
     setCode(''); setSent(''); setTarget(''); setOptions([]); setMsg(''); setResendAt(0); setBusy(false);
     if (p && p.length === 10) start(p, '');else setStep('phone');
   }, [open, phone]);
+  useSheetLock_(open);
   if (!open) return null;
   function codeSent(r, m) {
     setMode(m);
@@ -3097,10 +3141,10 @@ function EmailLoginSheet({
       E("div", { style: { marginTop: 2 } }, otherNumber));
   }
   return ReactDOM.createPortal(E("div", {
-    style: { position: 'fixed', inset: 0, zIndex: 96, background: 'rgba(15,23,42,.50)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0 8px 8px' }
+    style: Object.assign({ position: 'fixed', inset: 0, zIndex: 96, background: 'rgba(15,23,42,.50)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0 8px 8px' }, SHEET_BG_)
   }, E("div", {
     role: "dialog", "aria-modal": true, "aria-label": title, className: "ff-login-sheet",
-    style: { width: 'min(520px,100%)', boxSizing: 'border-box', background: '#fff', borderRadius: '24px 24px 18px 18px', padding: '16px 14px 18px', boxShadow: '0 -8px 46px rgba(15,23,42,.25)', maxHeight: 'calc(100dvh - 16px)', overflowY: 'auto', animation: 'slideUp .22s ease' }
+    style: Object.assign({ width: 'min(520px,100%)', boxSizing: 'border-box', background: '#fff', borderRadius: '24px 24px 18px 18px', padding: '16px 14px 18px', boxShadow: '0 -8px 46px rgba(15,23,42,.25)', animation: 'slideUp .22s ease' }, SHEET_PANEL_, { maxHeight: 'calc(100dvh - 16px)' })
   }, E("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 } },
     E("div", { style: { fontFamily: PJS, fontSize: 18, fontWeight: 900, color: C.text, minWidth: 0 } }, title),
     E("button", { type: "button", onClick: onClose, disabled: busy, "aria-label": "Close", style: { flexShrink: 0, width: 40, height: 40, borderRadius: 999, border: `1px solid ${C.border}`, background: '#f1f5f9', fontSize: 16, fontWeight: 800, color: C.muted, cursor: 'pointer' } }, "✕")),
@@ -3149,6 +3193,7 @@ function EmailLockSheet({
     const t = setInterval(() => setTick(x => x + 1), 1000);
     return () => clearInterval(t);
   }, [resendAt, left > 0]);
+  useSheetLock_(open);
   if (!open) return null;
   const purpose = step === 'confirm' ? 'confirm' : step === 'old' ? 'old' : 'new';
   const goStep = s => { setStep(s); setCode(''); setSent(''); setMsg(''); setResendAt(0); };
@@ -3223,11 +3268,11 @@ function EmailLockSheet({
   }
   return ReactDOM.createPortal(E("div", {
     onClick: busy ? undefined : onClose,
-    style: { position: 'fixed', inset: 0, zIndex: 95, background: 'rgba(15,23,42,.50)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0 10px 10px' }
+    style: Object.assign({ position: 'fixed', inset: 0, zIndex: 95, background: 'rgba(15,23,42,.50)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0 10px 10px' }, SHEET_BG_)
   }, E("div", {
     role: "dialog", "aria-modal": true, "aria-label": title,
     onClick: e => e.stopPropagation(),
-    style: { width: 'min(520px,100%)', boxSizing: 'border-box', background: '#fff', borderRadius: '24px 24px 18px 18px', padding: '16px 16px 18px', boxShadow: '0 -8px 46px rgba(15,23,42,.25)', maxHeight: 'calc(100dvh - 20px)', overflowY: 'auto', animation: 'slideUp .22s ease' }
+    style: Object.assign({ width: 'min(520px,100%)', boxSizing: 'border-box', background: '#fff', borderRadius: '24px 24px 18px 18px', padding: '16px 16px 18px', boxShadow: '0 -8px 46px rgba(15,23,42,.25)', animation: 'slideUp .22s ease' }, SHEET_PANEL_, { maxHeight: 'calc(100dvh - 20px)' })
   }, E("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 } },
     E("div", { style: { fontFamily: PJS, fontSize: 18, fontWeight: 900, color: C.text, minWidth: 0 } }, title),
     E("button", { type: "button", onClick: onClose, disabled: busy, "aria-label": "Close", style: { flexShrink: 0, width: 40, height: 40, borderRadius: 999, border: `1px solid ${C.border}`, background: '#f1f5f9', fontSize: 16, fontWeight: 800, color: C.muted, cursor: 'pointer' } }, "✕")),
@@ -3239,8 +3284,9 @@ function RecoverPickerModal({
   onSelect,
   onClose
 }) {
+  useSheetLock_(true);
   return React.createElement("div", {
-    style: {
+    style: Object.assign({
       position: 'fixed',
       inset: 0,
       zIndex: 50,
@@ -3250,18 +3296,27 @@ function RecoverPickerModal({
       alignItems: 'flex-end',
       justifyContent: 'center',
       padding: '0 0 16px'
-    },
+    }, SHEET_BG_),
     onClick: onClose
   }, React.createElement("div", {
     onClick: e => e.stopPropagation(),
-    style: {
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": "Recover Access",
+    style: Object.assign({
       width: 'min(520px,100%)',
+      boxSizing: 'border-box',
       background: '#fff',
       borderRadius: '22px 22px 18px 18px',
       padding: '6px 16px 20px',
       boxShadow: '0 -8px 40px rgba(15,23,42,.18)',
-      animation: 'slideUp .22s ease'
-    }
+      animation: 'slideUp .22s ease',
+      display: 'flex',
+      flexDirection: 'column'
+    }, SHEET_PANEL_, {
+      overflowY: 'hidden',
+      touchAction: 'auto'
+    })
   }, React.createElement("div", {
     style: {
       width: 40,
@@ -3287,11 +3342,12 @@ function RecoverPickerModal({
       marginBottom: 16
     }
   }, "Which subscription do you need help with?"), React.createElement("div", {
-    style: {
+    style: Object.assign({
       display: 'flex',
       flexDirection: 'column',
-      gap: 10
-    }
+      gap: 10,
+      paddingBottom: 2
+    }, SHEET_LIST_)
   }, subs.map((sub, i) => React.createElement("button", {
     key: sub.subId || i,
     onClick: () => onSelect(sub),
@@ -3306,6 +3362,7 @@ function RecoverPickerModal({
       cursor: 'pointer',
       fontFamily: PJS,
       textAlign: 'left',
+      flexShrink: 0,
       transition: 'background .12s,box-shadow .12s'
     },
     onMouseEnter: e => {
@@ -3362,6 +3419,7 @@ function RecoverPickerModal({
       fontFamily: PJS,
       fontWeight: 700,
       fontSize: 14,
+      flexShrink: 0,
       color: C.muted,
       cursor: 'pointer'
     }
@@ -3391,6 +3449,7 @@ function ToolsSheet({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  useSheetLock_(true);
   return React.createElement("div", {
     className: "ff-sheet-bg",
     onClick: onClose
@@ -4147,17 +4206,24 @@ function DashboardScreen({
 }) {
   const [dashData, setDashData] = useState(data || {});
   const [tab, setTab] = useState('subs');
-  // Subscriptions filter (remembered on this phone): all · active (days left) · expired.
-  const [subFilter, setSubFilterState] = useState(() => {
+  // Subscriptions filter: all · active (days left) · expired.
+  // Their own choice is remembered on this phone (`ff_sub_filter`) and always wins. Until they make one,
+  // My plans opens on **Active** when they have at least one running plan — that is what they came to see —
+  // and on All when they have none (owner report 16 Sep 2026). The automatic choice is never saved, so it can
+  // follow them: once their last plan ends, the screen opens on All again.
+  const savedSubFilter = () => {
     try {
       const v = localStorage.getItem('ff_sub_filter');
-      return v === 'active' || v === 'expired' ? v : 'all';
+      return v === 'active' || v === 'expired' || v === 'all' ? v : '';
     } catch (e) {
-      return 'all';
+      return '';
     }
-  });
+  };
+  const [subFilter, setSubFilterState] = useState(() => savedSubFilter() || 'all');
+  const [subFilterChosen, setSubFilterChosen] = useState(() => !!savedSubFilter());
   const setSubFilter = v => {
     setSubFilterState(v);
+    setSubFilterChosen(true);
     try {
       localStorage.setItem('ff_sub_filter', v);
     } catch (e) {}
@@ -4263,6 +4329,15 @@ function DashboardScreen({
   const isLiveSub = s => !s.refunded && s.daysLeft != null && s.daysLeft !== '' && Number(s.daysLeft) >= 0;
   const liveSubs = allSubs.filter(isLiveSub);
   const expiredSubs = allSubs.filter(s => !isLiveSub(s));
+  // First open on this phone: land on Active if anything is running. Runs once the plans have loaded
+  // (before that `allSubs` is empty and "no active plans" would be wrong), and never overrides a saved choice.
+  const subFilterAuto = useRef(false);
+  useEffect(() => {
+    if (subFilterChosen || subFilterAuto.current) return;
+    if (!allSubs.length) return;
+    subFilterAuto.current = true;
+    if (liveSubs.length) setSubFilterState('active');
+  }, [subFilterChosen, allSubs.length, liveSubs.length]);
   const filteredSubs = subFilter === 'active' ? liveSubs : subFilter === 'expired' ? expiredSubs : null;
   const active = actionable.filter(s => Number(s.daysLeft || 0) > 7).length;
   const expiring = actionable.filter(s => {
@@ -4856,6 +4931,7 @@ function OutOfStockModal({
       });
     }
   }, [open, phone, profile?.name, profile?.phone]);
+  useSheetLock_(open);
   if (!open) return null;
   function submitNotify() {
     const ph = normPhone_(notifyForm.phone);
@@ -4884,7 +4960,7 @@ function OutOfStockModal({
   }
   return React.createElement("div", {
     onClick: onClose,
-    style: {
+    style: Object.assign({
       position: 'fixed',
       inset: 0,
       zIndex: 90,
@@ -4894,19 +4970,20 @@ function OutOfStockModal({
       alignItems: 'flex-end',
       justifyContent: 'center',
       paddingBottom: 96
-    }
+    }, SHEET_BG_)
   }, React.createElement("div", {
     onClick: e => e.stopPropagation(),
-    style: {
+    role: "dialog",
+    "aria-modal": "true",
+    style: Object.assign({
       width: 'min(520px,100%)',
+      boxSizing: 'border-box',
       background: '#fff',
       borderRadius: 24,
       padding: '6px 18px 24px',
       boxShadow: '0 -8px 46px rgba(15,23,42,.25)',
-      animation: 'slideUp .22s ease',
-      maxHeight: 'calc(100dvh - 120px)',
-      overflowY: 'auto'
-    }
+      animation: 'slideUp .22s ease'
+    }, SHEET_PANEL_, { maxHeight: 'calc(100dvh - 120px)' })
   }, React.createElement("div", {
     style: {
       width: 42,
@@ -8788,13 +8865,16 @@ function RecoverScreen({
   const resolvedPhone = savedPhone || preSelectedSub?.phone || '';
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState(resolvedPhone || '');
-  const [email, setEmail] = useState(() => {
+  // 🔒 The email box always opens EMPTY. A phone gets shared, and the email is a hint about whose account this
+  // is, so we never keep it and never type it back in (owner report 16 Sep 2026). Anything an older version of
+  // the app left behind is deleted the first time this screen opens. Browser autofill is the browser's own
+  // business — we just do not do it ourselves.
+  const [email, setEmail] = useState('');
+  useEffect(() => {
     try {
-      return localStorage.getItem('ff_recover_email') || '';
-    } catch (_) {
-      return '';
-    }
-  });
+      localStorage.removeItem('ff_recover_email');
+    } catch (_) {}
+  }, []);
   const [otp, setOtp] = useState('');
   const [token, setToken] = useState('');
   const [subs, setSubs] = useState([]);
@@ -8865,9 +8945,7 @@ function RecoverScreen({
         if (r?.noActive) setRenewHint(true);
         return;
       }
-      try {
-        localStorage.setItem('ff_recover_email', cleanEmail);
-      } catch (_) {}
+      // The typed email is NOT saved anywhere on the phone — see the note on the email box above.
       setSentTo(r.email || '');
       setResendAt(Date.now() + (Number(r.resendInSec) || 30) * 1000);
       setNow(Date.now());
@@ -16584,6 +16662,8 @@ function OtpPickerModal({
   onClose,
   onSelect
 }) {
+  // Always called, open or not: React needs the same hooks every render.
+  useSheetLock_(open);
   if (!open) return null;
   const otpSubs = allSubs.filter(s => {
     const svc = String(s.service || '').trim();
@@ -16596,7 +16676,7 @@ function OtpPickerModal({
   const hasPrime = primeEntries.length > 0;
   return React.createElement("div", {
     onClick: onClose,
-    style: {
+    style: Object.assign({
       position: 'fixed',
       inset: 0,
       zIndex: 70,
@@ -16606,19 +16686,21 @@ function OtpPickerModal({
       alignItems: 'flex-end',
       justifyContent: 'center',
       padding: '0 0 16px'
-    }
+    }, SHEET_BG_)
   }, React.createElement("div", {
     onClick: e => e.stopPropagation(),
-    style: {
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": "Get OTP",
+    style: Object.assign({
       width: 'min(520px,100%)',
+      boxSizing: 'border-box',
       background: '#fff',
       borderRadius: '24px 24px 18px 18px',
       padding: '6px 16px 24px',
       boxShadow: '0 -8px 40px rgba(15,23,42,.22)',
-      animation: 'slideUp .22s ease',
-      maxHeight: '80dvh',
-      overflowY: 'auto'
-    }
+      animation: 'slideUp .22s ease'
+    }, SHEET_PANEL_)
   }, React.createElement("div", {
     style: {
       width: 40,

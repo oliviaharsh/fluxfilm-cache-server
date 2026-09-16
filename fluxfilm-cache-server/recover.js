@@ -23,6 +23,7 @@
 const db = require('./db');
 const crypto = require('crypto');
 const deviceLogins = require('./devicelogins');
+const accessPassword = require('./accesspassword');
 
 const OTP_TTL_MS = Number(process.env.RECOVER_OTP_TTL_MIN || 10) * 60 * 1000;
 const TOKEN_TTL_MS = Number(process.env.RECOVER_TOKEN_TTL_MIN || 20) * 60 * 1000;
@@ -145,7 +146,9 @@ function rowInactive(r) {
 }
 
 async function subRowsFor(ph, groupsOn) {
-  const base = 'sub_id, order_id, email, service, plan, login_id, password, profile_name, profile_pin, profile_number, expiry_date, status, fulfillment_status' +
+  // inventory_ref / account_id ride along so getAccess can check the stored login against the account it
+  // sits on (accesspassword.js). The account is read with its own statement — never a JOIN.
+  const base = 'sub_id, order_id, email, service, plan, login_id, password, profile_name, profile_pin, profile_number, inventory_ref, account_id, expiry_date, status, fulfillment_status' +
     (groupsOn ? ', device_type, device_count, tv_count, group_id, group_index' : '');
   try {
     return await db.query('SELECT ' + base + ', COALESCE(removed, 0) AS removed FROM subscriptions WHERE phone_norm = ?', [ph]);
@@ -301,6 +304,9 @@ async function getAccess(orderId, phone, email, token) {
   if (!g) return { ok: false, noActive: true, message: NO_ACTIVE };
   const groupsOn = await deviceLogins.groupsReady(db.query);
   const group = g.rows; const s = g.lead;
+  // 🔑 The password belongs to the account, not to this row. If the owner changed it, show the new one
+  // (and repair the row) before anything is printed — accesspassword.js, same helper the renewal uses.
+  await accessPassword.refreshAccessSafe(db.query, group);
   const svc = String(s.service || '').toLowerCase();
   const isOtp = OTP_SERVICES.some((k) => svc.includes(k));
   const access = {

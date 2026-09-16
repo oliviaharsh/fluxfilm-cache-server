@@ -72,7 +72,10 @@ function mount(app, deps) {
       if (isActive) active.push(x);
       else if (d != null && d <= 0 && Number(x.removed) !== 1) expired.push(x);
     }
-    return { ok: true, account: acc, login: s(acc.login_id), key, fam, sameLogin: same, ids, active, expired };
+    // `subs` = EVERY subscription row on this login: active, expired, removed, refunded, cancelled.
+    // They all store a copy of the password and any of them can be renewed later (fulfill.js extends that
+    // very row), so a password change has to reach all of them — see the 16 Sep 2026 owner report.
+    return { ok: true, account: acc, login: s(acc.login_id), key, fam, sameLogin: same, ids, subs, active, expired };
   }
   // F1: a login row of a purchase with separate logins is shown as "Device 2 of 2" (only that device is affected).
   const brief = (x) => Object.assign({ subId: x.sub_id, name: s(x.name), phone: s(x.phone_norm), email: s(x.email), service: s(x.service), plan: s(x.plan), expiry: s(x.expiry_date), inventoryRef: s(x.inventory_ref) },
@@ -87,7 +90,10 @@ function mount(app, deps) {
       const ages = await passwordAge.forAccounts((sql, p) => db.query(sql, p), im.ids.length ? im.ids : [im.account.account_id]);
       const passwordChangedAt = Object.values(ages).reduce((best, d) => (d && (!best || d.at > best.at) ? d : best), null);
       res.json({ ok: true, account: { service: im.account.service, accountId: im.account.account_id, login: im.login, password: s(im.account.password), isActive: s(im.account.is_active).toUpperCase() === 'TRUE', passwordChangedAt },
-        sameLogin: im.sameLogin, active: im.active.map(brief), expired: im.expired.map(brief) });
+        // `olderCount` = rows that are neither active nor "expired, not removed": already removed, refunded,
+        // cancelled. They are updated too, because any of them can still be renewed later.
+        sameLogin: im.sameLogin, active: im.active.map(brief), expired: im.expired.map(brief),
+        totalSubs: im.subs.length, olderCount: Math.max(0, im.subs.length - im.active.length - im.expired.length) });
     } catch (e) { fail(res, e); }
   });
 
@@ -113,10 +119,17 @@ function mount(app, deps) {
         if (!row.raw_json || !Object.keys(passwordAge.rawOf(row.raw_json)).length) continue;
         await db.query('UPDATE inventory_accounts SET raw_json = ? WHERE service = ? AND account_id = ?', [JSON.stringify(passwordAge.stampRaw(row.raw_json, changedAt)), row.service, row.account_id]);
       }
-      // 2) active customers keep watching: their stored password (account page, recover, emails) is updated
-      if (im.active.length) {
-        const ids = im.active.map((x) => x.sub_id);
-        await db.query("UPDATE subscriptions SET password = ?, raw_json = IF(raw_json IS NULL, NULL, JSON_SET(raw_json, '$.Password', ?)) WHERE sub_id IN (" + inList(ids) + ')', [password, password, ...ids]);
+      // 2) EVERY subscription row on this login gets the new password — active, expired, removed and
+      //    refunded alike. Active customers need it to keep watching; the historical rows need it because a
+      //    renewal extends that very row and builds the access card from it (owner report 16 Sep 2026: an
+      //    expired customer would have renewed straight onto the OLD password). Typed column AND raw_json,
+      //    which some code paths read as the source of truth (CLAUDE.md).
+      let subsUpdated = 0;
+      const allSubIds = [...new Set((im.subs || []).map((x) => s(x.sub_id)).filter(Boolean))];
+      for (let i = 0; i < allSubIds.length; i += 200) {
+        const ids = allSubIds.slice(i, i + 200);
+        const r = await db.query("UPDATE subscriptions SET password = ?, raw_json = IF(raw_json IS NULL, NULL, JSON_SET(raw_json, '$.Password', ?)) WHERE sub_id IN (" + inList(ids) + ')', [password, password, ...ids]);
+        subsUpdated += (r && r.affectedRows) || 0;
       }
       // 3) expired customers are now logged out: tick them removed (renewal rules F4 use this time)
       let ticked = 0;
@@ -136,9 +149,11 @@ function mount(app, deps) {
           } catch (e) { mail.failed.push({ subId: x.sub_id, message: e.message }); await logReminder(x.sub_id, 'PASSWORD_CHANGE', x.expiry_date, false, e.message); }
         }
       }
-      const summary = im.account.account_id + ' (' + im.login + '): ' + ((rAcc && rAcc.affectedRows) || 0) + ' account row(s), ' + im.active.length + ' active updated, ' + ticked + ' expired ticked removed' + (b.emailActive ? ', ' + mail.sent + ' emailed' : '');
-      audit.record(req, { action: 'account.passwordChange', entity: 'account', id: im.account.account_id, summary, details: { accounts: im.ids, activeSubs: im.active.map((x) => x.sub_id), tickedSubs: tickExpired ? im.expired.map((x) => x.sub_id) : [], emailed: mail.sent } });
-      res.json({ ok: true, passwordChangedAt: passwordAge.describe(passwordAge.toMs(changedAt), 'account'), accountRows: (rAcc && rAcc.affectedRows) || 0, activeUpdated: im.active.length, expiredTicked: ticked, email: b.emailActive ? mail : null, active: im.active.map(brief), summary });
+      const older = Math.max(0, allSubIds.length - im.active.length);
+      const summary = im.account.account_id + ' (' + im.login + '): ' + ((rAcc && rAcc.affectedRows) || 0) + ' account row(s), ' + im.active.length + ' active updated, ' +
+        older + ' older plan(s) updated too, ' + ticked + ' expired ticked removed' + (b.emailActive ? ', ' + mail.sent + ' emailed' : '');
+      audit.record(req, { action: 'account.passwordChange', entity: 'account', id: im.account.account_id, summary, details: { accounts: im.ids, activeSubs: im.active.map((x) => x.sub_id), allSubs: allSubIds, tickedSubs: tickExpired ? im.expired.map((x) => x.sub_id) : [], emailed: mail.sent } });
+      res.json({ ok: true, passwordChangedAt: passwordAge.describe(passwordAge.toMs(changedAt), 'account'), accountRows: (rAcc && rAcc.affectedRows) || 0, activeUpdated: im.active.length, subsUpdated, olderUpdated: older, expiredTicked: ticked, email: b.emailActive ? mail : null, active: im.active.map(brief), summary });
     } catch (e) { fail(res, e); }
   });
 

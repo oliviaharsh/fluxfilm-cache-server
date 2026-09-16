@@ -91,7 +91,7 @@ function mount(app, deps) {
       const groupsOn = await require('./devicelogins').groupsReady(db.query);
       const [subs, credits, coupons, cust] = await Promise.all([
         db.query(
-          'SELECT sub_id, order_id, service, plan, start_date, expiry_date, status, fulfillment_status, inventory_ref, login_id, password, profile_name, profile_number, profile_pin, device_type, device_count, tv_count, source' + (groupsOn ? ', group_id, group_size, group_index' : '') + ' FROM subscriptions WHERE order_id = ?' +
+          'SELECT sub_id, order_id, service, plan, start_date, expiry_date, status, fulfillment_status, inventory_ref, account_id, login_id, password, profile_name, profile_number, profile_pin, device_type, device_count, tv_count, source' + (groupsOn ? ', group_id, group_size, group_index' : '') + ' FROM subscriptions WHERE order_id = ?' +
           (subIds.length ? ' OR sub_id = ?' : '') +
           (groupsOn ? ' ORDER BY group_id, group_index' : '') + ' LIMIT 12', subIds.length ? [id, subIds[0]] : [id]),
         // `raw` is the bank's alert text: the payer name / IFSC are parsed here and only those are sent on.
@@ -99,6 +99,8 @@ function mount(app, deps) {
         db.query('SELECT coupon_code, discount, action, ts FROM coupon_usage WHERE order_id = ? ORDER BY ts', [id]),
         db.query('SELECT name, email, customer_id FROM customers WHERE phone_norm = ? LIMIT 1', [o.phone_norm]),
       ]);
+      // 🔑 The order card prints the login, so it shows the password the ACCOUNT has now (accesspassword.js).
+      await require('./accesspassword').refreshAccessSafe(db.query, subs);
       // 📲 An accepted backup-UPI claim (paymatch.js) — its own statement, matched in JS (schema-v17 may be missing).
       let claim = null;
       try {

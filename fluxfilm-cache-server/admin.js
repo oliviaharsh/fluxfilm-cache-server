@@ -303,6 +303,10 @@ function mountAdmin(app, deps) {
         db.query('SELECT * FROM subscriptions WHERE phone_norm = ? ORDER BY expiry_date DESC', [ph]),
         db.query('SELECT coins_balance, coins_lifetime, last_event FROM wallet WHERE phone_norm = ? ORDER BY coins_lifetime DESC, coins_balance DESC LIMIT 1', [ph]),
       ]);
+      // 🔑 The card prints a password, so it must be the one the ACCOUNT has now — a row left on an older
+      // password (e.g. an expired plan the owner never re-opened) is repaired as it is read. accesspassword.js
+      // reads inventory_accounts with its own statement; never a JOIN with subscriptions.
+      await require('./accesspassword').refreshAccessSafe(db.query, subs);
       // 📱 Device name the owner typed for OTP services (raw_json DeviceName, otpdevices.js) — shown on the card.
       // A multi-device plan shows every device: "Device 1: LG TV · Device 2: Mi TV" (raw_json DeviceNames).
       for (const x of subs) { try { const t = require('./otpdevices').deviceNamesText(x.raw_json, x.device_count); if (t) x.device_name = t; } catch (_) { /* unreadable raw_json: no device name */ } delete x.raw_json; }
