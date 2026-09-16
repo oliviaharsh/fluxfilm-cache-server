@@ -5360,7 +5360,7 @@ function ruClick(e) {
 // GET /admin/api/otp-devices (otpdevices.js). Device name + type → raw_json DeviceName + device_type (kept in step).
 // 🚪 Remove = the existing POST /admin/api/sub-removed (same write + change log as "Removed from account").
 // 📥 Copy from the old Sheet: preview first (reads only), then ✅ Save. The Sheet is never written.
-var OD = { data: null, svc: store('ff_od_svc') || '', q: '', removed: false, imp: null, overwrite: false, open: {}, picks: {}, pickClash: 0 };
+var OD = { data: null, chk: null, svc: store('ff_od_svc') || '', q: '', removed: false, imp: null, overwrite: false, open: {}, picks: {}, pickClash: 0 };
 function otpDevicesView() {
   $('#view').innerHTML = '<div id="odwrap"><div class="ph"><div><h1>📱 OTP devices</h1><p>Who is on each OTP login, which device they use, and who to remove</p></div><button class="btn ghost" id="odref">⟳ Refresh</button></div>' +
     '<div id="odtop"><p class="muted">Loading…</p></div>' +
@@ -5371,11 +5371,14 @@ function otpDevicesView() {
     '<p class="muted" style="font-size:.76rem;margin:8px 0 4px">Or select the rows in Google Sheets (with the 📱 phone header rows), copy, and paste here:</p>' +
     '<textarea class="inp" id="odpaste" rows="4" style="width:100%;font-size:.8rem" placeholder="📱 8076332049&#10;Ankit Satija&#9;LG TV&#9;📺 TV&#9;TRUE&#9;14/09/2026&#9;EXPIRED ⚠️"></textarea>' +
     '<button class="btn ghost sm" data-odprev="paste" style="margin-top:6px">🔍 Preview pasted rows</button><div id="odimpres"></div></details>' +
+    '<details class="card" id="odchk" style="padding:10px 14px;margin-bottom:10px"' + (OD.open.odchk ? ' open' : '') + '><summary style="cursor:pointer"><b>🔎 Get OTP check</b> <span class="muted">— why a code was not shown, and test a forwarded mail</span></summary>' +
+    '<div id="odchkbody"><p class="muted">Loading…</p></div></details>' +
     '<div id="odlist"></div></div>';
   $('#odref').onclick = function () { OD.data = null; odLoad(); };
   var t; $('#odq').addEventListener('input', function () { OD.q = $('#odq').value.trim(); clearTimeout(t); t = setTimeout(odLoad, 300); });
   $('#odrmshow').addEventListener('change', function () { OD.removed = $('#odrmshow').checked; odLoad(); });
   $('#odimp').addEventListener('toggle', function () { OD.open.odimp = $('#odimp').open; });
+  $('#odchk').addEventListener('toggle', function () { OD.open.odchk = $('#odchk').open; if ($('#odchk').open && !OD.chk) odChkLoad(); });
   var body = $('#odwrap'); // listeners live on this screen's own element (gone when another screen opens)
   body.onclick = odClick;
   body.addEventListener('focusout', function (e) { var inp = e.target.closest && e.target.closest('[data-odname]'); if (inp) odSave(inp.closest('[data-odrow]')); });
@@ -5383,7 +5386,63 @@ function otpDevicesView() {
   body.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.closest && e.target.closest('[data-odname]')) e.target.blur(); });
   body.addEventListener('input', function (e) { if (e.target.closest && e.target.closest('[data-odname]')) odDraftKeep($('#odlist')); });
   odImpRender();
+  odChkRender();
+  if (OD.open.odchk) odChkLoad();
   if (OD.data) renderOtpDevices(); else odLoad();
+}
+/* 🔎 Get OTP check: how long a forwarded mail stays usable, why the last look in the inbox showed nothing, and a
+   self-test for one pasted mail. Counts and masked numbers only — no customer data, no codes except the pasted one. */
+function odChkLoad() {
+  api('/admin/api/otp-diagnostics', { service: OD.svc }).then(function (r) { OD.chk = r; odChkRender(); });
+}
+function odAgo(iso) {
+  var t = Date.parse(iso || ''); if (!t) return '';
+  var m = Math.max(0, Math.round((Date.now() - t) / 60000));
+  return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago';
+}
+function odChkRun(r) {
+  var bits = [];
+  if (r.shown) bits.push(r.shown + ' shown');
+  if (r.numberMismatch) bits.push(r.numberMismatch + ' rejected (number mismatch)');
+  if (r.noCode) bits.push(r.noCode + ' with no code in them');
+  if (r.tooOld) bits.push(r.tooOld + ' too old');
+  if (r.otherService) bits.push(r.otherService + ' for another service');
+  var lines = (r.lines || []).map(function (l) {
+    return '<li>' + esc(l.minsAgo) + ' min ago — ' + esc(l.reason) + (l.numbers && l.numbers.length ? ' (' + esc(l.numbers.join(', ')) + ')' : '') + '</li>';
+  }).join('');
+  return '<div style="margin:6px 0"><b>' + esc(r.service) + '</b>: last ' + esc(r.windowMin || 10) + ' min — <b>' + esc(r.seen || 0) + '</b> seen' +
+    (bits.length ? ' · ' + esc(bits.join(' · ')) : '') + ' <span class="muted">(' + esc(odAgo(r.at)) + ')</span>' +
+    (lines ? '<ul class="muted" style="font-size:.76rem;margin:4px 0 0 16px">' + lines + '</ul>' : '') + '</div>';
+}
+function odChkRender() {
+  var box = $('#odchkbody'); if (!box) return;
+  var d = OD.chk;
+  if (!d) { box.innerHTML = '<p class="muted">Loading…</p>'; return; }
+  if (!d.ok) { box.innerHTML = '<p class="muted">' + esc(d.message || 'Could not load.') + '</p>'; return; }
+  var win = (d.settings && d.settings.windowMin) || 10;
+  box.innerHTML = '<div class="row" style="gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">' +
+    '<label style="font-size:.85rem">⏱️ Use a forwarded mail for <input class="inp" id="odwin" type="number" min="' + esc(d.min || 5) + '" max="' + esc(d.max || 30) + '" value="' + esc(win) + '" style="width:72px;display:inline-block"/> minutes</label>' +
+    '<button class="btn sm" data-odwin>Save</button>' +
+    '<span class="muted" style="font-size:.76rem">Raise it if your SMS forwarder is slow (' + esc(d.min || 5) + '–' + esc(d.max || 30) + ').</span></div>' +
+    '<p class="muted" style="font-size:.76rem;margin:10px 0 2px">Last time a customer tapped Get OTP:</p>' +
+    (d.runs && d.runs.length ? d.runs.map(odChkRun).join('') : '<p class="muted" style="font-size:.8rem">Nothing yet — this fills in the next time someone taps Get OTP.</p>') +
+    '<p class="muted" style="font-size:.76rem;margin:12px 0 2px">🧪 Test a forwarded mail — paste the mail text and see what the tool makes of it:</p>' +
+    '<textarea class="inp" id="odself" rows="4" style="width:100%;font-size:.8rem" placeholder="SMSForwarder&#10;From : VM-ZEEOTT-S()&#10;Your OTP is: 472518 for ZEE5 login."></textarea>' +
+    '<button class="btn ghost sm" data-odself style="margin-top:6px">🔎 Check this mail</button><div id="odselfres"></div>';
+}
+function odSelfTest(btn) {
+  var t = $('#odself'); if (!t || !t.value.trim()) { toast('Paste the forwarded mail first'); return; }
+  btn.disabled = true;
+  post('/admin/api/otp-selftest', { text: t.value, service: OD.svc }).then(function (r) {
+    btn.disabled = false;
+    var box = $('#odselfres'); if (!box) return;
+    if (!r.ok) { box.innerHTML = '<div class="card muted" style="margin-top:8px">' + esc(r.message || 'Could not check it.') + '</div>'; return; }
+    box.innerHTML = '<div class="card" style="margin-top:8px;padding:10px 12px">' +
+      '<div>' + (r.verdict === 'shown' ? '✅ <b>Shown to the customer</b>' : '⛔ <b>Not shown</b>') + '</div>' +
+      '<div style="font-size:.85rem;margin-top:4px">' + esc(r.reason || '') + '</div>' +
+      '<div class="muted" style="font-size:.78rem;margin-top:6px">Service: <b>' + esc(r.service || '—') + '</b> · Code read: <b>' + esc(r.otp || '—') + '</b> · Number in it: <b>' + esc((r.numbers || []).join(', ') || 'none') + '</b>' +
+      ((r.ignored || []).length ? ' · Ignored (not a recipient): ' + esc(r.ignored.join(', ')) : '') + '</div></div>';
+  });
 }
 function odLoad() {
   api('/admin/api/otp-devices', { service: OD.svc, q: OD.q, removed: OD.removed ? '1' : '' }).then(function (r) {
@@ -5495,6 +5554,19 @@ function odClick(e) {
   var cu = e.target.closest('[data-odcust]'); if (cu) { e.preventDefault(); store('ff_last_phone', cu.getAttribute('data-odcust')); nav('customer'); return; }
   var or = e.target.closest('[data-odorder]'); if (or) { e.preventDefault(); openOrder(or.getAttribute('data-odorder')); return; }
   var pv = e.target.closest('[data-odprev]'); if (pv) { odPreview(pv.getAttribute('data-odprev'), pv); return; }
+  var st = e.target.closest('[data-odself]'); if (st) { odSelfTest(st); return; }
+  var wn = e.target.closest('[data-odwin]');
+  if (wn) {
+    var inp = $('#odwin'); if (!inp) return;
+    wn.disabled = true;
+    post('/admin/api/otp-settings', { windowMin: inp.value }).then(function (x) {
+      wn.disabled = false;
+      if (!x.ok) { toast('⚠️ ' + (x.message || 'could not save')); return; }
+      if (OD.chk) OD.chk.settings = x.settings;
+      toast(x.message || '✅ Saved');
+    });
+    return;
+  }
   var sa = e.target.closest('[data-odimpsave]'); if (sa) { odImpSave(sa); return; }
   var rm = e.target.closest('[data-odrm]');
   if (rm) {
