@@ -222,7 +222,7 @@ function sheetCells(files, n) {
   section('no secret columns, ever');
   const allHeaders = ex.ORDER_COLUMNS.concat(ex.CUSTOMER_COLUMNS).map((c) => c.header + ' ' + c.key).join(' | ');
   ok('no header / key about passwords, PINs, OTPs, tokens, sessions, logins or push', !/pass|pin\b|otp|token|session|push|login/i.test(allHeaders), allHeaders);
-  ok('order columns: every requested column is there, in simple English', ['Order ID', 'Date & time (IST)', 'Customer name', 'Phone', 'Email', 'Service', 'Plan', 'Devices', 'Type (New/Renewal)', 'Price', 'Discount', 'Coupon', 'Coins used', 'Paid amount', 'Payment method', 'UTR / Ref', 'Status', 'Delivery status', 'Account ref (inventory ref)', 'Expiry of the plan', 'Refund kind', 'Refund amount', 'Refund method', 'Credit due', 'Referral code used', 'Notes'].join() === ex.ORDER_COLUMNS.map((c) => c.header).join());
+  ok('order columns: every requested column is there, in simple English', ['Order ID', 'Date & time (IST)', 'Customer name', 'Phone', 'Email', 'Service', 'Plan', 'Devices', 'Type (New/Renewal)', 'Price', 'Discount', 'Coupon', 'Coins used', 'Paid amount', 'Payment method', 'Paid via', 'Payer UPI name', 'UTR / Ref', 'Status', 'Delivery status', 'Account ref (inventory ref)', 'Expiry of the plan', 'Refund kind', 'Refund amount', 'Refund method', 'Credit due', 'Referral code used', 'Notes'].join() === ex.ORDER_COLUMNS.map((c) => c.header).join());
   ok('customer columns: every requested column is there', ['Customer ID', 'Name', 'Phone', 'Email', 'Email verified', 'Member since', 'Total orders (paid)', 'Total spent ₹', 'First order date', 'Last order date', 'Active plans', 'Active plans list', 'Next expiry', 'Coins balance', 'Referral code', 'Referred by', 'Invites joined', 'Refunds', 'Refunds ₹', 'Credit due ₹', 'Removed from account', 'Notes'].join() === ex.CUSTOMER_COLUMNS.map((c) => c.header).join());
 
   // ==================================================================== 3. xlsx writer
@@ -242,16 +242,16 @@ function sheetCells(files, n) {
   ok('every XML part is well-formed', !xmlErrors.length, xmlErrors);
   const s1 = zf['xl/worksheets/sheet1.xml'].text;
   ok('header row frozen (pane ySplit=1, state frozen, top-left A2)', /<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"\/>/.test(s1));
-  ok('auto-filter over the header + data (A1:Z3) and a _FilterDatabase name', /<autoFilter ref="A1:Z3"\/>/.test(s1) && /_xlnm\._FilterDatabase" localSheetId="0" hidden="1">'Orders'!\$A\$1:\$Z\$3</.test(zf['xl/workbook.xml'].text));
+  ok('auto-filter over the header + data (A1:AB3) and a _FilterDatabase name', /<autoFilter ref="A1:AB3"\/>/.test(s1) && /_xlnm\._FilterDatabase" localSheetId="0" hidden="1">'Orders'!\$A\$1:\$AB\$3</.test(zf['xl/workbook.xml'].text));
   ok('column widths set', /<cols><col min="1" max="1" width="18" customWidth="1"\/>/.test(s1));
   const c1 = sheetCells(zf, 1);
-  ok('header cells are bold text (style 1): A1 "Order ID", Z1 "Notes"', c1.A1.t === 's' && c1.A1.s === 1 && c1.A1.v === 'Order ID' && c1.Z1.v === 'Notes');
+  ok('header cells are bold text (style 1): A1 "Order ID", AB1 "Notes"', c1.A1.t === 's' && c1.A1.s === 1 && c1.A1.v === 'Order ID' && c1.AB1.v === 'Notes');
   ok('B2 date & time is a real Excel date (number, date+time style), 1 Sep 2026 00:00 = 46266', c1.B2.t === 'n' && c1.B2.s === xlsx.STYLE.datetime && c1.B2.v === 46266, c1.B2);
-  ok('T2 plan expiry is a date-only cell (12 Oct 2026 = 46307)', c1.T2.t === 'n' && c1.T2.s === xlsx.STYLE.date && c1.T2.v === 46307, c1.T2);
+  ok('V2 plan expiry is a date-only cell (12 Oct 2026 = 46307)', c1.V2.t === 'n' && c1.V2.s === xlsx.STYLE.date && c1.V2.v === 46307, c1.V2);
   ok('money cells are numbers with the ₹ format (J2 price 199, N2 paid 179), whole numbers for devices / coins', c1.J2.t === 'n' && c1.J2.v === 199 && c1.J2.s === xlsx.STYLE.money && c1.N2.v === 179 && c1.H2.s === xlsx.STYLE.int && c1.M3.v === 40, { J2: c1.J2, N2: c1.N2, M3: c1.M3 });
   ok('phone stays text (keeps leading digits exactly)', c1.D2.t === 's' && c1.D2.v === '9876543210');
   ok('a formula-looking name is stored as plain text (shared string), never as a formula', c1.C3.t === 's' && c1.C3.v === '=HYPERLINK("http://evil")' && !/<f>/.test(s1));
-  ok('emoji + newline + quotes survive in text (Z3)', c1.Z3.v === 'line1\nline2 😀, "ok"', c1.Z3);
+  ok('emoji + newline + quotes survive in text (AB3)', c1.AB3.v === 'line1\nline2 😀, "ok"', c1.AB3);
   ok('styles: bold font, d mmm yyyy, date+time, ₹ format', /<b\/>/.test(zf['xl/styles.xml'].text) && /formatCode="d mmm yyyy"/.test(zf['xl/styles.xml'].text) && /formatCode="&quot;₹&quot;#,##0.00"/.test(zf['xl/styles.xml'].text));
   ok('sheet name cleaned of [ ] : ? (Excel refuses them)', /<sheet name="Summary   x" sheetId="2"/.test(zf['xl/workbook.xml'].text), zf['xl/workbook.xml'].text.match(/<sheet [^>]*>/g));
   const c2 = sheetCells(zf, 2);
@@ -374,7 +374,7 @@ function sheetCells(files, n) {
   const html = fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8');
   const adminJs = fs.readFileSync(path.join(__dirname, '..', 'admin.js'), 'utf8');
   ok('admin.js mounts adminexports with the admin auth + change log', /require\('\.\/adminexports'\)\.mount\(app, Object\.assign\(\{ db, auth, audit \}, deps\.exports \|\| \{\}\)\);/.test(adminJs));
-  ok('Orders page: ⬇️ Export to Excel uses the filters on screen (search + view)', /id="oexport" onclick="exOrdersDialog\(\{ q: O\.q, view: O\.view \}\)">⬇️ Export to Excel</.test(html));
+  ok('Orders page: ⬇️ Export to Excel uses the filters on screen (search + view + 💸 paid via)', /id="oexport" onclick="exOrdersDialog\(\{ q: O\.q, view: O\.view, paidVia: O\.paidVia \}\)">⬇️ Export to Excel</.test(html));
   ok('Customer 360: ⬇️ Export customers', /id="cexport" onclick="exCustomersDialog\(\{\}\)">⬇️ Export customers</.test(html));
   ok('📤 Exports menu item + screen added in the export block (menu line untouched)', /MENU\.splice\(at >= 0 \? at : MENU\.length, 0, \['exports', '📤', 'Exports'\]\)/.test(html) && /m\.exports = exportsView/.test(html) && /function exportsView\(/.test(html) && !/\['exports', '📤', 'Exports'\], \['/.test(html));
   const exBlock = html.slice(html.indexOf('/* ================= 📤 exports'));

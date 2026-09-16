@@ -591,6 +591,15 @@ var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct',
 function prettyDate(v, withTime) { var m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/); if (!m) return v ? esc(v) : '—'; return +m[3] + ' ' + MON[+m[2] - 1] + ' ' + m[1] + (withTime && m[4] ? ', ' + m[4] + ':' + m[5] : ''); }
 function daysLeft(v) { var d = istDate(v); return d ? Math.ceil((d.getTime() - Date.now()) / 86400000) : null; }
 function statusPill(v) { if (v == null || v === '') return ''; var u = String(v).toUpperCase(); var c = /REFUND/.test(u) ? 'p-blue' : /ACTIVE|PAID|FULFILLED|SUCCESS|TRUE|DONE/.test(u) ? 'p-ok' : /PENDING|CREATED|WAIT|MANUAL/.test(u) ? 'p-warn' : /FAIL|CANCEL|EXPIRED|FALSE|ERROR|BLOCK/.test(u) ? 'p-bad' : 'p-grey'; return '<span class="pill ' + c + '">' + esc(v) + '</span>'; }
+/* 💸 "Paid via" (paidvia.js on the server): how the money came in, NOT where the order was created.
+   🌐 Website QR · 🔢 UTR typed · 📲 Backup QR (our personal / 2nd QR) · 🪙 Coins · 🎁 ₹0 · 🧑‍💼 Admin · 💳 Credit. */
+var PV_TIP = 'How the money reached us. "Created via" above says where the order was made (website or admin); this says which QR or route the payment came through.';
+var PV_TONE = { WEBSITE_QR: 'p-ok', BACKUP_QR: 'p-blue', UTR_TYPED: 'p-warn', COINS: 'p-grey', FREE: 'p-grey', ADMIN: 'p-grey', CREDIT: 'p-warn', UNKNOWN: 'p-grey' };
+function paidViaPill(key, label) {
+  if (!key) return '';
+  var text = String(label || key).replace(/\s*\(.*\)$/, '');
+  return '<span class="pill ' + (PV_TONE[key] || 'p-grey') + '" title="' + esc(label || '') + '">' + esc(text) + '</span>';
+}
 function svcIcon(s) { var k = String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); for (var n in ICONS) if (k.indexOf(n) > -1) return ICONS[n]; return '🎞️'; }
 function waLink(phone, text) { var p = String(phone || '').replace(/\D/g, ''); if (p.length === 10) p = '91' + p; return 'https://wa.me/' + p + '?text=' + encodeURIComponent(text); }
 
@@ -1030,6 +1039,8 @@ function renderCustomer() {
     '<div class="row pact" style="flex-direction:column;align-items:stretch"><a class="btn wa" target="_blank" href="' + waLink(pr.phone || r.phone, 'Hi ' + (pr.name || '') + ', ') + '">💬 WhatsApp</a>' +
     '<button class="btn dark" onclick="openQuick(\'new\')">🆕 New order</button><button class="btn dark" onclick="openQuick(\'renew\')">🔁 Renew</button>' +
     '<button class="btn ghost" onclick="custSessions()">🔐 Logged-in devices</button></div></div></div>' +
+    // 💳 Pays from: the names on this customer's own UPI payments (bank alerts), newest first.
+    payerCardHtml(r.payerNames) +
     '<div class="subhead"><h3>🎬 Subscriptions (' + subs.length + ')</h3><div class="row">' +
     ['all', 'active', 'expired'].map(function (f) { return '<button class="btn ghost sm' + (filter === f ? ' on' : '') + '" onclick="S.subFilter=\'' + f + '\';S.showAllCards=false;renderCustomer()">' + f[0].toUpperCase() + f.slice(1) + '</button>'; }).join('') + '</div></div>' +
     (shown.length ? '<div class="subs">' + (S.showAllCards ? shown : shown.slice(0, 6)).map(subCard).join('') + '</div>' +
@@ -1040,10 +1051,21 @@ function renderCustomer() {
       // Paid but not delivered → a Fix button; every order row opens the order (with its actions).
       var stuck = /^PAID$/i.test(o.status || '') && !/FULFILLED|MANUAL_PENDING/i.test(o.fulfillment_status || '');
       return '<div class="li orow" data-oid="' + esc(o.order_id) + '" style="cursor:pointer"><span style="font-size:1.1rem">' + svcIcon(o.service) + '</span><div class="grow"><b>' + esc(o.service || '—') + '</b> <span class="muted">· ' + esc(o.plan || '') + '</span><div class="muted" style="font-size:.72rem">' + esc(o.order_id) + ' · ' + prettyDate(o.created_at_sheet, true) + '</div></div>' +
-        '<b>' + money(o.final_amount) + '</b>' + statusPill(o.status) + (o.fulfillment_status ? statusPill(o.fulfillment_status) : '') + (stuck ? ' <button class="btn red sm" data-oid="' + esc(o.order_id) + '">⚡ Fix</button>' : '') + '</div>';
+        '<b>' + money(o.final_amount) + '</b>' + statusPill(o.status) + (o.fulfillment_status ? statusPill(o.fulfillment_status) : '') + paidViaPill(o.paid_via, o.paid_via_label) + (stuck ? ' <button class="btn red sm" data-oid="' + esc(o.order_id) + '">⚡ Fix</button>' : '') + '</div>';
     }).join('') : '<p class="muted">No orders</p>') + '</div>';
   var olist = $$('#c360 .orow'); olist.forEach(function (row) { row.onclick = function () { openOrder(row.getAttribute('data-oid')); }; });
   crLoad360(r.phone);
+}
+/* 💳 "Pays from" — every UPI name seen on this customer's own matched bank payments, newest first, de-duplicated.
+   Useful when someone pays from a family member's UPI: the owner can recognise the payment next time. */
+function payerCardHtml(list) {
+  if (!list || !list.length) return '';
+  return '<div class="subhead"><h3>💳 Pays from</h3></div><div class="card list" style="padding:6px 16px">' + list.slice(0, 8).map(function (p) {
+    var bits = [p.vpa ? esc(p.vpa) : p.bank ? esc(p.bank) : '', p.lastAt ? 'last paid ' + prettyDate(p.lastAt) : '', p.orders ? p.orders + ' order' + (p.orders === 1 ? '' : 's') : ''].filter(Boolean);
+    return '<div class="li"><span style="font-size:1.05rem">💳</span><div class="grow"><b>' + esc(p.name) + '</b>' +
+      (bits.length ? '<div class="muted" style="font-size:.72rem">' + bits.join(' · ') + '</div>' : '') + '</div>' +
+      (p.learned ? '<span class="pill p-grey">name only</span>' : p.amount ? '<b>' + money(p.amount) + '</b>' : '') + '</div>';
+  }).join('') + '</div>';
 }
 // 🔐 Email login: where this customer is logged in + "log out everywhere" (e.g. a lost phone, or a shared number).
 function custSessions() {
@@ -1841,24 +1863,28 @@ function attachCustomerSearch(input, onPick, onEnter) {
 }
 
 /* ================= orders lookup ================= */
-var O = { q: '', view: 'all', rows: null, detail: null };
+var O = { q: '', view: 'all', paidVia: '', rows: null, detail: null };
+// 💸 Paid-via filter chips (same keys as paidvia.js): which QR / route the money came through.
+var PV_CHIPS = [['', 'All'], ['website_qr', '🌐 Website QR'], ['backup_qr', '📲 Backup QR'], ['utr_typed', '🔢 UTR typed'], ['coins', '🪙 Coins'], ['free', '🎁 ₹0'], ['admin', '🧑‍💼 Admin'], ['credit', '💳 Credit'], ['unknown', '❔ Not recorded']];
 function ordersView() {
-  $('#view').innerHTML = '<div class="ph"><div><h1>🧾 Orders</h1><p>Find any order by order ID, name, phone, email or UTR</p></div><button class="btn ghost" id="oexport" onclick="exOrdersDialog({ q: O.q, view: O.view })">⬇️ Export to Excel</button></div>' +
+  $('#view').innerHTML = '<div class="ph"><div><h1>🧾 Orders</h1><p>Find any order by order ID, name, phone, email or UTR</p></div><button class="btn ghost" id="oexport" onclick="exOrdersDialog({ q: O.q, view: O.view, paidVia: O.paidVia })">⬇️ Export to Excel</button></div>' +
     '<div class="search"><input id="oq" class="inp" placeholder="Order ID, name, phone, email or UTR…" value="' + esc(O.q) + '"/><button class="btn" id="ogo">Search</button></div>' +
-    '<div class="row" id="oviews" style="margin:-4px 0 14px">' + [['all', 'All'], ['unpaid', '🧾 Unpaid'], ['undelivered', '⚠️ Paid, not delivered'], ['manual', '🛠 Manual to activate'], ['today', '📅 Today'], ['week', '🗓 Last 7 days']].map(function (v) { return '<button class="chip' + (O.view === v[0] ? ' on' : '') + '" data-v="' + v[0] + '">' + v[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="row" id="oviews" style="margin:-4px 0 6px">' + [['all', 'All'], ['unpaid', '🧾 Unpaid'], ['undelivered', '⚠️ Paid, not delivered'], ['manual', '🛠 Manual to activate'], ['today', '📅 Today'], ['week', '🗓 Last 7 days']].map(function (v) { return '<button class="chip' + (O.view === v[0] ? ' on' : '') + '" data-v="' + v[0] + '">' + v[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="row" id="opvs" style="margin:0 0 14px" title="' + esc(PV_TIP) + '"><span class="muted" style="font-size:.75rem;align-self:center;margin-right:2px">Paid via:</span>' + PV_CHIPS.map(function (v) { return '<button class="chip' + (O.paidVia === v[0] ? ' on' : '') + '" data-pv="' + v[0] + '">' + v[1] + '</button>'; }).join('') + '</div>' +
     '<div class="card list" id="olist" style="padding:6px 16px"><p class="muted">Loading…</p></div>';
   var t;
   $('#oq').addEventListener('input', function () { O.q = $('#oq').value.trim(); clearTimeout(t); t = setTimeout(loadOrders, 350); });
   $('#oq').addEventListener('keydown', function (e) { if (e.key === 'Enter') { O.q = $('#oq').value.trim(); loadOrders(); } });
   $('#ogo').onclick = function () { O.q = $('#oq').value.trim(); loadOrders(); };
   $('#oviews').onclick = function (e) { var b = e.target.closest('[data-v]'); if (!b) return; O.view = b.getAttribute('data-v'); $$('#oviews .chip').forEach(function (c) { c.classList.toggle('on', c === b); }); loadOrders(); };
+  $('#opvs').onclick = function (e) { var b = e.target.closest('[data-pv]'); if (!b) return; O.paidVia = b.getAttribute('data-pv'); $$('#opvs .chip').forEach(function (c) { c.classList.toggle('on', c === b); }); loadOrders(); };
   $('#olist').onclick = function (e) { var r = e.target.closest('[data-oid]'); if (r) openOrder(r.getAttribute('data-oid')); };
   loadOrders();
 }
 function loadOrders() {
-  var q = O.q, view = O.view;
-  api('/admin/api/orders/search', { q: q, view: view }).then(function (r) {
-    if (O.q !== q || O.view !== view || !$('#olist')) return;
+  var q = O.q, view = O.view, pvf = O.paidVia;
+  api('/admin/api/orders/search', { q: q, view: view, paidVia: pvf }).then(function (r) {
+    if (O.q !== q || O.view !== view || O.paidVia !== pvf || !$('#olist')) return;
     if (!r.ok) { $('#olist').innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
     O.rows = r.orders;
     // An exact order ID opens straight away.
@@ -1866,8 +1892,8 @@ function loadOrders() {
     $('#olist').innerHTML = r.orders.length ? r.orders.map(function (o) {
       return '<div class="li orow" data-oid="' + esc(o.order_id) + '"><span style="font-size:1.1rem">' + svcIcon(o.service) + '</span><div class="grow"><b>' + esc(o.name || '—') + '</b> <span class="muted">· ' + esc(o.phone_norm || '') + '</span>' +
         '<div class="muted" style="font-size:.72rem">' + esc(o.order_id) + ' · ' + esc(o.service) + ' · ' + esc(o.plan) + (String(o.order_type).toUpperCase() === 'RENEW' ? ' · renew' : '') + ' · ' + prettyDate(o.created_at_sheet, true) + (o.source !== 'node' ? ' · old site' : '') + '</div></div>' +
-        '<b>' + money(o.final_amount) + '</b>' + statusPill(o.status) + (o.fulfillment_status ? statusPill(o.fulfillment_status) : '') + '</div>';
-    }).join('') + (r.orders.length >= 60 ? '<p class="muted" style="font-size:.75rem">Showing the newest 60 — search to narrow down.</p>' : '') : '<p class="muted">No orders' + (q ? ' matching “' + esc(q) + '”' : '') + '.</p>';
+        '<b>' + money(o.final_amount) + '</b>' + statusPill(o.status) + (o.fulfillment_status ? statusPill(o.fulfillment_status) : '') + paidViaPill(o.paid_via, o.paid_via_label) + '</div>';
+    }).join('') + (r.orders.length >= 60 ? '<p class="muted" style="font-size:.75rem">Showing the newest 60 — search to narrow down.</p>' : '') : '<p class="muted">No orders' + (q ? ' matching “' + esc(q) + '”' : '') + (O.paidVia ? ' paid via that route' : '') + '.</p>';
   });
 }
 function openOrder(id, flash) {
@@ -1876,7 +1902,7 @@ function openOrder(id, flash) {
     if (!$('#modal')) return;
     if (!r.ok) { $('#modal .mbody').innerHTML = '<p class="muted">' + esc(r.message || 'error') + '</p>'; return; }
     O.detail = r;
-    var o = r.order, m = r.meta || {};
+    var o = r.order, m = r.meta || {}, pv = r.paidVia || {};
     var kv = function (k, v) { return v == null || v === '' ? '' : '<div class="okv"><span>' + k + '</span><b>' + v + '</b></div>'; };
     var paid = String(o.status).toUpperCase() === 'PAID';
     var delivered = /FULFILLED|MANUAL_PENDING/i.test(o.fulfillment_status || '');
@@ -1894,8 +1920,12 @@ function openOrder(id, flash) {
       '<div class="okvs">' + kv('Customer', esc(o.name || '') + (r.customer && r.customer.customer_id ? ' · ' + esc(r.customer.customer_id) : '')) + kv('Phone', esc(o.phone_norm || o.phone)) + kv('Email', esc(o.email || '')) +
       kv('Service', esc(o.service) + ' · ' + esc(o.plan)) + kv('Type', esc(o.order_type || 'NEW') + (o.renew_sub_id ? ' of ' + esc(o.renew_sub_id) : '')) +
       kv('Amount', money(o.final_amount) + (asNumber(o.discount) > 0 ? ' <span class="muted">(list ' + money(o.price) + ', −' + money(o.discount) + (o.coupon_code ? ' ' + esc(o.coupon_code) : '') + ')</span>' : '')) +
-      kv('Created via', esc(m.createdVia === 'ADMIN' ? '⚡ Admin quick order' : m.createdVia === 'WEBSITE' ? '🌐 Website' : '📄 Old Sheet site')) + kv('Paid by', esc(m.paymentMethod || '')) + kv('UTR / ref', esc(o.txn_ref || '')) +
-      kv('Bank credit', (r.bankCredits || []).map(function (b) { return money(b.amount) + ' · ' + esc(b.upi_ref) + ' · ' + prettyDate(b.received_at, true); }).join('<br>')) +
+      kv('<span title="' + esc(PV_TIP) + '">Created via ⓘ</span>', esc(m.createdVia === 'ADMIN' ? '⚡ Admin quick order' : m.createdVia === 'WEBSITE' ? '🌐 Website' : '📄 Old Sheet site') + ' <span class="muted" style="font-weight:400">· where the order was made</span>') +
+      // 💸 Which QR / route the money actually came through (paidvia.js) — the owner's question of 16 Sep.
+      kv('<span title="' + esc(PV_TIP) + '">Paid via ⓘ</span>', (pv.label ? esc(pv.label) : '') + (pv.label && !pv.stored ? ' <span class="muted" style="font-weight:400">· worked out from the bank payment</span>' : '')) +
+      kv('Paid by', esc(m.paymentMethod || '')) + kv('UTR / ref', esc(o.txn_ref || '')) +
+      kv('Bank credit', (r.bankCredits || []).map(function (b) { return money(b.amount) + ' · ' + esc(b.upi_ref) + ' · ' + prettyDate(b.received_at, true) + (b.payerName ? ' · 💳 <b>' + esc(b.payerName) + '</b>' + (b.vpa ? ' <span class="muted">' + esc(b.vpa) + '</span>' : b.bank ? ' <span class="muted">' + esc(b.bank) + '</span>' : '') : ''); }).join('<br>')) +
+      (!(r.bankCredits || []).length && pv.payerName ? kv('Paid by name', '💳 ' + esc(pv.payerName)) : '') +
       kv('Coupon', (r.couponUsage || []).map(function (c) { return esc(c.coupon_code) + ' −' + money(c.discount) + ' (' + esc(c.action) + ')'; }).join(', ')) +
       kv('Devices', o.device_count ? esc(o.device_count) + (o.tv_count != null ? ' (' + esc(o.tv_count) + ' TV)' : '') + (m.loginMode ? ' · asked for ' + (m.loginMode === 'separate' ? 'separate logins' : 'the same login') : '') : '') + kv('Note', esc(m.adminNote || o.notes || '')) + '</div>' +
       (subs ? '<h4 style="margin:14px 0 0">Subscription' + ((r.subs || []).length > 1 ? 's (' + r.subs.length + ' logins)' : '') + '</h4>' + subs : (paid ? '<div class="qnote bad" style="margin-top:12px">No subscription was created for this paid order.</div>' : '')) +
@@ -2456,7 +2486,10 @@ function loadToday() {
 function renderTodayItems() {
   var items = T.data.items.slice().sort(function (a, b) { return (b.count > 0) - (a.count > 0); });
   var pending = items.filter(function (i) { return i.count > 0; }).length;
-  $('#titems').innerHTML = '<div class="subhead" style="margin-top:0"><h3>' + (pending ? '📋 ' + pending + ' things to look at' : '🎉 All clear') + '</h3></div><div class="tcards">' +
+  // 💸 "Payments today: 6 website QR · 2 backup QR · 1 UTR" — is the backup (personal) QR being used?
+  var pvT = T.data.paidVia || null;
+  var pvLine = pvT && pvT.line ? '<div class="card" style="padding:10px 14px;margin:0 0 12px" title="' + esc(PV_TIP) + '"><b>💸 ' + esc(pvT.line) + '</b></div>' : '';
+  $('#titems').innerHTML = '<div class="subhead" style="margin-top:0"><h3>' + (pending ? '📋 ' + pending + ' things to look at' : '🎉 All clear') + '</h3></div>' + pvLine + '<div class="tcards">' +
     items.map(function (it, i) {
       var extra = '';
       if (it.names && it.names.length) extra = '<div class="tnames">' + it.names.slice(0, 4).map(esc).join('<br>') + (it.names.length > 4 ? '<br>+' + (it.names.length - 4) + ' more' : '') + '</div>';
@@ -2518,7 +2551,8 @@ function wireGlobalSearch() {
         if (!r || !r.ok) { data = null; drop.innerHTML = '<div class="muted" style="padding:10px 12px;font-size:.85rem">⚠️ Search failed: ' + esc((r && r.message) || 'error') + '</div>'; drop.hidden = false; return; }
         data = r;
         var sec = function (title, rows, fn) { return rows && rows.length ? '<div class="gsec">' + title + '</div>' + rows.map(fn).join('') : ''; };
-        var html = sec('👤 Customers', r.customers, function (c, i) { return '<button class="qopt" data-k="c" data-i="' + i + '"><b>' + esc(c.name || '(no name)') + '</b><small>' + esc(c.phone_norm || '') + (c.email ? ' · ' + esc(c.email) : '') + (c.customer_id ? ' · ' + esc(c.customer_id) : '') + '</small></button>'; }) +
+        // 💳 payerName = found by the name on their UPI payments, not by their profile name.
+        var html = sec('👤 Customers', r.customers, function (c, i) { return '<button class="qopt" data-k="c" data-i="' + i + '"><b>' + esc(c.name || '(no name)') + '</b><small>' + esc(c.phone_norm || '') + (c.email ? ' · ' + esc(c.email) : '') + (c.customer_id ? ' · ' + esc(c.customer_id) : '') + (c.payerName ? ' · 💳 pays as ' + esc(c.payerName) : '') + '</small></button>'; }) +
           sec('🧾 Orders', r.orders, function (o, i) { return '<button class="qopt" data-k="o" data-i="' + i + '"><b>' + esc(o.order_id) + '</b> ' + statusPill(o.status) + '<small>' + esc(o.name || '') + ' · ' + esc(o.service) + ' · ' + esc(o.plan) + ' · ' + money(o.final_amount) + '</small></button>'; }) +
           sec('🎬 Subscriptions', r.subs, function (s, i) { return '<button class="qopt" data-k="s" data-i="' + i + '"><b>' + esc(s.sub_id) + '</b> ' + statusPill(s.status) + '<small>' + esc(s.service) + ' · ' + esc(s.plan) + ' · ' + esc(s.phone_norm || '') + ' · ends ' + prettyDate(s.expiry_date) + '</small></button>'; });
         drop.innerHTML = html || '<div class="muted" style="padding:10px 12px;font-size:.85rem">Nothing found for “' + esc(q) + '”.</div>';
@@ -6132,6 +6166,7 @@ function exOrdersDialog(pre) {
     if (!$('#modal')) return;
     var services = (o && o.services) || [];
     var methods = (o && o.methods) || {};
+    var paidViaOpts = (o && o.paidVia) || {};
     var body = '<div data-nodirty="1"><div class="fields">' + exDateHtml('exo', preset) +
       '<div class="fld" style="grid-column:1/-1"><label>Status</label>' + exChips('exo_st', [['paid', 'Paid'], ['created', 'Created (not paid)'], ['pending', 'Pending'], ['credit', 'On credit'], ['written_off', 'Credit written off'], ['refunded', 'Refunded'], ['failed', 'Failed / cancelled']], st, true) + '</div>' +
       '<div class="fld" style="grid-column:1/-1"><label>Type</label>' + exChips('exo_type', [['new', 'New'], ['renewal', 'Renewal']], [], true) + '</div>' +
@@ -6139,6 +6174,8 @@ function exOrdersDialog(pre) {
       '<div class="fld"><label>Plan</label><select class="inp" id="exo_plan"><option value="">All plans</option></select></div>' +
       '<div class="fld"><label>Has coupon</label>' + exChips('exo_cpn', [['', 'Any'], ['yes', 'Yes'], ['no', 'No']], [''], false) + '</div>' +
       '<div class="fld" style="grid-column:1/-1"><label>Payment method</label>' + exChips('exo_pm', Object.keys(methods).map(function (k) { return [k, methods[k]]; }), [], true) + '</div>' +
+      // 💸 Which QR / route the money came through (paidvia.js) — its own column in the file too.
+      '<div class="fld" style="grid-column:1/-1"><label title="' + esc(PV_TIP) + '">Paid via (website QR / backup QR) ⓘ</label>' + exChips('exo_pv', Object.keys(paidViaOpts).map(function (k) { return [k, paidViaOpts[k]]; }), pre.paidVia ? [pre.paidVia] : [], true) + '</div>' +
       '<div class="fld" style="grid-column:1/-1"><label>Delivery status</label>' + exChips('exo_dl', [['fulfilled', 'Delivered'], ['manual', 'Manual — to activate'], ['failed', 'Failed'], ['pending', 'Not delivered yet']], dl, true) + '</div>' +
       '<div class="fld"><label>Refund</label><select class="inp" id="exo_rf"><option value="">Any order</option><option value="any">Only refunded</option><option value="none">Not refunded</option><option value="UPI">Refunded by UPI</option><option value="UPI_PENDING">UPI refund waiting</option><option value="CREDIT">Refund credit / coins</option><option value="COUPON">Refund coupon</option></select></div>' +
       '<div class="fld"><label>Search (phone / name / order id)</label><input class="inp" id="exo_q" value="' + esc(pre.q || '') + '"/></div>' +
@@ -6155,10 +6192,10 @@ function exOrdersDialog(pre) {
     };
     var build = function () {
       var d = exDateBody('exo');
-      return { format: exVal('exo_fmt') || 'xlsx', filters: { date: d.date, from: d.from, to: d.to, statuses: exVals('exo_st'), types: exVals('exo_type'), services: exVals('exo_svc'), plan: $('#exo_plan').value, hasCoupon: exVal('exo_cpn'), methods: exVals('exo_pm'), delivery: exVals('exo_dl'), refundKinds: $('#exo_rf').value ? [$('#exo_rf').value] : [], q: $('#exo_q').value.trim() } };
+      return { format: exVal('exo_fmt') || 'xlsx', filters: { date: d.date, from: d.from, to: d.to, statuses: exVals('exo_st'), types: exVals('exo_type'), services: exVals('exo_svc'), plan: $('#exo_plan').value, hasCoupon: exVal('exo_cpn'), methods: exVals('exo_pm'), paidVia: exVals('exo_pv'), delivery: exVals('exo_dl'), refundKinds: $('#exo_rf').value ? [$('#exo_rf').value] : [], q: $('#exo_q').value.trim() } };
     };
     var t; var recount = function () { clearTimeout(t); t = setTimeout(function () { if ($('#exo_count')) exCount('orders', build(), $('#exo_count')); }, 300); };
-    ['exo_st', 'exo_type', 'exo_cpn', 'exo_pm', 'exo_dl', 'exo_fmt'].forEach(function (id) { exWireChips(id, recount); });
+    ['exo_st', 'exo_type', 'exo_cpn', 'exo_pm', 'exo_pv', 'exo_dl', 'exo_fmt'].forEach(function (id) { exWireChips(id, recount); });
     exWireChips('exo_svc', function () { fillPlans(); recount(); });
     exWireChips('exo_date', function () { $('#exo_custom').hidden = exVal('exo_date') !== 'custom'; recount(); });
     ['exo_plan', 'exo_rf', 'exo_from', 'exo_to'].forEach(function (id) { $('#' + id).addEventListener('change', recount); });

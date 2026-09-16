@@ -24,6 +24,9 @@ const renewRules = require('./renewrules');
 const refunds = require('./refunds');
 const credit = require('./credit');
 const security = require('./security');
+// 💸 "Paid via": website QR vs backup (personal) QR vs typed UTR vs coins / ₹0 / admin / credit — its own column
+// and filter, worked out by paidvia.js from raw_json.PaidVia (new orders) or the bank credit / claim (old ones).
+const paidvia = require('./paidvia');
 
 const s = (v) => String(v == null ? '' : v).trim();
 const up = (v) => s(v).toUpperCase();
@@ -112,6 +115,7 @@ function normOrderFilters(f, now) {
     services: [...new Set(asList(f.services || f.service))].slice(0, 50),
     plan: s(f.plan).slice(0, 120),
     methods: pick(f.methods || f.method, Object.keys(METHODS)),
+    paidVia: pick(f.paidVia || f.paid_via, paidvia.FILTER_KEYS),
     delivery: pick(f.delivery, Object.keys(DELIVERY)),
     hasCoupon: ['yes', 'no'].includes(s(f.hasCoupon).toLowerCase()) ? s(f.hasCoupon).toLowerCase() : '',
     refundKinds: [...new Set(asList(f.refundKinds || f.refundKind))].map((x) => (x.toLowerCase() === 'any' || x.toLowerCase() === 'none' ? x.toLowerCase() : x.toUpperCase())).filter((x) => REFUND_KINDS.includes(x)),
@@ -161,6 +165,9 @@ const ORDER_COLUMNS = [
   { key: 'coinsUsed', header: 'Coins used', type: 'int', width: 10 },
   { key: 'paid', header: 'Paid amount', type: 'money', width: 12 },
   { key: 'method', header: 'Payment method', type: 'text', width: 24 },
+  // 💸 Website QR vs the backup (personal) QR — the owner's 16 Sep question: "is our 2nd payment working?"
+  { key: 'paidVia', header: 'Paid via', type: 'text', width: 26 },
+  { key: 'payerName', header: 'Payer UPI name', type: 'text', width: 24 },
   { key: 'ref', header: 'UTR / Ref', type: 'text', width: 20 },
   { key: 'status', header: 'Status', type: 'text', width: 16 },
   { key: 'delivery', header: 'Delivery status', type: 'text', width: 18 },
@@ -202,7 +209,10 @@ function mapOrder(o, ctx) {
   const raw = rawOf(o.raw_json);
   const st = up(o.status);
   const claim = ctx.claims && ctx.claims.get(s(o.order_id));
+  const bank = (ctx.credits && ctx.credits.get(s(o.order_id))) || null;
   const m = paymentMethod(o, raw, claim);
+  const pv = paidvia.compute(o, { raw, claim, credit: bank });
+  const payer = bank ? paidvia.parseAlert(bank.raw).payerName : paidvia.displayName(claim && claim.payer_name);
   const subs = (ctx.subsByOrder && ctx.subsByOrder.get(s(o.order_id))) || [];
   const renewed = s(o.renew_sub_id) && ctx.subsById ? ctx.subsById.get(s(o.renew_sub_id)) : null;
   const allSubs = subs.length ? subs : renewed ? [renewed] : [];
@@ -217,15 +227,16 @@ function mapOrder(o, ctx) {
     service: s(o.service), plan: s(o.plan), devices: o.device_count == null || o.device_count === '' ? 1 : Math.max(1, Math.round(num(o.device_count))),
     type: up(o.order_type) === 'RENEW' ? 'Renewal' : 'New',
     price: round2(o.price), discount: round2(o.discount), coupon: s(o.coupon_code), coinsUsed: Math.round(num(raw.CoinsUsed)) || 0,
-    paid, method: m.text, ref: claim && claim.utr ? s(claim.utr) : s(o.txn_ref), status: STATUS_TEXT[st] || s(o.status),
+    paid, method: m.text, paidVia: pv.label, payerName: payer, ref: claim && claim.utr ? s(claim.utr) : s(o.txn_ref), status: STATUS_TEXT[st] || s(o.status),
     delivery: DELIVERY_TEXT[up(o.fulfillment_status)] || s(o.fulfillment_status), accountRef: refs, expiry,
     refundKind: rf ? (REFUND_KIND_TEXT[rf.kind] || rf.kind) : '', refundAmount: rf ? rf.amount : '', refundMethod: rf ? rf.method : '',
     creditDue: cs && st === 'CREDIT' ? cs.due : '', referralCode: s(raw.ReferralCode), notes,
-    _methodKey: m.key, _refundKind: rf ? rf.kind : '', _status: st, _amount: round2(o.final_amount),
+    _methodKey: m.key, _paidVia: pv.filter, _refundKind: rf ? rf.kind : '', _status: st, _amount: round2(o.final_amount),
   };
 }
 function orderPassesJs(row, f) {
   if (f.methods.length && !f.methods.includes(row._methodKey)) return false;
+  if (f.paidVia.length && !f.paidVia.includes(row._paidVia)) return false;
   if (f.refundKinds.length) {
     const wantNone = f.refundKinds.includes('none'); const wantAny = f.refundKinds.includes('any');
     const k = row._refundKind;
@@ -266,6 +277,13 @@ function ordersSummary(rows, f, now) {
   [...bySvc.entries()].sort((a, b) => b[1].paid - a[1].paid || b[1].n - a[1].n).forEach(([k, v]) => out.push([k, { v: v.n, type: 'int' }, { v: v.paidN, type: 'int' }, { v: round2(v.paid), type: 'money' }]));
   out.push([], [B('By status'), B('Orders'), B('₹ amount')]);
   [...bySt.entries()].sort((a, b) => b[1].n - a[1].n).forEach(([k, v]) => out.push([k, { v: v.n, type: 'int' }, { v: round2(v.amount), type: 'money' }]));
+  // 💸 Website QR vs backup (personal) QR at a glance, on the same sheet.
+  const byVia = new Map();
+  for (const r of rows) { if (!r.paidVia) continue; const a = byVia.get(r.paidVia) || { n: 0, amount: 0 }; a.n++; a.amount += r._amount; byVia.set(r.paidVia, a); }
+  if (byVia.size) {
+    out.push([], [B('By how it was paid'), B('Orders'), B('₹ amount')]);
+    [...byVia.entries()].sort((a, b) => b[1].n - a[1].n).forEach(([k, v]) => out.push([k, { v: v.n, type: 'int' }, { v: round2(v.amount), type: 'money' }]));
+  }
   return { rows: out, totals: { orders: tot.n, paidOrders: tot.paidN, paid: round2(tot.paid) } };
 }
 
@@ -327,6 +345,7 @@ function filterText(kind, f) {
     if (f.services.length) parts.push('service ' + f.services.join('/'));
     if (f.plan) parts.push('plan ' + f.plan);
     if (f.methods.length) parts.push('payment ' + f.methods.join('/'));
+    if (f.paidVia.length) parts.push('paid via ' + f.paidVia.join('/'));
     if (f.delivery.length) parts.push('delivery ' + f.delivery.join('/'));
     if (f.hasCoupon) parts.push('coupon ' + f.hasCoupon);
     if (f.refundKinds.length) parts.push('refund ' + f.refundKinds.join('/'));
@@ -375,19 +394,23 @@ function mount(app, deps) {
     }
     const ids = orders.map((o) => s(o.order_id));
     const renewIds = [...new Set(orders.map((o) => s(o.renew_sub_id)).filter(Boolean))];
-    const subsByOrder = new Map(); const subsById = new Map(); const claims = new Map();
+    const subsByOrder = new Map(); const subsById = new Map(); const claims = new Map(); const credits = new Map();
     for (const part of chunks(ids)) {
       const subs = await q('SELECT sub_id, order_id, expiry_date, inventory_ref FROM subscriptions WHERE order_id IN ' + inList(part.length), part);
       for (const x of subs) { const k = s(x.order_id); if (!subsByOrder.has(k)) subsByOrder.set(k, []); subsByOrder.get(k).push(x); subsById.set(s(x.sub_id), x); }
-      const cl = await optional("SELECT order_id, utr, source FROM payment_claims WHERE status = 'MATCHED' AND order_id IN " + inList(part.length), part);
+      // APPROVED too: a claim the owner approved by hand is still "paid to the backup QR".
+      const cl = await optional("SELECT order_id, payer_name, utr, source, status FROM payment_claims WHERE status IN ('MATCHED', 'APPROVED') AND order_id IN " + inList(part.length), part);
       for (const c of cl) if (!claims.has(s(c.order_id))) claims.set(s(c.order_id), c);
+      // The matched bank line: its note tells the website QR (order id inside) from a typed UTR, and holds the payer name.
+      const bc = await optional('SELECT consumed_order_id, upi_ref, amount, order_ids, raw, received_at FROM bank_credits WHERE consumed_order_id IN ' + inList(part.length), part);
+      for (const c of bc) { const k = s(c.consumed_order_id); if (k && !credits.has(k)) credits.set(k, c); }
     }
     const missing = renewIds.filter((id) => !subsById.has(id));
     for (const part of chunks(missing)) {
       const subs = await q('SELECT sub_id, order_id, expiry_date, inventory_ref FROM subscriptions WHERE sub_id IN ' + inList(part.length), part);
       for (const x of subs) subsById.set(s(x.sub_id), x);
     }
-    const ctx = { subsByOrder, subsById, claims, now: now() };
+    const ctx = { subsByOrder, subsById, claims, credits, now: now() };
     return orders.map((o) => mapOrder(o, ctx)).filter((r) => orderPassesJs(r, f));
   }
 
@@ -451,7 +474,7 @@ function mount(app, deps) {
     try {
       const rows = await q("SELECT DISTINCT service, plan FROM orders WHERE COALESCE(service, '') <> '' ORDER BY service, plan LIMIT 800", []);
       const services = [...new Set(rows.map((r) => s(r.service)))].sort((a, b) => a.localeCompare(b));
-      res.json({ ok: true, services, plans: rows.map((r) => ({ service: s(r.service), plan: s(r.plan) })), limit: maxRows, rateLimit: { max: RATE_MAX, minutes: RATE_WINDOW_MS / 60e3 }, statuses: Object.keys(STATUS_GROUPS), methods: METHODS, datePresets: DATE_PRESETS });
+      res.json({ ok: true, services, plans: rows.map((r) => ({ service: s(r.service), plan: s(r.plan) })), limit: maxRows, rateLimit: { max: RATE_MAX, minutes: RATE_WINDOW_MS / 60e3 }, statuses: Object.keys(STATUS_GROUPS), methods: METHODS, paidVia: paidvia.filterOptions(), datePresets: DATE_PRESETS });
     } catch (e) { fail(res, e); }
   });
 

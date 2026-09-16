@@ -83,8 +83,9 @@ function run(sql, p) {
   if (/^SELECT order_id, status, source, service, plan, phone, phone_norm, email, order_type, price, discount, final_amount, coupon_code, raw_json FROM orders WHERE order_id = \? LIMIT 1 FOR UPDATE$/.test(sql)) return S.orders.filter((o) => o.order_id === p[0]).map(clone);
   if (/^UPDATE orders SET status = 'PAID', txn_ref = \?, verified_at = NOW\(\), raw_json = \? WHERE order_id = \? AND UPPER\(status\) = 'CREATED' LIMIT 1$/.test(sql)) { const o = orderOf(p[2]); if (!o || o.status !== 'CREATED') return { affectedRows: 0 }; S.orderUpdates++; Object.assign(o, { status: 'PAID', txn_ref: p[0], raw_json: p[1] }); return { affectedRows: 1 }; }
   if (/^SELECT order_id, final_amount, status, source FROM orders WHERE order_id = \? LIMIT 1$/.test(sql)) return S.orders.filter((o) => o.order_id === p[0]).map(clone);
-  if (/^SELECT status, coupon_code, phone, phone_norm, email, discount FROM orders WHERE order_id = \? FOR UPDATE$/.test(sql)) return S.orders.filter((o) => o.order_id === p[0]).map(clone);
-  if (/^UPDATE orders SET status = \?, txn_ref = \?, verified_at = NOW\(\) WHERE order_id = \?$/.test(sql)) { const o = orderOf(p[2]); o.status = p[0]; o.txn_ref = p[1]; return { affectedRows: 1 }; }
+  if (/^SELECT status, coupon_code, phone, phone_norm, email, discount, raw_json FROM orders WHERE order_id = \? FOR UPDATE$/.test(sql)) return S.orders.filter((o) => o.order_id === p[0]).map(clone);
+  // _markPaid also writes raw_json (💸 PaidVia) when it can be read; the order id is always the LAST parameter.
+  if (/^UPDATE orders SET status = \?, txn_ref = \?, verified_at = NOW\(\)(, raw_json = \?)? WHERE order_id = \?$/.test(sql)) { const o = orderOf(p[p.length - 1]); o.status = p[0]; o.txn_ref = p[1]; if (p.length === 4) o.raw_json = p[2]; return { affectedRows: 1 }; }
   if (/^UPDATE bank_credits SET consumed_order_id/.test(sql)) { S.credits.push(p); return { affectedRows: 0 }; }
   // coupons
   if (/^SELECT raw_json FROM coupons$/.test(sql)) return S.coupons.map((c) => ({ raw_json: c.raw_json }));

@@ -296,8 +296,8 @@ function mountAdmin(app, deps) {
     if (!ph) return res.status(400).json({ ok: false, message: 'phone required' });
     try {
       const [profile, orders, subs, wallet] = await Promise.all([
-        db.query('SELECT phone, name, email, member_since FROM customers WHERE phone_norm = ? LIMIT 1', [ph]),
-        db.query('SELECT order_id, created_at_sheet, service, plan, final_amount, status, fulfillment_status FROM orders WHERE phone_norm = ? ORDER BY created_at_sheet DESC LIMIT 50', [ph]),
+        db.query('SELECT phone, name, email, member_since, raw_json FROM customers WHERE phone_norm = ? LIMIT 1', [ph]),
+        db.query('SELECT order_id, created_at_sheet, service, plan, final_amount, status, fulfillment_status, source, txn_ref, verified_at, raw_json FROM orders WHERE phone_norm = ? ORDER BY created_at_sheet DESC LIMIT 50', [ph]),
         db.query('SELECT * FROM subscriptions WHERE phone_norm = ? ORDER BY expiry_date DESC', [ph]),
         db.query('SELECT coins_balance, coins_lifetime, last_event FROM wallet WHERE phone_norm = ? ORDER BY coins_lifetime DESC, coins_balance DESC LIMIT 1', [ph]),
       ]);
@@ -307,7 +307,19 @@ function mountAdmin(app, deps) {
       // 💸 Refund credit (separate pot in coins_ledger, pays up to 100% of an order) — never blocks Customer 360.
       let refundCredit = 0;
       try { refundCredit = await require('./coins').creditBalance(ph); } catch (_) { refundCredit = 0; }
-      res.json({ ok: true, phone: ph, profile: profile[0] || null, orders, subs, wallet: wallet[0] || null, refundCredit });
+      // 💸 "Paid via" per order + 💳 "Pays from" (the payer names on THIS customer's own matched bank credits).
+      // paidvia.js reads bank_credits / payment_claims / customer_payer_names with separate statements.
+      const paidvia = require('./paidvia');
+      const cust = profile[0] || null;
+      const custRaw = cust ? cust.raw_json : null;
+      if (cust) delete cust.raw_json;
+      let payerNames = [];
+      try {
+        const { map } = await paidvia.forOrders((sql, p) => db.query(sql, p), orders);
+        for (const o of orders) { const pv = map.get(String(o.order_id)) || {}; delete o.raw_json; o.paid_via = pv.via || ''; o.paid_via_detail = pv.detail || ''; o.paid_via_label = pv.label || ''; }
+        payerNames = await paidvia.payerCard((sql, p) => db.query(sql, p), ph, orders.map((o) => o.order_id), paidvia.storedPayerNames(custRaw));
+      } catch (e) { console.log('[paidvia] customer 360 payment info failed:', e.message); for (const o of orders) delete o.raw_json; }
+      res.json({ ok: true, phone: ph, profile: cust, orders, subs, wallet: wallet[0] || null, refundCredit, payerNames });
     } catch (e) { res.status(500).json({ ok: false, message: String(e && e.message || e) }); }
   });
 
