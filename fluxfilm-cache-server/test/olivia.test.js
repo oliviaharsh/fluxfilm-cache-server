@@ -54,7 +54,7 @@ const PLANS = [
 ];
 const STOCK = { 'JioHotstar|||1 Month': { stockLevel: 'OUT' } };
 const calls = [];
-const shop = { subs: [], renewMode: 'SAME', paid: false, paused: false, fulfillment: 'FULFILLED', profile: { ok: true, name: 'Ramesh Kumar', email: 'ramesh@example.com' }, claim: 'WAITING', backupOk: true, nflxAccounts: [], hhCode: '', hhUpdated: false, hhUpdateOn: false };
+const shop = { subs: [], renewMode: 'SAME', paid: false, paused: false, fulfillment: 'FULFILLED', profile: { ok: true, name: 'Ramesh Kumar', email: 'ramesh@example.com' }, claim: 'WAITING', backupOk: true, nflxAccounts: [], hhCode: '', hhCodeSub: '', hhUpdated: false, hhUpdateOn: false };
 const tools = {
   catalogFor: async () => ({ plans: PLANS, stock: STOCK }),
   profile: async (ph) => (ph === '9876543210' || ph === '9000000001' ? shop.profile : { ok: false }),
@@ -101,7 +101,7 @@ const tools = {
   claimStatus: async (id, phone) => { calls.push(['claimStatus', id, phone]); return shop.claim === 'MATCHED' ? { ok: true, status: 'MATCHED', paid: true } : { ok: true, status: shop.claim }; },
   // Netflix household auto-fix (oliviahousehold.js): the customer's own active Netflix accounts, and the travel code.
   netflixAccounts: async (phone) => { calls.push(['netflixAccounts', phone]); return { ok: true, accounts: (shop.nflxAccounts || []) }; },
-  householdCode: async (acc) => { calls.push(['householdCode', acc && acc.subId, acc && acc.kind]); return shop.hhCode ? { ok: true, code: shop.hhCode } : { ok: false, manual: true }; },
+  householdCode: async (acc) => { calls.push(['householdCode', acc && acc.subId, acc && acc.kind]); const mine = !shop.hhCodeSub || (acc && acc.subId === shop.hhCodeSub); return shop.hhCode && mine ? { ok: true, code: shop.hhCode } : { ok: false, manual: true }; },
   householdUpdate: async (acc) => { calls.push(['householdUpdate', acc && acc.subId, acc && acc.kind]); return shop.hhUpdated ? { ok: true, updated: true } : { ok: false, manual: true }; },
   householdUpdateEnabled: () => shop.hhUpdateOn === true,
 };
@@ -744,6 +744,19 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   r = await say({ choice: 'hhcode' });
   ok('tap Get my code → the code comes back in a card only (never in the words), with a "15 minutes" note', last(r).intent === 'HH_CODE_READY' && last(r).card && last(r).card.type === 'code' && last(r).card.code === '4162' && !/4162/.test(last(r).text) && /15 min/i.test(last(r).text) && calls.some((c) => c[0] === 'householdCode' && c[1] === 'S1' && c[2] === 'D'), last(r));
   ok('the code card is logged only as a marker, never the digits', !msgs.some((m) => /4162/.test(m.body)) && msgs.some((m) => /\[code card\]/.test(m.body)));
+  // live bug (2026-09-16): the phone owned Netflix on TWO accounts, so the "exactly one" guard skipped the offer.
+  shop.nflxAccounts = [
+    { subId: 'S1', service: 'Netflix (Group Offer)', ref: 'NFLX-H4', email: 'fluxfilm157@gmail.com', kind: 'H', tag: 'ACC3' },
+    { subId: 'S2', service: 'Netflix (Group Offer)', ref: 'NFLX-D1', email: 'boxxx@gmail.com', kind: 'D', tag: '' },
+  ];
+  shop.hhCode = '7788'; shop.hhCodeSub = 'S2'; // only the D account's TV is asking, so only it has a fresh code
+  await say({ choice: 'menu' });
+  r = await say({ text: 'netflix household problem' });
+  ok('TWO Netflix accounts → still offers "Get my code now" (was dropping to manual before)', last(r).intent === 'HH_OFFER_CODE' && ids(last(r))[0] === 'hhcode', last(r));
+  calls.length = 0;
+  r = await say({ text: 'aap kardo' });
+  ok('typing "aap kardo" (not tapping) triggers the fetch, tries each account, returns the one with a fresh code', last(r).intent === 'HH_CODE_READY' && last(r).card.code === '7788' && calls.filter((c) => c[0] === 'householdCode').length >= 1 && calls.some((c) => c[0] === 'householdCode' && c[1] === 'S2'), last(r));
+  shop.hhCode = ''; shop.hhCodeSub = ''; shop.nflxAccounts = [{ subId: 'S1', service: 'Netflix', ref: 'NFLX-D11', email: 'jess@example.com', kind: 'D', tag: '' }];
   shop.hhCode = ''; // the fetch could not get a fresh code this time
   await say({ choice: 'menu' });
   r = await say({ text: 'household error phir aa gaya' });
