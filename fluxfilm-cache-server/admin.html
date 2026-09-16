@@ -2805,7 +2805,7 @@ function renderProfit() {
   var tone = function (n) { return n > 0 ? 'color:var(--ok)' : n < 0 ? 'color:var(--bad)' : ''; };
   var h = (d.costsReady ? '' : '<div class="qnote warn" style="margin-bottom:12px">Run <b>db/schema-v14.sql</b> to save account costs. Revenue below is already correct.</div>') +
     '<div class="kpis"><div class="kpi"><div class="ic">💵</div><div><div class="n">' + money(t.earned) + '</div><div class="l">Earned in this period · cash in ' + money(t.revenue) + ' from ' + t.orders + ' paid orders (' + t.renewals + ' renewals)' + (t.paidAhead ? ' · ' + money(t.paidAhead) + ' of it is for later days' : '') + '</div></div></div>' +
-    '<div class="kpi"><div class="ic">🧾</div><div><div class="n">' + money(t.cost) + '</div><div class="l">Account costs · ' + money(t.monthlyCost || 0) + ' / month for active accounts · counted once per login' + (t.accountsWithoutCost ? ' · <b style="color:#b45309">' + t.accountsWithoutCost + ' accounts have no cost yet</b>' : '') + (t.duplicateCostGroups ? ' · <b style="color:#b45309">' + t.duplicateCostGroups + ' login' + (t.duplicateCostGroups === 1 ? ' has' : 's have') + ' more than one cost row</b>' : '') + '</div></div></div>' +
+    '<div class="kpi"><div class="ic">🧾</div><div><div class="n">' + money(t.cost) + '</div><div class="l">Account costs · ' + money(t.monthlyCost || 0) + ' / month for active accounts · counted once per login' + (t.accountsWithoutCost ? ' · <b style="color:#b45309">' + t.accountsWithoutCost + ' accounts have no cost yet</b>' : '') + (t.duplicateCostGroups ? ' · <b style="color:#b45309">' + t.duplicateCostGroups + ' login' + (t.duplicateCostGroups === 1 ? ' has' : 's have') + ' more than one cost row</b>' : '') + (t.lowCostGroups ? ' · <b style="color:#b45309">' + t.lowCostGroups + ' look' + (t.lowCostGroups === 1 ? 's' : '') + ' too cheap — cost may be split across rows</b>' : '') + '</div></div></div>' +
     '<div class="kpi"><div class="ic">📈</div><div><div class="n" style="' + tone(t.profit) + '">' + money(t.profit) + '</div><div class="l">Profit' + (t.margin != null ? ' · ' + t.margin + '% margin' : '') + '</div></div></div>' +
     '<div class="kpi"><div class="ic">🔁</div><div><div class="n">' + (t.orders ? Math.round((t.renewals / t.orders) * 100) : 0) + '%</div><div class="l">of orders were renewals</div></div></div></div>' +
     '<div class="muted" style="font-size:.75rem;margin:-6px 0 12px">' + esc(d.range.label) + ': ' + prettyDate(d.range.from) + ' – ' + prettyDate(d.range.to) + ' · everything is counted per day: a 3-month plan is spread over its 90 days and a monthly cost over 30.4 days, so only these ' + pfDays(d) + ' days count. Profit = earned − cost.' + (d.creditDue && d.creditDue.count ? ' <b style="color:#1d4ed8">💳 Not counted: ' + money(d.creditDue.total) + ' on credit (' + d.creditDue.count + ' renewal' + (d.creditDue.count === 1 ? '' : 's') + ') — counted when marked paid.</b>' : '') + '</div>';
@@ -2831,7 +2831,8 @@ function renderProfit() {
         (a.stoppedOn ? ' <span class="pill p-grey">🛑 stopped ' + prettyDate(a.stoppedOn) + '</span>' : '') +
         '<div class="muted" style="font-size:.72rem">' + a.activeCustomers + ' active customers · ' + a.orders + ' paid now ' + money(a.revenue) + ' · <b>earned ' + money(a.earned) + '</b></div>' +
         '<div class="muted" style="font-size:.72rem">' + pfCostLine(a, d) + '</div>' +
-        (dup ? '<div class="qnote warn" style="margin:5px 0 2px;font-size:.74rem">⚠️ ' + (dup + 1) + ' cost rows for this login (' + esc([a.costKey.accountId].concat(a.extraCostRows.map(function (x) { return x.accountId; })).join(', ')) + ') — counted once (' + money(a.billedAmount) + '). Fix them? <button class="btn ghost sm" data-pfmerge="' + i + '">🔗 Merge into one</button></div>' : '') +
+        (dup ? '<div class="qnote warn" style="margin:5px 0 2px;font-size:.74rem">⚠️ ' + (dup + 1) + ' cost rows for this login (' + esc([a.costKey.accountId].concat(a.extraCostRows.map(function (x) { return x.accountId; })).join(', ')) + ') — counted once (' + money(a.billedAmount) + '). Are they the same cost typed ' + (dup + 1) + ' times, or one cost you divided between the rows? <button class="btn ghost sm" data-pfmerge="' + i + '">🔗 Sort this out</button></div>' : '') +
+        (a.lowCost ? '<div class="qnote warn" style="margin:5px 0 2px;font-size:.74rem">⚠️ ' + money(a.billedAmount) + ' / ' + pfPer(a.billedEvery) + ' looks low next to your other ' + esc(a.services[0] || a.service) + ' accounts (' + money(a.typical.amount) + ' / ' + pfPer(a.typical.every) + '). Did you divide the cost across the rows? <button class="btn ghost sm" data-pfmerge="' + i + '">Fix it →</button></div>' : '') +
         '<div class="row" style="gap:6px;margin-top:5px"><button class="btn ghost sm" data-pfren="' + i + '" title="Call this account something else, everywhere">🏷️ Rename</button>' +
         '<button class="btn ghost sm" data-pfsplit="' + i + '" title="Only when this id really covers several different logins">✂️ Split</button>' +
         '<button class="btn ghost sm" data-pfstop="' + i + '" title="Stop counting this cost from a date">' + (a.stoppedOn ? '↩️ Still paying' : '🛑 Stopped paying') + '</button></div></div>' +
@@ -2849,7 +2850,7 @@ function renderProfit() {
     if (b.hasAttribute('data-pfren')) pfRenameDialog(a);
     else if (b.hasAttribute('data-pfsplit')) pfSplitDialog(a);
     else if (b.hasAttribute('data-pfstop')) pfStopDialog(a);
-    else pfMerge(a, b);
+    else pfMergeDialog(a);
   });
   // Save a cost when the field loses focus or Enter is pressed.
   $$('#pfaccs input[data-cost]').forEach(function (inp) {
@@ -2886,15 +2887,59 @@ function pfCostLine(a, d) {
   return bits.join(' · ');
 }
 function pfReload() { clearTimeout(PF._t); PF._t = setTimeout(loadProfit, 400); }
-/* Two cost rows for one login: keep the counted one, delete the rest. */
-function pfMerge(a, btn) {
-  if (!confirm('Keep one cost row for this login?\n\nKeep: ' + a.costKey.accountId + ' — ' + a.billedAmount + '\nRemove: ' + a.extraCostRows.map(function (x) { return x.accountId + ' — ' + x.amount; }).join('\n') + '\n\nThe cost is already counted only once; this just tidies the rows.')) return;
-  btn.disabled = true;
-  post('/admin/api/profit/cost/merge', { service: a.costKey.service, accountId: a.costKey.accountId, drop: a.extraCostRows }).then(function (r) {
-    btn.disabled = false;
-    toast(r.ok ? '✅ Merged — ' + r.removed + ' extra row(s) removed' : '⚠️ ' + (r.message || 'failed'));
-    if (r.ok) pfReload();
-  });
+function pfPer(every) { return ({ 1: 'month', 3: '3 months', 6: '6 months', 12: 'year' })[every || 1] || 'month'; }
+/* 🔗 Several cost rows on one login mean one of two OPPOSITE things, so ask — and show the ₹ for
+   both before anything is saved. The answer the data suggests is pre-picked and explained. */
+function pfMergeDialog(a) {
+  var sg = a.suggestion || { mode: 'manual', why: '', keep: { amount: a.billedAmount, every: a.billedEvery, monthly: a.monthlyCost }, sum: { amount: a.billedAmount, every: a.billedEvery, monthly: a.monthlyCost } };
+  var rows = a.allCostRows || [];
+  var many = rows.length > 1;
+  var shown = function (x) { return money(x.amount) + ' / ' + pfPer(x.every) + '<span class="muted"> = ' + money(x.monthly) + ' / month</span>'; };
+  var opt = function (val, label, sub, on) {
+    return '<label class="card" style="display:block;padding:9px 11px;margin:0 0 7px;cursor:pointer' + (on ? ';border-color:var(--brand)' : '') + '">' +
+      '<input type="radio" name="pfmg" value="' + val + '"' + (on ? ' checked' : '') + '/> <b>' + label + '</b>' +
+      '<div class="muted" style="font-size:.78rem;margin:2px 0 0 22px">' + sub + '</div></label>';
+  };
+  modal('🔗 ' + esc(a.accountId) + ' — what is this login\'s real cost?',
+    '<p class="muted" style="font-size:.85rem;margin-top:0">' + (many ? 'This one login has <b>' + rows.length + ' cost rows</b>: ' : 'This login has one cost row: ') +
+      rows.map(function (x) { return '<b>' + esc(x.accountId) + '</b> ' + money(x.amount) + ' / ' + pfPer(x.every); }).join(' · ') + '.</p>' +
+    (sg.why ? '<div class="qnote" style="font-size:.8rem;margin-top:0">💡 ' + esc(sg.why) + '</div>' : '') +
+    (many ? opt('keep', 'Same cost typed on each row (duplicates)', 'Keep one row → <b>' + shown(sg.keep) + '</b>', sg.mode === 'keep') : '') +
+    (many ? opt('sum', 'I split the real cost across the rows', 'Add them up → <b>' + shown(sg.sum) + '</b>', sg.mode === 'sum') : '') +
+    opt('manual', 'Enter the real cost myself', 'Type what you actually pay for this login.', sg.mode === 'manual' || !many) +
+    '<div class="row" id="pfmgman" style="gap:8px;margin:2px 0 0 22px"><label style="font-size:.82rem">₹ <input class="inp" id="pfmgamt" inputmode="decimal" value="' + (sg.sum.amount || '') + '" style="width:100px;padding:5px 8px"/></label>' +
+    '<select class="inp" id="pfmgevery" style="padding:5px 4px;font-size:.82rem;width:auto">' + [[1, '/ month'], [3, '/ 3 months'], [6, '/ 6 months'], [12, '/ year']].map(function (o) { return '<option value="' + o[0] + '"' + ((sg.sum.every || 1) === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
+    (a.typical ? '<div class="muted" style="font-size:.78rem;margin-top:10px">Your other ' + a.typical.logins + ' ' + esc(a.services[0] || a.service) + ' login' + (a.typical.logins === 1 ? '' : 's') + ' cost about <b>' + money(a.typical.amount) + ' / ' + pfPer(a.typical.every) + '</b> each.</div>' : '') +
+    '<div class="qnote" id="pfmgpv" style="font-size:.8rem"></div>',
+    '<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn" id="pfmggo">Save this cost</button>');
+  var pick = function () { var el = document.querySelector('[name=pfmg]:checked'); return el ? el.value : 'manual'; };
+  var chosen = function () {
+    var m = pick();
+    if (m === 'keep') return { mode: m, amount: sg.keep.amount, every: sg.keep.every };
+    if (m === 'sum') return { mode: m, amount: sg.sum.amount, every: sg.sum.every };
+    return { mode: 'manual', amount: Number($('#pfmgamt').value) || 0, every: Number($('#pfmgevery').value) || 1 };
+  };
+  var preview = function () {
+    var c = chosen();
+    $('#pfmgman').style.display = c.mode === 'manual' ? '' : 'none';
+    $('#pfmgpv').innerHTML = 'This login will cost <b>' + money(c.amount) + ' / ' + pfPer(c.every) + '</b> = ' + money(Math.round((c.amount / c.every) * 100) / 100) + ' / month' +
+      (many ? ', and the other ' + (rows.length - 1) + ' cost row' + (rows.length === 2 ? '' : 's') + ' will be removed.' : '.') +
+      (a.activeCustomers ? ' <span class="muted">≈ ' + money(Math.round((c.amount / c.every / a.activeCustomers) * 100) / 100) + ' / month per customer on it.</span>' : '');
+  };
+  $$('[name=pfmg]').forEach(function (el) { el.addEventListener('change', preview); });
+  ['pfmgamt', 'pfmgevery'].forEach(function (id) { if ($('#' + id)) $('#' + id).addEventListener('input', preview); });
+  if ($('#pfmgevery')) $('#pfmgevery').addEventListener('change', preview);
+  preview();
+  $('#pfmggo').onclick = function () {
+    var c = chosen(); $('#pfmggo').disabled = true;
+    post('/admin/api/profit/cost/merge', { service: a.costKey.service, accountId: a.costKey.accountId, drop: a.extraCostRows, mode: c.mode, amount: c.amount, every: c.every }).then(function (r) {
+      $('#pfmggo').disabled = false;
+      if (!r.ok) { $('#pfmgpv').innerHTML = '<b style="color:var(--bad)">⚠️ ' + esc(r.message || 'failed') + '</b>'; return; }
+      closeModal();
+      toast('✅ ' + money(r.amount) + ' / ' + pfPer(r.every) + (r.removed ? ' · ' + r.removed + ' extra row(s) removed' : ''));
+      pfReload();
+    });
+  };
 }
 /* 🛑 "I stopped paying for this login on <date>" — the cost counts up to that day and no further. */
 function pfStopDialog(a) {
