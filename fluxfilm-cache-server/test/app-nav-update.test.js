@@ -214,7 +214,7 @@ const slice = (src, from, to) => { const a = src.indexOf(from); const b = src.in
   }
   ok('ff_view restore + sign-in untouched; history starts after the shell is drawn', /var S = \{ view: store\('ff_view'\) \|\| 'today'/.test(admin) && /adminInstallRefresh\(\);\n  hInit\(\);\n\}/.test(admin) && /if \(r\.ok\) \{ S\.weak = r\.weakPassword; shell\(\); route\(\); \}/.test(admin));
   ok('header ← arrow (big tap target) + ☰ goes through toggleSide', /id="gback" hidden onclick="hBack\(\)" aria-label="Back"/.test(admin) && /\.gback\{min-width:44px;min-height:40px/.test(admin) && /onclick="toggleSide\(\)">☰/.test(admin));
-  ok('Plans + Offers editors use history; their ← Back buttons act like phone Back', /hSub\('plan', function \(\) \{ PL\.edit = null; PL\.orig = null; plRenderList\(\); plLoad\(\); \}\);/.test(admin) && /\$\('#plback'\)\.onclick = function \(\) \{ hBack\(\); \};/.test(admin) && /hSub\('offer', function \(\) \{ PR\.edit = null; prLoad\(\); prRenderList\(\); \}\);/.test(admin) && /\$\('#prback'\)\.onclick = function \(\) \{ hBack\(\); \};/.test(admin) && /function plRenderList\(\) \{\n  hSubDone\('plan'\);/.test(admin) && /function prRenderList\(\) \{\n  hSubDone\('offer'\);/.test(admin));
+  ok('Plans + Offers editors use history; their ← Back buttons act like phone Back (closing the plan editor drops its 📝 draft)', /hSub\('plan', function \(\) \{ draftStop\(PL_DRAFT\); PL\.edit = null; PL\.orig = null; plRenderList\(\); plLoad\(\); \}\);/.test(admin) && /\$\('#plback'\)\.onclick = function \(\) \{ hBack\(\); \};/.test(admin) && /hSub\('offer', function \(\) \{ PR\.edit = null; prLoad\(\); prRenderList\(\); \}\);/.test(admin) && /\$\('#prback'\)\.onclick = function \(\) \{ hBack\(\); \};/.test(admin) && /function plRenderList\(\) \{\n  hSubDone\('plan'\);/.test(admin) && /function prRenderList\(\) \{\n  hSubDone\('offer'\);/.test(admin));
   ok('Customer 360: looking up another customer = history entry (Back shows the previous one)', /function lookup\(fromHistory\) \{/.test(admin) && /if \(H\.cur\.phone && H\.cur\.phone !== p\) hPush\(\{ ffv: 'customer', phone: p \}\);/.test(admin));
 
   section('admin: new version bar (never reloads by itself)');
@@ -228,7 +228,7 @@ const slice = (src, from, to) => { const a = src.indexOf(from); const b = src.in
   E.api.updCheck(); await tick(); await tick();
   ok('new version → "New version ready · Refresh" bar, no automatic reload', !!E.els.updbar && /New version ready/.test(E.els.updbar.innerHTML) && /onclick="updReload\(\)">Refresh/.test(E.els.updbar.innerHTML) && E.reloads === 0);
   ok('checks when the app comes back to the front and every 10 minutes', /document\.addEventListener\('visibilitychange', function \(\) \{ if \(document\.visibilityState === 'visible' && Date\.now\(\) - UPD\.last > 15000\) updCheck\(\); \}\);/.test(admin) && /setInterval\(updCheck, 10 \* 60000\);/.test(admin) && /reg\.update\(\)/.test(histSrc));
-  ok('Refresh asks first when a form is not saved', /function updReload\(\) \{ if \(hLeaveBlocked\(\)\) return; location\.reload\(\); \}/.test(admin));
+  ok('Refresh asks first when a form is not saved, and saves every 📝 draft before reloading', /function updReload\(\) \{ if \(hLeaveBlocked\(\)\) return; draftFlush\(\); location\.reload\(\); \}/.test(admin));
   delete global.window;
 
   // ---------- storefront ----------

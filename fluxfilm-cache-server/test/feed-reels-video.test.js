@@ -75,7 +75,7 @@ function fakeRes() {
   let r = await vid.start({ mime: 'video/mp4', size: 1000, sha256: 'a'.repeat(64) });
   ok('no schema-v25: upload start answers notReady with the phpMyAdmin hint, nothing inserted', r.ok === false && r.notReady && /schema-v25/.test(r.message) && !T.sql.some((s) => /^INSERT INTO feed_videos/.test(s)), r);
   let u = await vid.usage();
-  ok('no schema-v25: usage ready:false (admin shows the note), default limits 25 MB / 2 GB', u.ready === false && u.maxBytes === 25 * MB && u.totalBytes === 2048 * MB, u);
+  ok('no schema-v25: usage ready:false (admin shows the note), default limits 60 MB / 2 GB / 5 min', u.ready === false && u.maxBytes === 60 * MB && u.totalBytes === 2048 * MB && u.maxSeconds === 300 && u.caps.maxMb === 150 && u.caps.maxSeconds === 600 && u.caps.maxTotalMb === 5120, u);
   const noTableRes = fakeRes();
   await vid.serve({ params: { file: 'fv0123456789abcdef.mp4' }, headers: {} }, noTableRes);
   ok('no schema-v25: /v/<id>.mp4 → 404, never throws', noTableRes.statusCode === 404);
@@ -83,19 +83,29 @@ function fakeRes() {
 
   // ================= 3. start: types, caps, sha, duration =================
   ok('bad type refused (only MP4 / WebM)', !(await vid.start({ mime: 'video/quicktime', size: 10, sha256: 'a'.repeat(64) })).ok && !(await vid.start({ mime: 'image/gif', size: 10, sha256: 'a'.repeat(64) })).ok);
-  r = await vid.start({ mime: 'video/mp4', size: 25 * MB + 1, sha256: 'a'.repeat(64) });
-  ok('over 25 MB refused with the tip text', r.ok === false && r.tooBig && /Upload vertical 720p, ~30–60 s — usually 3–8 MB/.test(r.message), r);
+  r = await vid.start({ mime: 'video/mp4', size: 78 * MB, sha256: 'a'.repeat(64) });
+  ok("the owner's 78 MB reel: refused with the real size and the way out", r.ok === false && r.tooBig && r.bytes === 78 * MB && r.message === '78 MB — the limit is 60 MB. Try 720p, or raise the limit in ⚙️ settings.', r);
+  ok('…but 60 MB (the new default) and a 5-minute reel are fine', (await vid.start({ mime: 'video/mp4', size: 60 * MB, sha256: 'a'.repeat(64), duration: 300 })).ok);
   ok('empty / missing sha256 refused', !(await vid.start({ mime: 'video/mp4', size: 0, sha256: 'a'.repeat(64) })).ok && !(await vid.start({ mime: 'video/mp4', size: 10, sha256: 'xyz' })).ok);
   r = await vid.start({ mime: 'video/mp4', size: 10, sha256: 'a'.repeat(64), duration: 120 });
-  ok('longer than 90 s refused', r.ok === false && /90 seconds/.test(r.message), r);
-  r = await vid.saveLimits({ videoMaxMb: 60 });
-  ok('limit: per-video max above 50 MB refused', r.ok === false, r);
+  ok('2 minutes is fine now (the old 90 s cap is gone)', r.ok, r);
+  r = await vid.start({ mime: 'video/mp4', size: 10, sha256: 'a'.repeat(64), duration: 400 });
+  ok('longer than the 5-minute default refused, naming the real length', r.ok === false && r.tooLong && r.seconds === 400 && /6 min 40 s/.test(r.message) && /5 minutes/.test(r.message), r);
+  r = await vid.saveLimits({ videoMaxSeconds: 600 });
+  ok('limit: the owner can raise the length to 10 minutes', r.ok && r.limits.videoMaxSeconds === 600, r);
+  ok('…and then a 400 s reel is allowed', (await vid.start({ mime: 'video/mp4', size: 10, sha256: 'a'.repeat(64), duration: 400 })).ok);
+  ok('length above 600 s / below 10 s refused', !(await vid.saveLimits({ videoMaxSeconds: 900 })).ok && !(await vid.saveLimits({ videoMaxSeconds: 5 })).ok);
+  await vid.saveLimits({ videoMaxSeconds: 300 });
+  r = await vid.saveLimits({ videoMaxMb: 150 });
+  ok('limit: 150 MB per video allowed, 151 refused', r.ok && r.limits.videoMaxMb === 150 && !(await vid.saveLimits({ videoMaxMb: 151 })).ok, r);
+  r = await vid.saveLimits({ videoTotalMb: 5120 });
+  ok('limit: 5 GB total allowed, more refused', r.ok && r.limits.videoTotalMb === 5120 && !(await vid.saveLimits({ videoTotalMb: 6000 })).ok, r);
   r = await vid.saveLimits({ videoMaxMb: 2, videoTotalMb: 50 });
   ok('limit: saved (2 MB per video, 50 MB total)', r.ok && r.limits.videoMaxMb === 2 && r.limits.videoTotalMb === 50, r);
   r = await vid.start({ mime: 'video/mp4', size: 3 * MB, sha256: 'a'.repeat(64) });
-  ok('…a 3 MB video is now over the per-video cap', r.ok === false && /max 2 MB/.test(r.message), r);
-  await vid.saveLimits({ videoMaxMb: 25, videoTotalMb: 2048 });
-  ok('limits clean junk back to defaults', JSON.stringify(vid.cleanLimits({ videoMaxMb: 'x', videoTotalMb: -3 })) === JSON.stringify({ videoMaxMb: 25, videoTotalMb: 2048 }));
+  ok('…a 3 MB video is now over the per-video cap', r.ok === false && r.tooBig && /^3 MB — the limit is 2 MB\./.test(r.message), r);
+  await vid.saveLimits({ videoMaxMb: 60, videoTotalMb: 2048, videoMaxSeconds: 300 });
+  ok('limits clean junk back to defaults', JSON.stringify(vid.cleanLimits({ videoMaxMb: 'x', videoTotalMb: -3, videoMaxSeconds: 'no' })) === JSON.stringify({ videoMaxMb: 60, videoTotalMb: 2048, videoMaxSeconds: 300 }));
 
   // ================= 4. chunks, assembly, SHA-256 =================
   const file = mp4(2.5 * MB | 0);
@@ -219,7 +229,7 @@ function fakeRes() {
   const af = read('adminfeed.js');
   ok('admin routes: start (sha256 + duration), raw chunk ≤ ~1.1 MB behind auth, finish, videos list, delete (refused while on a post), limits', /route\('\/admin\/api\/feed\/video\/start'/.test(af) && /sha256: b\.sha256, duration: b\.duration/.test(af) && /express'\)\.raw\(\{ type: 'application\/octet-stream', limit: '1100kb' \}\)/.test(af) && /app\.post\('\/admin\/api\/feed\/video\/chunk', rawBody, async \(req, res\) => \{\s*if \(!auth\(req, res\)\) return;/.test(af) && /route\('\/admin\/api\/feed\/video\/finish'/.test(af) && /app\.get\('\/admin\/api\/feed\/videos'/.test(af) && /inUse: true/.test(af) && /route\('\/admin\/api\/feed\/video\/settings'/.test(af));
   const ad = read('admin.html');
-  ok('admin editor: Post type Post / Reel, "Also show this Reel in the feed", upload with tip text, schema note when missing', /data-format="post"/.test(ad) && /data-format="reel"/.test(ad) && /Also show this Reel in the feed/.test(ad) && /Upload vertical 720p, ~30–60 s — usually 3–8 MB/.test(ad) && /Uploading videos needs <b>db\/schema-v25\.sql<\/b>/.test(ad));
+  ok('admin editor: Post type Post / Reel, "Also show this Reel in the feed", limits + free space in the upload box, schema note when missing', /data-format="post"/.test(ad) && /data-format="reel"/.test(ad) && /Also show this Reel in the feed/.test(ad) && /Vertical 720p costs about 3–8 MB a minute/.test(ad) && /free<\/b> of ' \+ fdMb\(v\.totalBytes\)/.test(ad) && /Uploading videos needs <b>db\/schema-v25\.sql<\/b>/.test(ad));
   ok('admin upload: length check, SHA-256 in the browser, 1 MB raw octet-stream chunks, finish', /function fdVideoLength\(file, done\)/.test(ad) && /crypto\.subtle\.digest\('SHA-256', buf\)/.test(ad) && /'Content-Type': 'application\/octet-stream'/.test(ad) && /\/admin\/api\/feed\/video\/finish/.test(ad));
   ok('admin storage card: "Videos: X of Y used", each size, delete, limits', /<b>🎬 Videos: ' \+ fdMb\(v\.bytes\) \+ ' of ' \+ fdMb\(v\.totalBytes\) \+ ' used<\/b>/.test(ad) && /data-viddel=/.test(ad) && /\/admin\/api\/feed\/video\/delete/.test(ad) && /id="fdvidmax"/.test(ad) && /h \+= fdVideoCard\(\);/.test(ad));
   ok('admin: a duplicated post does not share the video', /delete c\.videoId;/.test(ad));

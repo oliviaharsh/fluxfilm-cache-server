@@ -229,7 +229,7 @@ async function turnR2On(publicBase) {
   ok('small video (3 MB) → ONE PUT, not multipart', r.ok && r.storage === 'r2' && S3.calls.filter((c) => c.method === 'PUT' && !/uploadId/.test(c.query)).length === 1 && !S3.calls.some((c) => /uploads/.test(c.query)), { r, calls: S3.calls.map((c) => c.method + c.query) });
   ok('the bytes are in R2 and byte-for-byte the same', S3.objects['reels/' + id1 + '.mp4'] && S3.objects['reels/' + id1 + '.mp4'].equals(small));
   ok('MySQL keeps ONLY the key, size, type, duration and etag — no chunks at all', Object.keys(T.chunks).length === 0 && T.videos[id1].storage === 'r2' && T.videos[id1].r2_key === 'reels/' + id1 + '.mp4' && T.videos[id1].r2_etag && T.videos[id1].size_bytes === small.length && T.videos[id1].duration_s === 30, T.videos[id1]);
-  ok('the per-video cap with R2 on is 200 MB (25 MB was the database cap)', (await vid.limitsFor('r2')).maxMb === 200 && (await vid.limitsFor('db')).maxMb === 25);
+  ok('the per-video cap with R2 on is 200 MB (the database default is still 60 MB)', (await vid.limitsFor('r2')).maxMb === 200 && (await vid.limitsFor('db')).maxMb === 60, [(await vid.limitsFor('r2')).maxMb, (await vid.limitsFor('db')).maxMb]);
   ok('the total cap with R2 on is 8 GB by default (the free tier is 10 GB)', (await vid.limitsFor('r2')).totalMb === 8192);
   r = await vid.saveLimits({ videoMaxMbR2: 500 });
   ok('an R2 per-video cap above 200 MB is refused', !r.ok && /1–200 MB/.test(r.message), r);

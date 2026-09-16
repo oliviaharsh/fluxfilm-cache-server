@@ -3,29 +3,36 @@
  *
  * WHERE THE BYTES LIVE — two stores, the owner picks one in admin → 🍿 What's new → ⚙️ Settings → 🪣 Video storage:
  *   'db'  (how it started, 15 Sep 2026) tables feed_videos + feed_video_chunks (db/schema-v25.sql), raw binary in
- *         1 MB MEDIUMBLOB chunks (never base64). Chunks because Hostinger's max_allowed_packet (often 16–64 MB)
- *         would refuse one big row. The bytes count toward the 3 GB Hostinger database.
- *         Caps: one video ≤ videoMaxMb (default 25, max 50) · all videos ≤ videoTotalMb (default 2048 = 2 GB).
- *   'r2'  (16 Sep 2026, preferred) Cloudflare R2 (r2.js, db/schema-v27.sql). MySQL then keeps only the key, size,
- *         type, duration, poster and etag — never the bytes. R2's free tier is 10 GB with no download charge.
- *         Caps: one video ≤ videoMaxMbR2 (default 200, max 200) · all videos ≤ videoTotalMbR2 (default 8192 = 8 GB).
- * MP4 / WebM only, checked by the file's first bytes · ≤ 90 s (the admin page reads the length before uploading).
- * Limits live in app_settings 'feed_video_settings'.
+ *         1 MB MEDIUMBLOB chunks (never base64). Chunks because Hostinger's max_allowed_packet (often 16–64 MB) would
+ *         refuse one big row; MySQL because Hostinger rebuilds the app folder on every deploy (a file next to the code
+ *         would vanish). The bytes count toward the 3 GB Hostinger database and the disk quota, so:
+ *           one video ≤ videoMaxMb (default 60, admin can set 1–150) · all videos ≤ videoTotalMb (default 2048, max 5120)
+ *         💡 Storage maths: 60 MB × 30 reels ≈ 1.8 GB of database space — that is why the total cap exists.
+ *   'r2'  (16 Sep 2026, preferred) Cloudflare R2 (r2.js, db/schema-v27.sql). MySQL then keeps only the key, size, type,
+ *         duration and etag — never the bytes. R2's free tier is 10 GB with no charge for downloads, so:
+ *           one video ≤ videoMaxMbR2 (default 200, max 200) · all videos ≤ videoTotalMbR2 (default 8192 = 8 GB)
+ * Both stores: MP4 / WebM only, checked by the file's first bytes, and ≤ videoMaxSeconds (default 300 = 5 minutes,
+ * admin can set 10–600). Limits live in app_settings 'feed_video_settings'.
  *
  * Upload (admin only, adminfeed.js): start { mime, size, sha256, duration } → id · chunk ?id=&n= (raw ~1 MB body; every
- * chunk but the last is exactly 1 MB; chunk 0 must start like a real MP4 / WebM) · finish { id } → the server checks
- * the total size and the SHA-256 the browser computed → ready. Unfinished uploads older than a day are removed.
+ * chunk but the last is exactly 1 MB; chunk 0 must start like a real MP4 / WebM) · finish { id } → the server checks the
+ * total size and the SHA-256 the browser computed → ready. Unfinished uploads older than a day are removed.
  *   db: each chunk is one INSERT; finish re-reads them in order and hashes them.
  *   R2: the chunks are gathered in memory and pushed to R2 — one PUT under 8 MB, otherwise an S3 multipart upload in
  *       8 MB parts (S3 wants every part but the last ≥ 5 MB, so 8 MB is safe) with retries; the SHA-256 is worked out
  *       as the bytes pass through, and finish HEADs the object so R2 itself confirms the size. If R2 does not answer,
  *       the upload FAILS with a clear message — it never quietly falls back to the database.
+ * RESUME: status(id) says which parts arrived already, so a phone that lost its signal (or an admin app Android swapped
+ * out) carries on from the first missing part instead of sending the whole video again. Nothing is ever buffered whole
+ * on the server for a database upload — one ~1 MB body at a time in, at most 2 chunks at a time out. (An R2 upload
+ * holds at most one 8 MB part in memory, and can only be resumed while the app has not restarted.)
  * A post links a READY video by id (feed.save checks it); delete frees the chunks / deletes the R2 object.
  *
  * Playback:
- *   db videos      GET /v/<id>.mp4 with HTTP Range → 206, reading ONLY the chunks the range needs (≤ 2 per answer),
- *                  Accept-Ranges, ETag = the SHA-256, long immutable cache, 304 on If-None-Match, nosniff.
- *                  A tiny chunk cache (≤ 24 MB) spares MySQL when a reel loops.
+ *   db videos      GET /v/<id>.mp4 (or .webm) with HTTP Range → 206, reading ONLY the chunks the range needs (≤ 2 per
+ *                  answer, so nothing loads a whole video into memory), Accept-Ranges, ETag = the SHA-256, long
+ *                  immutable cache (a new upload = a new id), 304 on If-None-Match, nosniff. A tiny chunk cache
+ *                  (≤ 24 MB) spares MySQL when a reel loops.
  *   R2 videos      the feed hands the browser the public R2 link when the owner set one (fastest, zero egress cost);
  *                  otherwise /v/<id>.mp4 streams it out of R2 with the Range passed straight through (never buffered).
  *                  /v/<id>.mp4 keeps working for old links either way: with a public URL it redirects to it.
@@ -40,15 +47,20 @@ const r2 = require('./r2');
 
 const CHUNK = 1024 * 1024;
 const MB = 1024 * 1024;
-const PART_SIZE = 8 * 1024 * 1024; // one-shot PUT below this; S3 multipart part size above it (S3 minimum is 5 MB)
-const DEFAULT_MAX_MB = 25;
-const HARD_MAX_MB = 50;
+const PART_SIZE = 8 * 1024 * 1024; // R2: one-shot PUT below this, S3 multipart part size above it (S3 minimum is 5 MB)
+const DEFAULT_MAX_MB = 60;
+const HARD_MAX_MB = 150;
 const DEFAULT_TOTAL_MB = 2048;
+const HARD_TOTAL_MB = 5120;
+const MIN_TOTAL_MB = 50;
 const DEFAULT_MAX_MB_R2 = 200;
 const HARD_MAX_MB_R2 = 200;
 const DEFAULT_TOTAL_MB_R2 = 8192;
 const HARD_TOTAL_MB_R2 = 20480;
-const MAX_SECONDS = 90;
+const DEFAULT_MAX_SECONDS = 300;
+const HARD_MAX_SECONDS = 600;
+const MIN_MAX_SECONDS = 10;
+const MAX_SECONDS = DEFAULT_MAX_SECONDS; // kept for older callers; the real cap is limits.videoMaxSeconds
 const WARN_AT = 0.75; // amber banner in admin + a to-do line in the owner's daily summary
 const TYPES = { 'video/mp4': 'mp4', 'video/webm': 'webm' };
 const SETTINGS_KEY = 'feed_video_settings';
@@ -64,7 +76,6 @@ const missingTable = (e) => !!e && (e.code === 'ER_NO_SUCH_TABLE' || e.errno ===
 const istString = (ms) => new Date((ms || Date.now()) + 330 * 60000).toISOString().slice(0, 19).replace('T', ' ');
 const urlOf = (id, mime) => '/v/' + id + '.' + (TYPES[mime] || 'mp4');
 const keyOf = (id, mime) => R2_PREFIX + id + '.' + (TYPES[mime] || 'mp4');
-const mb = (b) => { const m = (Number(b) || 0) / MB; return m >= 1024 ? (Math.round(m / 102.4) / 10) + ' GB' : (m >= 10 ? Math.round(m) : Math.round(m * 10) / 10) + ' MB'; };
 
 let readyAt = 0; let readyVal = null;
 async function ready(force) {
@@ -96,9 +107,11 @@ function cleanLimits(o) {
   const x = o || {};
   const maxMb = Math.floor(Number(x.videoMaxMb));
   const totalMb = Math.floor(Number(x.videoTotalMb));
+  const secs = Math.floor(Number(x.videoMaxSeconds));
   return {
     videoMaxMb: maxMb >= 1 ? Math.min(HARD_MAX_MB, maxMb) : DEFAULT_MAX_MB,
-    videoTotalMb: totalMb >= 50 ? Math.min(20480, totalMb) : DEFAULT_TOTAL_MB,
+    videoTotalMb: totalMb >= MIN_TOTAL_MB ? Math.min(HARD_TOTAL_MB, totalMb) : DEFAULT_TOTAL_MB,
+    videoMaxSeconds: secs >= MIN_MAX_SECONDS ? Math.min(HARD_MAX_SECONDS, secs) : DEFAULT_MAX_SECONDS,
   };
 }
 /** 🪣 The R2 caps sit beside the database ones, so switching store back and forth keeps both sets. */
@@ -108,8 +121,21 @@ function cleanLimitsR2(o) {
   const totalMb = Math.floor(Number(x.videoTotalMbR2));
   return {
     videoMaxMbR2: maxMb >= 1 ? Math.min(HARD_MAX_MB_R2, maxMb) : DEFAULT_MAX_MB_R2,
-    videoTotalMbR2: totalMb >= 50 ? Math.min(HARD_TOTAL_MB_R2, totalMb) : DEFAULT_TOTAL_MB_R2,
+    videoTotalMbR2: totalMb >= MIN_TOTAL_MB ? Math.min(HARD_TOTAL_MB_R2, totalMb) : DEFAULT_TOTAL_MB_R2,
   };
+}
+/** "78 MB" / "1.8 GB" — the same words the admin page uses, so an error names a size the owner recognises. */
+function mbText(bytes) {
+  const m = (Number(bytes) || 0) / MB;
+  if (m >= 1024) return (Math.round(m / 102.4) / 10) + ' GB';
+  return (m >= 10 ? Math.round(m) : Math.round(m * 10) / 10) + ' MB';
+}
+/** 45 → "45 seconds" · 78.4 → "1 min 18 s" · 300 → "5 minutes". */
+function durText(sec) {
+  const n = Math.round(Number(sec) || 0);
+  if (n < 60) return n + ' seconds';
+  const m = Math.floor(n / 60); const r = n % 60;
+  return r ? m + ' min ' + r + ' s' : m + ' minute' + (m === 1 ? '' : 's');
 }
 async function rawLimits() {
   try {
@@ -119,29 +145,34 @@ async function rawLimits() {
 }
 async function getLimits() { return cleanLimits(await rawLimits()); }
 async function getAllLimits() { const raw = await rawLimits(); return Object.assign(cleanLimits(raw), cleanLimitsR2(raw)); }
-/** The caps that apply to the store in use → { mode, maxMb, totalMb, maxBytes, totalBytes }. */
+/** The caps that apply to the store in use → { mode, maxMb, totalMb, maxBytes, totalBytes, maxSeconds }. */
 async function limitsFor(mode) {
   const all = await getAllLimits();
   const m = mode || (await storeMode());
   const maxMb = m === 'r2' ? all.videoMaxMbR2 : all.videoMaxMb;
   const totalMb = m === 'r2' ? all.videoTotalMbR2 : all.videoTotalMb;
-  return { mode: m, all, maxMb, totalMb, maxBytes: maxMb * MB, totalBytes: totalMb * MB };
+  return { mode: m, all, maxMb, totalMb, maxBytes: maxMb * MB, totalBytes: totalMb * MB, maxSeconds: all.videoMaxSeconds };
 }
 async function saveLimits(input) {
   const o = input || {};
-  const maxMb = Math.floor(Number(o.videoMaxMb)); const totalMb = Math.floor(Number(o.videoTotalMb));
+  const set = (k) => o[k] !== undefined && o[k] !== null && o[k] !== '';
+  const maxMb = Math.floor(Number(o.videoMaxMb)); const totalMb = Math.floor(Number(o.videoTotalMb)); const secs = Math.floor(Number(o.videoMaxSeconds));
   const maxR2 = Math.floor(Number(o.videoMaxMbR2)); const totalR2 = Math.floor(Number(o.videoTotalMbR2));
-  if (o.videoMaxMb !== undefined && !(maxMb >= 1 && maxMb <= HARD_MAX_MB)) return { ok: false, message: 'Max size per video must be 1–' + HARD_MAX_MB + ' MB.' };
-  if (o.videoTotalMb !== undefined && !(totalMb >= 50 && totalMb <= 20480)) return { ok: false, message: 'Total video storage must be 50–20480 MB.' };
-  if (o.videoMaxMbR2 !== undefined && !(maxR2 >= 1 && maxR2 <= HARD_MAX_MB_R2)) return { ok: false, message: 'With Cloudflare R2, max size per video must be 1–' + HARD_MAX_MB_R2 + ' MB.' };
-  if (o.videoTotalMbR2 !== undefined && !(totalR2 >= 50 && totalR2 <= HARD_TOTAL_MB_R2)) return { ok: false, message: 'With Cloudflare R2, total video storage must be 50–' + HARD_TOTAL_MB_R2 + ' MB (the free tier is 10240 MB).' };
+  if (set('videoMaxMb') && !(maxMb >= 1 && maxMb <= HARD_MAX_MB)) return { ok: false, message: 'Max size per video must be 1–' + HARD_MAX_MB + ' MB.' };
+  if (set('videoTotalMb') && !(totalMb >= MIN_TOTAL_MB && totalMb <= HARD_TOTAL_MB)) return { ok: false, message: 'Total video storage must be ' + MIN_TOTAL_MB + '–' + HARD_TOTAL_MB + ' MB (' + HARD_TOTAL_MB / 1024 + ' GB) — it all sits in the MySQL database and on the Hostinger disk.' };
+  if (set('videoMaxSeconds') && !(secs >= MIN_MAX_SECONDS && secs <= HARD_MAX_SECONDS)) return { ok: false, message: 'Longest video must be ' + MIN_MAX_SECONDS + '–' + HARD_MAX_SECONDS + ' seconds (' + HARD_MAX_SECONDS / 60 + ' minutes).' };
+  if (set('videoMaxMbR2') && !(maxR2 >= 1 && maxR2 <= HARD_MAX_MB_R2)) return { ok: false, message: 'With Cloudflare R2, max size per video must be 1–' + HARD_MAX_MB_R2 + ' MB.' };
+  if (set('videoTotalMbR2') && !(totalR2 >= MIN_TOTAL_MB && totalR2 <= HARD_TOTAL_MB_R2)) return { ok: false, message: 'With Cloudflare R2, total video storage must be ' + MIN_TOTAL_MB + '–' + HARD_TOTAL_MB_R2 + ' MB (the free tier is 10240 MB).' };
   const cur = await getAllLimits();
-  const next = Object.assign({}, cur,
-    o.videoMaxMb !== undefined ? { videoMaxMb: maxMb } : {}, o.videoTotalMb !== undefined ? { videoTotalMb: totalMb } : {},
-    o.videoMaxMbR2 !== undefined ? { videoMaxMbR2: maxR2 } : {}, o.videoTotalMbR2 !== undefined ? { videoTotalMbR2: totalR2 } : {});
-  const clean = Object.assign(cleanLimits(next), cleanLimitsR2(next));
-  await db.query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [SETTINGS_KEY, JSON.stringify(clean)]);
-  return { ok: true, limits: clean };
+  const merged = Object.assign({}, cur,
+    set('videoMaxMb') ? { videoMaxMb: maxMb } : {},
+    set('videoTotalMb') ? { videoTotalMb: totalMb } : {},
+    set('videoMaxSeconds') ? { videoMaxSeconds: secs } : {},
+    set('videoMaxMbR2') ? { videoMaxMbR2: maxR2 } : {},
+    set('videoTotalMbR2') ? { videoTotalMbR2: totalR2 } : {});
+  const next = Object.assign(cleanLimits(merged), cleanLimitsR2(merged));
+  await db.query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [SETTINGS_KEY, JSON.stringify(next)]);
+  return { ok: true, limits: next };
 }
 
 /** What the first bytes say ('' = not an MP4 / WebM). MP4: "ftyp" at byte 4. WebM (Matroska EBML): 1A 45 DF A3. */
@@ -230,10 +261,16 @@ async function start(input) {
   if (!TYPES[mime]) return { ok: false, message: 'Upload an MP4 or WebM video.' };
   if (!(size > 0)) return { ok: false, message: 'The video file is empty.' };
   if (!/^[0-9a-f]{64}$/.test(sha)) return { ok: false, message: 'Missing the file check (SHA-256) — reload the page and try again.' };
-  if (o.duration !== undefined && o.duration !== null && o.duration !== '' && (!(dur > 0) || dur > MAX_SECONDS + 0.5)) return { ok: false, message: 'Reels can be up to ' + MAX_SECONDS + ' seconds — this one is ' + Math.round(dur) + ' s.' };
   const mode = await storeMode();
   const lim = await limitsFor(mode);
-  if (size > lim.maxBytes) return { ok: false, tooBig: true, message: 'Video is too big: max ' + lim.maxMb + ' MB. Upload vertical 720p, ~30–60 s — usually 3–8 MB.' };
+  if (o.duration !== undefined && o.duration !== null && o.duration !== '' && (!(dur > 0) || dur > lim.maxSeconds + 0.5)) {
+    return { ok: false, tooLong: true, seconds: dur > 0 ? Math.round(dur) : 0, limitSeconds: lim.maxSeconds,
+      message: 'That video is ' + durText(dur) + ' — the limit is ' + durText(lim.maxSeconds) + '. Trim it, or raise the limit in the 🎬 Videos card.' };
+  }
+  if (size > lim.maxBytes) {
+    return { ok: false, tooBig: true, bytes: size, limitBytes: lim.maxBytes,
+      message: mbText(size) + ' — the limit is ' + lim.maxMb + ' MB. Try 720p, or raise the limit in ⚙️ settings.' };
+  }
   if (!(await ready())) return { ok: false, notReady: true, message: NOT_READY };
   const cols = await hasR2Cols();
   let cfg = null;
@@ -247,7 +284,10 @@ async function start(input) {
     for (const r of old) await remove(r.id);
   } catch (_) {}
   const used = await usedBytes(mode, cols);
-  if (used + size > lim.totalBytes) return { ok: false, full: true, message: 'Video storage is full (' + lim.totalMb + ' MB). Delete old Reel videos first, or use 🧽 Erase older reels.' };
+  if (used + size > lim.totalBytes) {
+    return { ok: false, full: true, bytes: size, freeBytes: Math.max(0, lim.totalBytes - used),
+      message: 'Video storage is full: ' + mbText(Math.max(0, lim.totalBytes - used)) + ' free of ' + mbText(lim.totalBytes) + ', this video needs ' + mbText(size) + '. Delete old Reel videos (🧽 Erase older reels), or raise the total in the 🎬 Videos card.' };
+  }
   const id = 'fv' + crypto.randomBytes(8).toString('hex');
   const chunks = Math.ceil(size / CHUNK);
   const key = keyOf(id, mime);
@@ -259,7 +299,32 @@ async function start(input) {
       [id, mime, size, chunks, sha, dur > 0 ? Math.round(dur * 10) / 10 : null, 'uploading', istString()]);
   }
   if (mode === 'r2') uploads.set(id, { id, key, mime, size, chunks, next: 0, buf: [], bufLen: 0, parts: [], partNo: 0, uploadId: '', hash: crypto.createHash('sha256'), multipart: size > PART_SIZE });
-  return { ok: true, id, chunks, chunkSize: CHUNK, maxBytes: lim.maxBytes, storage: mode };
+  return { ok: true, id, chunks, chunkSize: CHUNK, maxBytes: lim.maxBytes, maxSeconds: lim.maxSeconds, storage: mode };
+}
+
+/**
+ * 📶 Resume: which parts of an unfinished upload the server already has. The admin page asks for this when a chunk
+ * keeps failing (or after the app was swapped out mid-upload) and carries on from the first missing part.
+ * Only counts the parts — the bytes themselves are never read here. An R2 upload can only be resumed while the app
+ * has not restarted (its parts are in flight to Cloudflare, not in MySQL); then it says to start again.
+ */
+async function status(id) {
+  const m = await info(id).catch(() => null);
+  if (!m) return { ok: false, message: 'Upload not found — start again.' };
+  if (m.status === 'ready') return { ok: true, id: m.id, done: true, chunks: m.chunks, chunkSize: CHUNK, have: [], missing: [], url: m.url };
+  let have = [];
+  if (m.storage === 'r2') {
+    const st = uploads.get(m.id);
+    if (!st) return { ok: false, restart: true, message: 'This upload was interrupted (the app restarted) — upload the video again.' };
+    for (let n = 0; n < st.next; n++) have.push(n);
+  } else {
+    const rows = await db.query('SELECT n FROM feed_video_chunks WHERE video_id = ?', [m.id]);
+    have = rows.map((r) => Number(r.n)).filter((n) => Number.isInteger(n) && n >= 0 && n < m.chunks).sort((a, b) => a - b);
+  }
+  const seen = new Set(have);
+  const missing = [];
+  for (let n = 0; n < m.chunks; n++) if (!seen.has(n)) missing.push(n);
+  return { ok: true, id: m.id, done: false, chunks: m.chunks, chunkSize: CHUNK, size: m.size, storage: m.storage, have, missing, next: missing.length ? missing[0] : m.chunks };
 }
 
 /** Push what is waiting in memory to R2 as one multipart part. */
@@ -287,9 +352,9 @@ async function chunk(id, n, buf) {
     return { ok: true, n: k };
   }
   const st = uploads.get(m.id);
-  if (!st) return { ok: false, message: 'This upload was interrupted (the app restarted) — upload the video again.' };
+  if (!st) return { ok: false, restart: true, message: 'This upload was interrupted (the app restarted) — upload the video again.' };
   if (k === st.next - 1) return { ok: true, n: k, already: true }; // the browser retried a part we already took
-  if (k !== st.next) return { ok: false, message: 'Parts must be sent in order — upload the video again.' };
+  if (k !== st.next) return { ok: false, message: 'Parts must be sent in order — upload the video again.', next: st.next };
   st.hash.update(buf); st.buf.push(buf); st.bufLen += buf.length; st.next = k + 1;
   if (st.multipart && st.bufLen >= PART_SIZE && st.next < m.chunks) {
     const cfg = await r2.getConfig();
@@ -307,7 +372,7 @@ async function abortUpload(id) {
   try { await db.query('DELETE FROM feed_videos WHERE id = ?', [safeId(id)]); } catch (_) {}
 }
 
-/** Every chunk there, sizes add up, and the SHA-256 = what the browser computed → ready. */
+/** Every chunk there, sizes add up, and the SHA-256 of the chunks in order = what the browser computed → ready. */
 async function finish(id) {
   const m = await info(id);
   if (!m) return { ok: false, message: 'Upload not found.' };
@@ -328,7 +393,7 @@ async function finish(id) {
 
 async function finishR2(m) {
   const st = uploads.get(m.id);
-  if (!st) { await abortUpload(m.id); return { ok: false, message: 'This upload was interrupted (the app restarted) — upload the video again.' }; }
+  if (!st) { await abortUpload(m.id); return { ok: false, restart: true, message: 'This upload was interrupted (the app restarted) — upload the video again.' }; }
   if (st.next !== m.chunks) return { ok: false, message: 'Some parts of the video are missing — upload it again.' };
   if (st.hash.copy().digest('hex') !== m.sha256) { await abortUpload(m.id); return { ok: false, message: 'The uploaded video does not match the file (SHA-256) — upload it again.' }; }
   const cfg = await r2.getConfig();
@@ -340,7 +405,7 @@ async function finishR2(m) {
   // Trust nothing: ask R2 how big the object really is before a post may use it.
   try {
     const h = await r2.headObject(cfg, st.key);
-    if (h.size !== m.size) { try { await r2.deleteObject(cfg, st.key); } catch (_) {} await abortUpload(m.id); return { ok: false, message: '☁️ Cloudflare R2 stored ' + mb(h.size) + ' but the video is ' + mb(m.size) + ' — upload it again.' }; }
+    if (h.size !== m.size) { try { await r2.deleteObject(cfg, st.key); } catch (_) {} await abortUpload(m.id); return { ok: false, message: '☁️ Cloudflare R2 stored ' + mbText(h.size) + ' but the video is ' + mbText(m.size) + ' — upload it again.' }; }
   } catch (e) { await abortUpload(m.id); return r2Fail(e, 'Cloudflare R2 could not confirm the upload'); }
   uploads.delete(m.id);
   await db.query('UPDATE feed_videos SET status = ?, r2_etag = ?, upload_ref = NULL WHERE id = ?', ['ready', etag || null, m.id]);
@@ -370,7 +435,7 @@ async function remove(id) {
 // ---- admin storage card ----
 function storeBox(bytes, videos, totalBytes) {
   const pct = totalBytes > 0 ? Math.round((bytes / totalBytes) * 1000) / 10 : 0;
-  return { bytes, videos, totalBytes, pct, over: pct >= WARN_AT * 100, text: mb(bytes) + ' of ' + mb(totalBytes) };
+  return { bytes, videos, totalBytes, freeBytes: Math.max(0, totalBytes - bytes), pct, over: pct >= WARN_AT * 100, text: mbText(bytes) + ' of ' + mbText(totalBytes) };
 }
 /** Admin storage card: "Videos: 312 MB of 2 GB used" / "R2: 1.2 GB of 8 GB used" + every video with its size. */
 async function usage() {
@@ -381,8 +446,8 @@ async function usage() {
   let cfg = { on: false, ready: false, live: false, publicBase: '' };
   try { cfg = await r2.getConfig(); } catch (_) {}
   const base = {
-    ready: false, mode, bytes: 0, videos: 0, list: [], maxBytes: lim.maxMb * MB, totalBytes: lim.totalMb * MB,
-    limits: all, maxSeconds: MAX_SECONDS, warn: null, schemaV27: false, warnAt: WARN_AT,
+    ready: false, mode, bytes: 0, freeBytes: lim.totalMb * MB, videos: 0, list: [], maxBytes: lim.maxMb * MB, totalBytes: lim.totalMb * MB,
+    limits: all, maxSeconds: all.videoMaxSeconds, caps: CAPS, warn: null, schemaV27: false, warnAt: WARN_AT,
     db: storeBox(0, 0, dbTotal), r2: Object.assign(storeBox(0, 0, r2Total), r2.publicConfig(cfg), { ops: null }),
     migrate: { pending: 0, pendingBytes: 0 },
   };
@@ -404,7 +469,7 @@ async function usage() {
     if (active.over) warns.push({ store: mode, pct: active.pct, text: (mode === 'r2' ? 'R2 videos: ' : 'Videos: ') + active.text + ' (' + active.pct + '%)' });
     if (mode === 'r2' && dbBox.over && dbBox.bytes > 0) warns.push({ store: 'db', pct: dbBox.pct, text: 'Videos still in the database: ' + dbBox.text + ' (' + dbBox.pct + '%)' });
     return Object.assign(base, {
-      ready: true, schemaV27: cols, list, videos: active.videos, bytes: active.bytes, totalBytes: active.totalBytes,
+      ready: true, schemaV27: cols, list, videos: active.videos, bytes: active.bytes, freeBytes: active.freeBytes, totalBytes: active.totalBytes,
       db: dbBox, r2: r2Box, warn: warns.length ? Object.assign({ over: true }, warns[0], { all: warns }) : null,
       migrate: { pending: pending.length, pendingBytes: pending.reduce((a, x) => a + x.size, 0) },
     });
@@ -464,7 +529,7 @@ async function migrateNext() {
       etag = (await r2.putObject(cfg, key, Buffer.concat(bufs), m.mime)).etag;
     }
     const h = await r2.headObject(cfg, key);
-    if (h.size !== m.size) { try { await r2.deleteObject(cfg, key); } catch (_) {} return { ok: false, message: '☁️ R2 stored ' + mb(h.size) + ' of video ' + m.id + ' but it is ' + mb(m.size) + ' — nothing was deleted, try again.' }; }
+    if (h.size !== m.size) { try { await r2.deleteObject(cfg, key); } catch (_) {} return { ok: false, message: '☁️ R2 stored ' + mbText(h.size) + ' of video ' + m.id + ' but it is ' + mbText(m.size) + ' — nothing was deleted, try again.' }; }
   } catch (e) { return r2Fail(e, 'Could not move video ' + m.id + ' to Cloudflare R2'); }
   await db.query('UPDATE feed_videos SET storage = ?, r2_key = ?, r2_etag = ?, moved_at = ? WHERE id = ?', ['r2', key, etag || null, istString(), m.id]);
   const del = await db.query('DELETE FROM feed_video_chunks WHERE video_id = ?', [m.id]);
@@ -474,7 +539,7 @@ async function migrateNext() {
   return {
     ok: true, done: left === 0, moved: { id: m.id, size: m.size, key, etag, freedChunks: Number(del && del.affectedRows) || 0 },
     left, leftBytes: Math.max(0, st.pendingBytes - m.size),
-    message: '⬆️ Moved ' + mb(m.size) + ' to Cloudflare R2' + (left ? ' · ' + left + ' left' : ' · all done'),
+    message: '⬆️ Moved ' + mbText(m.size) + ' to Cloudflare R2' + (left ? ' · ' + left + ' left' : ' · all done'),
   };
 }
 
@@ -569,10 +634,16 @@ async function serveR2(m, req, res) {
   });
 }
 
+// What the admin page is allowed to type into the 🎬 Videos card (so the page and the server never disagree).
+const CAPS = {
+  maxMb: HARD_MAX_MB, minMb: 1, maxTotalMb: HARD_TOTAL_MB, minTotalMb: MIN_TOTAL_MB, maxSeconds: HARD_MAX_SECONDS, minSeconds: MIN_MAX_SECONDS,
+  maxMbR2: HARD_MAX_MB_R2, maxTotalMbR2: HARD_TOTAL_MB_R2,
+};
+
 module.exports = {
-  start, chunk, finish, info, infoMany, urls, remove, usage, ready, hasR2Cols, storeMode, serve, sniff, parseRange, chunkPlan, safeId,
-  getLimits, getAllLimits, limitsFor, saveLimits, cleanLimits, cleanLimitsR2, urlOf, keyOf, migrateNext, migrateStatus, abortUpload, mb,
-  CHUNK, PART_SIZE, DEFAULT_MAX_MB, HARD_MAX_MB, DEFAULT_TOTAL_MB, DEFAULT_MAX_MB_R2, HARD_MAX_MB_R2, DEFAULT_TOTAL_MB_R2, HARD_TOTAL_MB_R2,
-  MAX_SECONDS, WARN_AT, TYPES, PER_RESPONSE, NOT_READY, NOT_READY_R2, R2_PREFIX,
+  start, chunk, finish, status, info, infoMany, urls, remove, usage, ready, hasR2Cols, storeMode, serve, sniff, parseRange, chunkPlan, safeId,
+  getLimits, getAllLimits, limitsFor, saveLimits, cleanLimits, cleanLimitsR2, urlOf, keyOf, mbText, durText, migrateNext, migrateStatus, abortUpload,
+  CHUNK, PART_SIZE, DEFAULT_MAX_MB, HARD_MAX_MB, DEFAULT_TOTAL_MB, HARD_TOTAL_MB, MIN_TOTAL_MB, DEFAULT_MAX_MB_R2, HARD_MAX_MB_R2, DEFAULT_TOTAL_MB_R2, HARD_TOTAL_MB_R2,
+  DEFAULT_MAX_SECONDS, HARD_MAX_SECONDS, MIN_MAX_SECONDS, MAX_SECONDS, WARN_AT, CAPS, TYPES, PER_RESPONSE, NOT_READY, NOT_READY_R2, R2_PREFIX,
   _internal: { cache, uploads, reset: () => { readyVal = null; readyAt = 0; colsVal = null; colsAt = 0; cache.clear(); uploads.clear(); } },
 };
