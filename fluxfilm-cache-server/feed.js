@@ -282,6 +282,24 @@ async function remove(id) {
   if (p.videoId) { try { await video().remove(p.videoId); } catch (_) {} }
   return { ok: true, post: p };
 }
+/**
+ * 🧽 Erase the VIDEO of a post but keep the post (feederase.js "Erase video only"). The words, picture and links stay,
+ * so the page still works — a Reel left with no video at all goes back to being a normal post instead of a blank screen.
+ * Deliberately not save(): save() would refuse a Reel with no video source.
+ */
+async function dropVideo(id) {
+  const items = await list();
+  const i = items.findIndex((x) => x.id === id);
+  if (i < 0) return { ok: false, message: 'Post not found.' };
+  const vid = s(items[i].videoId);
+  const p = Object.assign({}, items[i], { videoId: '', videoType: '', updatedAt: new Date().toISOString() });
+  if (p.format === 'reel' && !youtubeId(p.trailerUrl) && !p.instagramUrl) { p.format = 'post'; p.reelInFeed = true; }
+  items[i] = p;
+  await saveAll(items);
+  let freed = null;
+  if (vid) { try { freed = await video().remove(vid); } catch (e) { freed = { ok: false, message: s(e && e.message) }; } }
+  return { ok: true, post: p, videoId: vid, freed };
+}
 /** kind '' = the owner's uploaded picture (feed_img_<id>), 't' = the Instagram thumbnail (feed_img_<id>t). */
 async function storePicture(id, dataUrl, kind) {
   const items = await list();
@@ -363,6 +381,10 @@ async function publicList(now) {
   if (!now && cache && Date.now() - cacheAt < 30e3) return cache;
   const [items, st, cc, al] = await Promise.all([list(), stats().catch(() => ({})), commentCounts(), accountLikes()]);
   const live = sortPosts(items.filter((p) => statusOf(p, now) === 'LIVE')).slice(0, 60);
+  // 🪣 Where each uploaded video plays from: the public Cloudflare R2 link when the owner set one (fastest, no egress
+  // cost), otherwise our own /v/<id>.mp4. Anything that goes wrong falls back to /v/<id>.mp4, which always works.
+  let vurl = {};
+  try { vurl = await video().urls(live.map((p) => p.videoId).filter(Boolean)); } catch (_) { vurl = {}; }
   const out = {
     ok: true,
     posts: live.map((p) => {
@@ -374,7 +396,7 @@ async function publicList(now) {
         date: sortDate(p), likes: al ? Math.max(0, al[p.id] || 0) : (st[p.id] || {}).likes || 0, comments: cc[p.id] || 0,
         // 🎬 format 'reel' → Reels tab (+ the feed only when inFeed); video = our own uploaded file (feedvideo.js).
         format: p.format === 'reel' ? 'reel' : 'post', inFeed: p.format !== 'reel' || p.reelInFeed !== false,
-        video: VIDEO_ID.test(s(p.videoId)) ? '/v/' + p.videoId + (p.videoType === 'video/webm' ? '.webm' : '.mp4') : '', videoType: VIDEO_ID.test(s(p.videoId)) ? s(p.videoType) : '',
+        video: VIDEO_ID.test(s(p.videoId)) ? ((vurl[p.videoId] && vurl[p.videoId].url) || '/v/' + p.videoId + (p.videoType === 'video/webm' ? '.webm' : '.mp4')) : '', videoType: VIDEO_ID.test(s(p.videoId)) ? s(p.videoType) : '',
         image: pictureOf(p, ig),
       };
     }),
@@ -1251,7 +1273,7 @@ function startTimer(deps) {
 module.exports = {
   posterPath, posterImage,
   TYPES, CTAS, IMG_HOSTS, TRAILER_HOSTS, IG_HOSTS, DEFAULT_PROVIDERS, DEFAULT_LANGS, MAX_POSTS,
-  validate, instagramUrl, youtubeId, list, save, remove, setImage, setThumb, image, statusOf, sortPosts, publicList, trendingLines, record, countLike, flushStats, stats,
+  validate, instagramUrl, youtubeId, list, save, remove, dropVideo, setImage, setThumb, image, statusOf, sortPosts, sortDate, publicList, trendingLines, record, countLike, flushStats, stats,
   getSettings, publicSettings, saveSettings, tmdbSearch, tmdbCreate, tmdbSuggest, tmdbProviders, providersFor, draftFrom, catalogServices, catalogServiceInfo,
   discover, runImport, jobStatus, startTimer, toIso,
   newWindow, seriesNews, movieNews, indiaReleaseDate, notNewCandidates, hideNotNew,

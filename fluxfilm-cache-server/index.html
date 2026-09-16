@@ -14277,7 +14277,12 @@ function feedTaps_(onTap, onDouble) {
 // a YouTube Shorts link ('short', clean muted autoplay, cropped 9:16) › an Instagram Reel ('ig', Instagram's player,
 // cropped to the video) › a YouTube trailer ('yt', 16:9, tap to play).
 function feedVideoSrc_(p) {
-  return p && /^\/v\/fv[0-9a-f]{16}\.(mp4|webm)$/.test(p.video || '') ? p.video : '';
+  var v = (p && p.video) || '';
+  // Our own /v/<id>.mp4 …
+  if (/^\/v\/fv[0-9a-f]{16}\.(mp4|webm)$/.test(v)) return v;
+  // … or the owner's 🪣 Cloudflare R2 public link: https, no query, and the same strict fv<id>.mp4 file name we upload.
+  if (/^https:\/\/[a-z0-9.-]+(:\d+)?\/[A-Za-z0-9._~/-]*fv[0-9a-f]{16}\.(mp4|webm)$/.test(v)) return v;
+  return '';
 }
 function feedYtShort_(url) {
   try {

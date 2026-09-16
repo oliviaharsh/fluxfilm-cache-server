@@ -19,6 +19,14 @@
  *   POST /admin/api/feed/ai-fill           { title, caption, sourceCaption, type, rewrite?, previousCaption? }   ✨ suggestions only (nothing saved); rewrite = ✨ Rewrite count
  *   GET  /admin/api/feed/comments          ?status=pending|visible|hidden|all&post=<id>   💬 list + counts
  *   POST /admin/api/feed/comments/action   { id, action: approve|hide|delete|block|unblock }
+ *   🪣 Cloudflare R2 video storage (r2.js) — the two keys are write-only: they go in, they never come back out.
+ *   GET  /admin/api/feed/video/storage                           → { video: usage, r2: { on, bucket, keySet, secretSet, … } }
+ *   POST /admin/api/feed/video/storage     { on?, accountId?, bucket?, accessKeyId?, secretAccessKey?, publicBase?, clearKeys? }
+ *   POST /admin/api/feed/video/test        {}                    🔌 write + read + delete a tiny test object
+ *   POST /admin/api/feed/video/migrate     {}                    ⬆️ move ONE database video to R2 (call again for the next)
+ *   🧽 Erase older reels (feederase.js)
+ *   POST /admin/api/feed/erase/preview     { days, services[], hiddenOnly, keepTop, keepBy, mode }   counts only, changes nothing
+ *   POST /admin/api/feed/erase             { …the same + confirm: 'ERASE' (over 10 posts), ids[]? }
  */
 function mount(app, deps) {
   const { auth } = deps;
@@ -28,6 +36,9 @@ function mount(app, deps) {
   // ❤️ 🔖 account likes / saves (feedmarks.js): only "is schema-v25 in?" + totals for the note in the list.
   let marks = deps.marks || null; if (!marks) { try { marks = require('./feedmarks'); } catch (_) { marks = null; } }
   let videos = deps.videos || null; if (!videos) { try { videos = require('./feedvideo'); } catch (_) { videos = null; } }
+  // 🪣 Cloudflare R2 video storage (r2.js) and 🧽 Erase older reels (feederase.js).
+  let r2 = deps.r2 || null; if (!r2) { try { r2 = require('./r2'); } catch (_) { r2 = null; } }
+  let erase = deps.erase || null; if (!erase) { try { erase = require('./feederase'); } catch (_) { erase = null; } }
   const ai = deps.ai || require('./feedai');
   // ✨ AI fill costs AI tokens: 20 per 10 minutes for the whole admin.
   let aiLimit = null; try { aiLimit = require('./security').rateLimiter(20, 10 * 60e3); } catch (_) {}
@@ -55,6 +66,8 @@ function mount(app, deps) {
     return {
       ready: !!vu.ready, videos: Number(vu.videos) || 0, bytes: Number(vu.bytes) || 0, maxBytes: Number(vu.maxBytes) || 0, totalBytes: Number(vu.totalBytes) || 0,
       maxSeconds: Number(vu.maxSeconds) || 90, limits: vu.limits || {},
+      // 🪣 which store is in use, both storage bars, the ⚠️ 75% warning and how many videos still wait to be moved.
+      mode: vu.mode || 'db', schemaV27: !!vu.schemaV27, db: vu.db || null, r2: vu.r2 || null, warn: vu.warn || null, migrate: vu.migrate || null,
       list: (vu.list || []).map((x) => Object.assign({}, x, { post: used[x.id] || null })),
     };
   }
@@ -97,9 +110,63 @@ function mount(app, deps) {
   });
   route('/admin/api/feed/video/settings', async (req, res, b) => {
     if (!videos) return res.status(400).json({ ok: false, message: 'Video upload is not available.' });
-    const r = await videos.saveLimits({ videoMaxMb: b.videoMaxMb, videoTotalMb: b.videoTotalMb });
-    if (r.ok) audit.record(req, { action: 'feed.video.settings', entity: 'feed', id: 'videos', summary: 'Reel video limits: ' + r.limits.videoMaxMb + ' MB per video, ' + r.limits.videoTotalMb + ' MB total' });
+    const r = await videos.saveLimits({ videoMaxMb: b.videoMaxMb, videoTotalMb: b.videoTotalMb, videoMaxMbR2: b.videoMaxMbR2, videoTotalMbR2: b.videoTotalMbR2 });
+    if (r.ok) audit.record(req, { action: 'feed.video.settings', entity: 'feed', id: 'videos', summary: 'Reel video limits: database ' + r.limits.videoMaxMb + ' MB per video / ' + r.limits.videoTotalMb + ' MB total · R2 ' + r.limits.videoMaxMbR2 + ' MB per video / ' + r.limits.videoTotalMbR2 + ' MB total' });
     res.status(r.ok ? 200 : 400).json(r);
+  });
+
+  // ---------------------------------------------------------------- 🪣 Cloudflare R2 video storage
+  // The Access Key ID and the Secret Access Key are WRITE-ONLY: they are saved on the server and never sent back,
+  // never logged and never written to the change log (the log only says a key was saved / removed).
+  const noR2 = (res) => res.status(400).json({ ok: false, message: 'Cloudflare R2 storage is not available on this server.' });
+  app.get('/admin/api/feed/video/storage', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      if (!videos || !r2) return noR2(res);
+      const [vu, cfg, mig] = await Promise.all([videos.usage(), r2.getConfig(true), videos.migrateStatus().catch(() => null)]);
+      res.json({ ok: true, video: videoSummary(vu, await feed.list()), r2: r2.publicConfig(cfg), migrate: mig, ops: cfg.ready ? await r2.getOps().catch(() => null) : null });
+    } catch (e) { fail(res, e); }
+  });
+  route('/admin/api/feed/video/storage', async (req, res, b) => {
+    if (!videos || !r2) return noR2(res);
+    if (b.on === true && !(await videos.hasR2Cols(true))) return res.status(400).json({ ok: false, notReady: true, message: videos.NOT_READY_R2 });
+    const r = await r2.saveConfig({ on: b.on, accountId: b.accountId, bucket: b.bucket, accessKeyId: b.accessKeyId, secretAccessKey: b.secretAccessKey, publicBase: b.publicBase, clearKeys: b.clearKeys });
+    if (!r.ok) return res.status(400).json(r);
+    if (r.changed.length) audit.record(req, { action: 'feed.video.storage', entity: 'feed', id: 'r2', summary: '🪣 Video storage: ' + r.changed.join(', ') });
+    res.json(r);
+  });
+  route('/admin/api/feed/video/test', async (req, res, b) => {
+    if (!r2) return noR2(res);
+    // Test what is typed in the boxes when the owner has not saved yet; otherwise what is saved.
+    const typed = b.accountId || b.bucket || b.accessKeyId || b.secretAccessKey;
+    const r = await r2.testConnection(typed ? { accountId: b.accountId, bucket: b.bucket, accessKeyId: b.accessKeyId, secretAccessKey: b.secretAccessKey, publicBase: b.publicBase } : null);
+    audit.record(req, { action: 'feed.video.storage.test', entity: 'feed', id: 'r2', summary: '🔌 Tested Cloudflare R2: ' + (r.ok ? 'works' : 'failed') });
+    res.status(r.ok ? 200 : 400).json(r);
+  });
+  // ⬆️ One video per call so the admin page can show progress and the owner can stop at any time.
+  route('/admin/api/feed/video/migrate', async (req, res) => {
+    if (!videos) return noR2(res);
+    const r = await videos.migrateNext();
+    if (!r.ok) return res.status(400).json(r);
+    if (r.moved) audit.record(req, { action: 'feed.video.migrate', entity: 'feed', id: r.moved.id, summary: '⬆️ Moved Reel video ' + r.moved.id + ' (' + Math.round(r.moved.size / 1048576 * 10) / 10 + ' MB) to Cloudflare R2; ' + r.left + ' left in the database' });
+    res.json(r);
+  });
+
+  // ---------------------------------------------------------------- 🧽 Erase older reels
+  route('/admin/api/feed/erase/preview', async (req, res, b) => {
+    if (!erase) return res.status(400).json({ ok: false, message: '🧽 Erase older reels is not available on this server.' });
+    res.json(await erase.preview(b, { feed, video: videos }));
+  });
+  route('/admin/api/feed/erase', async (req, res, b) => {
+    if (!erase) return res.status(400).json({ ok: false, message: '🧽 Erase older reels is not available on this server.' });
+    const r = await erase.run(b, { feed, video: videos });
+    if (!r.ok) return res.status(400).json(r);
+    audit.record(req, {
+      action: r.mode === 'post' ? 'feed.erase.posts' : 'feed.erase.videos', entity: 'feed',
+      id: r.list.map((x) => x.id).join(',').slice(0, 190), summary: '🧽 ' + r.summary + ': ' + r.list.map((x) => '"' + x.title + '"').join(', ').slice(0, 380),
+      details: { criteria: r.criteria, erased: r.list, failed: r.failed },
+    });
+    res.json(r);
   });
 
   route('/admin/api/feed/save', async (req, res, body) => {

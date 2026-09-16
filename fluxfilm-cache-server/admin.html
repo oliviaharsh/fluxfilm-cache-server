@@ -3355,31 +3355,147 @@ function fdFormatBox(e) {
   }
   return h + '</div>';
 }
-// Storage card on the post list: "Videos: 312 MB of 2 GB used", each video's size, 🗑️ delete (frees the chunks), limits.
+// One storage bar: "Cloudflare R2  1.2 GB of 8 GB · 15%" — amber from 75% so the owner sees it coming.
+function fdBar(label, box, inUse) {
+  if (!box) return '';
+  var p = Math.max(0, Math.min(100, Number(box.pct) || 0));
+  return '<div style="margin:8px 0"><div class="row" style="justify-content:space-between;gap:8px;font-size:.82rem"><span><b>' + label + '</b>' + (inUse ? ' <span class="pill p-ok">in use</span>' : '') + '</span>' +
+    '<span class="muted">' + esc(box.text || '') + ' · ' + p + '%</span></div>' +
+    '<div style="height:8px;border-radius:6px;background:#eef2f7;overflow:hidden;margin-top:3px"><div style="height:100%;width:' + p + '%;background:' + (p >= 75 ? '#f59e0b' : '#22c55e') + '"></div></div></div>';
+}
+// ⚠️ Amber banner once a store passes 75%, with the button straight to 🧽 Erase older reels.
+function fdVideoWarn() {
+  var v = FD.video || {}, w = v.warn;
+  if (!v.ready || !w) return '';
+  var more = (w.all || []).slice(1);
+  return '<div class="qnote warn" style="margin:0 0 12px" id="fdvidwarn">⚠️ <b>' + esc(w.text) + '</b> — erase older reels?' +
+    (more.length ? '<div class="muted" style="font-size:.8rem;margin-top:2px">Also: ' + more.map(function (x) { return esc(x.text); }).join(' · ') + '</div>' : '') +
+    '<div class="row" style="margin-top:8px"><button type="button" class="btn sm" id="fdvidwarnbtn">🧽 Erase older reels</button></div></div>';
+}
+// Storage card on the post list: "Videos: 312 MB of 2 GB used", both stores, each video's size, 🗑️ delete, the limits,
+// ⬆️ move to Cloudflare R2 and 🧽 Erase older reels.
 function fdVideoCard() {
   var v = FD.video || {};
   if (!v.ready) return '';
-  var list = v.list || [];
-  return '<details class="card" style="margin:0 0 12px"><summary style="cursor:pointer"><b>🎬 Videos: ' + fdMb(v.bytes) + ' of ' + fdMb(v.totalBytes) + ' used</b> <span class="muted">(' + (v.videos || 0) + ' Reel video' + (v.videos === 1 ? '' : 's') + ')</span></summary>' +
-    '<div class="muted" style="font-size:.78rem;margin:6px 0">Stored in the MySQL database — counts toward the Hostinger disk quota. 💡 Vertical 720p, ~30–60 s is usually 3–8 MB.</div>' +
+  var list = v.list || [], r2 = v.r2 || {}, dbb = v.db || {}, mig = v.migrate || {}, onR2 = v.mode === 'r2', ops = r2.ops || null;
+  return fdVideoWarn() + '<details class="card" style="margin:0 0 12px"><summary style="cursor:pointer"><b>🎬 Videos: ' + fdMb(v.bytes) + ' of ' + fdMb(v.totalBytes) + ' used</b> <span class="muted">(' + (v.videos || 0) + ' Reel video' + (v.videos === 1 ? '' : 's') + ')</span> <span class="pill ' + (onR2 ? 'p-ok">🪣 Cloudflare R2' : 'p-grey">🗄️ Database') + '</span></summary>' +
+    '<div class="muted" style="font-size:.78rem;margin:6px 0">' + (onR2 ? 'Stored in your Cloudflare R2 bucket — free up to 10 GB, and downloads cost nothing.' : 'Stored in the MySQL database — counts toward the 3 GB Hostinger database. Switch to Cloudflare R2 in ⚙️ Settings.') + ' 💡 Vertical 720p, ~30–60 s is usually 3–8 MB.</div>' +
+    fdBar('🗄️ Database', dbb, !onR2) + fdBar('🪣 Cloudflare R2', r2, onR2) +
+    (ops ? '<div class="muted" style="font-size:.76rem">R2 this month: ' + (ops.classA || 0).toLocaleString('en-IN') + ' writes of ' + (ops.freeClassA || 0).toLocaleString('en-IN') + ' free · ' + (ops.classB || 0).toLocaleString('en-IN') + ' reads of ' + (ops.freeClassB || 0).toLocaleString('en-IN') + ' free</div>' : '') +
+    '<div class="row" style="gap:8px;margin:10px 0;flex-wrap:wrap">' +
+    (onR2 && mig.pending ? '<button type="button" class="btn sm" id="fdvidmig">⬆️ Move ' + mig.pending + ' video' + (mig.pending === 1 ? '' : 's') + ' (' + fdMb(mig.pendingBytes) + ') to R2</button>' : '') +
+    '<button type="button" class="btn sm ghost" id="fderasebtn">🧽 Erase older reels</button><span class="muted" id="fdvidmigmsg" style="font-size:.8rem"></span></div>' +
     (list.length ? '<div class="pr-list">' + list.map(function (x) {
-      return '<div class="row" style="gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eef2f7"><span style="min-width:64px"><b>' + fdMb(x.size) + '</b></span><span class="grow muted" style="font-size:.8rem;min-width:0">' + (x.post ? '🎬 ' + esc(x.post.title) : x.status === 'ready' ? 'Not on a post' : '⏳ Unfinished upload') + (x.duration ? ' · ' + Math.round(x.duration) + ' s' : '') + ' · ' + esc(prettyDate(x.createdAt)) + '</span>' +
+      return '<div class="row" style="gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eef2f7"><span style="min-width:64px"><b>' + fdMb(x.size) + '</b></span><span class="grow muted" style="font-size:.8rem;min-width:0">' + (x.post ? '🎬 ' + esc(x.post.title) : x.status === 'ready' ? 'Not on a post' : '⏳ Unfinished upload') + (x.duration ? ' · ' + Math.round(x.duration) + ' s' : '') + ' · ' + esc(prettyDate(x.createdAt)) + ' · ' + (x.storage === 'r2' ? '🪣 R2' : '🗄️ database') + '</span>' +
         (x.post ? '' : '<button type="button" class="btn ghost sm" data-viddel="' + esc(x.id) + '">🗑️ Delete</button>') + '</div>';
     }).join('') + '</div>' : '<div class="muted" style="font-size:.8rem">No videos uploaded yet.</div>') +
     '<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap"><label style="font-size:.8rem">Max per video (MB)<input class="inp" type="number" min="1" max="50" id="fdvidmax" value="' + esc((v.limits || {}).videoMaxMb || 25) + '" style="width:90px"/></label>' +
-    '<label style="font-size:.8rem">Total storage (MB)<input class="inp" type="number" min="50" max="20480" id="fdvidtotal" value="' + esc((v.limits || {}).videoTotalMb || 2048) + '" style="width:110px"/></label><button type="button" class="btn sm" id="fdvidlim">Save limits</button></div></details>';
+    '<label style="font-size:.8rem">Total storage (MB)<input class="inp" type="number" min="50" max="20480" id="fdvidtotal" value="' + esc((v.limits || {}).videoTotalMb || 2048) + '" style="width:110px"/></label>' +
+    '<label style="font-size:.8rem">R2: max per video (MB)<input class="inp" type="number" min="1" max="200" id="fdvidmaxr2" value="' + esc((v.limits || {}).videoMaxMbR2 || 200) + '" style="width:90px"/></label>' +
+    '<label style="font-size:.8rem">R2: total (MB)<input class="inp" type="number" min="50" max="20480" id="fdvidtotalr2" value="' + esc((v.limits || {}).videoTotalMbR2 || 8192) + '" style="width:110px"/></label>' +
+    '<button type="button" class="btn sm" id="fdvidlim">Save limits</button></div></details>';
 }
 function fdWireVideoCard() {
   $$('[data-viddel]').forEach(function (b) {
     b.onclick = function () {
-      if (!confirm('Delete this video? It is removed from the database for good.')) return;
+      if (!confirm('Delete this video? It is removed for good.')) return;
       b.disabled = true;
       post('/admin/api/feed/video/delete', { id: b.getAttribute('data-viddel') }).then(function (r) { toast(r.ok ? '🗑️ Video deleted' : '⚠️ ' + (r.message || 'error')); fdLoad(); });
     };
   });
   var s = $('#fdvidlim'); if (s) s.onclick = function () {
-    post('/admin/api/feed/video/settings', { videoMaxMb: Number($('#fdvidmax').value), videoTotalMb: Number($('#fdvidtotal').value) }).then(function (r) { toast(r.ok ? '✅ Video limits saved' : '⚠️ ' + (r.message || 'error')); if (r.ok) fdLoad(); });
+    post('/admin/api/feed/video/settings', { videoMaxMb: Number($('#fdvidmax').value), videoTotalMb: Number($('#fdvidtotal').value), videoMaxMbR2: Number($('#fdvidmaxr2').value), videoTotalMbR2: Number($('#fdvidtotalr2').value) }).then(function (r) { toast(r.ok ? '✅ Video limits saved' : '⚠️ ' + (r.message || 'error')); if (r.ok) fdLoad(); });
   };
+  var e1 = $('#fderasebtn'); if (e1) e1.onclick = fdErase;
+  var e2 = $('#fdvidwarnbtn'); if (e2) e2.onclick = fdErase;
+  var mg = $('#fdvidmig'); if (mg) mg.onclick = function () { fdMigrate(mg); };
+}
+// ⬆️ Move the database videos to Cloudflare R2, one call per video, so the page shows progress and can be left alone.
+// Safe to stop and safe to run again: a video only counts as moved once R2 has confirmed its size.
+function fdMigrate(btn) {
+  var msg = $('#fdvidmigmsg');
+  btn.disabled = true; btn.textContent = '⏳ Moving…';
+  var step = function () {
+    post('/admin/api/feed/video/migrate', {}).then(function (r) {
+      if (!r.ok) { if (msg) msg.innerHTML = '<span style="color:#b91c1c">⚠️ ' + esc(r.message || 'error') + '</span>'; btn.disabled = false; btn.textContent = '⬆️ Try again'; return; }
+      if (msg) msg.textContent = r.message || '';
+      if (r.done || !r.moved) { toast('✅ Videos moved to Cloudflare R2'); return fdLoad(); }
+      step();
+    }, function (e) { if (msg) msg.textContent = '⚠️ ' + (e.message || 'error'); btn.disabled = false; btn.textContent = '⬆️ Try again'; });
+  };
+  step();
+}
+// 🧽 Erase older reels: choose how old, which services, hidden only, keep the best N — see the counts, then erase.
+function feOpts() {
+  return {
+    days: Number($('#feday').value) || 90,
+    services: $$('[data-esvc]').filter(function (x) { return x.checked; }).map(function (x) { return x.getAttribute('data-esvc'); }),
+    hiddenOnly: $('#fehid').checked, keepTop: Number($('#fekeep').value) || 0, keepBy: $('#fekeepby').value, mode: $('#femode').value,
+  };
+}
+function fdErase() {
+  FD.panel = 'erase'; FD.erasePv = null;
+  fdPanel('🧽 Erase older reels',
+    '<p class="muted" style="font-size:.84rem;margin:8px 0 0">Frees storage by erasing the <b>video</b> of old reels (the post, its words and its picture stay, so the page still works) — or by deleting the whole post. Only reels with a video <b>you uploaded</b> count; YouTube and Instagram links take no space. Nothing happens until you tap the red button, and the counts below update as you change the choices.</p>' +
+    '<div class="pr-two" style="margin-top:12px"><label class="fd-num">Older than (days)<input class="inp" type="number" min="1" max="3650" id="feday" value="90"/></label>' +
+    '<label class="fd-num">Keep the top N<input class="inp" type="number" min="0" max="50" id="fekeep" value="0"/></label></div>' +
+    '<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">' + [30, 60, 90].map(function (d) { return '<button type="button" class="btn sm ghost" data-eday="' + d + '">' + d + ' days</button>'; }).join('') +
+    '<select class="inp" id="fekeepby" style="max-width:200px"><option value="views">Keep the most-watched</option><option value="likes">Keep the most-liked</option></select></div>' +
+    '<div class="muted" style="font-size:.8rem;margin:12px 0 4px">Services <span>(none ticked = every service)</span></div><div class="row" style="gap:12px" id="fesvc"></div>' +
+    '<label class="rf-tog" style="margin-top:12px"><input type="checkbox" id="fehid" checked/> <b>Only hidden posts</b> (the ones 🧹 hid) — keeps live reels safe</label>' +
+    '<div class="muted" style="font-size:.8rem;margin:10px 0 4px">What to erase</div>' +
+    '<select class="inp" id="femode" style="max-width:340px"><option value="video">Erase the video only — keep the post</option><option value="post">Delete the whole post</option></select>' +
+    '<div id="feout" style="margin-top:14px"><p class="muted">Counting…</p></div>');
+  var box = $('#fdbody');
+  box.oninput = box.onchange = function (ev) {
+    var t = ev.target; if (!t) return;
+    if (/^(feday|fekeep|fekeepby|fehid|femode)$/.test(t.id || '') || (t.hasAttribute && t.hasAttribute('data-esvc'))) fePreview();
+  };
+  box.onclick = function (ev) {
+    var b = ev.target.closest ? ev.target.closest('button') : null; if (!b) return;
+    if (b.dataset && b.dataset.eday) { $('#feday').value = b.dataset.eday; return fePreview(); }
+    if (b.id === 'fdback') return fdBack();
+    if (b.id === 'ferun') return feRun(b);
+  };
+  $('#fdback').onclick = fdBack;
+  fePreview();
+}
+function fePreview() {
+  var out = $('#feout'); if (!out) return;
+  out.innerHTML = '<p class="muted">Counting…</p>';
+  post('/admin/api/feed/erase/preview', feOpts()).then(function (r) {
+    out = $('#feout'); if (!out) return;
+    if (!r.ok) { out.innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'; return; }
+    FD.erasePv = r;
+    var svc = $('#fesvc');
+    if (svc && !svc.innerHTML) svc.innerHTML = (r.services || []).length ? r.services.map(function (x) { return '<label class="rf-tog" style="margin:0"><input type="checkbox" data-esvc="' + esc(x) + '"/> ' + esc(x) + '</label>'; }).join('') : '<span class="muted" style="font-size:.8rem">No uploaded reels yet.</span>';
+    var c = r.counts || {}, st = r.store || {}, whole = (r.criteria || {}).mode === 'post';
+    out.innerHTML = '<div class="qnote' + (c.posts ? ' warn' : '') + '"><b>' + c.posts + ' reel' + (c.posts === 1 ? '' : 's') + ' · ' + fdMb(c.bytes) + '</b> would be erased' +
+      (c.kept ? ' · keeping the top ' + c.kept : '') + '.<br/>Storage now <b>' + esc(st.text || '—') + '</b> (' + (st.pct || 0) + '%) → after <b>' + esc(st.afterText || '—') + '</b> (' + (st.afterPct || 0) + '%).</div>' +
+      (r.list && r.list.length ? '<details style="margin-top:10px"><summary style="cursor:pointer">Show the ' + r.list.length + ' reel' + (r.list.length === 1 ? '' : 's') + '</summary><div class="pr-list">' + r.list.map(function (x) {
+        return '<div class="row" style="gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eef2f7"><span style="min-width:62px"><b>' + fdMb(x.size) + '</b></span><span class="grow" style="min-width:0;font-size:.82rem"><b>' + esc(x.title) + '</b> <span class="muted">' + esc(x.service) + ' · ' + esc(prNice(x.date)) + ' · ' + x.views + ' view' + (x.views === 1 ? '' : 's') + ' · ' + (x.storage === 'r2' ? '🪣 R2' : '🗄️ database') + '</span></span></div>';
+      }).join('') + '</div></details>' : '') +
+      (r.kept && r.kept.length ? '<div class="muted" style="font-size:.8rem;margin-top:6px">Kept: ' + r.kept.map(function (x) { return esc(x.title); }).join(', ') + '</div>' : '') +
+      (c.posts ? '<div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap">' +
+        (r.needConfirm ? '<input class="inp" id="feconfirm" placeholder="Type ' + esc(r.confirmWord) + ' to confirm" style="max-width:250px"/>' : '') +
+        '<button type="button" class="btn red" id="ferun">🧽 ' + (whole ? 'Delete ' : 'Erase ') + c.posts + ' reel' + (c.posts === 1 ? '' : 's') + '</button></div>' +
+        (r.needConfirm ? '<div class="muted" style="font-size:.78rem;margin-top:4px">More than ' + r.confirmOver + ' posts — type <b>' + esc(r.confirmWord) + '</b> first.</div>' : '') : '') +
+      '<div id="femsg"></div>';
+  });
+}
+function feRun(btn) {
+  var pv = FD.erasePv || {}, o = feOpts();
+  o.confirm = $('#feconfirm') ? $('#feconfirm').value : '';
+  o.ids = (pv.list || []).map(function (x) { return x.id; });
+  if (!o.ids.length) return;
+  if (!confirm((o.mode === 'post' ? 'Delete ' : 'Erase the video of ') + o.ids.length + ' reel(s)? This cannot be undone.')) return;
+  btn.disabled = true; btn.textContent = '⏳ Erasing…';
+  post('/admin/api/feed/erase', o).then(function (r) {
+    var m = $('#femsg');
+    if (!r.ok) { if (m) m.innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'; btn.disabled = false; btn.textContent = '🧽 Try again'; return; }
+    toast(r.message || 'Done');
+    fdBack();
+  });
 }
 function fdWireVideo() {
   var inp = $('#fdvid'), out = $('#fdvidmsg');
@@ -3517,6 +3633,54 @@ function fdPanel(title, inner) {
   var body = $('#fdbody'); body.oninput = body.onchange = body.onclick = null;
   $('#fdback').onclick = fdBack;
 }
+// 🪣 Video storage: keep Reel videos in the MySQL database (as before) or in a Cloudflare R2 bucket (free 10 GB,
+// no download charge). The two keys are write-only — the server never sends them back, so the boxes only say "set".
+function fdStorageBox() {
+  var v = FD.video || {}, r = v.r2 || {}, mig = v.migrate || {}, onR2 = v.mode === 'r2';
+  return '<h4 style="margin:22px 0 4px">🪣 Video storage — where Reel videos live</h4>' +
+    '<p class="muted" style="margin:0;font-size:.84rem">Now: <b>' + (onR2 ? '🪣 Cloudflare R2' : '🗄️ Database') + '</b>' + (v.ready ? ' · ' + esc((onR2 ? r : (v.db || {})).text || '') : '') + '. Hostinger gives this shop a 3 GB database and asks us not to keep video in it; Cloudflare R2 is free up to 10 GB and downloads cost nothing.</p>' +
+    (v.ready && !v.schemaV27 ? '<div class="qnote warn">Run <b>db/schema-v27.sql</b> in phpMyAdmin once before switching to Cloudflare R2. Everything keeps working until you do.</div>' : '') +
+    '<div class="pr-types" style="margin-top:8px"><button type="button" class="pr-type' + (onR2 ? '' : ' on') + '" data-store="db"><b>🗄️ Database</b><span>How it works now</span></button>' +
+    '<button type="button" class="pr-type' + (onR2 ? ' on' : '') + '" data-store="r2"><b>🪣 Cloudflare R2</b><span>Free 10 GB, faster, no egress cost</span></button></div>' +
+    '<ol class="fd-steps"><li><b>dash.cloudflare.com</b> → <b>R2</b> → <b>Create bucket</b> → name it (for example <b>fluxfilm-reels</b>) → location Automatic.</li>' +
+    '<li>On the R2 overview page copy the <b>Account ID</b> (a long string of letters and numbers) into the first box below.</li>' +
+    '<li>R2 → <b>Manage R2 API Tokens</b> → <b>Create API token</b> → permission <b>Object Read &amp; Write</b> → “Apply to specific buckets” → pick your bucket → Create. Copy the <b>Access Key ID</b> and the <b>Secret Access Key</b> (the secret is shown once).</li>' +
+    '<li>Optional but best: bucket → <b>Settings</b> → <b>Public access</b> → either turn on the <b>r2.dev</b> subdomain (copy the https://pub-….r2.dev link) or connect your own domain (for example videos.fluxfilm.in). Paste that link in “Public URL”. With no public URL the shop still serves the videos itself.</li>' +
+    '<li>If you use a public URL, bucket → Settings → <b>CORS policy</b> → add: AllowedOrigins <b>https://shop.fluxfilm.in</b> and <b>https://go.fluxfilm.in</b>, AllowedMethods <b>GET, HEAD</b>, AllowedHeaders <b>Range</b>, ExposeHeaders <b>Content-Length, Content-Range, Accept-Ranges, ETag</b>.</li>' +
+    '<li>Tap <b>🔌 Test connection</b>, then <b>💾 Save</b>, then pick <b>🪣 Cloudflare R2</b> above and use <b>⬆️ Move videos to R2</b> on the posts screen.</li></ol>' +
+    '<div class="pr-two"><label class="fd-num">Account ID<input class="inp" id="fdr2acct" autocomplete="off" spellcheck="false" value="' + esc(r.accountId || '') + '" placeholder="e.g. 0a1b2c3d…"/></label>' +
+    '<label class="fd-num">Bucket name<input class="inp" id="fdr2bucket" autocomplete="off" spellcheck="false" value="' + esc(r.bucket || '') + '" placeholder="fluxfilm-reels"/></label></div>' +
+    '<div class="pr-two" style="margin-top:8px"><label class="fd-num">Access Key ID <span class="muted">(' + (r.keySet ? '✅ set' : 'not set') + ')</span><input class="inp" id="fdr2key" type="password" autocomplete="off" spellcheck="false" placeholder="' + (r.keySet ? 'Paste a new one to replace it' : 'Paste the Access Key ID') + '"/></label>' +
+    '<label class="fd-num">Secret Access Key <span class="muted">(' + (r.secretSet ? '✅ set' : 'not set') + ')</span><input class="inp" id="fdr2secret" type="password" autocomplete="off" spellcheck="false" placeholder="' + (r.secretSet ? 'Paste a new one to replace it' : 'Paste the Secret Access Key') + '"/></label></div>' +
+    '<label class="fd-num" style="margin-top:8px">Public URL <span class="muted">(optional — fastest)</span><input class="inp" id="fdr2pub" autocomplete="off" spellcheck="false" value="' + esc(r.publicBase || '') + '" placeholder="https://pub-xxxxxxxx.r2.dev"/></label>' +
+    '<p class="muted" style="margin:6px 0 0;font-size:.78rem">The two keys stay on the server: they are never shown again, never written to the change log and never sent to any browser.' + (mig.pending ? ' <b>' + mig.pending + ' video' + (mig.pending === 1 ? ' is' : 's are') + ' still in the database</b> — move them from the posts screen.' : '') + '</p>' +
+    '<div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><button type="button" class="btn green" id="fdr2save">💾 Save</button><button type="button" class="btn ghost" id="fdr2test">🔌 Test connection</button>' +
+    (r.keySet || r.secretSet ? '<button type="button" class="btn ghost" id="fdr2clear">Remove keys</button>' : '') + '</div><div id="fdr2out"></div>';
+}
+function fdWireStorageBox() {
+  var out = function (html) { var o = $('#fdr2out'); if (o) o.innerHTML = html; };
+  var body = function () { return { accountId: $('#fdr2acct').value.trim(), bucket: $('#fdr2bucket').value.trim(), accessKeyId: $('#fdr2key').value.trim(), secretAccessKey: $('#fdr2secret').value.trim(), publicBase: $('#fdr2pub').value.trim() }; };
+  var reload = function (r) { if (r && r.ok) { fdLoad(function () { fdSettings(); }); } };
+  var sv = $('#fdr2save'); if (sv) sv.onclick = function () {
+    out('<p class="muted">Saving…</p>');
+    post('/admin/api/feed/video/storage', body()).then(function (r) { out(r.ok ? '<div class="qnote">✅ Saved' + (r.changed && r.changed.length ? ': ' + esc(r.changed.join(', ')) : '') + '</div>' : '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'); reload(r); });
+  };
+  var ts = $('#fdr2test'); if (ts) ts.onclick = function () {
+    out('<p class="muted">Writing a test file to Cloudflare…</p>');
+    post('/admin/api/feed/video/test', body()).then(function (r) { out('<div class="qnote ' + (r.ok ? '' : 'bad') + '">' + esc(r.message || 'error') + '</div>'); });
+  };
+  var cl = $('#fdr2clear'); if (cl) cl.onclick = function () {
+    if (!confirm('Remove the R2 keys? Videos already in R2 keep playing only while the keys are there — remove them and R2 videos stop playing.')) return;
+    post('/admin/api/feed/video/storage', { clearKeys: true, on: false }).then(function (r) { out(r.ok ? '<div class="qnote">Keys removed.</div>' : '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'); reload(r); });
+  };
+  $$('[data-store]').forEach(function (b) {
+    b.onclick = function () {
+      var want = b.getAttribute('data-store') === 'r2';
+      out('<p class="muted">Switching…</p>');
+      post('/admin/api/feed/video/storage', Object.assign(body(), { on: want })).then(function (r) { out(r.ok ? '<div class="qnote">✅ ' + (want ? 'New videos now go to Cloudflare R2.' : 'New videos go to the database again.') + '</div>' : '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'); reload(r); });
+    };
+  });
+}
 function fdSettings() {
   FD.panel = 'settings';
   var st = FD.settings, pm = st.providerMap || {};
@@ -3530,6 +3694,7 @@ function fdSettings() {
     '<h4 style="margin:20px 0 4px">✨ AI fill — captions</h4><p class="muted" style="margin:0;font-size:.84rem">' + (st.hasGeminiKey ? '✅ <b>Gemini</b> writes the captions (with Google Search for very new titles)' + (st.aiKeySet ? '; DeepSeek is the backup.' : '.') : st.aiKeySet ? '✅ Uses the AI key Olivia uses (DEEPSEEK_API_KEY) for captions. Add a Gemini key below to use Gemini instead.' : 'No AI key: ✨ AI fill only adds genres, date and poster. Add a Gemini key below, or <b>DEEPSEEK_API_KEY</b> in Hostinger → the Node app → Environment variables (the same key Olivia uses).') + '</p>' +
     '<ol class="fd-steps"><li>Open <b>aistudio.google.com</b> → sign in with Google → <b>Get API key</b> → Create API key.</li><li>Copy the key (starts with <b>AIza</b>) and paste it here. It stays on the server and is never shown again.</li><li>Order: Gemini if a key is saved, else DeepSeek.</li></ol>' +
     '<div class="row"><input class="inp grow" id="fdgem" type="password" autocomplete="off" spellcheck="false" placeholder="' + (st.hasGeminiKey ? 'Paste a new Gemini key to replace it' : 'Paste Gemini (Google AI Studio) key') + '"/><button class="btn green" id="fdgemsave">💾 Save Gemini key</button>' + (st.hasGeminiKey ? '<button class="btn ghost" id="fdgemdel">Remove</button>' : '') + '</div>' +
+    fdStorageBox() +
     '<h4 style="margin:20px 0 4px">🤖 Automatic import (every 6 hours)</h4><label class="rf-tog"><input type="checkbox" id="fdauto"' + (st.autoPublish ? ' checked' : '') + '/> <b>Publish imported posts by themselves</b></label>' +
     '<p class="muted" style="margin:0 0 10px;font-size:.8rem">ON: new titles go live at once. OFF: they wait as drafts (⏸ Off) until you turn them on. Posts you edit are never changed by the import.</p>' +
     '<div class="muted" style="font-size:.8rem;margin-bottom:4px">Platforms <span>(none ticked = every platform you sell)</span></div><div class="row" style="gap:12px">' + FD.services.map(function (s) { return '<label class="rf-tog" style="margin:0"><input type="checkbox" data-plat="' + esc(s) + '"' + ((st.platforms || []).indexOf(s) >= 0 ? ' checked' : '') + '/> ' + esc(s) + '</label>'; }).join('') + '</div>' +
@@ -3558,6 +3723,7 @@ function fdSettings() {
     var out = $('#fdprovout'); out.innerHTML = '<p class="muted">Asking TMDB…</p>';
     post('/admin/api/feed/tmdb/providers', {}).then(function (r) { out.innerHTML = r.ok ? '<div class="qnote">✅ TMDB accepted the key. Streaming apps in India:</div><div class="fd-prov">' + r.providers.map(function (p) { return '<div><b>' + p.id + '</b> ' + esc(p.name) + '</div>'; }).join('') + '</div>' : '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'; });
   };
+  fdWireStorageBox();
   $('#fdsetsave').onclick = function () {
     var ticked = function (attr) { return $$('[data-' + attr + ']').filter(function (x) { return x.checked; }).map(function (x) { return x.getAttribute('data-' + attr); }); };
     saveSettingsBtn(this, '/admin/api/feed/settings', { autoPublish: $('#fdauto').checked, platforms: ticked('plat'), languages: ticked('lang'), maxPerDay: $('#fdmax').value, autoHideDays: $('#fdhide').value, releasedDays: $('#fdreld').value, upcomingDays: $('#fdupd').value, seriesNewOnly: $('#fdsernew').checked, skipWeeklyShows: $('#fdweekly').checked, minPopularity: $('#fdpop').value, minVotes: $('#fdvotes').value, providerMap: parseMap() }, rfStateSet, function (r) { FD.settings = r.settings; });
