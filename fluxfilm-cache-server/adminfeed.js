@@ -14,6 +14,11 @@
  *   GET  /admin/api/feed/cleanup/not-new                         🧹 LIVE imported posts that are not new / have no new season
  *   POST /admin/api/feed/dates/refresh     {}                    📅 dates + "Season N" of imported posts from TMDB now (edited: empty fields only)
  *   POST /admin/api/feed/cleanup/hide      { ids[] }            hide those (hideAfter = now; never deleted; change log)
+ *   POST /admin/api/feed/video/start       { mime, size, sha256, duration } → { id, chunks, chunkSize, maxBytes, maxSeconds }
+ *   POST /admin/api/feed/video/chunk       ?id=&n=  raw ~1 MB octet-stream body
+ *   GET  /admin/api/feed/video/status      ?id=                  📶 resume: { chunks, have[], missing[], next }
+ *   POST /admin/api/feed/video/finish      { id }
+ *   POST /admin/api/feed/video/settings    { videoMaxMb?, videoTotalMb?, videoMaxSeconds? }   🎬 Videos card
  *   POST /admin/api/feed/thumb/refresh     { id }                📸 fetch the Instagram thumbnail + Reel caption again (server-side)
  *   POST /admin/api/feed/thumb             { id, dataUrl }       the admin page's shrunk copy of a big thumbnail ('' removes it)
  *   POST /admin/api/feed/ai-fill           { title, caption, sourceCaption, type, rewrite?, previousCaption? }   ✨ suggestions only (nothing saved); rewrite = ✨ Rewrite count
@@ -53,8 +58,8 @@ function mount(app, deps) {
   function videoSummary(vu, items) {
     const used = {}; (items || []).forEach((p) => { if (p.videoId) used[p.videoId] = { id: p.id, title: p.title }; });
     return {
-      ready: !!vu.ready, videos: Number(vu.videos) || 0, bytes: Number(vu.bytes) || 0, maxBytes: Number(vu.maxBytes) || 0, totalBytes: Number(vu.totalBytes) || 0,
-      maxSeconds: Number(vu.maxSeconds) || 90, limits: vu.limits || {},
+      ready: !!vu.ready, videos: Number(vu.videos) || 0, bytes: Number(vu.bytes) || 0, freeBytes: Number(vu.freeBytes) || 0, maxBytes: Number(vu.maxBytes) || 0, totalBytes: Number(vu.totalBytes) || 0,
+      maxSeconds: Number(vu.maxSeconds) || 300, limits: vu.limits || {}, caps: vu.caps || {},
       list: (vu.list || []).map((x) => Object.assign({}, x, { post: used[x.id] || null })),
     };
   }
@@ -72,6 +77,15 @@ function mount(app, deps) {
     try {
       if (!videos) return res.status(400).json({ ok: false, message: 'Video upload is not available.' });
       const r = await videos.chunk(String(req.query.id || ''), Number(req.query.n), Buffer.isBuffer(req.body) ? req.body : null);
+      res.status(r.ok ? 200 : 400).json(r);
+    } catch (e) { fail(res, e); }
+  });
+  // 📶 Resume an interrupted upload: which parts are already in, so the page carries on from the first missing one.
+  app.get('/admin/api/feed/video/status', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      if (!videos) return res.status(400).json({ ok: false, message: 'Video upload is not available.' });
+      const r = await videos.status(String((req.query && req.query.id) || ''));
       res.status(r.ok ? 200 : 400).json(r);
     } catch (e) { fail(res, e); }
   });
@@ -97,8 +111,8 @@ function mount(app, deps) {
   });
   route('/admin/api/feed/video/settings', async (req, res, b) => {
     if (!videos) return res.status(400).json({ ok: false, message: 'Video upload is not available.' });
-    const r = await videos.saveLimits({ videoMaxMb: b.videoMaxMb, videoTotalMb: b.videoTotalMb });
-    if (r.ok) audit.record(req, { action: 'feed.video.settings', entity: 'feed', id: 'videos', summary: 'Reel video limits: ' + r.limits.videoMaxMb + ' MB per video, ' + r.limits.videoTotalMb + ' MB total' });
+    const r = await videos.saveLimits({ videoMaxMb: b.videoMaxMb, videoTotalMb: b.videoTotalMb, videoMaxSeconds: b.videoMaxSeconds });
+    if (r.ok) audit.record(req, { action: 'feed.video.settings', entity: 'feed', id: 'videos', summary: 'Reel video limits: ' + r.limits.videoMaxMb + ' MB per video, ' + r.limits.videoMaxSeconds + ' s long, ' + r.limits.videoTotalMb + ' MB total' });
     res.status(r.ok ? 200 : 400).json(r);
   });
 
