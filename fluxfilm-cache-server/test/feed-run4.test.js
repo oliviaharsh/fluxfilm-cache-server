@@ -100,6 +100,18 @@ feed._internal.setFetch(async (url) => {
   const saved = process.env.DEEPSEEK_API_KEY; delete process.env.DEEPSEEK_API_KEY;
   let bad = await feed.saveSettings({ geminiKey: 'not a key!' });
   ok('Gemini key: format checked', bad.ok === false && /AIza/.test(bad.message));
+  // 16 Sep 2026: AI Studio also hands out keys shaped "AQ.Ab8RN6…" — they contain a DOT, so the old rule
+  // ([A-Za-z0-9_-]{30,120}) refused every new key the owner made. Both shapes must go in; rubbish must not.
+  const NEWKEY = 'AQ.Ab8RN6JrTESTtestTESTtest0123456789abcd';
+  const newSave = await feed.saveSettings({ geminiKey: NEWKEY });
+  ok('newer AI Studio key "AQ.Ab8RN6…" (has a dot) is accepted, and still never comes back out',
+    newSave.ok === true && (await feed.getSettings()).geminiKey === NEWKEY && !JSON.stringify(newSave).includes(NEWKEY) && newSave.settings.hasGeminiKey === true
+    && !JSON.stringify(await feed.publicList()).includes(NEWKEY), newSave.message);
+  for (const [why, k] of [['is too short', 'AIzaShort123'], ['has a space in it', 'AIzaSy TESTtestTESTtestTESTtest1234'], ['is a pasted URL', 'https://aistudio.google.com/app/apikey'], ['has quotes and angle brackets', '"<AIzaSyTESTtestTESTtestTESTtest12>"']]) {
+    const r = await feed.saveSettings({ geminiKey: k });
+    ok('Gemini key refused when it ' + why + ', with the AIza… / AQ.… hint', r.ok === false && /AIza… or AQ\.…/.test(r.message), r.message);
+  }
+  ok('a refused key never replaces the saved one', (await feed.getSettings()).geminiKey === NEWKEY);
   const GKEY = 'AIzaSyTESTtestTESTtestTESTtest1234567';
   let sv = await feed.saveSettings({ geminiKey: GKEY });
   ok('Gemini key saved server-side, never in the admin settings answer (only hasGeminiKey / aiProvider)', sv.ok && sv.changed.includes('Gemini key saved') && sv.settings.hasGeminiKey === true && sv.settings.aiProvider === 'Gemini' && !JSON.stringify(sv.settings).includes(GKEY) && JSON.parse(settings.feed_settings).geminiKey === GKEY);
