@@ -509,6 +509,13 @@ function publicSettings(st) {
     defaultProviders: DEFAULT_PROVIDERS, languageNames: LANGS, defaultLanguages: DEFAULT_LANGS,
   };
 }
+/**
+ * Google AI Studio hands out TWO shapes of Gemini key: the classic "AIzaSy…" one and the newer "AQ.Ab8RN6…" one,
+ * which has a DOT in it — the old rule ([A-Za-z0-9_-]) refused the new keys. So dots are allowed (and colons, in
+ * case Google adds one). Rubbish is still refused: a space, "<", a quote or a pasted URL (the "/" and ":" + "//")
+ * can never match, and the length has to look like a key.
+ */
+const GEMINI_KEY_RE = /^[A-Za-z0-9._:-]{25,200}$/;
 async function saveSettings(input) {
   const i = input || {};
   const raw = parseJson(await readKey(SETTINGS_KEY), {});
@@ -531,7 +538,7 @@ async function saveSettings(input) {
   if (i.clearGeminiKey === true) { if (cur.geminiKey) changed.push('Gemini key removed'); next.geminiKey = ''; }
   else if (s(i.geminiKey)) {
     const k = s(i.geminiKey);
-    if (!/^[A-Za-z0-9_-]{30,120}$/.test(k)) return { ok: false, message: 'That does not look like a Google AI Studio (Gemini) API key — it usually starts with "AIza".' };
+    if (!GEMINI_KEY_RE.test(k)) return { ok: false, message: 'That doesn\'t look like a Google AI Studio key — they start with AIza… or AQ.…' };
     if (k !== cur.geminiKey) { changed.push('Gemini key saved'); next.geminiKey = k; }
   }
   if (i.autoPublish != null) set('autoPublish', i.autoPublish === true || i.autoPublish === 'true', 'auto-publish ' + ((i.autoPublish === true || i.autoPublish === 'true') ? 'on' : 'off'));
