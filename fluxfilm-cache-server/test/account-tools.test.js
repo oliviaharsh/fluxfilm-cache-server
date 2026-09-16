@@ -85,7 +85,11 @@ const mailer = {
   const subUpd = last(/^UPDATE subscriptions SET password/);
   const tickUpd = last(/^UPDATE subscriptions SET removed = 1/);
   ok('every account row with this login in the family gets the new password (+ raw_json)', r.body.ok && accUpd.params[0] === 'N3w#pass' && /JSON_SET\(raw_json, '\$.Password'/.test(accUpd.sql) && accUpd.params[3] === '%netflix%' && r.body.accountRows === 2, r.body);
-  ok('active customers get the new password saved', subUpd && subUpd.params[0] === 'N3w#pass' && subUpd.params.slice(2).join() === 'A1,A2');
+  // Owner report 16 Sep 2026: EVERY row on this login — active (A1, A2), expired (E1) and already
+  // removed (E2) — because a renewal extends that very row and would hand out the old password.
+  ok('every plan on this login gets the new password saved, not just the active ones', subUpd && subUpd.params[0] === 'N3w#pass' && subUpd.params.slice(2).join() === 'A1,A2,E1,E2', subUpd && subUpd.params);
+  ok('the stored copy keeps raw_json in step too', subUpd && /JSON_SET\(raw_json, '\$.Password', \?\)/.test(subUpd.sql) && subUpd.params[1] === 'N3w#pass', subUpd && subUpd.sql);
+  ok('the answer counts the older plans separately for the owner', r.body.subsUpdated >= 1 && r.body.olderUpdated === 2 && /older plan\(s\) updated too/.test(r.body.summary), { subsUpdated: r.body.subsUpdated, older: r.body.olderUpdated, summary: r.body.summary });
   ok('expired customers ticked removed now, only if not already', tickUpd && /removed_at = NOW\(\)/.test(tickUpd.sql) && /COALESCE\(removed, 0\) = 0/.test(tickUpd.sql) && tickUpd.params.join() === 'E1' && r.body.expiredTicked === 1);
   ok('emails only active customers who have an email', r.body.email.sent === 1 && r.body.email.noEmail === 1 && sentMail.pw[0].email === 'a1@x' && sentMail.pw[0].password === 'N3w#pass' && sentMail.pw[0].login === 'Shared@x.com');
   ok('logged in reminder_log and the change log (without the password)', calls.some((c) => /^INSERT INTO reminder_log/.test(c.sql) && c.params[2] === 'PASSWORD_CHANGE') && calls.some((c) => /^INSERT INTO audit_log/.test(c.sql) && c.params[0] === 'account.passwordChange' && !JSON.stringify(c.params).includes('N3w#pass')));

@@ -44,9 +44,12 @@ function run(sql, p) {
   if (/^SELECT plan, raw_json FROM plans WHERE service = \?$/.test(sql)) return S.plans.filter((x) => x.service === p[0]).map(clone);
   if (/^SELECT service, raw_json FROM plans$/.test(sql)) return S.plans.map(clone);
   if (/^SELECT sub_id, inventory_ref, account_id, login_id, group_index FROM subscriptions WHERE group_id = \?$/.test(sql)) return S.subs.filter((x) => x.group_id && x.group_id === p[0]).map(clone);
-  if (/^SELECT sub_id, login_id, password, profile_name, profile_pin, profile_number, device_type, device_count, tv_count, group_index FROM subscriptions WHERE group_id = \? ORDER BY group_index$/.test(sql)) return S.subs.filter((x) => x.group_id === p[0]).sort((a, b) => a.group_index - b.group_index).map(clone);
+  // service / inventory_ref / account_id ride along so accesspassword.js can check the OTHER devices' logins.
+  if (/^SELECT sub_id, service, inventory_ref, account_id, login_id, password, profile_name, profile_pin, profile_number, device_type, device_count, tv_count, group_index FROM subscriptions WHERE group_id = \? ORDER BY group_index$/.test(sql)) return S.subs.filter((x) => x.group_id === p[0]).sort((a, b) => a.group_index - b.group_index).map(clone);
   if (/^SELECT name, email FROM customers WHERE phone_norm = \? LIMIT 1$/.test(sql)) return S.customers.filter((c) => c.phone_norm === p[0]).map(clone);
   if (/^SELECT account_id, service, login_id, password, is_active, plan, notes FROM inventory_accounts WHERE LOWER\(service\) LIKE \?$/.test(sql)) return S.accounts.filter((a) => a.service.toLowerCase().includes(likeOf(p[0]))).map(clone);
+  // accesspassword.js: one account read per account id + service family (its own statement, never a JOIN).
+  if (/^SELECT service, account_id, login_id, password, is_active FROM inventory_accounts WHERE account_id = \? AND LOWER\(service\) LIKE \? LIMIT 20$/.test(sql)) return S.accounts.filter((a) => a.account_id === p[0] && a.service.toLowerCase().includes(likeOf(p[1]))).map(clone);
   if (/^SELECT account_id, max_total, max_tv, is_active FROM inventory_capacity WHERE LOWER\(service\) LIKE \?$/.test(sql)) return S.caps.filter((a) => a.service.toLowerCase().includes(likeOf(p[0]))).map(clone);
   if (/^SELECT account_id, profile_number, profile_pin, profile_name, raw_json FROM inventory_profiles WHERE LOWER\(service\) LIKE \?$/.test(sql)) return S.profiles.filter((a) => a.service.toLowerCase().includes(likeOf(p[0]))).map(clone);
   if (/^SELECT account_id, login_id, password FROM inventory_accounts$/.test(sql)) return S.accounts.map((a) => ({ account_id: a.account_id, login_id: a.login_id, password: a.password }));

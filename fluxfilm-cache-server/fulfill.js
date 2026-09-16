@@ -8,6 +8,8 @@ const db = require('./db');
 const { loginKey, buildLoginGroups } = require('./logins');
 const { computeRenewal } = require('./renewal');
 const deviceLogins = require('./devicelogins');
+// 🔑 One shared rule: an access card never shows a password the account no longer has.
+const accessPassword = require('./accesspassword');
 
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
@@ -160,6 +162,8 @@ async function _existingAccess(orderId) {
   const rows = await _purchaseRows((sql, p) => pool.query(sql, p), 'order_id', orderId);
   const s = rows[0];
   if (!s) return null;
+  // 🔑 "Show me my credentials again" must not show a password the account no longer has.
+  await accessPassword.refreshAccessSafe((sql, p) => pool.query(sql, p).then((r) => r[0]), rows);
   const access = { user: s.login_id || '', pass: s.password || '', profileName: s.profile_name || '', profilePin: s.profile_pin || '', profileNumber: s.profile_number || '' };
   const multi = deviceLogins.accessWithLogins(rows);
   if (rows.groupsOn && multi.logins) Object.assign(access, { logins: multi.logins, sameLogin: multi.sameLogin, deviceCount: multi.deviceCount });
@@ -482,7 +486,9 @@ async function _deviceLoginsOn(conn, service, plan, policy, deviceCount) {
   return deviceLogins.groupsReady((sql, p) => conn.query(sql, p));
 }
 
-const SUB_ACCESS_COLS = 'sub_id, login_id, password, profile_name, profile_pin, profile_number, device_type, device_count, tv_count';
+// service / inventory_ref / account_id ride along so the access card can be checked against the account
+// it sits on (accesspassword.js) — read with its own statement, never a JOIN.
+const SUB_ACCESS_COLS = 'sub_id, service, inventory_ref, account_id, login_id, password, profile_name, profile_pin, profile_number, device_type, device_count, tv_count';
 // All login rows of one purchase, in device order. Before schema-v19 (or for legacy rows) → just the first row.
 async function _purchaseRows(q, where, param) {
   const on = await deviceLogins.groupsReady(q);
@@ -949,7 +955,11 @@ async function _fulfillRenew(o) {
     if (!s) return { ok: false, found: true, orderId: o.order_id, fulfillment: 'ERROR', message: 'Renewal target not found — please contact support.' };
     let rows = await _renewalRows(conn, s);
     const groupsOn = !!s.group_id || (_heldDevices(s).dev > 1 && await deviceLogins.groupsReady((sql, p) => conn.query(sql, p)));
-    const accessFor = (list) => {
+    const q = (sql, p) => conn.query(sql, p).then((r) => r[0]);
+    // 🔑 Safety net (accesspassword.js): whatever happened before, the card is built from the password the
+    // ACCOUNT has now. A row still on an older password is repaired (typed columns + raw_json) as we read it.
+    const accessFor = async (list) => {
+      await accessPassword.refreshAccessSafe(q, list);
       if (list.length === 1 && !groupsOn) return _accessOf(list[0]);
       const multi = deviceLogins.accessWithLogins(list);
       return Object.assign(_accessOf(list[0]), multi.logins ? { logins: multi.logins, sameLogin: multi.sameLogin, deviceCount: multi.deviceCount } : {});
@@ -959,7 +969,7 @@ async function _fulfillRenew(o) {
     const [chk] = await conn.query('SELECT fulfillment_status FROM orders WHERE order_id = ? LIMIT 1', [o.order_id]);
     if (chk[0] && String(chk[0].fulfillment_status || '').toUpperCase() === 'FULFILLED') {
       if (groupsOn && s.group_id) rows = await _renewalRows(conn, await _renewalSub(conn, sid));
-      return { ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED', message: '✅ Your subscription is renewed.', access: accessFor(rows), subId: sid };
+      return { ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED', message: '✅ Your subscription is renewed.', access: await accessFor(rows), subId: sid };
     }
     // Refunded or erased by the owner while this renewal waited for the lock: extend nothing.
     if (Array.isArray(chk) && !chk.length) return { ok: false, found: false, fulfillment: 'ERROR', message: 'Order not found in the FluxFilm database.' };
@@ -999,8 +1009,11 @@ async function _fulfillRenew(o) {
           profilePin: c.profilePin != null ? c.profilePin : (r.profile_pin || ''),
         };
         if (fresh.user !== r.login_id || fresh.pass !== r.password || fresh.profileName !== (r.profile_name || '') || fresh.profilePin !== (r.profile_pin || '')) {
-          await conn.query('UPDATE subscriptions SET login_id = ?, password = ?, profile_name = ?, profile_pin = ? WHERE sub_id = ?',
-            [fresh.user, fresh.pass, fresh.profileName, fresh.profilePin, r.sub_id]);
+          // raw_json is not just an archive (CLAUDE.md): keep it in step or the row looks right in admin
+          // and hands out the old password somewhere else.
+          await conn.query("UPDATE subscriptions SET login_id = ?, password = ?, profile_name = ?, profile_pin = ?, " +
+            "raw_json = IF(raw_json IS NULL, NULL, JSON_SET(raw_json, '$.LoginId', ?, '$.Password', ?, '$.ProfileName', ?, '$.ProfilePIN', ?)) WHERE sub_id = ?",
+          [fresh.user, fresh.pass, fresh.profileName, fresh.profilePin, fresh.user, fresh.pass, fresh.profileName, fresh.profilePin, r.sub_id]);
           console.log('[renew] refreshed stored login for', r.sub_id);
         }
         _applyAccess(r, fresh);
@@ -1008,8 +1021,10 @@ async function _fulfillRenew(o) {
       for (const m of d.moves) {
         const r = m.row; const na = m.part.alloc.access || {}; const dt = m.part.dt || '';
         await conn.query(
-          "UPDATE subscriptions SET inventory_ref = ?, account_id = ?, login_id = ?, password = ?, profile_number = ?, profile_name = ?, profile_pin = ?, device_type = COALESCE(NULLIF(?, ''), device_type) WHERE sub_id = ?",
-          [m.part.alloc.inventoryRef, m.part.alloc.accountId || m.part.alloc.inventoryRef, na.user || '', na.pass || '', na.profileNumber || '', na.profileName || '', na.profilePin || '', dt, r.sub_id]);
+          "UPDATE subscriptions SET inventory_ref = ?, account_id = ?, login_id = ?, password = ?, profile_number = ?, profile_name = ?, profile_pin = ?, device_type = COALESCE(NULLIF(?, ''), device_type), " +
+          "raw_json = IF(raw_json IS NULL, NULL, JSON_SET(raw_json, '$.InventoryRef', ?, '$.LoginId', ?, '$.Password', ?, '$.ProfileNumber', ?, '$.ProfileName', ?, '$.ProfilePIN', ?)) WHERE sub_id = ?",
+          [m.part.alloc.inventoryRef, m.part.alloc.accountId || m.part.alloc.inventoryRef, na.user || '', na.pass || '', na.profileNumber || '', na.profileName || '', na.profilePin || '', dt,
+            m.part.alloc.inventoryRef, na.user || '', na.pass || '', String(na.profileNumber || ''), na.profileName || '', na.profilePin || '', r.sub_id]);
         console.log('[renew] moved', r.sub_id, 'from', r.inventory_ref, 'to', m.part.alloc.inventoryRef, '(' + m.reason + ')');
         _applyAccess(r, na);
         Object.assign(r, { inventory_ref: m.part.alloc.inventoryRef, profile_number: na.profileNumber || '', device_type: dt || r.device_type });
@@ -1053,7 +1068,7 @@ async function _fulfillRenew(o) {
       await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
     });
 
-    const access = accessFor(rows);
+    const access = await accessFor(rows);
     const notice = moved && (rows.length > 1 || d.mode === 'SPLIT') ? _renewalMessage(Object.assign({}, d, { rows: d.mode === 'SPLIT' ? [s] : d.rows })) : '';
     afterFulfillHook({
       event: 'RENEW',

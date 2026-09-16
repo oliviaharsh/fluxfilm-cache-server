@@ -101,16 +101,23 @@ function run(sqlRaw, params) {
     Object.assign(s, { inventory_ref: params[0], account_id: params[1], login_id: params[2], password: params[3], profile_number: params[4], profile_name: params[5], profile_pin: params[6], device_type: params[7], device_count: 1, tv_count: params[8], group_id: params[9], group_size: params[10], group_index: 1 });
     S.writes.push('split-lead'); return { affectedRows: 1 };
   }
+  // sub_id is the LAST parameter: these statements now also keep raw_json in step (CLAUDE.md).
   if (/^UPDATE subscriptions SET inventory_ref/.test(sql)) {
-    const s = S.subs.find((x) => x.sub_id === params[8]);
+    const s = S.subs.find((x) => x.sub_id === params[params.length - 1]);
     Object.assign(s, { inventory_ref: params[0], account_id: params[1], login_id: params[2], password: params[3], profile_number: params[4], profile_name: params[5], profile_pin: params[6] });
     if (params[7]) s.device_type = params[7];
     S.writes.push('move:' + s.sub_id); return { affectedRows: 1 };
   }
   if (/^UPDATE subscriptions SET login_id/.test(sql)) {
-    const s = S.subs.find((x) => x.sub_id === params[4]);
+    const s = S.subs.find((x) => x.sub_id === params[params.length - 1]);
     Object.assign(s, { login_id: params[0], password: params[1], profile_name: params[2], profile_pin: params[3] });
     S.writes.push('refresh:' + s.sub_id); return { affectedRows: 1 };
+  }
+  // accesspassword.js safety net: an access card repairs a row still on an older password.
+  if (/^UPDATE subscriptions SET password = \?, login_id = \?/.test(sql)) {
+    const s = S.subs.find((x) => x.sub_id === params[4]);
+    if (s) Object.assign(s, { password: params[0], login_id: params[1] });
+    S.writes.push('access-repair:' + params[4]); return { affectedRows: s ? 1 : 0 };
   }
   if (/^UPDATE subscriptions SET expiry_date/.test(sql)) {
     const s = S.subs.find((x) => x.sub_id === params[4]);
