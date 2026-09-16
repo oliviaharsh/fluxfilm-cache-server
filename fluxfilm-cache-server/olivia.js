@@ -610,18 +610,21 @@ async function supportReplies(c, ctx, kind, service, opts) {
   const otpSvc = isOtpService(plans, svc);
   if (kind === 'paidnotgot') return reply({ intent: 'PAID_NOT_RECEIVED', buttons: [btn('myplans', lang), btn('recover', lang), wa] });
   if (kind === 'household') {
-    let acc = null;
+    let usable = [];
     // opts.noAuto: the auto-fetch was already tried this turn and could not get a code — show the manual steps, don't re-offer.
     if (!(opts && opts.noAuto)) {
-      try { const na = await tools().netflixAccounts(c.phone); if (na && na.ok) { const usable = (na.accounts || []).filter((x) => x.email && x.kind); if (usable.length === 1) acc = usable[0]; } } catch (_) { acc = null; }
-      ctx.meta.push({ tool: 'netflixAccounts', canCode: !!acc });
+      try { const na = await tools().netflixAccounts(c.phone); if (na && na.ok) usable = (na.accounts || []).filter((x) => x.email && x.kind); } catch (_) { usable = []; }
+      ctx.meta.push({ tool: 'netflixAccounts', usable: usable.length });
     }
-    if (acc) {
-      st.hhSub = acc.subId;
+    // One OR more Netflix accounts: offer the auto-fix. Only the account whose TV is asking will have a fresh code, so
+    // "Get my code now" tries each of the customer's own Netflix accounts and shows whichever one has it.
+    if (usable.length) {
+      st.hhSubs = usable.map((x) => x.subId);
       let canUpdate = false; try { canUpdate = !!tools().householdUpdateEnabled(); } catch (_) { canUpdate = false; }
       const extra = canUpdate ? [btn('hhupdate', lang)] : [];
       return reply({ intent: 'HH_OFFER_CODE', facts: { bothHelpers, canUpdate }, buttons: [btn('hhcode', lang)].concat(extra, helperBtns(), [wa]) });
     }
+    delete st.hhSubs;
     delete st.hhSub;
     return reply({ intent: 'HOUSEHOLD_HELPER', facts: { bothHelpers }, buttons: helperBtns().concat([wa]) });
   }
@@ -942,6 +945,7 @@ async function turn(c, input, ctx) {
       const payEnts = inPayment && st.orderId ? entities(text, ctx.cat.plans) : {};
       if (it === 'paid' && PAY_STEPS.has(st.step)) action = st.paused ? 'backpay_paid' : 'paid';
       else if (payEnts.service) { st.pendingSwitch = { service: payEnts.service, variant: payEnts.variant || '', days: payEnts.days || 0 }; action = 'switchask'; }
+      else if ((st.lastButtons || []).some((b) => b.id === 'hhcode') && /\b(aap|ap|tum|pls|please)?\s*(kar ?do|kardo|kr ?do|krdo|kardijiye|kar dijiye|kar do na|do it|do this|you do it|fix it|karo)\b/i.test(text)) action = 'hhcode';
       else if (it === 'cantpay' && st.step === 'paying') action = 'cantpay';
       else if ((it === 'yes' || /ek saath|same time|together|saath mein|dono par ek/i.test(text)) && st.step === 'devices_sametime') action = 'dsame:yes';
       else if ((it === 'no' || /ek.?ek karke|alag alag time|one at a time|not together/i.test(text)) && st.step === 'devices_sametime') action = 'dsame:no';
@@ -1095,27 +1099,24 @@ async function turn(c, input, ctx) {
     return [{ intent: 'HANDOFF_TO_HUMAN', buttons: withBackToPay(st, lang, [btn('whatsapp', lang), btn('menu', lang)]) }];
   }
   // After-sale help: login / password, household / TV code, "band ho gaya", OTP, paid but no login (menu: "Login / account problem").
-  if (action === 'hhupdate') {
-    // Permanent household update (state-changing) - only reachable when OLIVIA_HH_UPDATE=on; nothing is pressed until confirmed.
+  if (action === 'hhcode' || action === 'hhupdate') {
+    // The customer's own Netflix accounts we offered. Only the account whose TV is asking has a fresh link, so try each.
     const na = await tools().netflixAccounts(c.phone).catch(() => null);
-    const acc = na && na.ok ? (na.accounts || []).find((x) => x.subId === st.hhSub && x.email && x.kind) : null;
-    if (!acc) return supportReplies(c, ctx, 'household', '', { noAuto: true });
-    const res = await tools().householdUpdate(acc).catch(() => ({ ok: false, manual: true }));
-    ctx.meta.push({ tool: 'householdUpdate', ok: !!(res && res.ok) });
-    if (res && res.ok && res.updated) {
-      if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
-      return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }];
+    let usable = na && na.ok ? (na.accounts || []).filter((x) => x.email && x.kind) : [];
+    if (Array.isArray(st.hhSubs) && st.hhSubs.length) { const set = new Set(st.hhSubs); const pref = usable.filter((x) => set.has(x.subId)); if (pref.length) usable = pref; }
+    if (!usable.length) return supportReplies(c, ctx, 'household', '', { noAuto: true });
+    if (action === 'hhupdate') {
+      // Permanent update (state-changing) - only reachable when OLIVIA_HH_UPDATE=on; nothing is pressed until confirmed.
+      let done = null;
+      for (const acc of usable.slice(0, 4)) { const r = await tools().householdUpdate(acc).catch(() => null); if (r && r.ok && r.updated) { done = r; break; } }
+      ctx.meta.push({ tool: 'householdUpdate', ok: !!done, tried: Math.min(usable.length, 4) });
+      if (done) { if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
+      return supportReplies(c, ctx, 'household', '', { noAuto: true });
     }
-    return supportReplies(c, ctx, 'household', '', { noAuto: true });
-  }
-  if (action === 'hhcode') {
-    // Netflix household auto-fix: fetch the "Watch temporarily" travel code for the customer's own active Netflix account.
-    const na = await tools().netflixAccounts(c.phone).catch(() => null);
-    const acc = na && na.ok ? (na.accounts || []).find((x) => x.subId === st.hhSub && x.email && x.kind) : null;
-    if (!acc) return supportReplies(c, ctx, 'household', '');
-    const res = await tools().householdCode(acc).catch(() => ({ ok: false, manual: true }));
-    ctx.meta.push({ tool: 'householdCode', ok: !!(res && res.ok) });
-    if (res && res.ok && /^\d{4}$/.test(String(res.code))) {
+    let res = null;
+    for (const acc of usable.slice(0, 4)) { const r = await tools().householdCode(acc).catch(() => null); if (r && r.ok && /^\d{4}$/.test(String(r.code))) { res = r; break; } }
+    ctx.meta.push({ tool: 'householdCode', ok: !!res, tried: Math.min(usable.length, 4) });
+    if (res) {
       if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
       return [{ intent: 'HH_CODE_READY', card: { type: 'code', code: String(res.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }];
     }
