@@ -33,6 +33,8 @@
  *   POST /admin/api/credit/remind-email   { subId }
  */
 const renewRules = require('./renewrules');
+// 💳 A credit renewal is always "paid via credit" — the detail turns from DUE into PAID when the owner records it.
+const paidvia = require('./paidvia');
 
 const s = (v) => String(v == null ? '' : v).trim();
 const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -163,9 +165,11 @@ function settle(o, b, now) {
     raw.Status = 'PAID'; raw.FinalAmount = received; raw.PaymentMethod = method;
     const txnRef = ('ADMIN-CREDIT-' + method + (payment.ref ? ':' + payment.ref : '')).slice(0, 120);
     raw.TxnRef = txnRef;
+    paidvia.stamp(raw, paidvia.VIA.CREDIT, 'PAID', at);
     return { action: 'PAID', status: 'PAID', finalAmount: received, raw, txnRef, received, message: exact ? '✅ Paid in full (' + money(received) + ').' : '✅ Marked paid — ' + money(received) + ' received (' + money(st.amount) + ' was due).' };
   }
   raw.CreditStatus = 'PARTIAL';
+  paidvia.stamp(raw, paidvia.VIA.CREDIT, 'DUE', at);
   const left = rupees(st.due - amount);
   return { action: 'PARTIAL', status: 'CREDIT', finalAmount: num(o.final_amount), raw, txnRef: ('CREDIT-P' + payments.length + (payment.ref ? ':' + payment.ref : '')).slice(0, 120), received, left, message: '🧾 ' + money(amount) + ' recorded — ' + money(left) + ' still due.' };
 }

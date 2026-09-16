@@ -44,7 +44,8 @@ const mockDb = {
       sql = sql.replace(/\s+/g, ' ').trim();
       if (/coin_spends/.test(sql) && !spendsTable) noTable('coin_spends');
       if (/^SELECT status, coupon_code/.test(sql)) return [T.orders.filter((o) => o.order_id === p[0])];
-      if (/^UPDATE orders SET status = \?/.test(sql)) { const o = T.orders.find((x) => x.order_id === p[2]); if (o) o.status = 'PAID'; return [{ affectedRows: 1 }]; }
+      // _markPaid also writes raw_json (💸 PaidVia) when it can be read; the order id is always the LAST parameter.
+      if (/^UPDATE orders SET status = \?/.test(sql)) { const o = T.orders.find((x) => x.order_id === p[p.length - 1]); if (o) o.status = 'PAID'; return [{ affectedRows: 1 }]; }
       if (/^SELECT phone, coins_balance FROM wallet WHERE phone_norm = \? ORDER BY .* FOR UPDATE/.test(sql)) { const w = walletOf(p[0]); return [w ? [{ phone: w.phone, coins_balance: w.coins_balance }] : []]; }
       if (/^INSERT IGNORE INTO wallet/.test(sql)) { if (!T.wallet.some((x) => x.phone === p[0])) T.wallet.push({ phone: p[0], phone_norm: p[1], coins_balance: 0, coins_lifetime: 0 }); return [{ affectedRows: 1 }]; }
       if (/^SELECT id FROM coins_ledger WHERE order_id = \? AND event = \?/.test(sql)) return [T.ledger.filter((x) => x.order_id === p[0] && x.event === p[1])];

@@ -243,6 +243,8 @@ function mount(app, deps) {
       const due = credit.parseDueDate(b.creditDueDate);
       if (!due) return res.status(400).json({ ok: false, field: 'creditDueDate', message: 'Due date must look like 2026-09-20.' });
       Object.assign(rawExtra, { PaymentMethod: 'CREDIT', Credit: true, CreditAmount: amount, CreditDueDate: due, CreditCreatedAt: new Date().toISOString(), CreditStatus: 'OPEN' });
+      // 💳 "Paid via" from the start, so Receivables and the order screen agree (credit.js flips the detail to PAID).
+      require('./paidvia').stamp(rawExtra, 'CREDIT', 'DUE', rawExtra.CreditCreatedAt);
     }
 
     try {

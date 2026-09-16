@@ -1,14 +1,20 @@
 /**
  * FluxFilm - admin order lookup + stock levels (mounted by admin.js, admin-only).
  *
- *   GET  /admin/api/orders/search?q=&view=all|unpaid|undelivered|today|week
+ *   GET  /admin/api/orders/search?q=&view=all|unpaid|undelivered|today|week&paidVia=
  *   GET  /admin/api/orders/detail?id=FF…        order + payment + delivery + subscription(s)
  *   POST /admin/api/orders/retry-fulfil         paid but not delivered → try again
  *   GET  /admin/api/stock                       free units per plan + every account's usage
  *
  * Stock per plan comes from stock.js — the same numbers the storefront's badges use,
  * which are cross-checked against the real allocators in tests.
+ *
+ * 💸 "Paid via" (paidvia.js) rides along on both order routes: website QR · typed UTR · backup QR · coins · ₹0 ·
+ * admin · credit. It is stamped on raw_json at payment time and worked out on the fly for older orders. The bank
+ * credit and the claim row are read with their OWN statements and matched in JS (never a cross-table JOIN).
  */
+const paidvia = require('./paidvia');
+
 const s = (v) => String(v == null ? '' : v).trim();
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 function rawOf(v) { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (_) { return {}; } }
@@ -40,6 +46,10 @@ function mount(app, deps) {
     const q = s(req.query.q);
     const view = VIEWS[s(req.query.view)] != null ? s(req.query.view) : 'all';
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 60));
+    // 💸 Paid-via is not a column — it is worked out per order — so the filter reads more rows and keeps the
+    // matching ones. 4× the page is plenty for "show me the backup-QR orders" without ever scanning the table.
+    const wantVia = paidvia.fromFilter(req.query.paidVia);
+    const readLimit = wantVia ? Math.min(400, limit * 4) : limit;
     const where = []; const params = [];
     if (VIEWS[view]) where.push(VIEWS[view]);
     if (q) {
@@ -50,9 +60,20 @@ function mount(app, deps) {
     }
     try {
       const rows = await db.query(
-        'SELECT order_id, created_at_sheet, name, phone_norm, service, plan, final_amount, status, fulfillment_status, order_type, source FROM orders' +
-        (where.length ? ' WHERE ' + where.join(' AND ') : '') + ' ORDER BY created_at_sheet DESC LIMIT ?', [...params, limit]);
-      res.json({ ok: true, view, orders: rows });
+        'SELECT order_id, created_at_sheet, name, phone_norm, service, plan, final_amount, status, fulfillment_status, order_type, source, txn_ref, verified_at, raw_json FROM orders' +
+        (where.length ? ' WHERE ' + where.join(' AND ') : '') + ' ORDER BY created_at_sheet DESC LIMIT ?', [...params, readLimit]);
+      // Never let the paid-via lookup break the orders list itself.
+      const map = await paidvia.forOrders((sql, p) => db.query(sql, p), rows).then((x) => x.map, (e) => { console.log('[paidvia] order list:', e.message); return new Map(); });
+      const orders = [];
+      for (const o of rows) {
+        const pv = map.get(s(o.order_id)) || {};
+        delete o.raw_json;                       // raw_json is only read here to work out "Paid via"
+        o.paid_via = pv.via || ''; o.paid_via_detail = pv.detail || ''; o.paid_via_label = pv.label || '';
+        if (wantVia && pv.via !== wantVia) continue;
+        orders.push(o);
+        if (orders.length >= limit) break;
+      }
+      res.json({ ok: true, view, paidVia: paidvia.filterOf(wantVia), orders, more: wantVia && rows.length >= readLimit });
     } catch (e) { fail(res, e); }
   });
 
@@ -73,12 +94,26 @@ function mount(app, deps) {
           'SELECT sub_id, order_id, service, plan, start_date, expiry_date, status, fulfillment_status, inventory_ref, login_id, password, profile_name, profile_number, profile_pin, device_type, device_count, tv_count, source' + (groupsOn ? ', group_id, group_size, group_index' : '') + ' FROM subscriptions WHERE order_id = ?' +
           (subIds.length ? ' OR sub_id = ?' : '') +
           (groupsOn ? ' ORDER BY group_id, group_index' : '') + ' LIMIT 12', subIds.length ? [id, subIds[0]] : [id]),
-        db.query('SELECT id, upi_ref, amount, received_at FROM bank_credits WHERE consumed_order_id = ? ORDER BY id DESC LIMIT 3', [id]),
+        // `raw` is the bank's alert text: the payer name / IFSC are parsed here and only those are sent on.
+        db.query('SELECT id, upi_ref, amount, received_at, order_ids, raw FROM bank_credits WHERE consumed_order_id = ? ORDER BY id DESC LIMIT 3', [id]),
         db.query('SELECT coupon_code, discount, action, ts FROM coupon_usage WHERE order_id = ? ORDER BY ts', [id]),
         db.query('SELECT name, email, customer_id FROM customers WHERE phone_norm = ? LIMIT 1', [o.phone_norm]),
       ]);
+      // 📲 An accepted backup-UPI claim (paymatch.js) — its own statement, matched in JS (schema-v17 may be missing).
+      let claim = null;
+      try {
+        const cl = await db.query("SELECT order_id, payer_name, utr, status, source, created_at, updated_at, decided_at FROM payment_claims WHERE order_id = ? AND status IN ('MATCHED', 'APPROVED') ORDER BY id DESC LIMIT 1", [id]);
+        claim = cl[0] || null;
+      } catch (e) { if (!/doesn't exist|ER_NO_SUCH_TABLE|Unknown column/i.test(String(e.message))) throw e; }
+      const pv = paidvia.compute(Object.assign({}, o, { raw_json: raw }), { raw, credit: credits[0] || null, claim });
+      const bankCredits = credits.map((b) => {
+        const a = paidvia.parseAlert(b.raw);
+        return { id: b.id, upi_ref: b.upi_ref, amount: b.amount, received_at: b.received_at, payerName: a.payerName, bank: a.ifsc, vpa: paidvia.maskVpa(a.vpa), note: a.note };
+      });
       res.json({
-        ok: true, order: o, subs, bankCredits: credits, couponUsage: coupons, customer: cust[0] || null,
+        ok: true, order: o, subs, bankCredits, couponUsage: coupons, customer: cust[0] || null,
+        // 💸 How the money actually came in (website QR / typed UTR / backup QR / coins / ₹0 / admin / credit).
+        paidVia: { key: pv.via, detail: pv.detail, label: pv.label, at: pv.at, stored: pv.stored, payerName: s((bankCredits[0] || {}).payerName) || paidvia.displayName(claim && claim.payer_name) },
         // Who/how it was created (admin quick orders tag these); never the access-token hash.
         meta: { createdVia: s(raw.CreatedVia) || (o.source === 'node' ? 'WEBSITE' : 'SHEET'), paymentMethod: s(raw.PaymentMethod), adminNote: s(raw.AdminNote), loginMode: s(raw.LoginMode) },
       });

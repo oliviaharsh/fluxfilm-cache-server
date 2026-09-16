@@ -12,7 +12,9 @@ const mockDb = {
   ENABLED: true,
   query: async (sql, params) => {
     sql = sql.replace(/\s+/g, ' ').trim(); calls.push({ sql, params });
-    if (/^SELECT order_id, created_at_sheet, name, phone_norm, service, plan, final_amount, status, fulfillment_status, order_type, source FROM orders/.test(sql)) return [{ order_id: 'FF1', name: 'A', phone_norm: '9876543210', service: 'Netflix', plan: 'Private 1M', final_amount: 199, status: 'PAID', fulfillment_status: 'FAILED', order_type: 'NEW', source: 'node' }];
+    // The list also reads txn_ref / verified_at / raw_json so every row can show 💸 "Paid via" (paidvia.js).
+    if (/^SELECT order_id, created_at_sheet, name, phone_norm, service, plan, final_amount, status, fulfillment_status, order_type, source, txn_ref, verified_at, raw_json FROM orders/.test(sql)) return [{ order_id: 'FF1', name: 'A', phone_norm: '9876543210', service: 'Netflix', plan: 'Private 1M', final_amount: 199, status: 'PAID', fulfillment_status: 'FAILED', order_type: 'NEW', source: 'node', txn_ref: '123456789012', verified_at: '2026-09-14 10:01:00', raw_json: null }];
+    if (/FROM payment_claims/.test(sql)) return [];
     if (/FROM orders WHERE order_id = \? LIMIT 1$/.test(sql) && /raw_json/.test(sql)) return orderRow ? [Object.assign({}, orderRow)] : [];
     if (/^SELECT status, source FROM orders/.test(sql)) return orderRow ? [{ status: orderRow.status, source: orderRow.source }] : [];
     if (/FROM subscriptions WHERE order_id = \?/.test(sql)) return [{ sub_id: 'SUB-9', service: 'Netflix', plan: 'Private 1M', login_id: 'l@x', password: 'p', inventory_ref: 'NF-01#P2' }];

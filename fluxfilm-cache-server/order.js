@@ -11,6 +11,8 @@ const referrals = require('./referrals');
 const coins = require('./coins');
 const deviceLogins = require('./devicelogins');
 const emaillock = require('./emaillock');
+// 💸 "How was this paid" (website QR / typed UTR / backup QR / coins / admin / credit) — stamped at payment time.
+const paidvia = require('./paidvia');
 
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) || !isFinite(n) ? 0 : n; };
@@ -361,19 +363,32 @@ async function _order(orderId) {
   const rows = await db.query('SELECT order_id, final_amount, status, source FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
   return rows[0] || null;
 }
-async function _markPaid(orderId, txnRef) {
+/**
+ * Mark an order PAID, once.
+ *   via  — how the money came in (paidvia.VIA.*): stamped onto raw_json.PaidVia so the admin panel never has
+ *          to guess later. Unknown/empty leaves the order unstamped and it is worked out on the fly instead.
+ *   opts — { detail, payerName }: `detail` says how a backup-QR claim was accepted, `payerName` is the name on
+ *          the bank alert, remembered on the customer for Customer 360 and the admin search.
+ */
+async function _markPaid(orderId, txnRef, via, opts) {
+  const o_ = opts || {};
   const conn = await db.getPool().getConnection();
   let becamePaid = false;
   const couponOf = { code: '', discount: 0 };
+  let phoneNorm = '';
   try {
     await conn.beginTransaction();
     const [rows] = await conn.query(
-      'SELECT status, coupon_code, phone, phone_norm, email, discount FROM orders WHERE order_id = ? FOR UPDATE', [orderId]);
+      'SELECT status, coupon_code, phone, phone_norm, email, discount, raw_json FROM orders WHERE order_id = ? FOR UPDATE', [orderId]);
     const o = rows[0];
     if (!o) throw new Error('Order not found.');
+    phoneNorm = String(o.phone_norm || '');
     // A refunded order stays refunded: a late bank credit or a second "mark paid" never turns it back into PAID.
     if (String(o.status || '').toUpperCase() !== 'PAID' && String(o.status || '').toUpperCase() !== 'REFUNDED') {
-      await conn.query('UPDATE orders SET status = ?, txn_ref = ?, verified_at = NOW() WHERE order_id = ?', ['PAID', txnRef || '', orderId]);
+      // raw_json keeps every original field; stampJson returns null (and we leave raw_json alone) if it cannot be read.
+      const stamped = paidvia.stampJson(o.raw_json, via, o_.detail, new Date().toISOString());
+      if (stamped) await conn.query('UPDATE orders SET status = ?, txn_ref = ?, verified_at = NOW(), raw_json = ? WHERE order_id = ?', ['PAID', txnRef || '', stamped, orderId]);
+      else await conn.query('UPDATE orders SET status = ?, txn_ref = ?, verified_at = NOW() WHERE order_id = ?', ['PAID', txnRef || '', orderId]);
       becamePaid = true;
       const code = String(o.coupon_code || '').trim().toUpperCase();
       couponOf.code = code; couponOf.discount = asNum(o.discount);
@@ -397,6 +412,8 @@ async function _markPaid(orderId, txnRef) {
   } finally { conn.release(); }
   // A refund coupon (single use) was on two orders that were both paid (one by UPI after the other was confirmed):
   // payment can't be refused, so tell the owner. Never blocks payment.
+  // 💳 The name on the bank alert goes on the customer (raw_json.PayerNames, last 5) for Customer 360 + search.
+  if (becamePaid && String(o_.payerName || '').trim()) paidvia.rememberPayerNameLater(db.query, phoneNorm, o_.payerName);
   if (becamePaid && /^RF[A-Z0-9]{4,}$/.test(String(couponOf.code || '')) && couponOf.discount > 0) {
     flagRefundCouponOveruse(couponOf.code, orderId).catch((e) => console.log('[coupon] overuse check failed for', orderId, e.message));
   }
@@ -437,7 +454,8 @@ async function verifyPayment(orderId) {
   // ₹0 order: nothing to find in the bank (and no ₹0 bank line may ever "pay" it) — it is confirmed with confirmFreeOrder.
   if (!(asNum(o.final_amount) > 0)) return FREE_VERIFY;
   const credit = await pay.findByOrder(orderId, o.final_amount);
-  if (credit) { await _markPaid(orderId, credit.upi_ref); return { ok: true, found: true, paid: true }; }
+  // 🌐 The bank alert carried this order id, so the customer used the order QR / UPI link on the site.
+  if (credit) { await _markPaid(orderId, credit.upi_ref, paidvia.VIA.WEBSITE_QR, { payerName: paidvia.parseAlert(credit.raw).payerName }); return { ok: true, found: true, paid: true }; }
   // Paid to the plain backup QR by a customer whose payer name we already know (payment fallback, schema-v17).
   try {
     const learned = await require('./paymatch').autoMatchLearned(orderId);
@@ -456,7 +474,8 @@ async function verifyPaymentByRef(orderId, ref) {
   if (String(o.status || '').toUpperCase() === 'CREDIT') return CREDIT_VERIFY;
   if (!(asNum(o.final_amount) > 0)) return FREE_VERIFY;
   const credit = await pay.findByRef(orderId, ref, o.final_amount);
-  if (credit) { await _markPaid(orderId, credit.upi_ref); return { ok: true, found: true, paid: true }; }
+  // 🔢 The customer typed the reference on the checkout page.
+  if (credit) { await _markPaid(orderId, credit.upi_ref, paidvia.VIA.UTR_TYPED, { payerName: paidvia.parseAlert(credit.raw).payerName }); return { ok: true, found: true, paid: true }; }
   return { ok: true, found: false, message: 'That reference / amount didn\'t match a payment yet. Please double-check and try again.' };
 }
 
@@ -673,6 +692,9 @@ async function _confirmFreeOn(conn, oid, pr) {
   const paidWith = [creditRecorded ? 'CREDIT' : '', coinsRecorded ? 'COINS' : '', code && otherDiscount > 0 ? 'COUPON' : ''].filter(Boolean);
   const method = paidWith.join('+') || 'DISCOUNT';
   Object.assign(raw, { Status: 'PAID', PaymentMethod: method, PaidWithCredit: creditRecorded, PaidWithCoins: coinsRecorded, PaidWithCoupon: code && otherDiscount > 0 ? code : '', FreeConfirmedAt: new Date().toISOString(), TxnRef: 'CREDIT-' + oid });
+  // 🪙 Coins paid for it, or 🎁 nothing was left to pay (coupon / refund credit) — no bank line will ever exist.
+  paidvia.stamp(raw, coinsRecorded > 0 ? paidvia.VIA.COINS : paidvia.VIA.FREE,
+    coinsRecorded > 0 ? '' : creditRecorded > 0 ? 'REFUND_CREDIT' : code && otherDiscount > 0 ? 'COUPON' : '', raw.FreeConfirmedAt);
   const [upd] = await conn.query("UPDATE orders SET status = 'PAID', txn_ref = ?, verified_at = NOW(), raw_json = ? WHERE order_id = ? AND UPPER(status) = 'CREATED' LIMIT 1", ['CREDIT-' + oid, JSON.stringify(raw), oid]);
   if (!upd || upd.affectedRows !== 1) throw new FreeRefused('This order changed while confirming — please try again.');
   if (code && otherDiscount > 0) {
@@ -709,15 +731,19 @@ async function flagRefundCouponOveruse(code, orderId) {
   return { ok: true, n, flagged: true };
 }
 
-/** Admin only: mark an order paid (cash / UPI seen on WhatsApp). Same bookkeeping as a matched bank credit. */
-async function adminMarkPaid(orderId, txnRef) {
+/**
+ * Admin only: mark an order paid (cash / UPI seen on WhatsApp). Same bookkeeping as a matched bank credit.
+ * `via` defaults to 🧑‍💼 ADMIN; paymatch.js passes 📲 BACKUP_QR (with how the claim was accepted) because there
+ * the money really came in on the backup UPI — the admin only confirmed it.
+ */
+async function adminMarkPaid(orderId, txnRef, via, opts) {
   const o = await _order(orderId);
   if (!o) return { ok: false, message: 'Order not found.' };
   if (o.source !== 'node') return { ok: false, message: 'Legacy (Sheet) orders cannot be marked paid here.' };
   if (String(o.status || '').toUpperCase() === 'REFUNDED') return { ok: false, message: 'This order was refunded — it cannot be marked paid again. Create a new order instead.' };
   if (String(o.status || '').toUpperCase() === 'CREDIT') return { ok: false, credit: true, message: 'This renewal is on credit — use 💳 Mark paid on the order (Today → Receivables) so the amount is recorded.' };
   if (String(o.status || '').toUpperCase() === 'WRITTEN_OFF') return { ok: false, message: 'This credit was cancelled (written off) — it cannot be marked paid.' };
-  await _markPaid(orderId, txnRef);
+  await _markPaid(orderId, txnRef, paidvia.normalize(via) || paidvia.VIA.ADMIN, opts);
   return { ok: true };
 }
 

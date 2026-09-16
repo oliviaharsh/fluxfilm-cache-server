@@ -22,6 +22,9 @@
  */
 const crypto = require('crypto');
 const db = require('./db');
+// 📲 Everything matched here was paid to the BACKUP UPI ID / QR, so every order it pays is stamped BACKUP_QR
+// (with how it was accepted: UTR · name · known name · admin approved).
+const paidvia = require('./paidvia');
 
 const s = (v) => String(v == null ? '' : v).trim();
 const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -37,7 +40,7 @@ const QR_MAX_CHARS = 700000; // ~500 KB image; the admin panel shrinks uploads t
 // Tests replace these (clock + how an order is marked paid).
 const deps = {
   now: () => new Date(),
-  markPaid: (orderId, txnRef) => require('./order').adminMarkPaid(orderId, txnRef),
+  markPaid: (orderId, txnRef, via, opts) => require('./order').adminMarkPaid(orderId, txnRef, via, opts),
 };
 
 // ---------------- time helpers (the database stores India time without a zone) ----------------
@@ -188,12 +191,15 @@ async function setStatus(claim, status, reason, creditId, candidates) {
   return Object.assign(claim, { status, reason, credit_id: creditId || null });
 }
 
-/** Take the credit for the order (once, atomically) and mark the order paid. false = someone else took it first. */
-async function takeCredit(orderId, credit) {
+/**
+ * Take the credit for the order (once, atomically) and mark the order paid. false = someone else took it first.
+ * `detail` says how this backup-UPI payment was accepted: UTR · AUTO (name) · LEARNED (known name) · ADMIN.
+ */
+async function takeCredit(orderId, credit, detail) {
   const u = await db.query('UPDATE bank_credits SET consumed_order_id = ? WHERE id = ? AND consumed_order_id IS NULL', [orderId, credit.id]);
   if (!u || !u.affectedRows) return false;
   try {
-    const r = await deps.markPaid(orderId, credit.upi_ref);
+    const r = await deps.markPaid(orderId, credit.upi_ref, paidvia.VIA.BACKUP_QR, { detail: detail || 'AUTO', payerName: parseAlert(credit.raw).payerName });
     if (r && r.ok === false) throw new Error(r.message || 'mark paid failed');
   } catch (e) {
     await db.query('UPDATE bank_credits SET consumed_order_id = NULL WHERE id = ? AND consumed_order_id = ?', [credit.id, orderId]).catch(() => {});
@@ -244,7 +250,7 @@ async function evaluate(claim, cfg) {
       const rAt = toDate(c.received_at);
       if (rAt && rAt.getTime() < createdAt.getTime() - 10 * 60e3) return setStatus(claim, 'REVIEW', 'UPI reference is from before the order was made', null, [creditView(c)]);
       if (!cfg.autoAccept) return setStatus(claim, 'REVIEW', 'UPI reference matches (auto-accept is off)', null, [creditView(c, 'UTR')]);
-      if (await takeCredit(oid, c)) {
+      if (await takeCredit(oid, c, 'UTR')) {
         await learnName(o.phone_norm, claim.payer_name);
         return setStatus(claim, 'MATCHED', 'UPI reference ' + c.upi_ref + ' matched', c.id);
       }
@@ -273,7 +279,7 @@ async function evaluate(claim, cfg) {
     const { c } = strong[0];
     if (await someoneElseFits(c, oid, cfg)) return setStatus(claim, 'REVIEW', 'Another customer could also match this payment', null, views);
     if (!cfg.autoAccept) return setStatus(claim, 'REVIEW', 'Name and amount match (auto-accept is off)', null, views);
-    if (await takeCredit(oid, c)) {
+    if (await takeCredit(oid, c, 'AUTO')) {
       await learnName(o.phone_norm, claim.payer_name);
       const bank = parseAlert(c.raw).payerName; if (bank && compactName(bank) !== compactName(claim.payer_name)) await learnName(o.phone_norm, bank);
       return setStatus(claim, 'MATCHED', 'Name "' + bank + '" + amount matched (' + c.upi_ref + ')', c.id);
@@ -397,7 +403,7 @@ async function autoMatchLearned(orderId) {
     if (strong.length !== 1) return null;
     const c = strong[0];
     if (await someoneElseFits(c, oid, cfg)) return null;
-    if (!(await takeCredit(oid, c))) return null;
+    if (!(await takeCredit(oid, c, 'LEARNED'))) return null;
     const bank = parseAlert(c.raw).payerName;
     await learnName(o.phone_norm, bank);
     await db.query("INSERT INTO payment_claims (order_id, phone_norm, amount, payer_name, utr, status, reason, credit_id, source, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, 'MATCHED', ?, ?, 'LEARNED', ?, NOW())",
@@ -489,9 +495,9 @@ async function approveClaim(id, creditId, note) {
     if (!credit) return { ok: false, message: 'Bank payment not found.' };
     if (credit.consumed_order_id) return { ok: false, message: 'That bank payment is already used for order ' + credit.consumed_order_id + '.' };
     if (Math.round(num(credit.amount)) !== Math.round(num(o.final_amount))) return { ok: false, message: 'Amount differs: payment ₹' + num(credit.amount) + ', order ₹' + num(o.final_amount) + '.' };
-    if (!(await takeCredit(o.order_id, credit))) return { ok: false, message: 'That bank payment was just used by another order.' };
+    if (!(await takeCredit(o.order_id, credit, 'ADMIN'))) return { ok: false, message: 'That bank payment was just used by another order.' };
   } else if (s(o.status).toUpperCase() !== 'PAID') {
-    const r = await deps.markPaid(o.order_id, 'MANUAL-REVIEW-' + claim.id);
+    const r = await deps.markPaid(o.order_id, 'MANUAL-REVIEW-' + claim.id, paidvia.VIA.BACKUP_QR, { detail: 'ADMIN', payerName: claim.payer_name });
     if (r && r.ok === false) return r;
   }
   await db.query("UPDATE payment_claims SET status = 'APPROVED', credit_id = ?, admin_note = ?, decided_at = NOW(), updated_at = NOW() WHERE id = ? AND status IN ('WAITING', 'REVIEW')", [credit ? credit.id : null, s(note).slice(0, 200), claim.id]);

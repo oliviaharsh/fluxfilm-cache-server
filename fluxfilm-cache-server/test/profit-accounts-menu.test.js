@@ -361,7 +361,9 @@ const fakeCredit = { receivables: async () => ({ total: 0, count: 0, customers: 
   const pkg = require('../package.json');
   ok('this test is in npm test', /node test\/profit-accounts-menu\.test\.js/.test(pkg.scripts.test));
   ok('accountgroups.js and accountid.js are real files, mounted by admin.js', fs.existsSync(path.join(__dirname, '..', 'accountgroups.js')) && fs.existsSync(path.join(__dirname, '..', 'accountid.js')) && /require\('\.\/accountid'\)\.mount/.test(fs.readFileSync(path.join(__dirname, '..', 'admin.js'), 'utf8')));
-  ok('no schema change was needed', !fs.existsSync(path.join(__dirname, '..', 'db', 'schema-v27.sql')));
+  const src = ['accountgroups.js', 'accountid.js', 'profit.js'].map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
+  ok('no schema change: nothing creates, alters or drops a table', !/CREATE TABLE|ALTER TABLE|DROP TABLE/i.test(src));
+  ok('account_costs keeps its (service, account_id) key and the [billing:n:amount] note', /INSERT INTO account_costs \(service, account_id, monthly_cost, note\)/.test(src) && /\[billing:/.test(src));
 
   if (server.closeAllConnections) server.closeAllConnections();
   await new Promise((x) => server.close(x));
