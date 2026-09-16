@@ -83,7 +83,8 @@ const mockDb = {
       query: async (sql, p) => {
         sql = sql.replace(/\s+/g, ' ').trim();
         if (/^SELECT status, coupon_code/.test(sql)) return [T.orders.filter((o) => o.order_id === p[0])];
-        if (/^UPDATE orders SET status = \?/.test(sql)) { const o = T.orders.find((x) => x.order_id === p[2]); if (o) { o.status = 'PAID'; o.verified_at = nowStr(); } return [{ affectedRows: 1 }]; }
+        // _markPaid also writes raw_json (💸 PaidVia) when it can be read; the order id is always the LAST parameter.
+        if (/^UPDATE orders SET status = \?/.test(sql)) { const o = T.orders.find((x) => x.order_id === p[p.length - 1]); if (o) { o.status = 'PAID'; o.verified_at = nowStr(); if (p.length === 4) o.raw_json = p[2]; } return [{ affectedRows: 1 }]; }
         if (/^SELECT phone, coins_balance FROM wallet WHERE phone_norm = \? ORDER BY coins_lifetime DESC, coins_balance DESC LIMIT 1 FOR UPDATE/.test(sql)) {
           if (!held.length) held.push(await lockPhone(p[0]));
           await new Promise((r) => setTimeout(r, 2)); // let a parallel award try to interleave

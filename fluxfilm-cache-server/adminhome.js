@@ -16,6 +16,24 @@ const SCHEMA_MSG = 'Run db/schema-v14.sql in phpMyAdmin first.';
 // Paid but not delivered (refunded orders are REFUNDED, not PAID, so they drop out by themselves).
 const UNDELIVERED = "UPPER(o.status) = 'PAID' AND UPPER(COALESCE(o.fulfillment_status, '')) NOT IN ('FULFILLED', 'MANUAL_PENDING') AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.order_id = o.order_id) AND NOT (COALESCE(o.source, '') <> 'node' AND COALESCE(o.renew_sub_id, '') <> '' AND EXISTS (SELECT 1 FROM subscriptions r WHERE r.sub_id = o.renew_sub_id))";
 
+const paidvia = require('./paidvia');
+
+/**
+ * 💸 "Payments today: 6 website QR · 2 backup QR · 1 UTR" — every order that became paid today (India time),
+ * grouped by how the money came in. The bank credit / claim for each order are read with their own statements
+ * and matched in JS (paidvia.js), never a JOIN across old and new tables.
+ */
+async function paidViaToday(db) {
+  const rows = await db.query(
+    "SELECT order_id, status, source, txn_ref, final_amount, verified_at, created_at_sheet, raw_json FROM orders " +
+    "WHERE UPPER(status) IN ('PAID', 'FULFILLED') AND COALESCE(verified_at, created_at_sheet) >= CURDATE() " +
+    'ORDER BY COALESCE(verified_at, created_at_sheet) DESC LIMIT 300', []);
+  const { map } = await paidvia.forOrders((sql, p) => db.query(sql, p), rows);
+  const counts = paidvia.counts([...map.values()]);
+  const total = Object.keys(counts).reduce((n, k) => n + counts[k], 0);
+  return { total, counts, line: paidvia.summaryLine(counts, 'Payments today') };
+}
+
 /**
  * The ✅ Today action list (items + open to-dos). Shared by GET /admin/api/today and the 📈 business summaries
  * (reports.js "Pending" / stock / passwords), so both always show the same counts.
@@ -76,8 +94,12 @@ async function buildToday(db, deps) {
       const out = Object.keys(levels).filter((k) => levels[k].stockLevel === 'OUT').map((k) => k.replace('|||', ' · '));
       const low = Object.keys(levels).filter((k) => levels[k].stockLevel === 'LOW').map((k) => k.replace('|||', ' · ') + ' (' + levels[k].stock + ')');
       const hasTodos = await db.query('SELECT 1 FROM admin_todos LIMIT 1').then(() => true, () => false);
+      // 💸 How today's money came in (paidvia.js): "Payments today: 6 website QR · 2 backup QR · 1 UTR", so the
+      // owner can see at a glance whether the backup UPI QR is being used. Never breaks the Today screen.
+      const paidVia = await paidViaToday(db).catch((e) => { console.log('[today] paid-via line failed:', e.message); return null; });
       return ({
         ok: true,
+        paidVia,
         items: [
           { key: 'undelivered', icon: '⚠️', title: 'Paid but not delivered', count: +undelivered.n || 0, tone: 'bad', go: { view: 'orders', orders: 'undelivered' }, orders: Array.isArray(stuckList) ? stuckList : [] },
           { key: 'refundrequests', icon: '📨', title: 'Refund requests from customers', count: Array.isArray(refundRequests) ? refundRequests.length : 0, tone: 'bad', go: { view: 'refunds' }, orders: (Array.isArray(refundRequests) ? refundRequests : []).slice(0, 5).map((x) => ({ order_id: x.order_id, name: '', phone_norm: x.phone_norm, service: x.service, plan: x.plan, final_amount: Number(x.paid_amount) || 0, fulfillment_status: String(x.kind || '') === 'UNDELIVERED' ? 'NOT_DELIVERED' : 'DELIVERED' })) },
@@ -184,6 +206,17 @@ function mount(app, deps) {
         db.query('SELECT order_id, name, phone_norm, service, plan, final_amount, status, created_at_sheet FROM orders WHERE order_id LIKE ? OR txn_ref LIKE ? OR name LIKE ? OR email LIKE ?' + orPhone('phone_norm') + ' ORDER BY created_at_sheet DESC LIMIT 6', withPhone([like, like, like, like])),
         db.query('SELECT sub_id, phone_norm, service, plan, expiry_date, status, inventory_ref FROM subscriptions WHERE sub_id LIKE ? OR login_id LIKE ? OR inventory_ref LIKE ? OR email LIKE ?' + orPhone('phone_norm') + ' ORDER BY expiry_date DESC LIMIT 6', withPhone([like, like, like, like])),
       ]);
+      // 💳 Also find people by the name on their UPI payments ("who pays as RAHUL KUMAR SHARMA?").
+      // Two more statements, matched in JS — never a JOIN between customer_payer_names and customers.
+      const known = new Set(customers.map((c) => s(c.phone_norm)));
+      const payers = (await paidvia.searchPayerPhones((sql, p) => db.query(sql, p), q, 6).catch((e) => { console.log('[search] payer names skipped:', e.message); return []; }))
+        .filter((p) => p.phone_norm && !known.has(p.phone_norm));
+      if (payers.length && customers.length < 6) {
+        const phones = payers.map((p) => p.phone_norm).slice(0, 6 - customers.length);
+        const rows = await db.query('SELECT customer_id, name, email, phone_norm FROM customers WHERE phone_norm IN (' + phones.map(() => '?').join(',') + ')', phones);
+        const byPhone = new Map(payers.map((p) => [p.phone_norm, p.payerName]));
+        for (const c of rows) { c.payerName = byPhone.get(s(c.phone_norm)) || ''; customers.push(c); }
+      }
       res.json({ ok: true, customers, orders, subs });
     } catch (e) { fail(res, e); }
   });
@@ -202,4 +235,4 @@ function mount(app, deps) {
   });
 }
 
-module.exports = { mount, buildToday };
+module.exports = { mount, buildToday, paidViaToday };

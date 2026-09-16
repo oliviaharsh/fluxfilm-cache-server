@@ -51,8 +51,9 @@ function run(sqlRaw, p) {
   // ---- order.js (payment paths)
   if (/GET_LOCK|RELEASE_LOCK/.test(sql)) return [{ l: 1 }];
   if (/^SELECT order_id, final_amount, status, source FROM orders WHERE order_id = \? LIMIT 1$/.test(sql)) return T.orders.filter((o) => o.order_id === p[0]).map(clone);
-  if (/^SELECT status, coupon_code, phone, phone_norm, email, discount FROM orders WHERE order_id = \? FOR UPDATE$/.test(sql)) return T.orders.filter((o) => o.order_id === p[0]).map(clone);
-  if (/^UPDATE orders SET status = \?, txn_ref = \?, verified_at = NOW\(\) WHERE order_id = \?$/.test(sql)) { const o = order(p[2]); if (o) Object.assign(o, { status: p[0], txn_ref: p[1], verified_at: fmt(new Date()) }); return { affectedRows: o ? 1 : 0 }; }
+  if (/^SELECT status, coupon_code, phone, phone_norm, email, discount, raw_json FROM orders WHERE order_id = \? FOR UPDATE$/.test(sql)) return T.orders.filter((o) => o.order_id === p[0]).map(clone);
+  // _markPaid also writes raw_json (💸 PaidVia) when it can be read; the order id is always the LAST parameter.
+  if (/^UPDATE orders SET status = \?, txn_ref = \?, verified_at = NOW\(\)(, raw_json = \?)? WHERE order_id = \?$/.test(sql)) { const o = order(p[p.length - 1]); if (o) Object.assign(o, { status: p[0], txn_ref: p[1], verified_at: fmt(new Date()) }, p.length === 4 ? { raw_json: p[2] } : {}); return { affectedRows: o ? 1 : 0 }; }
   if (/^SELECT order_id, status, source, service, plan, phone, phone_norm, email, order_type, price, discount, final_amount, coupon_code, raw_json FROM orders WHERE order_id = \? LIMIT 1 FOR UPDATE$/.test(sql)) return T.orders.filter((o) => o.order_id === p[0]).map(clone);
   if (/^UPDATE orders SET status = 'PAID', txn_ref = \?, verified_at = NOW\(\), raw_json = \? WHERE order_id = \? AND UPPER\(status\) = 'CREATED' LIMIT 1$/.test(sql)) { const o = order(p[2]); if (!o || o.status !== 'CREATED') return { affectedRows: 0 }; Object.assign(o, { status: 'PAID', txn_ref: p[0], raw_json: p[1], verified_at: fmt(new Date()) }); return { affectedRows: 1 }; }
   // ---- ownernotify.js
@@ -168,7 +169,8 @@ function mkOrder(id, extra, raw) {
   await settle();
   ok('a CREDIT order cannot be "Mark paid" here → no push', !r.ok && r.credit && pushes.length === 4, r);
   const qo = fs.readFileSync(path.join(ROOT, 'quickorders.js'), 'utf8'); const pm = fs.readFileSync(path.join(ROOT, 'paymatch.js'), 'utf8');
-  ok('Quick order paid now + backup UPI claims + learned names all pay through adminMarkPaid (→ _markPaid → alert)', /adminMarkPaid\(orderId, txn\)/.test(qo) && /markPaid: \(orderId, txnRef\) => require\('\.\/order'\)\.adminMarkPaid/.test(pm));
+  // paymatch now also hands over 💸 "paid via" (BACKUP_QR + how the claim was accepted) and the payer name.
+  ok('Quick order paid now + backup UPI claims + learned names all pay through adminMarkPaid (→ _markPaid → alert)', /adminMarkPaid\(orderId, txn\)/.test(qo) && /markPaid: \(orderId, txnRef, via, opts\) => require\('\.\/order'\)\.adminMarkPaid/.test(pm));
 
   // credit: creation never alerts, mark paid → "✅ Credit paid"
   T.orders.push(mkOrder('FFK', { order_type: 'RENEW', final_amount: 129, service: 'Prime Video', plan: '1 Month' }, { Credit: true, CreditAmount: 129, CreditStatus: 'OPEN' }));

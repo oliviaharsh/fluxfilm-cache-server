@@ -46,8 +46,9 @@ async function q(sqlRaw, p) {
   if (/^SELECT \* FROM bank_credits WHERE upi_ref = \? LIMIT 1$/.test(sql)) return T.credits.filter((c) => c.upi_ref === p[0]).map(copy);
   // ---- order.js
   if (/^SELECT order_id, final_amount, status, source FROM orders WHERE order_id = \? LIMIT 1$/.test(sql)) return T.orders.filter((o) => o.order_id === p[0]).map(copy);
-  if (/^SELECT status, coupon_code, phone, phone_norm, email, discount FROM orders WHERE order_id = \? FOR UPDATE$/.test(sql)) return T.orders.filter((o) => o.order_id === p[0]).map(copy);
-  if (/^UPDATE orders SET status = \?, txn_ref = \?, verified_at = NOW\(\) WHERE order_id = \?$/.test(sql)) { const o = T.orders.find((x) => x.order_id === p[2]); if (o) Object.assign(o, { status: p[0], txn_ref: p[1] }); return { affectedRows: o ? 1 : 0 }; }
+  if (/^SELECT status, coupon_code, phone, phone_norm, email, discount, raw_json FROM orders WHERE order_id = \? FOR UPDATE$/.test(sql)) return T.orders.filter((o) => o.order_id === p[0]).map(copy);
+  // _markPaid also writes raw_json (💸 PaidVia) when it can be read; the order id is always the LAST parameter.
+  if (/^UPDATE orders SET status = \?, txn_ref = \?, verified_at = NOW\(\)(, raw_json = \?)? WHERE order_id = \?$/.test(sql)) { const o = T.orders.find((x) => x.order_id === p[p.length - 1]); if (o) Object.assign(o, { status: p[0], txn_ref: p[1] }, p.length === 4 ? { raw_json: p[2] } : {}); return { affectedRows: o ? 1 : 0 }; }
   // ---- paymatch.js
   if (/^SELECT value FROM app_settings WHERE setting_key = \? LIMIT 1$/.test(sql)) return T.settings[p[0]] != null ? [{ value: T.settings[p[0]] }] : [];
   if (/^SELECT order_id, phone_norm, final_amount, status, source, order_type, created_at_sheet, raw_json FROM orders WHERE order_id = \?/.test(sql)) return T.orders.filter((o) => o.order_id === p[0]).map(copy);
