@@ -5,6 +5,9 @@
  *   POST /admin/api/otp-devices/device                  { subId, device?, deviceName?, deviceType? }  (raw_json + device_type, change log)
  *   POST /admin/api/otp-devices/import/preview          { source: 'sheet', tab } | { source: 'paste', text }  → preview, writes NOTHING
  *   POST /admin/api/otp-devices/import/save             { items: [{ subId, device?, setDevices?, deviceName, deviceType }], overwrite }  (one change-log entry)
+ *   GET  /admin/api/otp-diagnostics?service=            🔎 Get OTP check: time window + why the last run showed nothing
+ *   POST /admin/api/otp-settings                        { windowMin 5-30 }  how long a forwarded mail stays usable
+ *   POST /admin/api/otp-selftest                        { service?, subject?, text }  what the parser makes of a pasted mail
  *
  * 🚪 Remove uses the existing POST /admin/api/sub-removed (same write + change log as "Removed from account").
  * The old Sheet is only ever READ (sheetReader has no write method).
@@ -91,6 +94,36 @@ function mount(app, deps) {
         audit.record(req, { action: 'sub.deviceImport', entity: 'import', id: 'otp-devices', summary: '📥 Copied device names from the old Sheet: ' + r.names + ' name(s), ' + r.types + ' type(s) on ' + r.saved + ' subscription(s)' + (r.devices ? ' · ' + r.devices + ' plan(s) set to more devices' : '') + (r.unchanged ? ' · ' + r.unchanged + ' already the same' : '') + (r.errors.length ? ' · ' + r.errors.length + ' failed' : '') + (overwrite ? ' · overwrite on' : ''), details: { overwrite, saved: r.saved, names: r.names, types: r.types, devices: r.devices, unchanged: r.unchanged, skipped: r.skipped, errors: r.errors.slice(0, 50) } });
       }
       res.json(Object.assign({ ok: true, message: r.saved ? '📥 Saved ' + r.saved + ' device name' + (r.saved === 1 ? '' : 's') + '.' + (r.unchanged ? ' ' + r.unchanged + ' already the same.' : '') : 'Nothing new to save' + (r.unchanged ? ' (' + r.unchanged + ' already the same).' : '.') }, r));
+    } catch (e) { fail(res, e); }
+  });
+
+  // ---------------------------------------------------------------- 🔎 Get OTP check (otp.js)
+  // Why a code was not shown (counts + masked numbers only), how long a mail stays usable, and a paste-a-mail self-test.
+  const OTP = () => deps.otp || require('./otp');
+
+  app.get('/admin/api/otp-diagnostics', async (req, res) => {
+    if (!auth(req, res)) return;
+    try { res.json(await OTP().adminDiagnostics(s(req.query.service).slice(0, 40))); } catch (e) { fail(res, e); }
+  });
+
+  app.post('/admin/api/otp-settings', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      const r = await OTP().saveSettings({ windowMin: (req.body || {}).windowMin });
+      if (!r.ok) return res.status(r.status || 400).json(r);
+      audit.record(req, { action: 'otp.settings', entity: 'settings', id: 'getotp_settings', summary: '🔎 Get OTP: a forwarded mail is used for ' + r.settings.windowMin + ' min (was ' + r.before.windowMin + ')', details: { before: r.before, after: r.settings } });
+      res.json({ ok: true, settings: r.settings, message: '✅ Saved. Forwarded mails are used for ' + r.settings.windowMin + ' minutes.' });
+    } catch (e) { fail(res, e); }
+  });
+
+  app.post('/admin/api/otp-selftest', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      const b = req.body || {};
+      const text = String(b.text == null ? '' : b.text);
+      if (!text.trim()) return res.status(400).json({ ok: false, message: 'Paste the forwarded mail first.' });
+      if (text.length > 20000) return res.status(400).json({ ok: false, message: 'Too long (max 20 KB) — paste one mail.' });
+      res.json(await OTP().adminSelfTest({ service: s(b.service).slice(0, 40), subject: String(b.subject == null ? '' : b.subject).slice(0, 300), text }));
     } catch (e) { fail(res, e); }
   });
 }
