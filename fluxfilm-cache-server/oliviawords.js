@@ -166,6 +166,11 @@ const T = {
     hinglish: (f) => 'Koi baat nahi ji 🙏 Netflix is TV ke liye code maang raha hai.\nMain abhi aapke liye code la deti hoon: bas "Abhi code lo" dabaiye.\nYa khud kijiye: TV par "Watch temporarily" dabaiye, phir Household Helper se code lijiye.' + (f.bothHelpers ? '\n(Helper ke 2 link hain: har link par likha hai kaunse Netflix email ke liye.)' : ''),
     hi: (f) => 'कोई बात नहीं जी 🙏 Netflix इस TV के लिए कोड माँग रहा है।\nमैं अभी आपके लिए कोड ला देती हूँ: बस "अभी कोड लो" दबाइए।\nया खुद कीजिए: TV पर "Watch temporarily" दबाइए, फिर Household Helper से कोड लीजिए।' + (f.bothHelpers ? '\n(Helper के 2 लिंक हैं: हर लिंक पर लिखा है किस Netflix ईमेल के लिए।)' : ''),
   },
+  HH_CODE_NOT_YET: {
+    en: (f) => (f.attempt >= 2 ? 'Still no code 🙏 Two things to check:\n' : 'I could not find a code yet 🙏\n') + 'On the TV, tap "Watch temporarily" (or "Update household" -> "Send email").' + (f.attempt >= 2 ? '\nAlso make sure it is this Netflix, on this account.' : '') + '\nDone that? Tap "I clicked, check again".',
+    hinglish: (f) => (f.attempt >= 2 ? 'Abhi bhi code nahi mila 🙏 Do baat check kijiye:\n' : 'Mujhe abhi code nahi mila 🙏\n') + 'TV par "Watch temporarily" dabaiye (ya "Update household" -> "Send email").' + (f.attempt >= 2 ? '\nYe bhi dekh lijiye ki yahi Netflix hai, isi account ka.' : '') + '\nHo gaya? "I clicked, check again" dabaiye.',
+    hi: (f) => (f.attempt >= 2 ? 'अभी भी कोड नहीं मिला 🙏 दो बातें देखिए:\n' : 'मुझे अभी कोड नहीं मिला 🙏\n') + 'TV पर "Watch temporarily" दबाइए (या "Update household" -> "Send email")।' + (f.attempt >= 2 ? '\nयह भी देख लीजिए कि यही Netflix है, इसी अकाउंट का।' : '') + '\nहो गया? "I clicked, check again" दबाइए।',
+  },
   HH_UPDATE_DONE: {
     en: () => 'Done ✅ This TV is now set as your Netflix home.\nPlease try playing again — it should work now.\nIf it still asks, tap "Get my code now" for a temporary code.',
     hinglish: () => 'Ho gaya ✅ Ab yeh TV aapka Netflix home set ho gaya hai.\nEk baar dobara chala kar dekhiye, ab chal jana chahiye.\nPhir bhi maange to "Abhi code lo" dabakar temporary code le lijiye.',
@@ -579,6 +584,7 @@ const B = {
   helper2: { en: '🏠 Household Helper (Link 2)', hinglish: '🏠 Household Helper (Link 2)', hi: '🏠 Household Helper (Link 2)' },
   hhcode: { en: '🔑 Get my code now', hinglish: '🔑 Abhi code lo', hi: '🔑 अभी कोड लो' },
   hhupdate: { en: '🏠 Make this TV my home', hinglish: '🏠 Yeh TV mera home banao', hi: '🏠 यह TV मेरा होम बनाओ' },
+  hhretry: { en: '🔄 I clicked, check again', hinglish: '🔄 Click kar diya, check karo', hi: '🔄 दबा दिया, फिर देखो' },
   helper: { en: '🏠 Open Household Helper', hinglish: '🏠 Household Helper kholo', hi: '🏠 Household Helper खोलो' },
   support: { en: '🔐 Login / account problem', hinglish: '🔐 Login / account problem', hi: '🔐 लॉगिन / अकाउंट समस्या' },
   recover: { en: '🔐 Open Recover', hinglish: '🔐 Recover kholo', hi: '🔐 Recover खोलो' },
@@ -643,7 +649,7 @@ const LEAD_EMOJI = {
   CONFIRM_PLAN: '🧾', CONFIRM_PLAN_COUPON: '🧾', SEND_PAYMENT: '💳', PAYMENT_REMINDER: '💳', PAYMENT_NOT_YET: '⏳', BACKUP_UNDER_REVIEW: '⏳',
   RENEW_PICK: '🔁', RENEW_DURATION: '🔁', RENEW_CONFIRM: '🔁', RENEW_CONFIRM_COUPON: '🔁', RENEW_NOTHING: '🔁',
   PRICE_HELP: '💰', PRICE_HELP_PLAN: '💰', PRICE_MATCH: '💰', PRICE_FROM: '💰', PAYMENT_METHOD: '💳', WHEN_LOGIN: '🔐', WHEN_LOGIN_MANUAL: '🔐', VALIDITY: '📅', DEVICES_ANSWER: '📱', QUALITY_UNSURE: '💬',
-  ASK_DEVICES_SHARING_OR_PRIVATE: '📱', MULTI_DEVICE_PLANS: '📱', ASK_SAME_TIME: '📺', ASK_LOGIN_MODE: '🔑', EARLY_RENEW_DISCOUNT: '🎁', HH_OFFER_CODE: '🏠', HH_CODE_READY: '🔑', HH_UPDATE_DONE: '✅', MULTI_DEVICE_NONE: '📱', SWITCH_CONFIRM: '🔄', QUESTION_TO_TEAM: '💬', ASK_COUPON: '🎟️', COUPON_INVALID: '🎟️',
+  ASK_DEVICES_SHARING_OR_PRIVATE: '📱', MULTI_DEVICE_PLANS: '📱', ASK_SAME_TIME: '📺', ASK_LOGIN_MODE: '🔑', EARLY_RENEW_DISCOUNT: '🎁', HH_OFFER_CODE: '🏠', HH_CODE_READY: '🔑', HH_CODE_NOT_YET: '📺', HH_UPDATE_DONE: '✅', MULTI_DEVICE_NONE: '📱', SWITCH_CONFIRM: '🔄', QUESTION_TO_TEAM: '💬', ASK_COUPON: '🎟️', COUPON_INVALID: '🎟️',
 };
 const escRe = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function format(text, facts, intent, opts) {
