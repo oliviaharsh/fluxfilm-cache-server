@@ -200,7 +200,8 @@ async function turnR2On(publicBase) {
   r = await r2.saveConfig({ publicBase: 'http://pub.example.com' });
   ok('a public URL must be https with no ? or #', !r.ok && /https/.test(r.message), r);
   r = await r2.saveConfig({ on: true });
-  ok('R2 cannot be switched on before the keys are in', !r.ok && /before turning Cloudflare R2 on/.test(r.message), r);
+  ok('R2 cannot be switched on before the keys are in — and it names every missing piece',
+    !r.ok && /^Missing: Account ID, Bucket name, Access Key ID and Secret Access Key\./.test(r.message) && /pick 🪣 Cloudflare R2 again/.test(r.message), r.message);
   r = await turnR2On('https://pub-abc.r2.dev');
   ok('saving works and the change log words never contain a key', r.ok && r.changed.join(' ').includes('Access Key ID saved') && !JSON.stringify(r).includes(SECRET) && !JSON.stringify(r).includes(AKID), r.changed);
   const pub = r2.publicConfig(await r2.getConfig(true));
@@ -219,6 +220,33 @@ async function turnR2On(publicBase) {
   r = await r2.testConnection();
   ok('🔌 Test connection with R2 unreachable → a clear error, never a stack trace', !r.ok && /Could not write/.test(r.message) && /did not answer/.test(r.message), r.message);
   S3.down = false;
+
+  // ================= 3b. the boxes on screen vs what is saved (the two live bugs) =================
+  // The key boxes are BLANK once a key is saved (they only say "✅ set"), so 🔌 Test connection has to lay the
+  // form over the saved settings: a blank key box means "use the saved key", not "there is no key".
+  await reset();
+  await r2.saveConfig({ accessKeyId: AKID, secretAccessKey: SECRET }); // only the keys are saved
+  r = await r2.testConnection({ accountId: ACCOUNT, bucket: 'typed-bucket', accessKeyId: '', secretAccessKey: '', publicBase: '' });
+  ok('typed Account ID + bucket over saved keys → really signs and reaches R2 (no "fill in the keys" refusal)',
+    r.ok && S3.calls.length === 3 && S3.calls[0].bucket === 'typed-bucket' && S3.calls[0].host === ACCOUNT + '.r2.cloudflarestorage.com' && /No public URL set/.test(r.message),
+    { r, calls: S3.calls.map((c) => c.method + ' ' + c.bucket) });
+  let savedCfg = await r2.getConfig(true);
+  ok('the test does NOT save what was typed (it is a test, not a save)', savedCfg.accountId === '' && savedCfg.bucket === '' && savedCfg.accessKeyId === AKID);
+  ok('the test answer never contains a key', !JSON.stringify(r).includes(AKID) && !JSON.stringify(r).includes(SECRET));
+  r = await r2.testConnection({ accountId: '', bucket: 'typed-bucket' });
+  ok('missing only the Account ID → says exactly that, and which pieces are saved vs only typed',
+    !r.ok && (r.missing || []).join() === 'Account ID' && /^Missing: Account ID\./.test(r.message) && /The keys are saved\./.test(r.message) && /The bucket is typed in but not saved yet\./.test(r.message), r.message);
+
+  // Picking 🪣 Cloudflare R2 must save the typed boxes in the SAME request, so it works in one tap.
+  r = await r2.saveConfig({ on: true });
+  ok('switching on with nothing typed → "Missing: Account ID and Bucket name. The keys are saved."',
+    !r.ok && /^Missing: Account ID and Bucket name\./.test(r.message) && /The keys are saved\./.test(r.message) && (await r2.getConfig(true)).on === false, r.message);
+  r = await r2.saveConfig({ on: true, accountId: ACCOUNT, bucket: 'fluxfilm-reels', accessKeyId: '', secretAccessKey: '', publicBase: '' });
+  ok('switching on WITH the boxes filled in saves them and turns R2 on in one tap',
+    r.ok && r.changed.includes('Video storage switched to Cloudflare R2') && r.config.on === true && r.config.accountId === ACCOUNT && r.config.bucket === 'fluxfilm-reels' && (await r2.getConfig(true)).on === true, r);
+  ok('that answer is still key-free (only "set" / "not set")', !JSON.stringify(r).includes(AKID) && !JSON.stringify(r).includes(SECRET) && r.config.keySet === true && r.config.secretSet === true);
+  r = await r2.saveConfig({ clearKeys: true, on: false });
+  ok('Remove keys still works and R2 goes back off', r.ok && r.changed.includes('R2 keys removed') && (await r2.getConfig(true)).accessKeyId === '' && (await r2.getConfig(true)).on === false, r.changed);
 
   // ================= 4. upload with R2 on: only the key in MySQL, no chunks =================
   await reset(); await turnR2On('https://pub-abc.r2.dev');
@@ -491,6 +519,12 @@ async function turnR2On(publicBase) {
   ok('admin shows "set" / "not set" for the keys and never a value in the input', /r\.keySet \? '✅ set' : 'not set'/.test(ad) && /r\.secretSet \? '✅ set' : 'not set'/.test(ad) && !/value="' \+ esc\(r\.accessKeyId/.test(ad));
   ok('admin has the exact Cloudflare steps (bucket, Object Read & Write token, Account ID, r2.dev, CORS)',
     /Create bucket/.test(ad) && /Manage R2 API Tokens/.test(ad) && /Object Read &amp; Write/.test(ad) && /Account ID/.test(ad) && /r2\.dev/.test(ad) && /CORS policy/.test(ad));
+  ok('admin says CORS is only needed when a Public URL is used (with none, the shop serves the video itself)',
+    /<b>Only if you set a Public URL above:<\/b> bucket → Settings → <b>CORS policy<\/b>/.test(ad) && /With no public URL the shop serves the video itself and CORS is not needed at all\./.test(ad));
+  ok('🔌 Test connection saves the typed boxes first, then tests with the same values',
+    /Saving what you typed, then writing a test file to Cloudflare/.test(ad) && /post\('\/admin\/api\/feed\/video\/storage', b\)\.then\(function \(sr\) \{/.test(ad) && /post\('\/admin\/api\/feed\/video\/test', b\)/.test(ad));
+  ok('the test route sends the boxes every time so the server can lay them over the saved keys',
+    /const r = await r2\.testConnection\(\{ accountId: b\.accountId, bucket: b\.bucket, accessKeyId: b\.accessKeyId, secretAccessKey: b\.secretAccessKey, publicBase: b\.publicBase \}\);/.test(af) && !/const typed = b\.accountId/.test(af));
   ok('admin storage card: both bars, the R2 pill, the operation counts, ⬆️ move and 🧽 erase buttons',
     /<b>🎬 Videos: ' \+ fdMb\(v\.bytes\) \+ ' of ' \+ fdMb\(v\.totalBytes\) \+ ' used<\/b>/.test(ad) && /function fdBar\(label, box, inUse\)/.test(ad) && /🪣 Cloudflare R2/.test(ad)
     && /id="fdvidmig"/.test(ad) && /id="fderasebtn"/.test(ad) && /R2 this month: /.test(ad));

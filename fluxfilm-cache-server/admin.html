@@ -3997,8 +3997,8 @@ function fdStorageBox() {
     '<li>On the R2 overview page copy the <b>Account ID</b> (a long string of letters and numbers) into the first box below.</li>' +
     '<li>R2 → <b>Manage R2 API Tokens</b> → <b>Create API token</b> → permission <b>Object Read &amp; Write</b> → “Apply to specific buckets” → pick your bucket → Create. Copy the <b>Access Key ID</b> and the <b>Secret Access Key</b> (the secret is shown once).</li>' +
     '<li>Optional but best: bucket → <b>Settings</b> → <b>Public access</b> → either turn on the <b>r2.dev</b> subdomain (copy the https://pub-….r2.dev link) or connect your own domain (for example videos.fluxfilm.in). Paste that link in “Public URL”. With no public URL the shop still serves the videos itself.</li>' +
-    '<li>If you use a public URL, bucket → Settings → <b>CORS policy</b> → add: AllowedOrigins <b>https://shop.fluxfilm.in</b> and <b>https://go.fluxfilm.in</b>, AllowedMethods <b>GET, HEAD</b>, AllowedHeaders <b>Range</b>, ExposeHeaders <b>Content-Length, Content-Range, Accept-Ranges, ETag</b>.</li>' +
-    '<li>Tap <b>🔌 Test connection</b>, then <b>💾 Save</b>, then pick <b>🪣 Cloudflare R2</b> above and use <b>⬆️ Move videos to R2</b> on the posts screen.</li></ol>' +
+    '<li><b>Only if you set a Public URL above:</b> bucket → Settings → <b>CORS policy</b> → add: AllowedOrigins <b>https://shop.fluxfilm.in</b> and <b>https://go.fluxfilm.in</b>, AllowedMethods <b>GET, HEAD</b>, AllowedHeaders <b>Range</b>, ExposeHeaders <b>Content-Length, Content-Range, Accept-Ranges, ETag</b>. With no public URL the shop serves the video itself and CORS is not needed at all.</li>' +
+    '<li>Tap <b>🔌 Test connection</b> (it saves what you typed first), then pick <b>🪣 Cloudflare R2</b> above and use <b>⬆️ Move videos to R2</b> on the posts screen.</li></ol>' +
     '<div class="pr-two"><label class="fd-num">Account ID<input class="inp" id="fdr2acct" autocomplete="off" spellcheck="false" value="' + esc(r.accountId || '') + '" placeholder="e.g. 0a1b2c3d…"/></label>' +
     '<label class="fd-num">Bucket name<input class="inp" id="fdr2bucket" autocomplete="off" spellcheck="false" value="' + esc(r.bucket || '') + '" placeholder="fluxfilm-reels"/></label></div>' +
     '<div class="pr-two" style="margin-top:8px"><label class="fd-num">Access Key ID <span class="muted">(' + (r.keySet ? '✅ set' : 'not set') + ')</span><input class="inp" id="fdr2key" type="password" autocomplete="off" spellcheck="false" placeholder="' + (r.keySet ? 'Paste a new one to replace it' : 'Paste the Access Key ID') + '"/></label>' +
@@ -4016,9 +4016,16 @@ function fdWireStorageBox() {
     out('<p class="muted">Saving…</p>');
     post('/admin/api/feed/video/storage', body()).then(function (r) { out(r.ok ? '<div class="qnote">✅ Saved' + (r.changed && r.changed.length ? ': ' + esc(r.changed.join(', ')) : '') + '</div>' : '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'); reload(r); });
   };
+  // 🔌 Test connection ALWAYS saves what is typed first, then tests. The two key boxes are blank once a key is
+  // saved, so the server lays the boxes over the saved settings — a blank key box means "use the saved key".
   var ts = $('#fdr2test'); if (ts) ts.onclick = function () {
-    out('<p class="muted">Writing a test file to Cloudflare…</p>');
-    post('/admin/api/feed/video/test', body()).then(function (r) { out('<div class="qnote ' + (r.ok ? '' : 'bad') + '">' + esc(r.message || 'error') + '</div>'); });
+    var b = body();
+    out('<p class="muted">Saving what you typed, then writing a test file to Cloudflare…</p>');
+    post('/admin/api/feed/video/storage', b).then(function (sr) {
+      if (!sr || !sr.ok) { out('<div class="qnote bad">⚠️ ' + esc((sr && sr.message) || 'error') + '</div>'); return; }
+      var saved = sr.changed && sr.changed.length ? '<div class="qnote">💾 Saved: ' + esc(sr.changed.join(', ')) + '</div>' : '';
+      return post('/admin/api/feed/video/test', b).then(function (r) { out(saved + '<div class="qnote ' + (r.ok ? '' : 'bad') + '">' + esc(r.message || 'error') + '</div>'); });
+    });
   };
   var cl = $('#fdr2clear'); if (cl) cl.onclick = function () {
     if (!confirm('Remove the R2 keys? Videos already in R2 keep playing only while the keys are there — remove them and R2 videos stop playing.')) return;

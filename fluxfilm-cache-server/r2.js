@@ -111,6 +111,57 @@ function cleanConfig(x) {
     publicBase: s(o.publicBase).replace(/\/+$/, ''),
   };
 }
+// ---- "what is still missing" in plain English -------------------------------------------------
+// The owner types the Account ID / bucket into boxes but the two key boxes stay EMPTY once a key is saved (they
+// only say "✅ set"). So a message must tell them apart: what is missing, what is already saved, what they just
+// typed. It never says what a key IS — only that there is one.
+const NEEDED = ['accountId', 'bucket', 'accessKeyId', 'secretAccessKey'];
+const LABEL = { accountId: 'Account ID', bucket: 'Bucket name', accessKeyId: 'Access Key ID', secretAccessKey: 'Secret Access Key' };
+const andList = (a) => (a.length < 2 ? (a[0] || '') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1]);
+const missingList = (cfg) => NEEDED.filter((k) => !s((cfg || {})[k])).map((k) => LABEL[k]);
+/** The pieces that are present and came from `want` ('saved' | 'typed'), with the two keys said as one thing. */
+function presentList(cfg, src, want) {
+  const is = (k) => !!s((cfg || {})[k]) && (((src || {})[k]) || 'saved') === want;
+  const out = [];
+  if (is('accountId')) out.push('the Account ID');
+  if (is('bucket')) out.push('the bucket');
+  if (is('accessKeyId') && is('secretAccessKey')) out.push('the keys');
+  else { if (is('accessKeyId')) out.push('the Access Key ID'); if (is('secretAccessKey')) out.push('the Secret Access Key'); }
+  return out;
+}
+const upper1 = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : '');
+const isAre = (a) => (a.length > 1 || a[0] === 'the keys' ? ' are ' : ' is ');
+/** e.g. "Missing: Account ID. The bucket and the keys are saved. Fill it in and press 💾 Save." */
+function notReadyMessage(cfg, src, tail) {
+  const miss = missingList(cfg);
+  const saved = presentList(cfg, src, 'saved');
+  const typed = presentList(cfg, src, 'typed');
+  const bits = [];
+  if (miss.length) bits.push('Missing: ' + andList(miss) + '.');
+  if (saved.length) bits.push(upper1(andList(saved)) + isAre(saved) + 'saved.');
+  if (typed.length) bits.push(upper1(andList(typed)) + isAre(typed) + 'typed in but not saved yet.');
+  if (tail) bits.push(tail);
+  return bits.join(' ');
+}
+/**
+ * What is on screen, laid over what is saved — used for 🔌 Test connection so a blank key box means
+ * "use the saved key", not "there is no key". Nothing here is written to the database.
+ * → { cfg, src } where src says, per field, whether the value came from the form or from the database.
+ */
+function mergeConfig(saved, typed) {
+  const cfg = cleanConfig(saved);
+  const t = typed || {};
+  const src = {};
+  for (const k of ['accountId', 'bucket', 'accessKeyId', 'secretAccessKey', 'publicBase']) {
+    let v = s(t[k]);
+    if (k === 'bucket') v = v.toLowerCase();
+    if (k === 'publicBase') v = v.replace(/\/+$/, '');
+    src[k] = v ? 'typed' : 'saved';
+    if (v) cfg[k] = v;
+  }
+  cfg.ready = isReady(cfg);
+  return { cfg, src };
+}
 const hostOf = (cfg) => s(cfg.accountId) + '.r2.cloudflarestorage.com';
 const endpointOf = (cfg) => 'https://' + hostOf(cfg);
 const isReady = (cfg) => !!(cfg.accountId && cfg.bucket && cfg.accessKeyId && cfg.secretAccessKey);
@@ -151,15 +202,18 @@ async function saveConfig(input) {
   const cur = await getConfig(true);
   const next = cleanConfig(cur);
   const errors = []; const changed = [];
+  // Which pieces came from the form in THIS request — only used to word a "what is still missing" message.
+  const src = {};
+  const typedNow = (k) => { src[k] = 'typed'; };
   if (i.accountId !== undefined) {
     const a = s(i.accountId);
     if (a && !ACCOUNT_RE.test(a)) errors.push('Account ID looks wrong — copy it from the Cloudflare R2 page (letters and numbers).');
-    else if (a !== next.accountId) { next.accountId = a; changed.push(a ? 'Account ID saved' : 'Account ID removed'); }
+    else { if (a) typedNow('accountId'); if (a !== next.accountId) { next.accountId = a; changed.push(a ? 'Account ID saved' : 'Account ID removed'); } }
   }
   if (i.bucket !== undefined) {
     const b = s(i.bucket).toLowerCase();
     if (b && !BUCKET_RE.test(b)) errors.push('Bucket name can only have small letters, numbers and dashes.');
-    else if (b !== next.bucket) { next.bucket = b; changed.push(b ? 'Bucket saved' : 'Bucket removed'); }
+    else { if (b) typedNow('bucket'); if (b !== next.bucket) { next.bucket = b; changed.push(b ? 'Bucket saved' : 'Bucket removed'); } }
   }
   if (i.publicBase !== undefined) {
     const p = cleanBase(i.publicBase);
@@ -170,12 +224,14 @@ async function saveConfig(input) {
     if (next.accessKeyId || next.secretAccessKey) changed.push('R2 keys removed');
     next.accessKeyId = ''; next.secretAccessKey = '';
   } else {
-    if (s(i.accessKeyId)) { next.accessKeyId = s(i.accessKeyId); changed.push('Access Key ID saved'); }
-    if (s(i.secretAccessKey)) { next.secretAccessKey = s(i.secretAccessKey); changed.push('Secret Access Key saved'); }
+    if (s(i.accessKeyId)) { next.accessKeyId = s(i.accessKeyId); typedNow('accessKeyId'); changed.push('Access Key ID saved'); }
+    if (s(i.secretAccessKey)) { next.secretAccessKey = s(i.secretAccessKey); typedNow('secretAccessKey'); changed.push('Secret Access Key saved'); }
   }
+  // 🪣 Cloudflare R2 is picked and the boxes are filled in the SAME request, so the switch works in one tap:
+  // everything above has already been laid onto `next`, and only what is still missing is named back.
   if (i.on !== undefined) {
     const on = truthy(i.on);
-    if (on && !isReady(Object.assign({}, next))) errors.push('Fill in the Account ID, bucket and both keys before turning Cloudflare R2 on.');
+    if (on && !isReady(next)) errors.push(notReadyMessage(next, src, 'Fill it in above and press 💾 Save, then pick 🪣 Cloudflare R2 again.'));
     else if (on !== next.on) { next.on = on; changed.push(on ? 'Video storage switched to Cloudflare R2' : 'Video storage switched back to the database'); }
   }
   if (errors.length) return { ok: false, message: errors.join(' '), errors };
@@ -337,11 +393,17 @@ async function abortMultipart(cfg, key, uploadId) {
   return { ok: true };
 }
 
-/** 🔌 Test connection: write a tiny object, read it back, delete it. Says exactly which step failed. */
+/**
+ * 🔌 Test connection: write a tiny object, read it back, delete it. Says exactly which step failed.
+ * `input` is what is in the admin boxes right now; it is laid OVER the saved settings for this test only and is
+ * never written. An empty key box therefore means "use the key that is already saved" — which is the normal case,
+ * because a saved key is never sent back to the browser (the box just says "✅ set").
+ */
 async function testConnection(input) {
-  const cfg = input && input.accountId ? Object.assign(cleanConfig(input), { on: true }) : await getConfig(true);
+  const merged = mergeConfig(await getConfig(true), input);
+  const cfg = Object.assign({}, merged.cfg, { on: true });
   const steps = [];
-  if (!isReady(cfg)) return { ok: false, steps, message: 'Fill in the Account ID, bucket, Access Key ID and Secret Access Key first.' };
+  if (!isReady(cfg)) return { ok: false, steps, missing: missingList(cfg), message: notReadyMessage(cfg, merged.src, 'Fill it in above, then press 🔌 Test connection again.') };
   const key = TEST_KEY;
   const body = Buffer.from('FluxFilm R2 check ' + new Date().toISOString(), 'utf8');
   try {
@@ -361,7 +423,7 @@ async function testConnection(input) {
 }
 
 module.exports = {
-  getConfig, publicConfig, saveConfig, cleanConfig, cleanBase, testConnection,
+  getConfig, publicConfig, saveConfig, cleanConfig, cleanBase, testConnection, mergeConfig, missingList, notReadyMessage,
   putObject, getObject, headObject, headBucket, deleteObject, createMultipart, uploadPart, completeMultipart, abortMultipart,
   publicUrl, endpointOf, hostOf, isReady, countOp, flushOps, getOps, headerOf,
   KEY, OPS_KEY, TEST_KEY, FREE_CLASS_A, FREE_CLASS_B,

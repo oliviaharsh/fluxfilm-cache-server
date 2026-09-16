@@ -151,9 +151,9 @@ function mount(app, deps) {
   });
   route('/admin/api/feed/video/test', async (req, res, b) => {
     if (!r2) return noR2(res);
-    // Test what is typed in the boxes when the owner has not saved yet; otherwise what is saved.
-    const typed = b.accountId || b.bucket || b.accessKeyId || b.secretAccessKey;
-    const r = await r2.testConnection(typed ? { accountId: b.accountId, bucket: b.bucket, accessKeyId: b.accessKeyId, secretAccessKey: b.secretAccessKey, publicBase: b.publicBase } : null);
+    // Test what is on the screen RIGHT NOW, laid over what is saved (r2.mergeConfig) — the two key boxes are blank
+    // once a key is saved, so a blank box means "use the saved key". Nothing is written, no key is logged.
+    const r = await r2.testConnection({ accountId: b.accountId, bucket: b.bucket, accessKeyId: b.accessKeyId, secretAccessKey: b.secretAccessKey, publicBase: b.publicBase });
     audit.record(req, { action: 'feed.video.storage.test', entity: 'feed', id: 'r2', summary: '🔌 Tested Cloudflare R2: ' + (r.ok ? 'works' : 'failed') });
     res.status(r.ok ? 200 : 400).json(r);
   });
