@@ -232,7 +232,7 @@ async function computeSummary(dbx, range, opts) {
     range: { from: range.fromYmd, to: range.toYmd, days: range.days }, prevRange: { from: prevRange.fromYmd, to: prevRange.toYmd, label: prevRange.label },
     totals: cur, prev: { revenue: prev.revenue, orders: prev.orders, newOrders: prev.newOrders, renewals: prev.renewals, newCustomers: prev.newCustomers, refunds: { count: prev.refunds.count, amount: prev.refunds.amount } },
     change: { revenue: pct(cur.revenue, prev.revenue), orders: pct(cur.orders, prev.orders), newCustomers: pct(cur.newCustomers, prev.newCustomers), refunds: pct(cur.refunds.amount, prev.refunds.amount) },
-    bestDay: null, profit: null, credit: null, coins: null, expiring: null, stock: null, passwords: null, pending: null,
+    bestDay: null, profit: null, credit: null, coins: null, expiring: null, stock: null, passwords: null, pending: null, videos: null,
   };
   if (range.kind !== 'day') {
     const best = cur.daily.filter((d) => d.revenue > 0).sort((a, b) => b.revenue - a.revenue || b.orders - a.orders)[0];
@@ -240,13 +240,15 @@ async function computeSummary(dbx, range, opts) {
   }
   if (o.extras === false) return out;
   const soft = (p) => Promise.resolve().then(() => p()).catch((e) => { console.log('[reports] part failed:', e && e.message); return null; });
-  const [pr, cr, coins, exp, today, comments] = await Promise.all([
+  const [pr, cr, coins, exp, today, comments, vids] = await Promise.all([
     soft(() => (deps.profit || require('./profit')).computeProfit(dbx, range, {})),
     soft(() => (deps.credit || require('./credit')).receivables(q, new Date(nowMs))),
     soft(() => q("SELECT COALESCE(SUM(CASE WHEN coins_delta > 0 AND event NOT IN ('SPEND_RELEASE') THEN coins_delta ELSE 0 END), 0) AS earned, COALESCE(SUM(CASE WHEN event IN ('SPEND') THEN -coins_delta WHEN event = 'SPEND_RELEASE' THEN -coins_delta ELSE 0 END), 0) AS spent FROM coins_ledger WHERE ts >= ? AND ts < ?", [range.from, range.to])),
     soft(() => q("SELECT COUNT(*) AS subs, COUNT(DISTINCT phone_norm) AS customers FROM subscriptions WHERE UPPER(status) = 'ACTIVE' AND expiry_date BETWEEN NOW() AND NOW() + INTERVAL 7 DAY", [])),
     soft(() => (deps.home || require('./adminhome')).buildToday(dbx, {})),
     soft(() => (deps.comments || require('./feedcomments')).adminList({ status: 'pending', limit: 1 })),
+    // 🎬 Reel video storage: only a to-do line once the store passes 75% (feedvideo.js).
+    soft(() => (deps.videos || require('./feedvideo')).usage()),
   ]);
   if (pr && pr.totals) {
     const t = pr.totals;
@@ -256,6 +258,14 @@ async function computeSummary(dbx, range, opts) {
   if (coins && coins[0]) out.coins = { given: Math.round(num(coins[0].earned)), used: Math.round(num(coins[0].spent)) };
   if (exp && exp[0]) out.expiring = { subs: Number(exp[0].subs) || 0, customers: Number(exp[0].customers) || 0 };
   if (today && today.items) Object.assign(out, fromToday(today, comments && comments.counts ? comments.counts.pending : 0));
+  if (vids && vids.ready) {
+    out.videos = {
+      store: vids.mode === 'r2' ? 'Cloudflare R2' : 'Database', count: Number(vids.videos) || 0,
+      bytes: Number(vids.bytes) || 0, totalBytes: Number(vids.totalBytes) || 0,
+      pct: vids.totalBytes > 0 ? Math.round((Number(vids.bytes) / Number(vids.totalBytes)) * 1000) / 10 : 0,
+      text: ((vids.mode === 'r2' ? vids.r2 : vids.db) || {}).text || '', warn: vids.warn || null,
+    };
+  }
   return out;
 }
 
@@ -270,6 +280,7 @@ function pushBody(sum) {
   if (sum.totals.refunds.count) bits.push('Refunds ' + inr(sum.totals.refunds.amount));
   if (sum.pending && sum.pending.total) bits.push(sum.pending.total + ' pending');
   if (sum.credit && sum.credit.total) bits.push('On credit ' + inr(sum.credit.total));
+  if (sum.videos && sum.videos.warn) bits.push('🎬 Videos ' + sum.videos.pct + '% full');
   bits.push('Tap for the full report');
   return bits.join(' · ');
 }
@@ -315,6 +326,12 @@ function sections(sum) {
       ['UPI refunds to send', String(pd.upiRefunds), ''],
       ['Unmatched bank payments', String(pd.unmatched), ''],
       ['Comments to review', String(pd.comments), ''],
+    ] });
+  }
+  // 🎬 Only when the Reel video store passes 75% — otherwise the owner never needs to think about it.
+  if (sum.videos && sum.videos.warn) {
+    out.push({ title: '🎬 Reel videos', rows: [
+      ['⚠️ To do: erase older reels', sum.videos.text || (sum.videos.pct + '%'), sum.videos.store + ' · ' + sum.videos.pct + '% full · admin → 🍿 What\'s new → 🧽 Erase older reels'],
     ] });
   }
   return out;
