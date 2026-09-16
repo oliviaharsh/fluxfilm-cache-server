@@ -126,7 +126,7 @@ async function computeProfit(db, range, deps) {
         const cur = revByAcc.get(g.key) || { revenue: 0, earned: 0, orders: 0 }; cur.revenue += amt; cur.earned += x.earned; cur.orders += n; revByAcc.set(g.key, cur);
       }
 
-      let cost = 0, monthlyTotal = 0, stoppedCount = 0, dupCostGroups = 0, mergedLogins = 0;
+      let cost = 0, monthlyTotal = 0, stoppedCount = 0, dupCostGroups = 0, mergedLogins = 0, lowCostGroups = 0;
       const accRows = groups.map((g) => {
         const monthly = g.monthly;
         // "Stopped paying on <date>": the cost counts up to that date and not after it.
@@ -137,6 +137,7 @@ async function computeProfit(db, range, deps) {
         if (g.stoppedOn) stoppedCount++;
         if (g.extraCostRows.length) dupCostGroups++;
         if (g.sameLogin || g.repeatedRows) mergedLogins++;
+        if (g.lowCost) lowCostGroups++;
         const rv = revByAcc.get(g.key) || { revenue: 0, earned: 0, orders: 0 };
         revByAcc.delete(g.key);
         const customers = activeOf(g);
@@ -150,6 +151,10 @@ async function computeProfit(db, range, deps) {
           note: g.cost ? g.cost.note : '', stoppedOn: g.stoppedOn || '', costCounted: monthly != null && factor > 0,
           costKey: g.costKey, extraCostRows: g.extraCostRows.map((c) => ({ service: c.service, accountId: c.accountId, amount: c.amount, every: c.every })),
           sharePerCustomer: monthly != null && customers > 0 ? r2(monthly / customers) : null,
+          // What the rest of this service costs, whether this login looks too cheap next to it,
+          // and which answer the 🔗 Merge dialog should pre-select (accountgroups.js).
+          typical: g.typical, lowCost: !!g.lowCost, suggestion: g.suggestion, costRows: g.costRows.length,
+          allCostRows: g.costRows.map((c) => ({ service: c.service, accountId: c.accountId, amount: c.amount, every: c.every, monthly: c.monthly })),
           // "Quiet": nobody on it and no money in this period - hidden behind the toggle, cost still counted.
           quiet: customers === 0 && rv.revenue === 0 && rv.earned === 0,
           revenue: r2(rv.revenue), earned: r2(rv.earned), orders: rv.orders, cost: r2(periodCost), profit: r2(rv.earned - periodCost),
@@ -165,7 +170,7 @@ async function computeProfit(db, range, deps) {
       return ({
         ok: true, range, costsReady, creditDue,
         totals: { revenue: r2(revenue), earned: r2(earnedTotal), paidAhead: r2(ahead), cost: r2(cost), monthlyCost: r2(monthlyTotal), profit: r2(earnedTotal - cost), margin: earnedTotal > 0 ? Math.round(((earnedTotal - cost) / earnedTotal) * 1000) / 10 : null, orders: orderCount, renewals, newOrders: orderCount - renewals, accountsWithoutCost: accRows.filter((a) => a.isActive && a.monthlyCost == null).length,
-          accounts: accRows.length, inventoryRows: accounts.length, mergedLogins, duplicateCostGroups: dupCostGroups, stoppedAccounts: stoppedCount,
+          accounts: accRows.length, inventoryRows: accounts.length, mergedLogins, duplicateCostGroups: dupCostGroups, lowCostGroups, stoppedAccounts: stoppedCount,
           quietAccounts: quietRows.length, quietCost: r2(quietRows.reduce((t, a) => t + a.cost, 0)) },
         services: [...bySvc.values()].map((x) => ({ family: x.family, services: [...x.services].sort(), revenue: r2(x.revenue), earned: r2(x.earned), orders: x.orders, renewals: x.renewals, cost: r2(x.cost), profit: r2(x.earned - x.cost), accounts: x.accounts, accountsWithoutCost: x.accountsWithoutCost })).sort((a, b) => b.revenue - a.revenue),
         accounts: accRows,
@@ -238,21 +243,58 @@ function mount(app, deps) {
     } catch (e) { fail(res, e); }
   });
 
-  // Two cost rows pointing at one real login (same id spelt differently, or several AccountIDs on one
-  // login): keep the one that is counted and delete the rest, so the list stops warning.
+  // Several cost rows pointing at one real login. They can mean two OPPOSITE things, so the panel
+  // asks which it is and sends the answer here:
+  //   keep   - the same cost was typed on each row (duplicates)      -> keep one, delete the rest
+  //   sum    - the real cost was divided across the rows             -> add them up onto the kept row
+  //   manual - neither; the owner types what the login really costs  -> that amount on the kept row
+  // JioHotstar 8076332049 is a "sum": 3 × ₹500/year is really one ₹1,500/year account.
   app.post('/admin/api/profit/cost/merge', async (req, res) => {
     if (!auth(req, res)) return;
     const b = req.body || {};
     const keep = { service: s(b.service), accountId: s(b.accountId) };
     const drop = (Array.isArray(b.drop) ? b.drop : []).map((x) => ({ service: s(x && x.service), accountId: s(x && x.accountId) }))
       .filter((x) => x.service && x.accountId && !(x.service === keep.service && x.accountId === keep.accountId));
+    const mode = (s(b.mode) || 'keep').toLowerCase();
     if (!keep.service || !keep.accountId) return res.status(400).json({ ok: false, message: 'Account required.' });
-    if (!drop.length) return res.status(400).json({ ok: false, message: 'Nothing to merge.' });
+    if (['keep', 'sum', 'manual'].indexOf(mode) < 0) return res.status(400).json({ ok: false, message: 'Choose how the rows relate: keep one, add them up, or type the real cost.' });
+    if (!drop.length && mode === 'keep') return res.status(400).json({ ok: false, message: 'Nothing to merge.' });
+    if (mode === 'sum' && !drop.length) return res.status(400).json({ ok: false, message: 'There is only one cost row, so there is nothing to add up.' });
+    let every = 0, amount = 0;
+    if (mode === 'manual') {
+      every = Number(b.every);
+      amount = Number(b.amount);
+      if (!EVERY.includes(every)) return res.status(400).json({ ok: false, message: 'Billing must be every 1, 3, 6 or 12 months.' });
+      if (!Number.isFinite(amount) || amount < 0 || amount > 1e7) return res.status(400).json({ ok: false, message: 'Cost must be a number.' });
+    }
     try {
+      const rows = await db.query('SELECT service, account_id, monthly_cost, note FROM account_costs WHERE service = ? AND account_id = ? LIMIT 1', [keep.service, keep.accountId]);
+      const kept = rows && rows[0];
+      if (!kept) return res.status(404).json({ ok: false, message: 'No cost row for ' + keep.accountId + '. Reload the page and try again.' });
+      const kp = AG.parseCostNote(kept.note, kept.monthly_cost);
+      if (mode === 'sum') {
+        // The rows can be billed over different periods, so their MONTHLY costs are added and the
+        // total written back over the kept row's period (3 × ₹500/year -> ₹1,500/year).
+        let monthly = num(kp.amount) / kp.every;
+        for (const d of drop) {
+          const r = await db.query('SELECT monthly_cost, note FROM account_costs WHERE service = ? AND account_id = ? LIMIT 1', [d.service, d.accountId]);
+          if (r && r[0]) { const p = AG.parseCostNote(r[0].note, r[0].monthly_cost); monthly += num(p.amount) / p.every; }
+        }
+        every = kp.every; amount = r2(monthly * every);
+      } else if (mode === 'keep') { every = kp.every; amount = kp.amount; }
       let removed = 0;
       for (const d of drop) { const r = await db.query('DELETE FROM account_costs WHERE service = ? AND account_id = ? LIMIT 1', [d.service, d.accountId]); removed += (r && r.affectedRows) || 0; }
-      audit.record(req, { action: 'cost.merge', entity: 'account', id: keep.accountId, summary: keep.service + ' ' + keep.accountId + ': kept one cost row, removed ' + removed + ' duplicate' + (removed === 1 ? '' : 's') + ' (' + drop.map((d) => d.accountId).join(', ') + ')', details: { keep, drop } });
-      res.json({ ok: true, removed });
+      const monthly = r2(amount / every);
+      if (mode !== 'keep') {
+        await db.query('UPDATE account_costs SET monthly_cost = ?, note = ? WHERE service = ? AND account_id = ? LIMIT 1',
+          [monthly, AG.buildCostNote(every, amount, kp.stoppedOn, kp.note) || null, keep.service, keep.accountId]);
+      }
+      const per = { 1: 'month', 3: '3 months', 6: '6 months', 12: 'year' }[every];
+      const how = mode === 'sum' ? 'added ' + (removed + 1) + ' rows up' : mode === 'manual' ? 'set by hand' : 'kept one row';
+      audit.record(req, { action: 'cost.merge', entity: 'account', id: keep.accountId,
+        summary: keep.service + ' ' + keep.accountId + ': ' + how + ' → ₹' + amount + ' / ' + per + ' (= ₹' + monthly + ' / month), removed ' + removed + ' other row' + (removed === 1 ? '' : 's') + (drop.length ? ' (' + drop.map((d) => d.accountId).join(', ') + ')' : ''),
+        details: { keep, drop, mode, amount, every } });
+      res.json({ ok: true, removed, mode, amount: r2(amount), every, monthlyCost: monthly });
     } catch (e) { fail(res, e); }
   });
 

@@ -81,6 +81,7 @@ function run(sqlRaw, paramsRaw) {
   if (/^SELECT service, account_id, monthly_cost, note FROM account_costs$/.test(sql)) return D.costs.map(clone);
   if (/^SELECT note FROM account_costs WHERE service = \? AND account_id = \?/.test(sql)) return D.costs.filter((c) => c.service === p[0] && c.account_id === p[1]).map((c) => ({ note: c.note }));
   if (/^SELECT monthly_cost, note FROM account_costs WHERE service = \? AND account_id = \?/.test(sql)) return D.costs.filter((c) => c.service === p[0] && c.account_id === p[1]).map(clone);
+  if (/^SELECT service, account_id, monthly_cost, note FROM account_costs WHERE service = \? AND account_id = \?/.test(sql)) return D.costs.filter((c) => c.service === p[0] && c.account_id === p[1]).map(clone);
   if (/^SELECT service, account_id, monthly_cost, note FROM account_costs WHERE account_id = \?/.test(sql)) return D.costs.filter((c) => c.account_id === p[0] && like(c.service, p[1])).map(clone);
   if (/^INSERT INTO account_costs/.test(sql)) {
     const row = D.costs.find((c) => c.service === p[0] && c.account_id === p[1]);
@@ -350,7 +351,7 @@ const fakeCredit = { receivables: async () => ({ total: 0, count: 0, customers: 
   ok('a row per real login, and it says so', /One row per real login/.test(html) && /charged once<\/b>/.test(html) && /counted once per login/.test(html));
   ok('"₹2,200 every 12 months = ₹183 / month · N customers on it · share per customer"', /function pfCostLine\(/.test(html) && /' every 12 months'/.test(html) && /customer' \+ \(a\.activeCustomers === 1 \? '' : 's'\) \+ ' on it'/.test(html) && /your cost share per customer ≈ /.test(html));
   ok('a "1 login · id, id" badge when one login has several ids', /1 login · ' \+ esc\(a\.ids\.join\(', '\)\)/.test(html) && /listings, 1 login/.test(html));
-  ok('duplicate cost rows warn and offer a one-tap merge', /cost rows for this login/.test(html) && /counted once \(/.test(html) && /data-pfmerge=/.test(html) && /function pfMerge\(/.test(html));
+  ok('duplicate cost rows warn and open the merge dialog', /cost rows for this login/.test(html) && /counted once \(/.test(html) && /data-pfmerge=/.test(html) && /function pfMergeDialog\(/.test(html));
   ok('inactive accounts are hidden behind a toggle that names the count', /showQuiet \? '🙈 Hide' : '👁️ Show'/.test(html) && /inactive accounts \(' \+ quiet\.length \+ '\)/.test(html) && /PF\.showQuiet = !PF\.showQuiet/.test(html));
   ok('the toggle states plainly that their cost is still counted', /cost IS counted in the totals above<\/b>/.test(html) && /you are still paying for them/.test(html));
   ok('a per-account "stopped paying" switch', /function pfStopDialog\(/.test(html) && /🛑 Stopped paying/.test(html) && /↩️ Still paying/.test(html) && /profit\/cost\/stopped/.test(html));
