@@ -11,21 +11,20 @@
  * Earned = each paid order spread evenly over the days it covers (duration_days, or
  * "3M"/"1Y" in the plan name), counting only the days inside the period - so a ₹499
  * 3-month plan adds ~₹5.5/day, not ₹499 to the month it was paid.
- * Cost = each account's monthly cost × months in the period. Profit = earned − cost. Orders with no account (manual
- * services, undelivered) show as "No account".
+ * Cost = each REAL LOGIN's monthly cost × months in the period, counted ONCE however many
+ * inventory rows / AccountIDs / plans that login is listed under (accountgroups.js).
+ * Profit = earned − cost. Orders with no account (manual services, undelivered) show as "No account".
  */
+const AG = require('./accountgroups');
 const s = (v) => String(v == null ? '' : v).trim();
 const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const r2 = (n) => Math.round(n * 100) / 100;
 const family = (svc) => (s(svc).toLowerCase().match(/[a-z0-9]+/) || [''])[0];
-// The billing period is kept inside account_costs.note as "[billing:12:4800] user note" so no schema
-// change is needed; monthly_cost always holds the monthly equivalent (4800 / 12 = 400).
-const EVERY = [1, 3, 6, 12];
-function parseBilling(note, monthly) {
-  const m = s(note).match(/^\[billing:(\d+):([\d.]+)\]\s*/);
-  if (m && EVERY.includes(Number(m[1]))) return { every: Number(m[1]), amount: num(m[2]), note: s(note).slice(m[0].length) };
-  return { every: 1, amount: monthly, note: s(note) };
-}
+// The billing period and the "stopped paying on" date are kept inside account_costs.note as
+// "[billing:12:4800][stopped:2026-09-30] user note" so no schema change is needed; monthly_cost
+// always holds the monthly equivalent (4800 / 12 = 400). See accountgroups.js.
+const EVERY = AG.EVERY;
+const parseBilling = AG.parseCostNote;
 const DAY = 86400000;
 // DB datetimes are India time without a zone (dateStrings: true).
 const istMs = (v) => { const x = s(v); if (!x) return NaN; return Date.parse(x.replace(' ', 'T').slice(0, 19) + '+05:30'); };
@@ -93,11 +92,18 @@ async function computeProfit(db, range, deps) {
       let costs = []; let costsReady = true;
       try { costs = await db.query('SELECT service, account_id, monthly_cost, note FROM account_costs', []); } catch (e) { if (!missingTable(e)) throw e; costsReady = false; }
 
-      const costOf = new Map(costs.map((c) => [s(c.service) + '|' + s(c.account_id), c]));
-      const active = new Map();
-      for (const o of occ) { const a = s(o.inventory_ref).split('#')[0]; if (a) active.set(a, (active.get(a) || 0) + num(o.n)); }
+      // One row per REAL LOGIN: Zee5 Z5-01 listed 4× (once per duration) and JioHotstar
+      // JH-3M-02 / JH-6M-02 / JH-1Y-02 (one login, three ids) each become a single account,
+      // so their cost is charged once instead of 4× / 3×.
+      const { groups, byId } = AG.buildAccountGroups(accounts, costs, family);
+      const groupOfRef = (svc, id) => byId.get(family(svc) + '|' + AG.normId(id)) || null;
 
-      // Revenue per account (by id; ids are unique enough across services in practice, service family breaks ties).
+      // Active customers belong to the login, not to the row: sum every id of the group.
+      const activeById = new Map();
+      for (const o of occ) { const a = AG.normId(s(o.inventory_ref).split('#')[0]); if (a) activeById.set(a, (activeById.get(a) || 0) + num(o.n)); }
+      const activeOf = (g) => g.normIds.reduce((t, n) => t + (activeById.get(n) || 0), 0);
+
+      // Revenue per login group.
       const revByAcc = new Map(); const noAccount = { revenue: 0, earned: 0, orders: 0 };
       const bySvc = new Map();
       const svcRow = (fam) => { if (!bySvc.has(fam)) bySvc.set(fam, { family: fam, services: new Set(), revenue: 0, earned: 0, orders: 0, renewals: 0, cost: 0, accounts: 0, accountsWithoutCost: 0 }); return bySvc.get(fam); };
@@ -115,35 +121,52 @@ async function computeProfit(db, range, deps) {
         const isRenew = n && s(o.order_type).toUpperCase() === 'RENEW'; if (isRenew) renewals++;
         const sv = svcRow(family(o.service)); sv.services.add(s(o.service)); sv.revenue += amt; sv.earned += x.earned; sv.orders += n; if (isRenew) sv.renewals++;
         const acc = s(o.ref).split('#')[0];
-        if (!acc) { noAccount.revenue += amt; noAccount.earned += x.earned; noAccount.orders += n; continue; }
-        const key = family(o.service) + '|' + acc;
-        const cur = revByAcc.get(key) || { revenue: 0, earned: 0, orders: 0 }; cur.revenue += amt; cur.earned += x.earned; cur.orders += n; revByAcc.set(key, cur);
+        const g = acc ? groupOfRef(o.service, acc) : null;
+        if (!g) { noAccount.revenue += amt; noAccount.earned += x.earned; noAccount.orders += n; continue; }
+        const cur = revByAcc.get(g.key) || { revenue: 0, earned: 0, orders: 0 }; cur.revenue += amt; cur.earned += x.earned; cur.orders += n; revByAcc.set(g.key, cur);
       }
 
-      let cost = 0, monthlyTotal = 0;
-      const accRows = accounts.map((a) => {
-        const fam = family(a.service);
-        const c = costOf.get(s(a.service) + '|' + s(a.account_id));
-        const bill = c ? parseBilling(c.note, num(c.monthly_cost)) : null;
-        const monthly = bill ? bill.amount / bill.every : null;
-        const periodCost = monthly != null ? monthly * range.months : 0;
-        if (monthly != null && s(a.is_active).toUpperCase() === 'TRUE') monthlyTotal += monthly;
-        const rv = revByAcc.get(fam + '|' + s(a.account_id)) || { revenue: 0, earned: 0, orders: 0 };
-        revByAcc.delete(fam + '|' + s(a.account_id));
-        const sv = svcRow(fam); sv.services.add(s(a.service)); sv.accounts++; sv.cost += periodCost; if (monthly == null && s(a.is_active).toUpperCase() === 'TRUE') sv.accountsWithoutCost++;
+      let cost = 0, monthlyTotal = 0, stoppedCount = 0, dupCostGroups = 0, mergedLogins = 0;
+      const accRows = groups.map((g) => {
+        const monthly = g.monthly;
+        // "Stopped paying on <date>": the cost counts up to that date and not after it.
+        const factor = AG.costFactor(g.stoppedOn, range);
+        const periodCost = monthly != null ? monthly * range.months * factor : 0;
+        const stillPaying = !g.stoppedOn || g.stoppedOn > range.today;
+        if (monthly != null && g.isActive && stillPaying) monthlyTotal += monthly;
+        if (g.stoppedOn) stoppedCount++;
+        if (g.extraCostRows.length) dupCostGroups++;
+        if (g.sameLogin || g.repeatedRows) mergedLogins++;
+        const rv = revByAcc.get(g.key) || { revenue: 0, earned: 0, orders: 0 };
+        revByAcc.delete(g.key);
+        const customers = activeOf(g);
+        const sv = svcRow(g.family); g.services.forEach((x) => sv.services.add(x)); sv.accounts++; sv.cost += periodCost; if (monthly == null && g.isActive) sv.accountsWithoutCost++;
         cost += periodCost;
-        return { service: s(a.service), accountId: s(a.account_id), login: s(a.login_id), isActive: s(a.is_active).toUpperCase() === 'TRUE', activeCustomers: active.get(s(a.account_id)) || 0,
-          monthlyCost: monthly == null ? null : r2(monthly), billedEvery: bill ? bill.every : 1, billedAmount: bill ? r2(bill.amount) : null, note: bill ? bill.note : '', revenue: r2(rv.revenue), earned: r2(rv.earned), orders: rv.orders, cost: r2(periodCost), profit: r2(rv.earned - periodCost) };
+        return {
+          service: g.service, services: g.services, accountId: g.accountId, ids: g.ids, rows: g.rows,
+          login: g.login, sameLogin: g.sameLogin, repeatedRows: g.repeatedRows,
+          isActive: g.isActive, activeCustomers: customers,
+          monthlyCost: monthly == null ? null : r2(monthly), billedEvery: g.cost ? g.cost.every : 1, billedAmount: g.cost ? r2(g.cost.amount) : null,
+          note: g.cost ? g.cost.note : '', stoppedOn: g.stoppedOn || '', costCounted: monthly != null && factor > 0,
+          costKey: g.costKey, extraCostRows: g.extraCostRows.map((c) => ({ service: c.service, accountId: c.accountId, amount: c.amount, every: c.every })),
+          sharePerCustomer: monthly != null && customers > 0 ? r2(monthly / customers) : null,
+          // "Quiet": nobody on it and no money in this period - hidden behind the toggle, cost still counted.
+          quiet: customers === 0 && rv.revenue === 0 && rv.earned === 0,
+          revenue: r2(rv.revenue), earned: r2(rv.earned), orders: rv.orders, cost: r2(periodCost), profit: r2(rv.earned - periodCost),
+        };
       });
       // Revenue on accounts that are no longer in inventory (deleted / renamed).
       for (const [key, rv] of revByAcc) { noAccount.revenue += rv.revenue; noAccount.earned += rv.earned; noAccount.orders += rv.orders; }
+      const quietRows = accRows.filter((a) => a.quiet);
 
       // 💳 Credit renewals (status CREDIT) are not PAID, so none of the numbers above include them — shown as a label.
       let creditDue = null;
       try { const cr = await (deps.credit || require('./credit')).receivables((sql, p) => db.query(sql, p)); creditDue = { total: cr.total, count: cr.count }; } catch (_) { creditDue = null; }
       return ({
         ok: true, range, costsReady, creditDue,
-        totals: { revenue: r2(revenue), earned: r2(earnedTotal), paidAhead: r2(ahead), cost: r2(cost), monthlyCost: r2(monthlyTotal), profit: r2(earnedTotal - cost), margin: earnedTotal > 0 ? Math.round(((earnedTotal - cost) / earnedTotal) * 1000) / 10 : null, orders: orderCount, renewals, newOrders: orderCount - renewals, accountsWithoutCost: accRows.filter((a) => a.isActive && a.monthlyCost == null).length },
+        totals: { revenue: r2(revenue), earned: r2(earnedTotal), paidAhead: r2(ahead), cost: r2(cost), monthlyCost: r2(monthlyTotal), profit: r2(earnedTotal - cost), margin: earnedTotal > 0 ? Math.round(((earnedTotal - cost) / earnedTotal) * 1000) / 10 : null, orders: orderCount, renewals, newOrders: orderCount - renewals, accountsWithoutCost: accRows.filter((a) => a.isActive && a.monthlyCost == null).length,
+          accounts: accRows.length, inventoryRows: accounts.length, mergedLogins, duplicateCostGroups: dupCostGroups, stoppedAccounts: stoppedCount,
+          quietAccounts: quietRows.length, quietCost: r2(quietRows.reduce((t, a) => t + a.cost, 0)) },
         services: [...bySvc.values()].map((x) => ({ family: x.family, services: [...x.services].sort(), revenue: r2(x.revenue), earned: r2(x.earned), orders: x.orders, renewals: x.renewals, cost: r2(x.cost), profit: r2(x.earned - x.cost), accounts: x.accounts, accountsWithoutCost: x.accountsWithoutCost })).sort((a, b) => b.revenue - a.revenue),
         accounts: accRows,
         noAccount: { revenue: r2(noAccount.revenue), earned: r2(noAccount.earned), orders: noAccount.orders },
@@ -177,13 +200,59 @@ function mount(app, deps) {
     const cost = Number(raw);
     if (!Number.isFinite(cost) || cost < 0 || cost > 1e7) return res.status(400).json({ ok: false, message: 'Cost must be a number.' });
     const monthly = cost / every;
-    const userNote = s(b.note).slice(0, 260);
-    const note = (every === 1 ? userNote : '[billing:' + every + ':' + r2(cost) + '] ' + userNote).trim();
+    let userNote = s(b.note).slice(0, 220);
     const per = { 1: 'month', 3: '3 months', 6: '6 months', 12: 'year' }[every];
     try {
+      // Keep the "stopped paying on" date and the typed note unless this call changes them.
+      let stoppedOn = s(b.stoppedOn);
+      if (stoppedOn && !/^\d{4}-\d{2}-\d{2}$/.test(stoppedOn)) return res.status(400).json({ ok: false, message: 'Stopped date must be YYYY-MM-DD.' });
+      if (b.stoppedOn === undefined || b.note === undefined) {
+        const cur = await db.query('SELECT note FROM account_costs WHERE service = ? AND account_id = ? LIMIT 1', [service, accountId]);
+        const old = cur && cur[0] ? AG.parseCostNote(cur[0].note, 0) : { stoppedOn: '', note: '' };
+        if (b.stoppedOn === undefined) stoppedOn = old.stoppedOn;
+        if (b.note === undefined) userNote = old.note;
+      }
+      const note = AG.buildCostNote(every, cost, stoppedOn, userNote);
       await db.query('INSERT INTO account_costs (service, account_id, monthly_cost, note) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE monthly_cost = VALUES(monthly_cost), note = VALUES(note)', [service, accountId, r2(monthly), note || null]);
-      audit.record(req, { action: 'cost.save', entity: 'account', id: accountId, summary: service + ': ₹' + r2(cost) + ' / ' + per + (every === 1 ? '' : ' (= ₹' + r2(monthly) + ' / month)') + (userNote ? ' · ' + userNote : '') });
-      res.json({ ok: true, monthlyCost: r2(monthly), billedEvery: every, billedAmount: r2(cost) });
+      audit.record(req, { action: 'cost.save', entity: 'account', id: accountId, summary: service + ': ₹' + r2(cost) + ' / ' + per + (every === 1 ? '' : ' (= ₹' + r2(monthly) + ' / month)') + (stoppedOn ? ' · stopped paying ' + stoppedOn : '') + (userNote ? ' · ' + userNote : '') });
+      res.json({ ok: true, monthlyCost: r2(monthly), billedEvery: every, billedAmount: r2(cost), stoppedOn });
+    } catch (e) { fail(res, e); }
+  });
+
+  // "I stopped paying for this login on <date>" - the cost counts up to that date and not after it,
+  // instead of the account quietly disappearing from the list with its cost still in the total.
+  app.post('/admin/api/profit/cost/stopped', async (req, res) => {
+    if (!auth(req, res)) return;
+    const b = req.body || {};
+    const service = s(b.service), accountId = s(b.accountId), stoppedOn = s(b.stoppedOn);
+    if (!service || !accountId) return res.status(400).json({ ok: false, message: 'Account required.' });
+    if (stoppedOn && !/^\d{4}-\d{2}-\d{2}$/.test(stoppedOn)) return res.status(400).json({ ok: false, message: 'Stopped date must be YYYY-MM-DD.' });
+    try {
+      const cur = await db.query('SELECT monthly_cost, note FROM account_costs WHERE service = ? AND account_id = ? LIMIT 1', [service, accountId]);
+      if (!cur || !cur[0]) return res.status(404).json({ ok: false, message: 'Enter a cost for this account first.' });
+      const p = AG.parseCostNote(cur[0].note, cur[0].monthly_cost);
+      const note = AG.buildCostNote(p.every, p.amount, stoppedOn, p.note);
+      await db.query('UPDATE account_costs SET note = ? WHERE service = ? AND account_id = ? LIMIT 1', [note || null, service, accountId]);
+      audit.record(req, { action: 'cost.stopped', entity: 'account', id: accountId, summary: service + ': ' + (stoppedOn ? 'stopped paying on ' + stoppedOn + ' — cost stops counting from that date' : 'still paying (stopped date removed)') });
+      res.json({ ok: true, stoppedOn });
+    } catch (e) { fail(res, e); }
+  });
+
+  // Two cost rows pointing at one real login (same id spelt differently, or several AccountIDs on one
+  // login): keep the one that is counted and delete the rest, so the list stops warning.
+  app.post('/admin/api/profit/cost/merge', async (req, res) => {
+    if (!auth(req, res)) return;
+    const b = req.body || {};
+    const keep = { service: s(b.service), accountId: s(b.accountId) };
+    const drop = (Array.isArray(b.drop) ? b.drop : []).map((x) => ({ service: s(x && x.service), accountId: s(x && x.accountId) }))
+      .filter((x) => x.service && x.accountId && !(x.service === keep.service && x.accountId === keep.accountId));
+    if (!keep.service || !keep.accountId) return res.status(400).json({ ok: false, message: 'Account required.' });
+    if (!drop.length) return res.status(400).json({ ok: false, message: 'Nothing to merge.' });
+    try {
+      let removed = 0;
+      for (const d of drop) { const r = await db.query('DELETE FROM account_costs WHERE service = ? AND account_id = ? LIMIT 1', [d.service, d.accountId]); removed += (r && r.affectedRows) || 0; }
+      audit.record(req, { action: 'cost.merge', entity: 'account', id: keep.accountId, summary: keep.service + ' ' + keep.accountId + ': kept one cost row, removed ' + removed + ' duplicate' + (removed === 1 ? '' : 's') + ' (' + drop.map((d) => d.accountId).join(', ') + ')', details: { keep, drop } });
+      res.json({ ok: true, removed });
     } catch (e) { fail(res, e); }
   });
 
@@ -213,4 +282,4 @@ function mount(app, deps) {
   });
 }
 
-module.exports = { mount, computeProfit, periodRange, family, parseBilling, durationDays, orderSplit, istMs };
+module.exports = { mount, computeProfit, periodRange, family, parseBilling, durationDays, orderSplit, istMs, buildAccountGroups: AG.buildAccountGroups, costFactor: AG.costFactor };
