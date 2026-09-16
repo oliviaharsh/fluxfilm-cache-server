@@ -16,10 +16,11 @@ let S;
 function fresh() {
   S = {
     orders: [], subs: [], credits: [], couponUsage: [], spends: [], ledger: [], wallet: [], rewards: [], referrals: [], settings: {}, coupons: [], todos: [],
+    links: [], linksTable: true,
     audits: [], sql: [], locks: 0, released: 0, commits: 0, rollbacks: 0, failDeleteOrder: false,
   };
 }
-const TABLES = ['orders', 'subs', 'credits', 'couponUsage', 'spends', 'ledger', 'wallet', 'rewards', 'referrals', 'settings', 'coupons', 'todos'];
+const TABLES = ['orders', 'subs', 'credits', 'couponUsage', 'spends', 'ledger', 'wallet', 'rewards', 'referrals', 'settings', 'coupons', 'todos', 'links'];
 const CREDIT_EVENTS = ['REFUND_CREDIT', 'CREDIT_SPEND', 'CREDIT_RELEASE'];
 const snap = () => clone(TABLES.reduce((o, k) => { o[k] = S[k]; return o; }, {}));
 const restore = (x) => { for (const k of TABLES) S[k] = x[k]; };
@@ -60,6 +61,16 @@ function run(sql, p) {
   if (/^UPDATE bank_credits SET consumed_order_id = NULL WHERE consumed_order_id = \?$/.test(sql)) { let n = 0; for (const c of S.credits) if (c.consumed_order_id === p[0]) { c.consumed_order_id = null; n++; } return { affectedRows: n }; }
   if (/^SELECT \* FROM coupon_usage WHERE order_id = \?$/.test(sql)) return S.couponUsage.filter((c) => c.order_id === p[0]).map(clone);
   if (/^UPDATE coupon_usage SET action = 'RELEASED'/.test(sql)) { let n = 0; for (const c of S.couponUsage) if (c.order_id === p[0] && String(c.action).toUpperCase() === 'USED') { c.action = 'RELEASED'; n++; } return { affectedRows: n }; }
+  // 🧾 bank_credit_links (schema-v28): one bank payment split between several orders.
+  if (/bank_credit_links/.test(sql)) {
+    if (!S.linksTable) noTable('bank_credit_links');
+    if (/^SELECT credit_id FROM bank_credit_links LIMIT 1$/.test(sql)) return S.links.slice(0, 1).map(clone);
+    if (/^SELECT (\*|credit_id) FROM bank_credit_links WHERE order_id = \?$/.test(sql)) return S.links.filter((l) => l.order_id === p[0]).map(clone);
+    if (/^SELECT order_id FROM bank_credit_links WHERE credit_id = \? ORDER BY id$/.test(sql)) return S.links.filter((l) => l.credit_id === p[0]).map(clone);
+    if (/^DELETE FROM bank_credit_links WHERE order_id = \?$/.test(sql)) { const n = S.links.length; S.links = S.links.filter((l) => l.order_id !== p[0]); return { affectedRows: n - S.links.length }; }
+    if (/^DELETE FROM bank_credit_links WHERE credit_id = \?$/.test(sql)) { const n = S.links.length; S.links = S.links.filter((l) => l.credit_id !== p[0]); return { affectedRows: n - S.links.length }; }
+  }
+  if (/^UPDATE bank_credits SET consumed_order_id = \? WHERE id = \?$/.test(sql)) { const c = S.credits.find((x) => x.id === p[1]); if (c) c.consumed_order_id = p[0]; return { affectedRows: c ? 1 : 0 }; }
   if (/payment_claims/.test(sql)) noTable('payment_claims');
   if (/refund_offers/.test(sql)) noTable('refund_offers'); // Refunds v3 offers: covered in refunds-v3.test.js (before schema-v26 here)
   if (/^SELECT setting_key FROM app_settings WHERE setting_key = \? LIMIT 1$/.test(sql)) return S.settings[p[0]] ? [{ setting_key: p[0] }] : [];
@@ -455,6 +466,27 @@ const rawOrder = (id) => { const r = order(id).raw_json; return typeof r === 'st
   ok('change log: order.erase with reason + backup key, phone masked', S.audits.some((a) => a.action === 'order.erase' && /marked paid on the wrong order/.test(a.summary) && /erased_order_FF11/.test(a.summary) && /62••••••36/.test(a.summary) && !/6281151936/.test(a.summary)), S.audits);
   r = await post('/admin/api/order/erase', { orderId: 'FF11', confirm: 'FF11', reason: 'again' });
   ok('idempotent: second erase → already erased', r.body.ok && r.body.already, r.body);
+
+  section('erase: an order that shared ONE payment with another order (schema-v28 split)');
+  fresh();
+  S.orders.push(stuckOrder({ order_id: 'FF12', source: 'node' }), stuckOrder({ order_id: 'FF13', source: 'node' }));
+  S.credits.push({ id: 11, upi_ref: '557', amount: 122, consumed_order_id: 'FF12' });
+  S.links.push({ id: 1, credit_id: 11, order_id: 'FF12', amount: 66 }, { id: 2, credit_id: 11, order_id: 'FF13', amount: 56 });
+  r = await post('/admin/api/order/erase', { orderId: 'FF12', confirm: 'FF12', reason: 'duplicate order' });
+  ok('erasing one half of a split: the payment stays on the OTHER order, only the erased part is dropped', r.body.ok && S.credits[0].consumed_order_id === 'FF13' && S.links.length === 0, { credits: S.credits, links: S.links });
+  ok('  ...the erased part is in the backup copy, so nothing is lost', (JSON.parse(S.settings.erased_order_FF12 || '{}').bankCreditLinks || []).some((l) => l.order_id === 'FF12' && Number(l.amount) === 66), S.settings.erased_order_FF12);
+  fresh();
+  S.orders.push(stuckOrder({ order_id: 'FF14', source: 'node' }));
+  S.credits.push({ id: 12, upi_ref: '558', amount: 66, consumed_order_id: 'FF14' });
+  S.links.push({ id: 3, credit_id: 12, order_id: 'FF14', amount: 66 });
+  r = await post('/admin/api/order/erase', { orderId: 'FF14', confirm: 'FF14', reason: 'duplicate order' });
+  ok('erasing the last order of a payment frees the payment completely', r.body.ok && S.credits[0].consumed_order_id === null && S.links.length === 0, { credits: S.credits, links: S.links });
+  fresh();
+  S.linksTable = false;
+  S.orders.push(stuckOrder({ order_id: 'FF15', source: 'node' }));
+  r = await post('/admin/api/order/erase', { orderId: 'FF15', confirm: 'FF15', reason: 'mistake' });
+  ok('before schema-v28 is run, erase still works', r.body.ok && !order('FF15') && S.rollbacks === 0, r.body);
+  S.linksTable = true;
 
   section('erase: failure rolls everything back');
   fresh();

@@ -68,6 +68,10 @@ async function q(sqlRaw, p) {
   // ---- adminbankcredits.js
   if (/^SELECT ignored_at, ignored_reason, ignored_note FROM bank_credits LIMIT 0$/.test(sql)) { const e = new Error("Unknown column 'ignored_at'"); e.code = 'ER_BAD_FIELD_ERROR'; throw e; }
   if (/^SELECT id, upi_ref, amount, order_ids, raw, received_at, consumed_order_id FROM bank_credits WHERE id = \? LIMIT 1$/.test(sql)) return T.credits.filter((c) => c.id === p[0]).map(copy);
+  if (/^SELECT order_id, name, phone_norm, service, plan, final_amount, status, fulfillment_status, source, created_at_sheet FROM orders WHERE order_id IN/.test(sql)) return T.orders.filter((o) => p.includes(o.order_id)).map(copy);
+  if (/^SELECT id, upi_ref, consumed_order_id FROM bank_credits WHERE consumed_order_id IN .* AND id <> \? LIMIT 3$/.test(sql)) { const want = p.slice(0, -1), self = p[p.length - 1]; return T.credits.filter((c) => want.includes(c.consumed_order_id) && c.id !== self).slice(0, 3); }
+  // 🧾 schema-v28 (one payment, several orders) is not run in this harness.
+  if (/bank_credit_links/.test(sql)) { const e = new Error("Table 'x.bank_credit_links' doesn't exist"); e.code = 'ER_NO_SUCH_TABLE'; throw e; }
   if (/^SELECT order_id, name, service, plan, final_amount, status, fulfillment_status, source, txn_ref FROM orders WHERE order_id = \? LIMIT 1$/.test(sql)) return T.orders.filter((o) => o.order_id === p[0]).map(copy);
   if (/^SELECT id, upi_ref FROM bank_credits WHERE consumed_order_id = \? AND id <> \? LIMIT 1$/.test(sql)) return T.credits.filter((c) => c.consumed_order_id === p[0] && c.id !== p[1]).map(copy);
   throw new Error('fake db: unhandled SQL: ' + sql.slice(0, 160));
