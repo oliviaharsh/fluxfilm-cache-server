@@ -30,8 +30,9 @@ CREATE TABLE IF NOT EXISTS feed_saves (
 -- 🎬 Uploaded Reel videos (feedvideo.js; admin → 🍿 What's new → Post type: Reel → Upload video).
 -- Stored in MySQL (owner's choice) because Hostinger rebuilds the app folder on every deploy (a file next to the code
 -- would vanish). Raw binary, cut into 1 MB chunks (MEDIUMBLOB) so no single insert comes near max_allowed_packet.
--- The bytes count toward the Hostinger disk quota and the database size. Limits (admin setting): one video ≤ 25 MB
--- (max 50), all videos ≤ 2 GB, MP4 / WebM only (checked by the first bytes), ≤ 90 s.
+-- The bytes count toward the Hostinger disk quota and the database size. Limits (admin setting in app_settings
+-- 'feed_video_settings', so raising them needs no schema change): one video ≤ 60 MB (max 150), all videos ≤ 2 GB
+-- (max 5 GB), ≤ 5 minutes (max 10), MP4 / WebM only (checked by the first bytes). 60 MB × 30 reels ≈ 1.8 GB.
 -- sha256 = the file's SHA-256 from the admin browser; the server checks the chunks against it before status → ready.
 -- status: uploading (parts still coming, removed after a day) | ready.
 -- Until these two tables exist, Reels still work with YouTube Shorts / Instagram links; uploading says "run schema-v25".

@@ -711,7 +711,12 @@ function modalDirty() { var m = $('#modal'); return !!(m && m.getAttribute('data
 function viewDirty() { return $$('#view .rf-state.dirty').some(function (el) { return /not saved/i.test(el.textContent); }); }
 function hLeaveBlocked(onlyModal) {
   var dirty = onlyModal ? modalDirty() : (modalDirty() || viewDirty());
-  return dirty && !confirm('Leave without saving?\n\nYour changes on this screen will be lost.');
+  if (!dirty) return false;
+  if (!confirm('Leave without saving?\n\nYour changes on this screen will be lost.')) return true;
+  // The owner chose to throw the changes away, so the 📝 draft of the editor they are leaving goes too — otherwise it
+  // would pop back the next time they open that screen.
+  if (!onlyModal) { try { draftStop(FD_DRAFT); draftStop(PL_DRAFT); } catch (e) {} }
+  return false;
 }
 // ← arrow in the header and the ← Back buttons inside editors.
 function hBack() {
@@ -818,13 +823,19 @@ function hDeepLink() {
 
 /* ================= new version ready (appversion.js) ================= */
 // An installed app left open keeps the old page. When it comes back to the front (and every 10 minutes) we ask the
-// server for its version id; if it changed, a bar offers Refresh. Admin never reloads by itself (forms may be open).
-var UPD = { last: 0, shown: false };
+// server for its version id; if it changed, a bar offers Refresh. Admin never reloads by itself (forms may be open) —
+// and while a form has unsaved changes the bar is held back completely, so nothing interrupts you mid-post. It appears
+// by itself a few seconds after you save or close the form (UPD.ready remembers that an update is waiting).
+var UPD = { last: 0, shown: false, ready: false };
+function ffDirty() { try { return modalDirty() || viewDirty(); } catch (e) { return false; } }
 function updCheck() {
   if (!window.FF_VERSION || UPD.shown || document.visibilityState === 'hidden') return;
+  if (UPD.ready) { if (!ffDirty()) updShow(); return; } // found earlier, waited for the form to be saved / closed
   UPD.last = Date.now();
   fetch('/version', { cache: 'no-store', credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (r) {
     if (!r || !r.version || r.version === window.FF_VERSION) return;
+    UPD.ready = true;
+    if (ffDirty()) return; // work in progress: no bar, no service-worker update — it waits
     try { if (navigator.serviceWorker) navigator.serviceWorker.getRegistration('/').then(function (reg) { if (reg) reg.update(); }).catch(function () {}); } catch (e) {}
     updShow();
   }).catch(function () {});
@@ -840,9 +851,131 @@ function updShow() {
   b.hidden = false;
 }
 function updHide() { var b = $('#updbar'); if (b) b.hidden = true; UPD.shown = false; UPD.last = Date.now(); }
-function updReload() { if (hLeaveBlocked()) return; location.reload(); }
+function updReload() { if (hLeaveBlocked()) return; draftFlush(); location.reload(); }
 document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && Date.now() - UPD.last > 15000) updCheck(); });
 setInterval(updCheck, 10 * 60000);
+// An update that was held back while a form was dirty shows up on its own once the form is saved or closed.
+setInterval(function () { if (UPD.ready && !UPD.shown && document.visibilityState === 'visible' && !ffDirty()) updShow(); }, 5000);
+
+/* ================= 📝 Drafts: nothing typed is lost when the app is swapped out ================= */
+// Android throws the installed admin app out of memory while you are in another app; coming back re-boots the whole
+// panel (that is the splash screen the owner saw) and an open form would be empty. So every long form keeps a draft in
+// this browser: saved 800 ms after the last keystroke and again the moment the app goes to the background. On the next
+// boot the form comes back with a "📝 Draft restored" strip and a discard link. Drafts die after 24 hours.
+// NEVER stored: passwords, card details or the admin key (password fields are skipped, and any field whose name looks
+// like a secret is dropped). A picked FILE cannot be restored by any browser — the strip says "pick the video again".
+var DRAFT = { P: 'ffd_', TTL: 24 * 3600 * 1000, t: {}, live: {} };
+var DRAFT_SECRET = /pass|pwd|\bkey\b|adminkey|apikey|geminikey|token|secret|otp|cvv|card|upi/i;
+function draftOn() { try { return !!window.localStorage; } catch (e) { return false; } }
+// Anything that looks like a secret, a file or a function never reaches storage.
+function draftScrub(v) {
+  if (!v || typeof v !== 'object') return v;
+  if (Object.prototype.toString.call(v) === '[object Array]') return v.map(draftScrub);
+  var out = {}, k, x;
+  for (k in v) {
+    if (!Object.prototype.hasOwnProperty.call(v, k)) continue;
+    if (DRAFT_SECRET.test(k)) continue;
+    x = v[k];
+    if (typeof x === 'function') continue;
+    if (window.File && x instanceof File) continue;
+    if (window.Blob && x instanceof Blob) continue;
+    out[k] = x && typeof x === 'object' ? draftScrub(x) : x;
+  }
+  return out;
+}
+function draftSave(name, data) {
+  if (!draftOn() || data == null) return;
+  try { localStorage.setItem(DRAFT.P + name, JSON.stringify({ t: Date.now(), d: draftScrub(data) })); } catch (e) {}
+}
+function draftLoad(name) {
+  if (!draftOn()) return null;
+  try {
+    var raw = localStorage.getItem(DRAFT.P + name); if (!raw) return null;
+    var o = JSON.parse(raw);
+    if (!o || !o.t || Date.now() - o.t > DRAFT.TTL) { draftDrop(name); return null; }
+    return { data: o.d, at: o.t };
+  } catch (e) { return null; }
+}
+function draftDrop(name) { try { localStorage.removeItem(DRAFT.P + name); } catch (e) {} }
+// get() is kept so the draft can also be written the instant the app goes to the background.
+function draftLater(name, get) {
+  DRAFT.live[name] = get;
+  clearTimeout(DRAFT.t[name]);
+  DRAFT.t[name] = setTimeout(function () { try { draftSave(name, get()); } catch (e) {} }, 800);
+}
+function draftStop(name) { clearTimeout(DRAFT.t[name]); delete DRAFT.live[name]; draftDrop(name); }
+function draftFlush() { for (var n in DRAFT.live) { try { clearTimeout(DRAFT.t[n]); draftSave(n, DRAFT.live[n]()); } catch (e) {} } }
+function draftAge(at) {
+  var m = Math.round((Date.now() - (at || Date.now())) / 60000);
+  if (m < 1) return 'a moment ago';
+  if (m < 60) return m + ' minute' + (m === 1 ? '' : 's') + ' ago';
+  var h = Math.round(m / 60);
+  return h + ' hour' + (h === 1 ? '' : 's') + ' ago';
+}
+/** The strip above a restored form. `extra` says what the browser cannot bring back (a picked file). */
+function draftStrip(id, at, extra) {
+  return '<div class="ff-draft" id="' + id + '">📝 Draft restored <span style="font-weight:600">— what you typed ' + draftAge(at) + ', kept on this phone only.' + (extra ? ' ' + extra : '') + '</span> <a data-draftdiscard="1">discard</a></div>';
+}
+function draftWireStrip(id, name, after) {
+  var el = $('#' + id); if (!el) return;
+  var a = el.querySelector('[data-draftdiscard]');
+  if (a) a.onclick = function () { draftStop(name); if (after) after(); };
+}
+/** A plain form: every box / tick / choice inside `sel`, by data-draftk › data-k › id › name. Files and passwords out. */
+function draftFields(sel) {
+  var out = {}, root = typeof sel === 'string' ? $(sel) : sel;
+  if (!root || !root.querySelectorAll) return out;
+  [].slice.call(root.querySelectorAll('input,select,textarea')).forEach(function (el) {
+    var k = el.getAttribute('data-draftk') || el.getAttribute('data-k') || el.id || el.name;
+    if (!k || el.type === 'file' || el.type === 'password' || el.getAttribute('data-nodraft') != null || DRAFT_SECRET.test(k)) return;
+    out[k] = el.type === 'checkbox' || el.type === 'radio' ? !!el.checked : String(el.value == null ? '' : el.value);
+  });
+  return out;
+}
+function draftApply(sel, data) {
+  var root = typeof sel === 'string' ? $(sel) : sel, n = 0;
+  if (!root || !root.querySelectorAll || !data) return 0;
+  [].slice.call(root.querySelectorAll('input,select,textarea')).forEach(function (el) {
+    var k = el.getAttribute('data-draftk') || el.getAttribute('data-k') || el.id || el.name;
+    if (!k || el.type === 'file' || el.type === 'password' || !Object.prototype.hasOwnProperty.call(data, k)) return;
+    var v = data[k];
+    if (el.type === 'checkbox' || el.type === 'radio') { if (el.checked !== !!v) { el.checked = !!v; n++; } }
+    else if (String(el.value) !== String(v)) { el.value = v; n++; }
+  });
+  return n;
+}
+/** Watch a form (dialogs, device names…): saves while you type. `name` must be the same string next time it opens. */
+function draftWatchForm(name, sel) {
+  var root = typeof sel === 'string' ? $(sel) : sel;
+  if (!root || !root.addEventListener) return;
+  var mark = function () { draftLater(name, function () { return draftFields(root); }); };
+  root.addEventListener('input', mark); root.addEventListener('change', mark);
+}
+/** Put a saved draft back into a form that has just been drawn; returns true when something was restored. */
+function draftRestoreForm(name, sel, noteInto) {
+  var d = draftLoad(name); if (!d) return false;
+  if (!draftApply(sel, d.data)) { draftDrop(name); return false; }
+  var host = typeof noteInto === 'string' ? $(noteInto) : noteInto;
+  if (host) { host.insertAdjacentHTML('afterbegin', draftStrip('draft_' + name.replace(/[^\w]/g, '_'), d.at)); draftWireStrip('draft_' + name.replace(/[^\w]/g, '_'), name, function () { var s2 = $('#draft_' + name.replace(/[^\w]/g, '_')); if (s2) s2.remove(); }); }
+  return true;
+}
+/** Every boot: throw away drafts older than 24 h so nothing lingers on the phone. */
+function draftPrune() {
+  if (!draftOn()) return;
+  try {
+    for (var i = localStorage.length - 1; i >= 0; i--) {
+      var k = localStorage.key(i);
+      if (!k || k.indexOf(DRAFT.P) !== 0) continue;
+      var o = null; try { o = JSON.parse(localStorage.getItem(k)); } catch (e) {}
+      if (!o || !o.t || Date.now() - o.t > DRAFT.TTL) localStorage.removeItem(k);
+    }
+  } catch (e) {}
+}
+// The screen you were on is remembered too, so a re-boot comes back here instead of the Today page.
+function ffKeepView() { try { store('ff_view', S.view); store('ff_tab', S.tab); } catch (e) {} }
+draftPrune();
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') { draftFlush(); ffKeepView(); } });
+window.addEventListener('pagehide', function () { draftFlush(); ffKeepView(); });
 
 /* ================= dashboard ================= */
 function dashboard() {
@@ -2036,6 +2169,10 @@ function offerRefundForm(box, target, after, prefill) {
     };
     if (prefill.reason) $('#orf_reason').value = prefill.reason;
     if (prefill.note) $('#orf_note').value = prefill.note;
+    // 📝 What you typed here survives the app being swapped out (no UPI id, no key — see the draft helpers).
+    var dk = 'refundoffer:' + (target.subId || target.orderId || target.requestId || q.orderId || '');
+    draftRestoreForm(dk, box, box); draftWatchForm(dk, box);
+    box._draftKey = dk;
     $('#orf_reason').onchange = calc; $('#orf_charge').oninput = calc; calc();
     $('#orf_go').onclick = function () {
       var v = calc();
@@ -2046,6 +2183,7 @@ function offerRefundForm(box, target, after, prefill) {
         go.disabled = false;
         if (!x.ok) { $('#orf_msg').innerHTML = '<div class="qnote bad">⚠️ ' + esc(x.message || 'failed') + '</div>'; return; }
         var m = $('#modal'); if (m) m.removeAttribute('data-dirty');
+        draftStop(box._draftKey || '');
         toast('💸 Refund offered'); if (after) after(x);
       });
     };
@@ -2107,6 +2245,10 @@ function refundNowForm(box, target, after) {
     ['#rn_reason', '#rn_method', '#rn_charge', '#rn_bonus', '#rn_pct', '#rn_sent'].concat(q.legacy ? ['#rn_paid'] : []).forEach(function (sel) { $(sel).oninput = calc; $(sel).onchange = calc; });
     if (!q.delivered) $('#rn_reason').value = 'NOT_DELIVERED';
     if (q.delivered && !q.legacy) $('#rn_charge').value = q.suggestedCharge || 0;
+    // 📝 Draft (never the UPI id — it matches the "secret" rule — and never the admin key).
+    var dk = 'refundnow:' + (q.orderId || q.subId || target.subId || '');
+    if (draftRestoreForm(dk, box, box)) touched = true;
+    draftWatchForm(dk, box); box._draftKey = dk;
     calc();
     $('#rn_review').onclick = function () {
       var v = calc(), msg = $('#rn_msg'); msg.innerHTML = ''; $('#rn_confirm').innerHTML = '';
@@ -2131,6 +2273,7 @@ function refundNowForm(box, target, after) {
           if (!x.ok) { msg.innerHTML = '<div class="qnote bad">⚠️ ' + esc(x.message || 'failed') + '</div>'; return; }
           msg.innerHTML = '';
           var m = $('#modal'); if (m) m.removeAttribute('data-dirty');
+          draftStop(box._draftKey || '');
           toast(x.message || '⚡ Refunded'); if (after) after(x);
         });
       };
@@ -3065,7 +3208,11 @@ function prEdit(p) {
   var del = $('#primgdel'); if (del) del.onclick = function () { post('/admin/api/promos/image', { id: PR.edit.id, dataUrl: '' }).then(function (r) { if (r.ok) { PR.edit.hasImage = false; PR.edit._img = ''; prEdit(PR.edit); } }); };
   refresh();
 }
-function rfStateSet(kind, text) { var el = $('#prstate'); if (el) { el.className = 'rf-state ' + kind; el.textContent = text; } }
+function rfStateSet(kind, text) {
+  var el = $('#prstate'); if (el) { el.className = 'rf-state ' + kind; el.textContent = text; }
+  // 📝 Every "not saved yet" in the 🍿 post editor also keeps the draft; a save throws it away.
+  if (typeof FD !== 'undefined' && FD.panel === 'edit' && FD.edit) { if (kind === 'dirty') fdDraftKeep(); else if (kind === 'ok') draftStop(FD_DRAFT); }
+}
 function prPreview(e) {
   var img = e._img || (e.hasImage && e.id ? '/promo-img/' + e.id + '?v=' + encodeURIComponent(e.updatedAt || '') : '');
   var left = ''; if (e.countdown && e.endAt) { var ms = Date.parse(e.endAt) - Date.now(); if (ms > 0) { var d = Math.floor(ms / 864e5), hh = Math.floor(ms % 864e5 / 36e5); left = '<span class="ff-promo-timer">⏳ ' + (d ? d + 'd ' + hh + 'h' : hh + 'h') + ' left</span>'; } }
@@ -3100,6 +3247,8 @@ var FD_CSS = '.fd-item .fd-thumb{width:54px;height:68px;border-radius:10px;objec
   '.ff-feed-ig{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#fff;font-weight:800;font-size:14px;background:linear-gradient(180deg,rgba(15,23,42,.05),rgba(15,23,42,.55))}.ff-feed-ig b{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;font-size:28px;background:linear-gradient(135deg,#f59e0b,#db2777,#7c3aed)}.ff-feed-ig.yt b{background:#dc2626}' +
   '.fd-ai{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}.fd-ai #fdaimsg{flex-basis:100%}.fd-thumbrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;font-size:.78rem}.fd-thumbrow img{width:45px;height:80px;object-fit:cover;border-radius:8px;background:#0f172a}' +
   '.fd-cmrow{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--line);border-radius:12px;background:#fff}.fd-cmrow .grow p{margin:4px 0;font-size:.9rem;overflow-wrap:anywhere}.fd-cm-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}' +
+  '.fd-upbar{height:8px;border-radius:999px;background:#e2e8f0;overflow:hidden;margin-top:6px}.fd-upbar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#e11d48,#fb7185);transition:width .2s}' +
+  '.ff-draft{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;padding:8px 12px;border-radius:12px;border:1px solid #fcd34d;background:#fffbeb;color:#92400e;font-size:.84rem;font-weight:700}.ff-draft a{color:#b45309;text-decoration:underline;cursor:pointer;font-weight:700}' +
   '.ff-feed-av.logo img{width:100%;height:100%;border-radius:50%;object-fit:contain;background:#fff;padding:3px;box-sizing:border-box}.ff-feed-igchip{position:absolute;left:10px;top:10px;z-index:1;padding:4px 10px;border-radius:999px;background:rgba(15,23,42,.72);color:#fff;font-size:12px;font-weight:800}' +
   '.ff-feed-gen{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.ff-feed-gen span{padding:3px 10px;border-radius:999px;border:1px solid rgba(15,23,42,.1);background:#f1f5f9;font-size:12px;font-weight:700;color:#334155}.ff-feed-ytbtn{display:flex;justify-content:center;margin-top:10px;padding:10px;border:1.5px solid #fecaca;border-radius:14px;background:#fff5f5;color:#b91c1c;font-weight:800;font-size:14px}' +
   '.ff-feed-cap.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}' +
@@ -3127,7 +3276,16 @@ function feedView() {
   $('#fdtmdb').onclick = fdSearch;
   $('#fdsug').onclick = fdSuggest;
   FD.edit = null; FD.panel = '';
-  fdLoad();
+  // 📝 A post that was being written when the app was swapped out comes straight back (with the restored strip).
+  var d = draftLoad(FD_DRAFT);
+  fdLoad(d && d.data && d.data.post ? function () { fdEdit(d.data.post); fdDraftShow(d.at); } : null);
+}
+function fdDraftShow(at) {
+  var box = $('#fdbody .pr-edit'); if (!box) return;
+  var e = FD.edit || {};
+  box.insertAdjacentHTML('afterbegin', draftStrip('fddraft', at, e.format === 'reel' && !e.videoId ? '<b>Pick the video again</b> — a chosen file cannot be brought back.' : ''));
+  draftWireStrip('fddraft', FD_DRAFT, function () { fdBack(); });
+  rfStateSet('dirty', '● Not saved yet');
 }
 function fdLoad(then) {
   api('/admin/api/feed').then(function (r) {
@@ -3140,7 +3298,17 @@ function fdLoad(then) {
     if (then) then(); else if (!FD.panel) fdRenderList();
   });
 }
-function fdBack() { FD.edit = null; FD.panel = ''; fdLoad(); }
+function fdBack() { draftStop(FD_DRAFT); FD.edit = null; FD.panel = ''; fdLoad(); }
+// 📝 The post you are writing is kept in this browser (see the draft helpers): saved as you type and when the app goes
+// to the background, put back when the panel re-boots. The uploaded video id survives (the bytes are already on the
+// server); a file still sitting in the file box cannot — the strip says to pick it again.
+var FD_DRAFT = 'feedpost';
+function fdDraftData() {
+  var e = FD.edit || {}, o = {}, k;
+  for (k in e) if (Object.prototype.hasOwnProperty.call(e, k) && k !== '_img') o[k] = e[k];
+  return { post: o, at: Date.now() };
+}
+function fdDraftKeep() { if (FD.edit) draftLater(FD_DRAFT, fdDraftData); }
 // Import job status: last / next run, counts, last error, Run now.
 function fdJobCard() {
   var j = FD.job || {}, x = j.lastResult || {}, st = FD.settings;
@@ -3293,7 +3461,7 @@ function fdEdit(p) {
     if (k === 'instagramUrl') fdIgCheck();
   };
   body.onclick = function (ev) {
-    var tb = ev.target.closest('[data-type]'); if (tb) { FD.edit.type = tb.dataset.type; fdEdit(FD.edit); return; }
+    var tb = ev.target.closest('[data-type]'); if (tb) { FD.edit.type = tb.dataset.type; fdEdit(FD.edit); rfStateSet('dirty', '● Not saved yet'); return; }
     var fb = ev.target.closest('[data-format]'); if (fb) { FD.edit.format = fb.dataset.format; if (FD.edit.reelInFeed == null) FD.edit.reelInFeed = true; fdEdit(FD.edit); rfStateSet('dirty', '● Not saved yet'); }
   };
   fdWireVideo();
@@ -3369,6 +3537,13 @@ function fdEdit(p) {
 // (our own player: full screen, autoplay muted, loop) › YouTube Shorts link (Trailer box) › Instagram Reel link.
 var FD_VIDEO_TYPES = ['video/mp4', 'video/webm'];
 function fdMb(b) { var m = (Number(b) || 0) / 1048576; return m >= 1024 ? (Math.round(m / 102.4) / 10) + ' GB' : (m >= 10 ? Math.round(m) : Math.round(m * 10) / 10) + ' MB'; }
+// 45 → "45 seconds" · 78 → "1 min 18 s" · 300 → "5 minutes" (same words as feedvideo.js durText).
+function fdSecs(n) {
+  var v = Math.round(Number(n) || 0);
+  if (v < 60) return v + ' seconds';
+  var m = Math.floor(v / 60), r = v % 60;
+  return r ? m + ' min ' + r + ' s' : m + ' minute' + (m === 1 ? '' : 's');
+}
 function fdVideoUrl(e) { return '/v/' + e.videoId + (e.videoType === 'video/webm' || e._videoMime === 'video/webm' ? '.webm' : '.mp4'); }
 function fdFormatBox(e) {
   var reel = e.format === 'reel', v = FD.video || {};
@@ -3384,50 +3559,161 @@ function fdFormatBox(e) {
     h += (e.videoId ? '<div class="fd-thumbrow"><video id="fdvidprev" src="' + esc(fdVideoUrl(e)) + '" muted playsinline loop controls preload="metadata" width="90" height="160" style="border-radius:10px;background:#000;object-fit:cover"></video>' +
       '<span class="muted">✅ Video ready' + (e._videoNew ? ' — 💾 Save to put it on the post' : '') + '</span>' +
       (e.id ? '<button type="button" class="btn ghost sm" id="fdvidposter">📸 Use this frame as the picture</button>' : '') + '<button type="button" class="btn ghost sm" id="fdviddel">Remove video</button></div>' : '') +
-      '<label>' + (e.videoId ? 'Replace video' : 'Upload video') + ' <span class="muted">(MP4 or WebM, max ' + fdMb(v.maxBytes || 26214400) + ', ≤ ' + (v.maxSeconds || 90) + ' s)</span><input type="file" id="fdvid" accept="video/mp4,video/webm"/></label>' +
-      '<div class="muted" style="font-size:.78rem">💡 Upload vertical 720p, ~30–60 s — usually 3–8 MB. Videos: ' + fdMb(v.bytes) + ' of ' + fdMb(v.totalBytes) + ' used.</div><div id="fdvidmsg"></div>';
+      '<label>' + (e.videoId ? 'Replace video' : 'Upload video') + ' <span class="muted">(MP4 or WebM, up to <b>' + fdMb(v.maxBytes || 62914560) + '</b> and <b>' + fdSecs(v.maxSeconds || 300) + '</b>)</span><input type="file" id="fdvid" accept="video/mp4,video/webm"/></label>' +
+      '<div class="muted" style="font-size:.78rem">💡 Vertical 720p costs about 3–8 MB a minute. <b>' + fdMb(v.freeBytes != null ? v.freeBytes : Math.max(0, (v.totalBytes || 0) - (v.bytes || 0))) + ' free</b> of ' + fdMb(v.totalBytes) + ' (' + fdMb(v.bytes) + ' used). The limits are in the 🎬 Videos card on the post list.</div>' +
+      '<div id="fdvidmsg"></div>';
   }
   return h + '</div>';
 }
-// Storage card on the post list: "Videos: 312 MB of 2 GB used", each video's size, 🗑️ delete (frees the chunks), limits.
+// One storage bar: "Cloudflare R2  1.2 GB of 8 GB · 15%" — amber from 75% so the owner sees it coming.
+function fdBar(label, box, inUse) {
+  if (!box) return '';
+  var p = Math.max(0, Math.min(100, Number(box.pct) || 0));
+  return '<div style="margin:8px 0"><div class="row" style="justify-content:space-between;gap:8px;font-size:.82rem"><span><b>' + label + '</b>' + (inUse ? ' <span class="pill p-ok">in use</span>' : '') + '</span>' +
+    '<span class="muted">' + esc(box.text || '') + ' · ' + p + '%</span></div>' +
+    '<div style="height:8px;border-radius:6px;background:#eef2f7;overflow:hidden;margin-top:3px"><div style="height:100%;width:' + p + '%;background:' + (p >= 75 ? '#f59e0b' : '#22c55e') + '"></div></div></div>';
+}
+// ⚠️ Amber banner once a store passes 75%, with the button straight to 🧽 Erase older reels.
+function fdVideoWarn() {
+  var v = FD.video || {}, w = v.warn;
+  if (!v.ready || !w) return '';
+  var more = (w.all || []).slice(1);
+  return '<div class="qnote warn" style="margin:0 0 12px" id="fdvidwarn">⚠️ <b>' + esc(w.text) + '</b> — erase older reels?' +
+    (more.length ? '<div class="muted" style="font-size:.8rem;margin-top:2px">Also: ' + more.map(function (x) { return esc(x.text); }).join(' · ') + '</div>' : '') +
+    '<div class="row" style="margin-top:8px"><button type="button" class="btn sm" id="fdvidwarnbtn">🧽 Erase older reels</button></div></div>';
+}
+// Storage card on the post list: "Videos: 312 MB of 2 GB used", both stores, each video's size, 🗑️ delete, the limits,
+// ⬆️ move to Cloudflare R2 and 🧽 Erase older reels.
 function fdVideoCard() {
   var v = FD.video || {};
   if (!v.ready) return '';
-  var list = v.list || [];
-  return '<details class="card" style="margin:0 0 12px"><summary style="cursor:pointer"><b>🎬 Videos: ' + fdMb(v.bytes) + ' of ' + fdMb(v.totalBytes) + ' used</b> <span class="muted">(' + (v.videos || 0) + ' Reel video' + (v.videos === 1 ? '' : 's') + ')</span></summary>' +
-    '<div class="muted" style="font-size:.78rem;margin:6px 0">Stored in the MySQL database — counts toward the Hostinger disk quota. 💡 Vertical 720p, ~30–60 s is usually 3–8 MB.</div>' +
+  var list = v.list || [], r2 = v.r2 || {}, dbb = v.db || {}, mig = v.migrate || {}, onR2 = v.mode === 'r2', ops = r2.ops || null;
+  var caps = v.caps || {}, lim = v.limits || {};
+  return fdVideoWarn() + '<details class="card" style="margin:0 0 12px"><summary style="cursor:pointer"><b>🎬 Videos: ' + fdMb(v.bytes) + ' of ' + fdMb(v.totalBytes) + ' used</b> <span class="muted">(' + (v.videos || 0) + ' Reel video' + (v.videos === 1 ? '' : 's') + ' · ' + fdMb(v.freeBytes != null ? v.freeBytes : Math.max(0, (v.totalBytes || 0) - (v.bytes || 0))) + ' free)</span> <span class="pill ' + (onR2 ? 'p-ok">🪣 Cloudflare R2' : 'p-grey">🗄️ Database') + '</span></summary>' +
+    '<div class="muted" style="font-size:.78rem;margin:6px 0">' + (onR2 ? 'Stored in your Cloudflare R2 bucket — free up to 10 GB, and downloads cost nothing. 💡 Vertical 720p costs about 3–8 MB a minute.'
+      : 'Stored in the MySQL database — counts toward the Hostinger disk quota <b>and</b> the database size. 💡 Vertical 720p costs about 3–8 MB a minute, so ' + (lim.videoMaxMb || 60) + ' MB × 30 reels ≈ ' + fdMb((lim.videoMaxMb || 60) * 30 * 1048576) + '. Switch to Cloudflare R2 in ⚙️ Settings to take the bytes out of the database.') + '</div>' +
+    fdBar('🗄️ Database', dbb, !onR2) + fdBar('🪣 Cloudflare R2', r2, onR2) +
+    (ops ? '<div class="muted" style="font-size:.76rem">R2 this month: ' + (ops.classA || 0).toLocaleString('en-IN') + ' writes of ' + (ops.freeClassA || 0).toLocaleString('en-IN') + ' free · ' + (ops.classB || 0).toLocaleString('en-IN') + ' reads of ' + (ops.freeClassB || 0).toLocaleString('en-IN') + ' free</div>' : '') +
+    '<div class="row" style="gap:8px;margin:10px 0;flex-wrap:wrap">' +
+    (onR2 && mig.pending ? '<button type="button" class="btn sm" id="fdvidmig">⬆️ Move ' + mig.pending + ' video' + (mig.pending === 1 ? '' : 's') + ' (' + fdMb(mig.pendingBytes) + ') to R2</button>' : '') +
+    '<button type="button" class="btn sm ghost" id="fderasebtn">🧽 Erase older reels</button><span class="muted" id="fdvidmigmsg" style="font-size:.8rem"></span></div>' +
     (list.length ? '<div class="pr-list">' + list.map(function (x) {
-      return '<div class="row" style="gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eef2f7"><span style="min-width:64px"><b>' + fdMb(x.size) + '</b></span><span class="grow muted" style="font-size:.8rem;min-width:0">' + (x.post ? '🎬 ' + esc(x.post.title) : x.status === 'ready' ? 'Not on a post' : '⏳ Unfinished upload') + (x.duration ? ' · ' + Math.round(x.duration) + ' s' : '') + ' · ' + esc(prettyDate(x.createdAt)) + '</span>' +
+      return '<div class="row" style="gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eef2f7"><span style="min-width:64px"><b>' + fdMb(x.size) + '</b></span><span class="grow muted" style="font-size:.8rem;min-width:0">' + (x.post ? '🎬 ' + esc(x.post.title) : x.status === 'ready' ? 'Not on a post' : '⏳ Unfinished upload') + (x.duration ? ' · ' + Math.round(x.duration) + ' s' : '') + ' · ' + esc(prettyDate(x.createdAt)) + ' · ' + (x.storage === 'r2' ? '🪣 R2' : '🗄️ database') + '</span>' +
         (x.post ? '' : '<button type="button" class="btn ghost sm" data-viddel="' + esc(x.id) + '">🗑️ Delete</button>') + '</div>';
     }).join('') + '</div>' : '<div class="muted" style="font-size:.8rem">No videos uploaded yet.</div>') +
-    '<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap"><label style="font-size:.8rem">Max per video (MB)<input class="inp" type="number" min="1" max="50" id="fdvidmax" value="' + esc((v.limits || {}).videoMaxMb || 25) + '" style="width:90px"/></label>' +
-    '<label style="font-size:.8rem">Total storage (MB)<input class="inp" type="number" min="50" max="20480" id="fdvidtotal" value="' + esc((v.limits || {}).videoTotalMb || 2048) + '" style="width:110px"/></label><button type="button" class="btn sm" id="fdvidlim">Save limits</button></div></details>';
+    '<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap"><label style="font-size:.8rem">Max per video (MB)<input class="inp" type="number" min="' + (caps.minMb || 1) + '" max="' + (caps.maxMb || 150) + '" id="fdvidmax" value="' + esc(lim.videoMaxMb || 60) + '" style="width:90px"/></label>' +
+    '<label style="font-size:.8rem">Longest video (seconds)<input class="inp" type="number" min="' + (caps.minSeconds || 10) + '" max="' + (caps.maxSeconds || 600) + '" step="10" id="fdvidsecs" value="' + esc(lim.videoMaxSeconds || 300) + '" style="width:110px"/></label>' +
+    '<label style="font-size:.8rem">Total storage (MB)<input class="inp" type="number" min="' + (caps.minTotalMb || 50) + '" max="' + (caps.maxTotalMb || 5120) + '" id="fdvidtotal" value="' + esc(lim.videoTotalMb || 2048) + '" style="width:110px"/></label>' +
+    '<label style="font-size:.8rem">🪣 R2: max per video (MB)<input class="inp" type="number" min="1" max="' + (caps.maxMbR2 || 200) + '" id="fdvidmaxr2" value="' + esc(lim.videoMaxMbR2 || 200) + '" style="width:90px"/></label>' +
+    '<label style="font-size:.8rem">🪣 R2: total (MB)<input class="inp" type="number" min="' + (caps.minTotalMb || 50) + '" max="' + (caps.maxTotalMbR2 || 20480) + '" id="fdvidtotalr2" value="' + esc(lim.videoTotalMbR2 || 8192) + '" style="width:110px"/></label>' +
+    '<button type="button" class="btn sm" id="fdvidlim">Save limits</button></div>' +
+    '<div class="muted" style="font-size:.75rem;margin-top:6px">Database: 1–' + (caps.maxMb || 150) + ' MB per video · ' + (caps.minSeconds || 10) + '–' + (caps.maxSeconds || 600) + ' seconds (' + Math.round((caps.maxSeconds || 600) / 60) + ' minutes) · ' + (caps.minTotalMb || 50) + '–' + (caps.maxTotalMb || 5120) + ' MB total (' + Math.round((caps.maxTotalMb || 5120) / 1024) + ' GB). ⚠️ Big videos fill the Hostinger disk and make the database backup slow — raise them only when you need to. With 🪣 Cloudflare R2 a video may be up to ' + (caps.maxMbR2 || 200) + ' MB and the free tier holds 10 GB.</div></details>';
 }
 function fdWireVideoCard() {
   $$('[data-viddel]').forEach(function (b) {
     b.onclick = function () {
-      if (!confirm('Delete this video? It is removed from the database for good.')) return;
+      if (!confirm('Delete this video? It is removed for good.')) return;
       b.disabled = true;
       post('/admin/api/feed/video/delete', { id: b.getAttribute('data-viddel') }).then(function (r) { toast(r.ok ? '🗑️ Video deleted' : '⚠️ ' + (r.message || 'error')); fdLoad(); });
     };
   });
   var s = $('#fdvidlim'); if (s) s.onclick = function () {
-    post('/admin/api/feed/video/settings', { videoMaxMb: Number($('#fdvidmax').value), videoTotalMb: Number($('#fdvidtotal').value) }).then(function (r) { toast(r.ok ? '✅ Video limits saved' : '⚠️ ' + (r.message || 'error')); if (r.ok) fdLoad(); });
+    post('/admin/api/feed/video/settings', { videoMaxMb: Number($('#fdvidmax').value), videoTotalMb: Number($('#fdvidtotal').value), videoMaxSeconds: Number($('#fdvidsecs').value), videoMaxMbR2: Number($('#fdvidmaxr2').value), videoTotalMbR2: Number($('#fdvidtotalr2').value) }).then(function (r) { toast(r.ok ? '✅ Video limits saved' : '⚠️ ' + (r.message || 'error')); if (r.ok) fdLoad(); });
+  };
+  var e1 = $('#fderasebtn'); if (e1) e1.onclick = fdErase;
+  var e2 = $('#fdvidwarnbtn'); if (e2) e2.onclick = fdErase;
+  var mg = $('#fdvidmig'); if (mg) mg.onclick = function () { fdMigrate(mg); };
+}
+// ⬆️ Move the database videos to Cloudflare R2, one call per video, so the page shows progress and can be left alone.
+// Safe to stop and safe to run again: a video only counts as moved once R2 has confirmed its size.
+function fdMigrate(btn) {
+  var msg = $('#fdvidmigmsg');
+  btn.disabled = true; btn.textContent = '⏳ Moving…';
+  var step = function () {
+    post('/admin/api/feed/video/migrate', {}).then(function (r) {
+      if (!r.ok) { if (msg) msg.innerHTML = '<span style="color:#b91c1c">⚠️ ' + esc(r.message || 'error') + '</span>'; btn.disabled = false; btn.textContent = '⬆️ Try again'; return; }
+      if (msg) msg.textContent = r.message || '';
+      if (r.done || !r.moved) { toast('✅ Videos moved to Cloudflare R2'); return fdLoad(); }
+      step();
+    }, function (e) { if (msg) msg.textContent = '⚠️ ' + (e.message || 'error'); btn.disabled = false; btn.textContent = '⬆️ Try again'; });
+  };
+  step();
+}
+// 🧽 Erase older reels: choose how old, which services, hidden only, keep the best N — see the counts, then erase.
+function feOpts() {
+  return {
+    days: Number($('#feday').value) || 90,
+    services: $$('[data-esvc]').filter(function (x) { return x.checked; }).map(function (x) { return x.getAttribute('data-esvc'); }),
+    hiddenOnly: $('#fehid').checked, keepTop: Number($('#fekeep').value) || 0, keepBy: $('#fekeepby').value, mode: $('#femode').value,
   };
 }
-function fdWireVideo() {
-  var inp = $('#fdvid'), out = $('#fdvidmsg');
-  if (inp) inp.onchange = function () {
-    var f = inp.files[0], v = FD.video || {}; if (!f) return;
-    if (FD_VIDEO_TYPES.indexOf(f.type) < 0) { out.innerHTML = '<div class="qnote bad">⚠️ Pick an MP4 or WebM video.</div>'; return; }
-    if (f.size > (v.maxBytes || 26214400)) { out.innerHTML = '<div class="qnote bad">⚠️ Too big (' + fdMb(f.size) + '). Max ' + fdMb(v.maxBytes || 26214400) + ' — upload vertical 720p, ~30–60 s (usually 3–8 MB).</div>'; return; }
-    inp.disabled = true;
-    fdUploadVideo(f, v.maxSeconds || 90, function (msg) { out.innerHTML = '<div class="qnote">' + msg + '</div>'; }, function (r) {
-      inp.disabled = false;
-      if (!r.ok) { out.innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'Upload failed') + '</div>'; return; }
-      FD.edit.videoId = r.id; FD.edit._videoMime = r.mime; FD.edit._videoNew = true; fdEdit(FD.edit); rfStateSet('dirty', '● Video uploaded — 💾 Save the post');
-    });
+function fdErase() {
+  FD.panel = 'erase'; FD.erasePv = null;
+  fdPanel('🧽 Erase older reels',
+    '<p class="muted" style="font-size:.84rem;margin:8px 0 0">Frees storage by erasing the <b>video</b> of old reels (the post, its words and its picture stay, so the page still works) — or by deleting the whole post. Only reels with a video <b>you uploaded</b> count; YouTube and Instagram links take no space. Nothing happens until you tap the red button, and the counts below update as you change the choices.</p>' +
+    '<div class="pr-two" style="margin-top:12px"><label class="fd-num">Older than (days)<input class="inp" type="number" min="1" max="3650" id="feday" value="90"/></label>' +
+    '<label class="fd-num">Keep the top N<input class="inp" type="number" min="0" max="50" id="fekeep" value="0"/></label></div>' +
+    '<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">' + [30, 60, 90].map(function (d) { return '<button type="button" class="btn sm ghost" data-eday="' + d + '">' + d + ' days</button>'; }).join('') +
+    '<select class="inp" id="fekeepby" style="max-width:200px"><option value="views">Keep the most-watched</option><option value="likes">Keep the most-liked</option></select></div>' +
+    '<div class="muted" style="font-size:.8rem;margin:12px 0 4px">Services <span>(none ticked = every service)</span></div><div class="row" style="gap:12px" id="fesvc"></div>' +
+    '<label class="rf-tog" style="margin-top:12px"><input type="checkbox" id="fehid" checked/> <b>Only hidden posts</b> (the ones 🧹 hid) — keeps live reels safe</label>' +
+    '<div class="muted" style="font-size:.8rem;margin:10px 0 4px">What to erase</div>' +
+    '<select class="inp" id="femode" style="max-width:340px"><option value="video">Erase the video only — keep the post</option><option value="post">Delete the whole post</option></select>' +
+    '<div id="feout" style="margin-top:14px"><p class="muted">Counting…</p></div>');
+  var box = $('#fdbody');
+  box.oninput = box.onchange = function (ev) {
+    var t = ev.target; if (!t) return;
+    if (/^(feday|fekeep|fekeepby|fehid|femode)$/.test(t.id || '') || (t.hasAttribute && t.hasAttribute('data-esvc'))) fePreview();
   };
+  box.onclick = function (ev) {
+    var b = ev.target.closest ? ev.target.closest('button') : null; if (!b) return;
+    if (b.dataset && b.dataset.eday) { $('#feday').value = b.dataset.eday; return fePreview(); }
+    if (b.id === 'fdback') return fdBack();
+    if (b.id === 'ferun') return feRun(b);
+  };
+  $('#fdback').onclick = fdBack;
+  fePreview();
+}
+function fePreview() {
+  var out = $('#feout'); if (!out) return;
+  out.innerHTML = '<p class="muted">Counting…</p>';
+  post('/admin/api/feed/erase/preview', feOpts()).then(function (r) {
+    out = $('#feout'); if (!out) return;
+    if (!r.ok) { out.innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'; return; }
+    FD.erasePv = r;
+    var svc = $('#fesvc');
+    if (svc && !svc.innerHTML) svc.innerHTML = (r.services || []).length ? r.services.map(function (x) { return '<label class="rf-tog" style="margin:0"><input type="checkbox" data-esvc="' + esc(x) + '"/> ' + esc(x) + '</label>'; }).join('') : '<span class="muted" style="font-size:.8rem">No uploaded reels yet.</span>';
+    var c = r.counts || {}, st = r.store || {}, whole = (r.criteria || {}).mode === 'post';
+    out.innerHTML = '<div class="qnote' + (c.posts ? ' warn' : '') + '"><b>' + c.posts + ' reel' + (c.posts === 1 ? '' : 's') + ' · ' + fdMb(c.bytes) + '</b> would be erased' +
+      (c.kept ? ' · keeping the top ' + c.kept : '') + '.<br/>Storage now <b>' + esc(st.text || '—') + '</b> (' + (st.pct || 0) + '%) → after <b>' + esc(st.afterText || '—') + '</b> (' + (st.afterPct || 0) + '%).</div>' +
+      (r.list && r.list.length ? '<details style="margin-top:10px"><summary style="cursor:pointer">Show the ' + r.list.length + ' reel' + (r.list.length === 1 ? '' : 's') + '</summary><div class="pr-list">' + r.list.map(function (x) {
+        return '<div class="row" style="gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eef2f7"><span style="min-width:62px"><b>' + fdMb(x.size) + '</b></span><span class="grow" style="min-width:0;font-size:.82rem"><b>' + esc(x.title) + '</b> <span class="muted">' + esc(x.service) + ' · ' + esc(prNice(x.date)) + ' · ' + x.views + ' view' + (x.views === 1 ? '' : 's') + ' · ' + (x.storage === 'r2' ? '🪣 R2' : '🗄️ database') + '</span></span></div>';
+      }).join('') + '</div></details>' : '') +
+      (r.kept && r.kept.length ? '<div class="muted" style="font-size:.8rem;margin-top:6px">Kept: ' + r.kept.map(function (x) { return esc(x.title); }).join(', ') + '</div>' : '') +
+      (c.posts ? '<div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap">' +
+        (r.needConfirm ? '<input class="inp" id="feconfirm" placeholder="Type ' + esc(r.confirmWord) + ' to confirm" style="max-width:250px"/>' : '') +
+        '<button type="button" class="btn red" id="ferun">🧽 ' + (whole ? 'Delete ' : 'Erase ') + c.posts + ' reel' + (c.posts === 1 ? '' : 's') + '</button></div>' +
+        (r.needConfirm ? '<div class="muted" style="font-size:.78rem;margin-top:4px">More than ' + r.confirmOver + ' posts — type <b>' + esc(r.confirmWord) + '</b> first.</div>' : '') : '') +
+      '<div id="femsg"></div>';
+  });
+}
+function feRun(btn) {
+  var pv = FD.erasePv || {}, o = feOpts();
+  o.confirm = $('#feconfirm') ? $('#feconfirm').value : '';
+  o.ids = (pv.list || []).map(function (x) { return x.id; });
+  if (!o.ids.length) return;
+  if (!confirm((o.mode === 'post' ? 'Delete ' : 'Erase the video of ') + o.ids.length + ' reel(s)? This cannot be undone.')) return;
+  btn.disabled = true; btn.textContent = '⏳ Erasing…';
+  post('/admin/api/feed/erase', o).then(function (r) {
+    var m = $('#femsg');
+    if (!r.ok) { if (m) m.innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'; btn.disabled = false; btn.textContent = '🧽 Try again'; return; }
+    toast(r.message || 'Done');
+    fdBack();
+  });
+}
+function fdWireVideo() {
+  var inp = $('#fdvid');
+  if (inp) inp.onchange = function () { var f = inp.files[0]; if (f) fdPickVideo(f); };
   var del = $('#fdviddel'); if (del) del.onclick = function () {
     var id = FD.edit.videoId, fresh = FD.edit._videoNew; FD.edit.videoId = ''; FD.edit._videoNew = false;
     if (fresh) post('/admin/api/feed/video/delete', { id: id });
@@ -3444,7 +3730,9 @@ function fdWireVideo() {
     } catch (x) { toast('⚠️ Play the video to the frame you want first'); }
   };
 }
-// Length check (≤ 90 s) + SHA-256 in the browser, then 1 MB raw chunks one after another (2 tries each), then finish.
+// 🎬 Picking a video: read its length, check it against the limits (a clear error names the real size / length), offer
+// 🗜️ browser compression when it is only too BIG, then upload it in 1 MB parts with a progress bar, retries, resume
+// and a Cancel button. Nothing is buffered whole on the server — one part at a time.
 function fdVideoLength(file, done) {
   try {
     var u = URL.createObjectURL(file), el = document.createElement('video'), t = setTimeout(function () { fin(null); }, 8000);
@@ -3455,27 +3743,172 @@ function fdVideoLength(file, done) {
     el.src = u;
   } catch (x) { done(null); }
 }
-function fdUploadVideo(file, maxSeconds, progress, done) {
-  progress('⏳ Checking the video…');
+function fdVidMsg(html) { var o = $('#fdvidmsg'); if (o) o.innerHTML = html; return o; }
+function fdVidBad(html) { fdVidMsg('<div class="qnote bad">⚠️ ' + html + '</div>'); }
+function fdVidFree(v) { return v.freeBytes != null ? v.freeBytes : Math.max(0, (v.totalBytes || 0) - (v.bytes || 0)); }
+function fdVidInput(on) { var i = $('#fdvid'); if (i) i.disabled = !on; }
+// Some browsers (older iOS Safari, Firefox without the codec) cannot record — then we only show the size advice.
+function fdCanCompress() {
+  try { return !!(window.MediaRecorder && window.AudioContext !== undefined && HTMLCanvasElement.prototype.captureStream && fdRecType()); } catch (e) { return false; }
+}
+function fdRecType() {
+  var list = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  for (var i = 0; i < list.length; i++) { try { if (MediaRecorder.isTypeSupported(list[i])) return list[i]; } catch (e) {} }
+  return '';
+}
+function fdPickVideo(file) {
+  var v = FD.video || {}, maxB = v.maxBytes || 62914560, maxS = v.maxSeconds || 300, free = fdVidFree(v);
+  if (FD_VIDEO_TYPES.indexOf(file.type) < 0) return fdVidBad('Pick an MP4 or WebM video.');
+  fdVidMsg('<div class="qnote">⏳ Checking the video…</div>');
   fdVideoLength(file, function (dur) {
-    if (dur && dur > maxSeconds + 0.5) return done({ ok: false, message: 'Reels can be up to ' + maxSeconds + ' seconds — this one is ' + Math.round(dur) + ' s.' });
-    if (!window.crypto || !crypto.subtle) return done({ ok: false, message: 'This browser cannot check the file — use Chrome on https.' });
-    file.arrayBuffer().then(function (buf) { return crypto.subtle.digest('SHA-256', buf); }).then(function (hash) {
-      var sha = Array.prototype.map.call(new Uint8Array(hash), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
-      post('/admin/api/feed/video/start', { mime: file.type, size: file.size, sha256: sha, duration: dur }).then(function (r) {
-        if (!r.ok) return done(r);
-        var n = 0, tries = 0;
-        var next = function () {
-          if (n >= r.chunks) { progress('⏳ Checking the upload…'); return post('/admin/api/feed/video/finish', { id: r.id }).then(done); }
-          progress('⏳ Uploading… ' + Math.round(n / r.chunks * 100) + '%');
-          var part = file.slice(n * r.chunkSize, Math.min(file.size, (n + 1) * r.chunkSize));
-          fetch('/admin/api/feed/video/chunk?id=' + encodeURIComponent(r.id) + '&n=' + n, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: part })
-            .then(handle).then(function (x) { if (x && x.ok) { n++; tries = 0; next(); } else if (++tries < 2) next(); else done(x || { ok: false }); }, function (e) { if (++tries < 2) next(); else done({ ok: false, message: e.message }); });
-        };
-        next();
-      });
-    }, function (e) { done({ ok: false, message: 'Could not read the file: ' + e.message }); });
+    // Too LONG: compressing does not make it shorter, so the only ways out are trimming or a higher limit.
+    if (dur && dur > maxS + 0.5) return fdVidBad(fdSecs(dur) + ' — the limit is ' + fdSecs(maxS) + '. Trim it, or raise “Longest video” in the 🎬 Videos card on the post list (up to ' + fdSecs((v.caps || {}).maxSeconds || 600) + ').');
+    if (file.size > maxB || file.size > free) {
+      var why = file.size > maxB
+        ? fdMb(file.size) + ' — the limit is ' + fdMb(maxB) + '. Try 720p, or raise the limit in ⚙️ settings (🎬 Videos card, up to ' + ((v.caps || {}).maxMb || 150) + ' MB).'
+        : fdMb(file.size) + ' — only ' + fdMb(free) + ' of storage is free. Delete an old Reel video, or raise the total in the 🎬 Videos card.';
+      fdVidMsg('<div class="qnote bad">⚠️ ' + why + '</div>' + (fdCanCompress() && file.size <= maxB * 4
+        ? '<div class="qnote" style="margin-top:6px">🗜️ <b>Compress it here?</b> Your phone can shrink it to ' + (file.size > maxB * 2 ? '480p' : '720p') + ' before uploading. It plays the video through once, so <b>this can take a minute</b> (about as long as the video). <div class="row" style="gap:8px;margin-top:6px"><button type="button" class="btn sm" id="fdvidsquash">🗜️ Compress in the browser</button></div></div>'
+        : '<div class="qnote" style="margin-top:6px">💡 Export the Reel at 720p from your editing app, or trim it, then pick it again.</div>'));
+      var sq = $('#fdvidsquash');
+      if (sq) sq.onclick = function () { fdCompressVideo(file, dur, Math.min(maxB, free), function (out) { if (out.ok) fdStartUpload(out.file, dur, out.note); else fdVidBad(esc(out.message || 'Could not compress it here — export at 720p and try again.')); }); };
+      return;
+    }
+    fdStartUpload(file, dur, '');
   });
+}
+function fdStartUpload(file, dur, note) {
+  fdVidInput(false);
+  fdUploadVideo(file, dur, function (r) {
+    fdVidInput(true);
+    if (r.cancelled) { fdVidMsg('<div class="qnote">Upload cancelled — nothing was saved.</div>'); return; }
+    if (!r.ok) { fdVidBad(esc(r.message || 'Upload failed')); return; }
+    FD.edit.videoId = r.id; FD.edit._videoMime = r.mime; FD.edit._videoNew = true;
+    fdEdit(FD.edit); rfStateSet('dirty', '● Video uploaded — 💾 Save the post');
+    if (note) fdVidMsg('<div class="qnote">' + note + '</div>');
+  });
+}
+// Upload: SHA-256 in the browser → start → 1 MB raw parts (up to 4 tries each, asking the server which parts it
+// already has before a retry, so a dropped signal carries on instead of starting again) → finish. Cancel any time;
+// an overall guard stops an upload that is going nowhere.
+var FD_UP = null;
+var FD_UP_TRIES = 4, FD_UP_PART_MS = 60000, FD_UP_MAX_MS = 20 * 60000;
+function fdUploadProgress(job, pct, what) {
+  var p = Math.max(0, Math.min(100, Math.round(pct)));
+  fdVidMsg('<div class="qnote"><div class="row" style="gap:10px;align-items:center"><div class="grow" style="min-width:0"><b>⏳ Uploading… ' + p + '%</b>' + (what ? ' <span class="muted">' + esc(what) + '</span>' : '') +
+    '<div class="fd-upbar"><i style="width:' + p + '%"></i></div></div><button type="button" class="btn ghost sm" id="fdvidcancel">Cancel</button></div></div>');
+  var c = $('#fdvidcancel'); if (c) c.onclick = function () { job.cancel = true; if (job.abort) job.abort(); };
+}
+function fdSha256(file, done) {
+  if (!window.crypto || !crypto.subtle) return done('', 'this browser cannot check the file — use Chrome on https');
+  file.arrayBuffer().then(function (buf) { return crypto.subtle.digest('SHA-256', buf); }).then(function (hash) {
+    done(Array.prototype.map.call(new Uint8Array(hash), function (x) { return ('0' + x.toString(16)).slice(-2); }).join(''), '');
+  }, function (e) { done('', e && e.message); });
+}
+function fdUploadVideo(file, dur, done) {
+  var job = { cancel: false, abort: null }; FD_UP = job;
+  var finish = function (r) { FD_UP = null; done(r); };
+  var stopped = function () { return job.cancel ? (finish({ ok: false, cancelled: true }), true) : false; };
+  fdUploadProgress(job, 0, 'checking the file…');
+  fdSha256(file, function (sha, err) {
+    if (stopped()) return;
+    if (!sha) return finish({ ok: false, message: 'Could not read the file: ' + (err || 'unknown') });
+    post('/admin/api/feed/video/start', { mime: file.type, size: file.size, sha256: sha, duration: dur }).then(function (r) {
+      if (!r.ok) return finish(r);
+      if (stopped()) return;
+      var total = r.chunks, n = 0, sentParts = 0, tries = 0, t0 = Date.now();
+      var pct = function () { return sentParts / total * 100; };
+      // Ask the server which parts it already has (after a failure, or when the app was swapped out mid-upload).
+      var resume = function (then) {
+        fetch('/admin/api/feed/video/status?id=' + encodeURIComponent(r.id), { credentials: 'same-origin', cache: 'no-store' }).then(handle).then(function (st) {
+          if (st && st.ok && !st.done && typeof st.next === 'number') { n = st.next; sentParts = total - (st.missing || []).length; }
+          then();
+        }, then);
+      };
+      var next = function () {
+        if (stopped()) return;
+        if (Date.now() - t0 > FD_UP_MAX_MS) return finish({ ok: false, message: 'The upload was taking too long and was stopped at part ' + (n + 1) + ' of ' + total + '. Try again on a better connection, or compress the video first.' });
+        if (n >= total) { fdUploadProgress(job, 100, 'checking the upload…'); return post('/admin/api/feed/video/finish', { id: r.id }).then(finish); }
+        fdUploadProgress(job, pct(), 'part ' + (n + 1) + ' of ' + total + (tries ? ' · retry ' + tries : ''));
+        var part = file.slice(n * r.chunkSize, Math.min(file.size, (n + 1) * r.chunkSize));
+        var ctrl = window.AbortController ? new AbortController() : null;
+        var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, FD_UP_PART_MS);
+        job.abort = function () { clearTimeout(timer); if (ctrl) ctrl.abort(); };
+        var again = function (msg) {
+          clearTimeout(timer);
+          if (stopped()) return;
+          if (++tries >= FD_UP_TRIES) return finish({ ok: false, message: msg });
+          setTimeout(function () { resume(next); }, 500 * tries);
+        };
+        fetch('/admin/api/feed/video/chunk?id=' + encodeURIComponent(r.id) + '&n=' + n, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: part, signal: ctrl ? ctrl.signal : undefined })
+          .then(handle).then(function (x) {
+            clearTimeout(timer);
+            if (stopped()) return;
+            if (x && x.ok) { n++; sentParts = Math.max(sentParts + 1, n); tries = 0; next(); return; }
+            again((x && x.message) || 'Part ' + (n + 1) + ' of ' + total + ' would not upload.');
+          }, function () { again('Lost the connection at part ' + (n + 1) + ' of ' + total + '. Try again — it carries on from where it stopped.'); });
+      };
+      next();
+    });
+  });
+}
+// 🗜️ Shrink in the browser: play the video once into a canvas at 720p (480p for very big files) and record that with
+// MediaRecorder, keeping the original sound through a silent WebAudio tap. Real time — a 3-minute reel takes 3 minutes.
+// Never required: a browser without MediaRecorder simply does not see the button.
+function fdCompressVideo(file, dur, targetBytes, done) {
+  var type = fdRecType();
+  if (!type) return done({ ok: false, message: 'This browser cannot compress video — export at 720p instead.' });
+  var job = { cancel: false }; FD_UP = job;
+  var show = function (pct, extra) {
+    fdVidMsg('<div class="qnote"><div class="row" style="gap:10px;align-items:center"><div class="grow" style="min-width:0"><b>🗜️ Compressing… ' + Math.round(pct) + '%</b> <span class="muted">' + esc(extra || 'this can take a minute') + '</span><div class="fd-upbar"><i style="width:' + Math.round(pct) + '%"></i></div></div><button type="button" class="btn ghost sm" id="fdvidcancel">Cancel</button></div></div>');
+    var c = $('#fdvidcancel'); if (c) c.onclick = function () { job.cancel = true; try { el.pause(); } catch (e) {} };
+  };
+  var url = URL.createObjectURL(file), el = document.createElement('video');
+  var tidy = function () { try { URL.revokeObjectURL(url); } catch (e) {} try { if (ctx) ctx.close(); } catch (e) {} };
+  var ctx = null, rec = null, parts = [], raf = 0;
+  var fail = function (m) { FD_UP = null; tidy(); done({ ok: false, message: m }); };
+  el.muted = true; el.playsInline = true; el.preload = 'auto'; el.src = url;
+  show(0, 'getting ready…');
+  el.onerror = function () { fail('Could not read the video.'); };
+  el.onloadedmetadata = function () {
+    try {
+      var seconds = isFinite(el.duration) && el.duration > 0 ? el.duration : (dur || 60);
+      var srcW = el.videoWidth || 720, srcH = el.videoHeight || 1280;
+      // 480p for the very big ones, else 720p; never upscale.
+      var cap = file.size > targetBytes * 2 ? 480 : 720;
+      var k = Math.min(1, cap / Math.max(1, Math.min(srcW, srcH)));
+      var cv = document.createElement('canvas');
+      cv.width = Math.max(2, Math.round(srcW * k / 2) * 2); cv.height = Math.max(2, Math.round(srcH * k / 2) * 2);
+      var g = cv.getContext('2d');
+      // Bitrate so the result should land just inside the limit (85 % of it), within sensible bounds.
+      var audioBps = 96000;
+      var videoBps = Math.max(400000, Math.min(3500000, Math.round(targetBytes * 8 * 0.85 / Math.max(1, seconds)) - audioBps));
+      var stream = cv.captureStream(30);
+      try {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        var dest = ctx.createMediaStreamDestination();
+        ctx.createMediaElementSource(el).connect(dest); // not connected to the speakers: recorded, never heard
+        dest.stream.getAudioTracks().forEach(function (t) { stream.addTrack(t); });
+      } catch (e) { /* no sound is better than no compression */ }
+      rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: videoBps, audioBitsPerSecond: audioBps });
+      rec.ondataavailable = function (ev) { if (ev.data && ev.data.size) parts.push(ev.data); };
+      rec.onstop = function () {
+        cancelAnimationFrame(raf); FD_UP = null; tidy();
+        if (job.cancel) return done({ ok: false, message: 'Compression cancelled.' });
+        var blob = new Blob(parts, { type: 'video/webm' });
+        if (!blob.size) return done({ ok: false, message: 'Compression produced nothing — export at 720p instead.' });
+        if (blob.size > targetBytes) return done({ ok: false, message: 'Even compressed it is ' + fdMb(blob.size) + ' (limit ' + fdMb(targetBytes) + '). Trim the video, or raise the limit in the 🎬 Videos card.' });
+        var out = new File([blob], String(file.name || 'reel').replace(/\.[^.]+$/, '') + '-720p.webm', { type: 'video/webm' });
+        done({ ok: true, file: out, note: '🗜️ Compressed ' + fdMb(file.size) + ' → <b>' + fdMb(out.size) + '</b> (' + cv.width + '×' + cv.height + ') and uploaded.' });
+      };
+      var draw = function () { if (!el.paused && !el.ended) { g.drawImage(el, 0, 0, cv.width, cv.height); show(Math.min(99, el.currentTime / seconds * 100), fdMb(file.size) + ' → about ' + fdMb(videoBps / 8 * seconds)); } raf = requestAnimationFrame(draw); };
+      el.onended = function () { try { rec.stop(); } catch (e) {} };
+      rec.start(1000);
+      el.play().then(function () { raf = requestAnimationFrame(draw); }, function () { fail('The browser would not play the video for compressing.'); });
+      // Guard: never run longer than the video plus a minute.
+      setTimeout(function () { if (rec && rec.state === 'recording') { try { el.pause(); rec.stop(); } catch (e) {} } }, (seconds + 60) * 1000);
+    } catch (e) { fail('Could not compress it here: ' + (e && e.message ? e.message : 'not supported') + '. Export at 720p instead.'); }
+  };
 }
 // 📸 The server stores Instagram's thumbnail as it comes (up to ~330 KB). Above 120 KB this page shrinks it on a canvas
 // (same way as uploaded pictures) and saves the small copy, so customers download little. r = save / refresh result.
@@ -3551,6 +3984,54 @@ function fdPanel(title, inner) {
   var body = $('#fdbody'); body.oninput = body.onchange = body.onclick = null;
   $('#fdback').onclick = fdBack;
 }
+// 🪣 Video storage: keep Reel videos in the MySQL database (as before) or in a Cloudflare R2 bucket (free 10 GB,
+// no download charge). The two keys are write-only — the server never sends them back, so the boxes only say "set".
+function fdStorageBox() {
+  var v = FD.video || {}, r = v.r2 || {}, mig = v.migrate || {}, onR2 = v.mode === 'r2';
+  return '<h4 style="margin:22px 0 4px">🪣 Video storage — where Reel videos live</h4>' +
+    '<p class="muted" style="margin:0;font-size:.84rem">Now: <b>' + (onR2 ? '🪣 Cloudflare R2' : '🗄️ Database') + '</b>' + (v.ready ? ' · ' + esc((onR2 ? r : (v.db || {})).text || '') : '') + '. Hostinger gives this shop a 3 GB database and asks us not to keep video in it; Cloudflare R2 is free up to 10 GB and downloads cost nothing.</p>' +
+    (v.ready && !v.schemaV27 ? '<div class="qnote warn">Run <b>db/schema-v27.sql</b> in phpMyAdmin once before switching to Cloudflare R2. Everything keeps working until you do.</div>' : '') +
+    '<div class="pr-types" style="margin-top:8px"><button type="button" class="pr-type' + (onR2 ? '' : ' on') + '" data-store="db"><b>🗄️ Database</b><span>How it works now</span></button>' +
+    '<button type="button" class="pr-type' + (onR2 ? ' on' : '') + '" data-store="r2"><b>🪣 Cloudflare R2</b><span>Free 10 GB, faster, no egress cost</span></button></div>' +
+    '<ol class="fd-steps"><li><b>dash.cloudflare.com</b> → <b>R2</b> → <b>Create bucket</b> → name it (for example <b>fluxfilm-reels</b>) → location Automatic.</li>' +
+    '<li>On the R2 overview page copy the <b>Account ID</b> (a long string of letters and numbers) into the first box below.</li>' +
+    '<li>R2 → <b>Manage R2 API Tokens</b> → <b>Create API token</b> → permission <b>Object Read &amp; Write</b> → “Apply to specific buckets” → pick your bucket → Create. Copy the <b>Access Key ID</b> and the <b>Secret Access Key</b> (the secret is shown once).</li>' +
+    '<li>Optional but best: bucket → <b>Settings</b> → <b>Public access</b> → either turn on the <b>r2.dev</b> subdomain (copy the https://pub-….r2.dev link) or connect your own domain (for example videos.fluxfilm.in). Paste that link in “Public URL”. With no public URL the shop still serves the videos itself.</li>' +
+    '<li>If you use a public URL, bucket → Settings → <b>CORS policy</b> → add: AllowedOrigins <b>https://shop.fluxfilm.in</b> and <b>https://go.fluxfilm.in</b>, AllowedMethods <b>GET, HEAD</b>, AllowedHeaders <b>Range</b>, ExposeHeaders <b>Content-Length, Content-Range, Accept-Ranges, ETag</b>.</li>' +
+    '<li>Tap <b>🔌 Test connection</b>, then <b>💾 Save</b>, then pick <b>🪣 Cloudflare R2</b> above and use <b>⬆️ Move videos to R2</b> on the posts screen.</li></ol>' +
+    '<div class="pr-two"><label class="fd-num">Account ID<input class="inp" id="fdr2acct" autocomplete="off" spellcheck="false" value="' + esc(r.accountId || '') + '" placeholder="e.g. 0a1b2c3d…"/></label>' +
+    '<label class="fd-num">Bucket name<input class="inp" id="fdr2bucket" autocomplete="off" spellcheck="false" value="' + esc(r.bucket || '') + '" placeholder="fluxfilm-reels"/></label></div>' +
+    '<div class="pr-two" style="margin-top:8px"><label class="fd-num">Access Key ID <span class="muted">(' + (r.keySet ? '✅ set' : 'not set') + ')</span><input class="inp" id="fdr2key" type="password" autocomplete="off" spellcheck="false" placeholder="' + (r.keySet ? 'Paste a new one to replace it' : 'Paste the Access Key ID') + '"/></label>' +
+    '<label class="fd-num">Secret Access Key <span class="muted">(' + (r.secretSet ? '✅ set' : 'not set') + ')</span><input class="inp" id="fdr2secret" type="password" autocomplete="off" spellcheck="false" placeholder="' + (r.secretSet ? 'Paste a new one to replace it' : 'Paste the Secret Access Key') + '"/></label></div>' +
+    '<label class="fd-num" style="margin-top:8px">Public URL <span class="muted">(optional — fastest)</span><input class="inp" id="fdr2pub" autocomplete="off" spellcheck="false" value="' + esc(r.publicBase || '') + '" placeholder="https://pub-xxxxxxxx.r2.dev"/></label>' +
+    '<p class="muted" style="margin:6px 0 0;font-size:.78rem">The two keys stay on the server: they are never shown again, never written to the change log and never sent to any browser.' + (mig.pending ? ' <b>' + mig.pending + ' video' + (mig.pending === 1 ? ' is' : 's are') + ' still in the database</b> — move them from the posts screen.' : '') + '</p>' +
+    '<div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><button type="button" class="btn green" id="fdr2save">💾 Save</button><button type="button" class="btn ghost" id="fdr2test">🔌 Test connection</button>' +
+    (r.keySet || r.secretSet ? '<button type="button" class="btn ghost" id="fdr2clear">Remove keys</button>' : '') + '</div><div id="fdr2out"></div>';
+}
+function fdWireStorageBox() {
+  var out = function (html) { var o = $('#fdr2out'); if (o) o.innerHTML = html; };
+  var body = function () { return { accountId: $('#fdr2acct').value.trim(), bucket: $('#fdr2bucket').value.trim(), accessKeyId: $('#fdr2key').value.trim(), secretAccessKey: $('#fdr2secret').value.trim(), publicBase: $('#fdr2pub').value.trim() }; };
+  var reload = function (r) { if (r && r.ok) { fdLoad(function () { fdSettings(); }); } };
+  var sv = $('#fdr2save'); if (sv) sv.onclick = function () {
+    out('<p class="muted">Saving…</p>');
+    post('/admin/api/feed/video/storage', body()).then(function (r) { out(r.ok ? '<div class="qnote">✅ Saved' + (r.changed && r.changed.length ? ': ' + esc(r.changed.join(', ')) : '') + '</div>' : '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'); reload(r); });
+  };
+  var ts = $('#fdr2test'); if (ts) ts.onclick = function () {
+    out('<p class="muted">Writing a test file to Cloudflare…</p>');
+    post('/admin/api/feed/video/test', body()).then(function (r) { out('<div class="qnote ' + (r.ok ? '' : 'bad') + '">' + esc(r.message || 'error') + '</div>'); });
+  };
+  var cl = $('#fdr2clear'); if (cl) cl.onclick = function () {
+    if (!confirm('Remove the R2 keys? Videos already in R2 keep playing only while the keys are there — remove them and R2 videos stop playing.')) return;
+    post('/admin/api/feed/video/storage', { clearKeys: true, on: false }).then(function (r) { out(r.ok ? '<div class="qnote">Keys removed.</div>' : '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'); reload(r); });
+  };
+  $$('[data-store]').forEach(function (b) {
+    b.onclick = function () {
+      var want = b.getAttribute('data-store') === 'r2';
+      out('<p class="muted">Switching…</p>');
+      post('/admin/api/feed/video/storage', Object.assign(body(), { on: want })).then(function (r) { out(r.ok ? '<div class="qnote">✅ ' + (want ? 'New videos now go to Cloudflare R2.' : 'New videos go to the database again.') + '</div>' : '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'); reload(r); });
+    };
+  });
+}
 function fdSettings() {
   FD.panel = 'settings';
   var st = FD.settings, pm = st.providerMap || {};
@@ -3564,6 +4045,7 @@ function fdSettings() {
     '<h4 style="margin:20px 0 4px">✨ AI fill — captions</h4><p class="muted" style="margin:0;font-size:.84rem">' + (st.hasGeminiKey ? '✅ <b>Gemini</b> writes the captions (with Google Search for very new titles)' + (st.aiKeySet ? '; DeepSeek is the backup.' : '.') : st.aiKeySet ? '✅ Uses the AI key Olivia uses (DEEPSEEK_API_KEY) for captions. Add a Gemini key below to use Gemini instead.' : 'No AI key: ✨ AI fill only adds genres, date and poster. Add a Gemini key below, or <b>DEEPSEEK_API_KEY</b> in Hostinger → the Node app → Environment variables (the same key Olivia uses).') + '</p>' +
     '<ol class="fd-steps"><li>Open <b>aistudio.google.com</b> → sign in with Google → <b>Get API key</b> → Create API key.</li><li>Copy the key (starts with <b>AIza</b>) and paste it here. It stays on the server and is never shown again.</li><li>Order: Gemini if a key is saved, else DeepSeek.</li></ol>' +
     '<div class="row"><input class="inp grow" id="fdgem" type="password" autocomplete="off" spellcheck="false" placeholder="' + (st.hasGeminiKey ? 'Paste a new Gemini key to replace it' : 'Paste Gemini (Google AI Studio) key') + '"/><button class="btn green" id="fdgemsave">💾 Save Gemini key</button>' + (st.hasGeminiKey ? '<button class="btn ghost" id="fdgemdel">Remove</button>' : '') + '</div>' +
+    fdStorageBox() +
     '<h4 style="margin:20px 0 4px">🤖 Automatic import (every 6 hours)</h4><label class="rf-tog"><input type="checkbox" id="fdauto"' + (st.autoPublish ? ' checked' : '') + '/> <b>Publish imported posts by themselves</b></label>' +
     '<p class="muted" style="margin:0 0 10px;font-size:.8rem">ON: new titles go live at once. OFF: they wait as drafts (⏸ Off) until you turn them on. Posts you edit are never changed by the import.</p>' +
     '<div class="muted" style="font-size:.8rem;margin-bottom:4px">Platforms <span>(none ticked = every platform you sell)</span></div><div class="row" style="gap:12px">' + FD.services.map(function (s) { return '<label class="rf-tog" style="margin:0"><input type="checkbox" data-plat="' + esc(s) + '"' + ((st.platforms || []).indexOf(s) >= 0 ? ' checked' : '') + '/> ' + esc(s) + '</label>'; }).join('') + '</div>' +
@@ -3592,6 +4074,7 @@ function fdSettings() {
     var out = $('#fdprovout'); out.innerHTML = '<p class="muted">Asking TMDB…</p>';
     post('/admin/api/feed/tmdb/providers', {}).then(function (r) { out.innerHTML = r.ok ? '<div class="qnote">✅ TMDB accepted the key. Streaming apps in India:</div><div class="fd-prov">' + r.providers.map(function (p) { return '<div><b>' + p.id + '</b> ' + esc(p.name) + '</div>'; }).join('') + '</div>' : '<div class="qnote bad">⚠️ ' + esc(r.message || 'error') + '</div>'; });
   };
+  fdWireStorageBox();
   $('#fdsetsave').onclick = function () {
     var ticked = function (attr) { return $$('[data-' + attr + ']').filter(function (x) { return x.checked; }).map(function (x) { return x.getAttribute('data-' + attr); }); };
     saveSettingsBtn(this, '/admin/api/feed/settings', { autoPublish: $('#fdauto').checked, platforms: ticked('plat'), languages: ticked('lang'), maxPerDay: $('#fdmax').value, autoHideDays: $('#fdhide').value, releasedDays: $('#fdreld').value, upcomingDays: $('#fdupd').value, seriesNewOnly: $('#fdsernew').checked, skipWeeklyShows: $('#fdweekly').checked, minPopularity: $('#fdpop').value, minVotes: $('#fdvotes').value, providerMap: parseMap() }, rfStateSet, function (r) { FD.settings = r.settings; });
@@ -3713,12 +4196,21 @@ function plStockPill(p) {
   var c = p.stockLevel === 'OUT' ? 'p-bad' : p.stockLevel === 'LOW' ? 'p-warn' : 'p-ok';
   return '<span class="pill ' + c + '">📦 ' + (p.stockUnits == null ? 'no limit' : p.stockUnits + ' left') + (p.stockLevel === 'OUT' ? ' · OUT' : '') + '</span>';
 }
+// 📝 The plan you are editing is kept in this browser too (see the draft helpers), with the plan it was based on, so a
+// re-boot puts the same form back instead of the plan list.
+var PL_DRAFT = 'planedit';
+function plDraftKeep() { if (PL.edit) draftLater(PL_DRAFT, function () { return { edit: PL.edit, orig: PL.orig }; }); }
 function plansView() {
   PL.edit = null;
   $('#view').innerHTML = '<div class="ph"><div><h1>🧾 Plans</h1><p>Prices, durations, devices and what customers see. Changes are live on the website right after saving.</p></div>' +
     '<div class="row"><button class="btn" id="plnew">➕ New plan</button></div></div><div id="plbody"><p class="muted">Loading…</p></div>';
   $('#plnew').onclick = function () { plEdit(plBlank(''), null); };
-  plLoad();
+  var d = draftLoad(PL_DRAFT);
+  plLoad(d && d.data && d.data.edit ? function () {
+    plEdit(d.data.edit, d.data.orig || null);
+    var box = $('#plbody .pr-edit');
+    if (box) { box.insertAdjacentHTML('afterbegin', draftStrip('pldraft', d.at)); draftWireStrip('pldraft', PL_DRAFT, function () { PL.edit = null; PL.orig = null; plRenderList(); }); }
+  } : null);
 }
 function plBlank(service) {
   var sib = null;
@@ -3727,11 +4219,12 @@ function plBlank(service) {
   ['orders', 'subs', 'activeSubs', 'stockLevel', 'stockUnits', 'stockSource', 'builder'].forEach(function (k) { delete e[k]; });
   return Object.assign(e, { service: service, plan: '', nameMode: 'builder', type: sib ? sib.type : '', devices: 1, months: 1, style: sib ? sib.style : 'short', price: '', durationDays: 30, isActive: false });
 }
-function plLoad() {
+function plLoad(then) {
   api('/admin/api/plans').then(function (r) {
     if (!$('#plbody')) return;
     if (!r.ok) { $('#plbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
-    PL.list = r.services; PL.stockError = r.stockError; if (!PL.edit) plRenderList();
+    PL.list = r.services; PL.stockError = r.stockError;
+    if (then) then(); else if (!PL.edit) plRenderList();
   });
 }
 function plFind(svc, plan) { var f = null; PL.list.forEach(function (g) { g.plans.forEach(function (p) { if (p.service === svc && p.plan === plan) f = p; }); }); return f; }
@@ -3770,7 +4263,7 @@ function plToggle(p, btn) {
 }
 function plEdit(e, orig) {
   PL.edit = e; PL.orig = orig || null;
-  hSub('plan', function () { PL.edit = null; PL.orig = null; plRenderList(); plLoad(); });
+  hSub('plan', function () { draftStop(PL_DRAFT); PL.edit = null; PL.orig = null; plRenderList(); plLoad(); });
   var used = orig ? (orig.orders + orig.subs) : 0, locked = used > 0;
   var services = []; PL.list.forEach(function (g) { services.push(g.service); });
   var opt = function (list, val) { return list.map(function (x) { return '<option value="' + esc(x[0]) + '"' + (String(x[0]) === String(val) ? ' selected' : '') + '>' + esc(x[1]) + '</option>'; }).join(''); };
@@ -3814,7 +4307,11 @@ function plEdit(e, orig) {
     '<div class="rf-save"><button class="btn green" id="plsave">💾 Save</button><span class="rf-state" id="plstate"></span></div></div></div>' +
     '<div class="card pr-prev"><h3>👀 Preview</h3><div id="plpreview"></div><p class="muted" style="font-size:.75rem;margin-top:10px">Roughly how the plan looks on the website.</p></div></div>';
   var body = $('#plbody');
-  var st = function (k, t) { var el = $('#plstate'); if (el) { el.className = 'rf-state ' + k; el.textContent = t; } };
+  // 📝 Same draft rule as the 🍿 post editor: "not saved yet" keeps it, a save throws it away.
+  var st = function (k, t) {
+    var el = $('#plstate'); if (el) { el.className = 'rf-state ' + k; el.textContent = t; }
+    if (k === 'dirty') plDraftKeep(); else if (k === 'ok') draftStop(PL_DRAFT);
+  };
   var refresh = function () { $('#plnamepv').textContent = plName(PL.edit) || '—'; $('#plpreview').innerHTML = plPreview(PL.edit); };
   body.oninput = body.onchange = function (ev) {
     var el = ev.target, k = el.dataset && el.dataset.k; if (!k) return;
@@ -4644,6 +5141,7 @@ function otpDevicesView() {
   body.addEventListener('focusout', function (e) { var inp = e.target.closest && e.target.closest('[data-odname]'); if (inp) odSave(inp.closest('[data-odrow]')); });
   body.addEventListener('change', function (e) { var sel = e.target.closest && e.target.closest('[data-odtype]'); if (sel) odSave(sel.closest('[data-odrow]')); var ow = e.target.id === 'odow'; if (ow) { OD.overwrite = e.target.checked; odImpRender(); } var pk = e.target.getAttribute && e.target.getAttribute('data-odpick'); if (pk) { OD.picks[pk] = e.target.value; odImpRender(); } });
   body.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.closest && e.target.closest('[data-odname]')) e.target.blur(); });
+  body.addEventListener('input', function (e) { if (e.target.closest && e.target.closest('[data-odname]')) odDraftKeep($('#odlist')); });
   odImpRender();
   if (OD.data) renderOtpDevices(); else odLoad();
 }
@@ -4668,6 +5166,33 @@ function renderOtpDevices() {
     }).join('') + '</div>';
   var accs = d.accounts || [];
   list.innerHTML = accs.length ? accs.map(odCard).join('') : '<div class="card muted">' + (OD.q ? 'No match.' : 'No OTP accounts found.') + '</div>';
+  odDraftRestore(list);
+}
+// 📝 Device names save themselves when you leave the box, but a name still being typed when the app is swapped out
+// would be gone. So half-typed names are kept here (only the ones that differ from what is saved) and put back.
+var OD_DRAFT = 'devicenames';
+function odDraftKeep(list) {
+  draftLater(OD_DRAFT, function () {
+    var out = {};
+    [].slice.call((list || document).querySelectorAll('[data-odname]')).forEach(function (el) {
+      var row = el.closest('[data-odrow]'); if (!row) return;
+      var f = odFind(row.getAttribute('data-odrow'));
+      if (f && String(el.value) !== String(f.r.deviceName || '')) out[row.getAttribute('data-odrow')] = el.value;
+    });
+    return out;
+  });
+}
+function odDraftRestore(list) {
+  var d = draftLoad(OD_DRAFT), n = 0;
+  if (d && d.data) {
+    for (var k in d.data) {
+      if (!Object.prototype.hasOwnProperty.call(d.data, k)) continue;
+      var el = list.querySelector('[data-odrow="' + k.replace(/"/g, '') + '"] [data-odname]');
+      if (el && el.value !== d.data[k]) { el.value = d.data[k]; n++; }
+    }
+  }
+  if (n) list.insertAdjacentHTML('afterbegin', draftStrip('oddraft', d.at, 'Tap 💾 Save on each row you want to keep.'));
+  if (n) draftWireStrip('oddraft', OD_DRAFT, function () { odLoad(); });
 }
 function odCard(a) {
   var ids = a.accountIds.length ? a.accountIds.join(' / ') : (a.noAccount ? 'No account set' : '');
@@ -5254,6 +5779,9 @@ function switchAccountDialog(subId) {
       '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="swa_mail"' + (sb.hasEmail ? ' checked' : ' disabled') + '/> Email the customer the new login' + (sb.hasEmail ? ' (' + esc(sb.email) + ')' : ' — no email on this plan') + '</label>' +
       '<div id="swa_msg"></div><button class="btn dark" id="swa_review"' + (firstOk ? '' : ' disabled') + '>Review</button><div id="swa_confirm"></div></div>';
     box.addEventListener('click', function (e) { var c = e.target.closest('[data-swnote]'); if (c) $('#swa_note').value = c.getAttribute('data-swnote'); });
+    // 📝 The account you picked and the note survive the app being swapped out.
+    var dk = 'switchacc:' + (sb.subId || subId || '');
+    draftRestoreForm(dk, box, box); draftWatchForm(dk, box);
     var pick = function () { var id = $('#swa_acc').value; return (q.accounts || []).filter(function (a) { return a.accountId === id; })[0]; };
     $('#swa_acc').onchange = function () { $('#swa_confirm').innerHTML = ''; };
     $('#swa_review').onclick = function () {
@@ -5269,6 +5797,7 @@ function switchAccountDialog(subId) {
         var btn = $('#swa_go'); btn.disabled = true; btn.textContent = 'Switching…';
         post('/admin/api/subs/switch', { subId: sb.subId, accountId: a.accountId, note: note, email: mail, requestId: rid }).then(function (r) {
           if (!r.ok) { btn.disabled = false; btn.textContent = '🔁 Confirm switch'; $('#swa_msg').innerHTML = '<div class="qnote bad">⚠️ ' + esc(r.message || 'failed') + '</div>'; return; }
+          draftStop(dk);
           closeModal();
           toast(r.message || ('🔁 Switched to ' + a.accountId));
           if (typeof lookup === 'function' && $('#cp')) lookup(true);
