@@ -101,6 +101,18 @@ function mount(app, deps) {
       ]);
       // 🔑 The order card prints the login, so it shows the password the ACCOUNT has now (accesspassword.js).
       await require('./accesspassword').refreshAccessSafe(db.query, subs);
+      // 🧾 Nothing on consumed_order_id? This order may be the SECOND half of a payment that covered two orders.
+      let sharedWith = [];
+      if (!credits.length) {
+        const banklinks = require('./banklinks');
+        const part = (await banklinks.creditFor(db.query, [id])).get(String(id).toUpperCase());
+        if (part && part.creditId) {
+          const cr = await db.query('SELECT id, upi_ref, amount, received_at, order_ids, raw, consumed_order_id FROM bank_credits WHERE id = ? LIMIT 1', [part.creditId]);
+          if (cr && cr[0]) { credits.push(cr[0]); sharedWith = (await banklinks.ordersOf(db.query, part.creditId, cr[0].consumed_order_id)).filter((x) => String(x).toUpperCase() !== String(id).toUpperCase()); }
+        }
+      } else {
+        sharedWith = (await require('./banklinks').ordersOf(db.query, credits[0].id, credits[0].consumed_order_id)).filter((x) => String(x).toUpperCase() !== String(id).toUpperCase());
+      }
       // 📲 An accepted backup-UPI claim (paymatch.js) — its own statement, matched in JS (schema-v17 may be missing).
       let claim = null;
       try {
@@ -114,6 +126,8 @@ function mount(app, deps) {
       });
       res.json({
         ok: true, order: o, subs, bankCredits, couponUsage: coupons, customer: cust[0] || null,
+        // 🧾 This payment also paid for these other orders (one transfer, several plans).
+        paidWith: sharedWith,
         // 💸 How the money actually came in (website QR / typed UTR / backup QR / coins / ₹0 / admin / credit).
         paidVia: { key: pv.via, detail: pv.detail, label: pv.label, at: pv.at, stored: pv.stored, payerName: s((bankCredits[0] || {}).payerName) || paidvia.displayName(claim && claim.payer_name) },
         // Who/how it was created (admin quick orders tag these); never the access-token hash.

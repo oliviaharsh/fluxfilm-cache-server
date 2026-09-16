@@ -33,8 +33,26 @@ const CUTOFF_KEY = 'golive_cutoff';
 const IGNORE_KEY = 'bank_credit_ignores';
 const SCHEMA_FILE = 'db/schema-v23.sql';
 const REASONS = { PERSONAL: 'Personal', PAYTM_SETTLEMENT: 'Paytm settlement', REFUND: 'Refund', TEST: 'Test', OTHER: 'Other' };
+// 🧾 One payment for two plans: the extra orders live in bank_credit_links (banklinks.js, schema-v28). The first
+// order is still bank_credits.consumed_order_id, so nothing that reads that column had to change.
+const banklinks = require('./banklinks');
+const paidvia = require('./paidvia');
+const SUGGEST_POOL = 60;      // open orders around the payment we look at
+const COMBO_POOL = 30;        // of those, how many we try to add up
+const MAX_COMBOS = 6;
+const NEAR_FLOOR = 20;        // ₹ — a total this close to the payment is still worth showing
 const FILTERS = ['after', 'before', 'ignored', 'matched'];
 
+// Why we are suggesting these two (or three) orders together, in the owner's words.
+function comboWhy(x) {
+  const bits = [];
+  if (x.noted) bits.push('one of them is in the payment note');
+  if (x.samePhone) bits.push('same customer');
+  else if (x.named) bits.push('the name on the payment matches');
+  if (x.spreadMin <= 90) bits.push(x.spreadMin <= 1 ? 'bought a minute apart' : 'bought ' + x.spreadMin + ' min apart');
+  if (!x.exact) bits.push(x.diff > 0 ? '₹' + Math.abs(x.diff) + ' LESS than the payment' : '₹' + Math.abs(x.diff) + ' MORE than the payment');
+  return bits.join(' · ');
+}
 function parseAlert(raw) {
   try { return require('./paymatch').parseAlert(raw); } catch (_) { return { payerName: '', note: '', ifsc: '' }; }
 }
@@ -111,6 +129,22 @@ function mount(app, deps) {
     const r = await db.query('SELECT ' + (await creditCols()) + ' FROM bank_credits WHERE id = ? LIMIT 1', [id]);
     return (r && r[0]) || null;
   }
+  // Order rows for a list of ids — its own statement (never JOINed with bank_credit_links: different collations).
+  async function ordersByIds(ids) {
+    const list = [...new Set((ids || []).map((x) => up(x)).filter(Boolean))];
+    if (!list.length) return new Map();
+    const rows = await db.query('SELECT order_id, name, phone_norm, service, plan, final_amount, status, fulfillment_status, source, created_at_sheet FROM orders WHERE order_id IN (' + list.map(() => '?').join(', ') + ')', list);
+    const out = new Map();
+    for (const o of rows || []) out.set(up(o.order_id), o);
+    return out;
+  }
+  // "Which orders did this payment pay?" — the split parts when there are any, else the single linked order.
+  function partView(parts, omap) {
+    return parts.map((p) => {
+      const o = omap.get(up(p.orderId)) || {};
+      return { orderId: p.orderId, amount: num(p.amount), name: s(o.name), service: s(o.service), plan: s(o.plan), orderAmount: num(o.final_amount), status: up(o.status) };
+    });
+  }
   async function ignoredInfo(c) {
     if (c.ignored_at) return { at: s(c.ignored_at), reason: s(c.ignored_reason), note: s(c.ignored_note), where: 'column' };
     const fb = (await st.fallbackIgnores())[String(c.id)];
@@ -122,6 +156,7 @@ function mount(app, deps) {
       id: c.id, upiRef: s(c.upi_ref), amount: num(c.amount), receivedAt: s(c.received_at), orderIdsInNote: s(c.order_ids),
       payerName: a.payerName, note: a.note, ifsc: a.ifsc, raw: s(c.raw),
       orderId: s(c.consumed_order_id) || null, beforeGoLive: !!(c.received_at && s(c.received_at) < cut),
+      parts: null,
       ignored: ig || null,
       order: c.consumed_order_id ? { name: s(c.order_name), service: s(c.order_service), plan: s(c.order_plan), amount: num(c.order_amount), status: s(c.order_status) } : null,
     };
@@ -151,10 +186,24 @@ function mount(app, deps) {
         const ig = c.ignored_at ? { at: s(c.ignored_at), reason: s(c.ignored_reason), note: s(c.ignored_note), where: 'column' } : (fb[String(c.id)] ? Object.assign({ where: 'settings' }, fb[String(c.id)]) : null);
         list.push(view(c, ig, w.cut));
       }
-      res.json({ ok: true, filter, cutoff: w.cut, cutoffDefault: GO_LIVE_DEFAULT, counts, credits: list, reasons: REASONS, schemaReady: w.ig.cols, schemaFile: SCHEMA_FILE });
+      // 🧾 Payments that were split between several orders: show every order on the card.
+      const partMap = await banklinks.partsFor(db.query, list.map((c) => c.id));
+      if (partMap.size) {
+        const omap = await ordersByIds([].concat(...[...partMap.values()].map((ps) => ps.map((p) => p.orderId))));
+        for (const c of list) { const ps = partMap.get(c.id); if (ps && ps.length > 1) c.parts = partView(ps, omap); }
+      }
+      res.json({ ok: true, filter, cutoff: w.cut, cutoffDefault: GO_LIVE_DEFAULT, counts, credits: list, reasons: REASONS, schemaReady: w.ig.cols, schemaFile: SCHEMA_FILE, splitReady: await banklinks.ready(db.query), splitSchemaFile: banklinks.SCHEMA_FILE });
     } catch (e) { fail(res, e); }
   });
 
+  /**
+   * 🔎 What could this payment be? Four ways, best first:
+   *   1. the order id written in the payment note,
+   *   2. an order of exactly this amount around that time,
+   *   3. an order of the customer who pays with this name (learned payer names + the name on the order),
+   *   4. TWO or THREE orders that ADD UP to it — customers often pay for both plans in one transfer.
+   * Orders that already have a payment (their own or as part of a split) are shown greyed out, never suggested.
+   */
   app.get('/admin/api/bank-credits/suggest', async (req, res) => {
     if (!auth(req, res)) return;
     const id = parseInt(s(req.query.id), 10) || 0;
@@ -162,21 +211,76 @@ function mount(app, deps) {
     try {
       const c = await loadCredit(id);
       if (!c) return res.status(404).json({ ok: false, message: 'Bank payment not found.' });
+      const amount = num(c.amount);
       const inNote = s(c.order_ids).toUpperCase().split(',').filter(Boolean);
       const at = s(c.received_at) || null;
+      const payerName = s(parseAlert(c.raw).payerName);
       const cols = 'o.order_id, o.name, o.phone_norm, o.service, o.plan, o.final_amount, o.status, o.fulfillment_status, o.created_at_sheet, o.source';
       const linked = '(SELECT b.id FROM bank_credits b WHERE b.consumed_order_id = o.order_id LIMIT 1) AS linked_credit_id';
-      const [byNote, byAmount] = await Promise.all([
+      const [byNote, pool, payerPhones] = await Promise.all([
         inNote.length ? db.query('SELECT ' + cols + ', ' + linked + ' FROM orders o WHERE o.order_id IN (' + inNote.map(() => '?').join(', ') + ')', inNote) : [],
-        at ? db.query('SELECT ' + cols + ', ' + linked + ' FROM orders o WHERE ROUND(o.final_amount) = ROUND(?) AND o.created_at_sheet BETWEEN (? - INTERVAL 2 DAY) AND (? + INTERVAL 1 DAY) ' +
-          "AND UPPER(COALESCE(o.status, '')) IN ('CREATED', 'PAID') ORDER BY ABS(TIMESTAMPDIFF(SECOND, o.created_at_sheet, ?)) LIMIT 8", [c.amount, at, at, at]) : [],
+        at ? db.query('SELECT ' + cols + ', ' + linked + " FROM orders o WHERE o.created_at_sheet BETWEEN (? - INTERVAL 2 DAY) AND (? + INTERVAL 1 DAY) AND UPPER(COALESCE(o.status, '')) IN ('CREATED', 'PAID') " +
+          'ORDER BY ABS(TIMESTAMPDIFF(SECOND, o.created_at_sheet, ?)) LIMIT ' + SUGGEST_POOL, [at, at, at]) : [],
+        payerName ? paidvia.searchPayerPhones(db.query, payerName, 8).catch(() => []) : [],
       ]);
+      // 💳 Who pays with this name: the phone numbers we learned from earlier payments.
+      const phones = new Set((payerPhones || []).map((p) => s(p.phone_norm)).filter(Boolean));
+      const payerKey = paidvia.compactName(payerName);
+      const payerWords = paidvia.displayName(payerName).split(' ').filter((t) => t.length >= 4);
+      const nameHit = (o) => {
+        if (s(o.phone_norm) && phones.has(s(o.phone_norm))) return 'pays';
+        const n = paidvia.compactName(o.name);
+        if (!payerKey || n.length < 3) return '';
+        if (n === payerKey) return 'same';
+        if (payerKey.includes(n) || n.includes(payerKey)) return 'part';
+        const words = paidvia.displayName(o.name).split(' ');
+        return payerWords.some((t) => words.includes(t)) ? 'part' : '';
+      };
+      const all = [].concat(byNote || [], pool || []);
+      const alsoLinked = await banklinks.creditFor(db.query, all.map((o) => o.order_id));
+      const creditIdOf = (o) => o.linked_credit_id || (alsoLinked.get(up(o.order_id)) || {}).creditId || null;
+      const row = (o, why) => ({
+        order_id: s(o.order_id), name: s(o.name), phone_norm: s(o.phone_norm), service: s(o.service), plan: s(o.plan),
+        final_amount: num(o.final_amount), status: s(o.status), fulfillment_status: s(o.fulfillment_status),
+        created_at_sheet: s(o.created_at_sheet), source: s(o.source),
+        inNote: inNote.includes(up(o.order_id)), linkedCreditId: creditIdOf(o), payerMatch: nameHit(o), why,
+      });
       const seen = new Set(); const orders = [];
-      for (const o of [].concat(byNote || [], byAmount || [])) {
-        if (seen.has(o.order_id)) continue; seen.add(o.order_id);
-        orders.push(Object.assign({}, o, { final_amount: num(o.final_amount), inNote: inNote.includes(up(o.order_id)), linkedCreditId: o.linked_credit_id || null, linked_credit_id: undefined }));
-      }
-      res.json({ ok: true, id, orders });
+      const push = (o, why) => { const k = up(o.order_id); if (seen.has(k)) return; seen.add(k); orders.push(row(o, why)); };
+      for (const o of byNote || []) push(o, 'note');
+      for (const o of pool || []) if (Math.round(num(o.final_amount)) === Math.round(amount)) push(o, 'amount');
+      for (const o of pool || []) if (nameHit(o)) push(o, 'name');
+
+      // ➕ Two or three orders that add up to this payment. Only orders that are still free to be linked.
+      const cand = (pool || []).filter((o) => !creditIdOf(o)).slice(0, COMBO_POOL).map((o) => row(o, 'combo'));
+      const tol = Math.max(NEAR_FLOOR, Math.round(amount * 0.05));
+      const found = [];
+      const add = (list) => {
+        const total = list.reduce((a, o) => a + o.final_amount, 0);
+        const diff = Math.round((amount - total) * 100) / 100;
+        if (Math.abs(diff) > tol) return;
+        const phone = s(list[0].phone_norm);
+        const samePhone = !!phone && list.every((o) => s(o.phone_norm) === phone);
+        const named = list.some((o) => o.payerMatch);
+        const noted = list.some((o) => o.inNote);
+        const times = list.map((o) => Date.parse(s(o.created_at_sheet).replace(' ', 'T'))).filter((t) => !isNaN(t));
+        const spreadMin = times.length > 1 ? Math.round((Math.max.apply(null, times) - Math.min.apply(null, times)) / 60000) : 0;
+        const exact = Math.round(diff) === 0;
+        const x = { orders: list, total: Math.round(total * 100) / 100, diff, exact, samePhone, named, noted, spreadMin };
+        x.score = (exact ? 1000 : 0) + (samePhone ? 120 : 0) + (noted ? 80 : 0) + (named ? 40 : 0) - Math.min(120, spreadMin / 30) - list.length * 4 - Math.abs(diff);
+        found.push(x);
+      };
+      for (let i = 0; i < cand.length; i++) for (let j = i + 1; j < cand.length; j++) add([cand[i], cand[j]]);
+      for (let i = 0; i < cand.length; i++) for (let j = i + 1; j < cand.length; j++) for (let k = j + 1; k < cand.length; k++) add([cand[i], cand[j], cand[k]]);
+      const exactOnes = found.filter((x) => x.exact);
+      // Exact matches are worth showing several of; near misses are guesses, so only the best few.
+      const combos = (exactOnes.length ? exactOnes : found).sort((a, b) => b.score - a.score).slice(0, exactOnes.length ? MAX_COMBOS : 3)
+        .map((x) => ({ orders: x.orders, total: x.total, diff: x.diff, exact: x.exact, samePhone: x.samePhone, why: comboWhy(x) }));
+
+      res.json({
+        ok: true, id, amount, payerName, orders: orders.slice(0, 10), combos,
+        splitReady: await banklinks.ready(db.query), splitSchemaFile: banklinks.SCHEMA_FILE, maxParts: banklinks.MAX_PARTS,
+      });
     } catch (e) { fail(res, e); }
   });
 
@@ -229,45 +333,91 @@ function mount(app, deps) {
     } catch (e) { fail(res, e); }
   });
 
+  /**
+   * 🔗 Link this payment to an order — or to SEVERAL orders when one transfer paid for two plans.
+   * `orderId` (one order) behaves exactly as it always did. `orderIds` (two or more) splits the payment: the
+   * first order still goes into bank_credits.consumed_order_id, and every part is written to bank_credit_links,
+   * so an order can never end up with two payments and a payment can never be spent twice.
+   */
   app.post('/admin/api/bank-credits/link', async (req, res) => {
     if (!auth(req, res)) return;
     const b = req.body || {};
     const id = idOf(b);
-    const orderId = up(b.orderId).replace(/\s+/g, '');
+    const ids = [...new Set([].concat(Array.isArray(b.orderIds) ? b.orderIds : [], b.orderId ? [b.orderId] : []).map((x) => up(x).replace(/\s+/g, '')).filter(Boolean))];
     const override = b.override === true || String(b.override) === 'true';
     const reason = s(b.reason).slice(0, 300);
+    const split = ids.length > 1;
     if (!id) return res.status(400).json({ ok: false, message: 'Bank payment id required.' });
-    if (!orderId) return res.status(400).json({ ok: false, field: 'orderId', message: 'Type or pick the order ID (FF…).' });
+    if (!ids.length) return res.status(400).json({ ok: false, field: 'orderId', message: 'Type or pick the order ID (FF…).' });
+    if (ids.length > banklinks.MAX_PARTS) return res.status(400).json({ ok: false, field: 'orderId', message: 'One payment can be split between at most ' + banklinks.MAX_PARTS + ' orders.' });
     try {
       const c = await loadCredit(id);
       if (!c) return res.status(404).json({ ok: false, message: 'Bank payment not found.' });
       if (c.consumed_order_id) {
-        if (up(c.consumed_order_id) === orderId) return res.json({ ok: true, already: true, id, orderId, message: 'Already linked to ' + orderId + '.' });
-        return res.status(409).json({ ok: false, message: 'This payment is already linked to order ' + c.consumed_order_id + '. Unlink it first if that was wrong.' });
+        const already = await banklinks.ordersOf(db.query, id, c.consumed_order_id);
+        if (already.length === ids.length && ids.every((x) => already.map(up).includes(x))) return res.json({ ok: true, already: true, id, orderId: s(c.consumed_order_id), orderIds: already, message: 'Already linked to ' + already.join(' + ') + '.' });
+        return res.status(409).json({ ok: false, message: 'This payment is already linked to ' + (already.length > 1 ? already.length + ' orders (' + already.join(', ') + ')' : 'order ' + c.consumed_order_id) + '. Unlink it first if that was wrong.' });
       }
-      const orders = await db.query('SELECT order_id, name, service, plan, final_amount, status, fulfillment_status, source, txn_ref FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
-      const o = orders && orders[0];
-      if (!o) return res.status(404).json({ ok: false, field: 'orderId', message: 'No order ' + orderId + '.' });
-      const other = await db.query('SELECT id, upi_ref FROM bank_credits WHERE consumed_order_id = ? AND id <> ? LIMIT 1', [o.order_id, id]);
-      if (other && other.length) return res.status(409).json({ ok: false, message: 'Order ' + o.order_id + ' already has bank payment #' + other[0].id + ' (ref ' + s(other[0].upi_ref) + ').' });
-      const mismatch = Math.round(num(c.amount)) !== Math.round(num(o.final_amount));
-      if (mismatch && !override) return res.status(409).json({ ok: false, amountMismatch: true, paymentAmount: num(c.amount), orderAmount: num(o.final_amount), message: 'Amount differs: payment ₹' + num(c.amount) + ', order ₹' + num(o.final_amount) + '. Link anyway only with a reason.' });
+      const omap = await ordersByIds(ids);
+      const missing = ids.filter((x) => !omap.has(x));
+      if (missing.length) return res.status(404).json({ ok: false, field: 'orderId', message: missing.length === 1 ? 'No order ' + missing[0] + '.' : 'No order: ' + missing.join(', ') + '.' });
+      const list = ids.map((x) => omap.get(x));
+      const other = await db.query('SELECT id, upi_ref, consumed_order_id FROM bank_credits WHERE consumed_order_id IN (' + ids.map(() => '?').join(', ') + ') AND id <> ? LIMIT 3', ids.concat([id]));
+      if (other && other.length) return res.status(409).json({ ok: false, message: 'Order ' + s(other[0].consumed_order_id) + ' already has bank payment #' + other[0].id + ' (ref ' + s(other[0].upi_ref) + ').' });
+      const inSplit = await banklinks.creditFor(db.query, ids);
+      for (const [oid, v] of inSplit) if (v.creditId && v.creditId !== id) return res.status(409).json({ ok: false, message: 'Order ' + oid + ' is already part of bank payment #' + v.creditId + ' — unlink that one first.' });
+      if (split && !(await banklinks.ready(db.query, true))) {
+        return res.status(409).json({ ok: false, needsSchema: true, schemaFile: banklinks.SCHEMA_FILE, message: 'Run ' + banklinks.SCHEMA_FILE + ' in phpMyAdmin first — it makes room for one payment to pay several orders. Nothing was changed.' });
+      }
+      // ₹ the orders come to, against what actually arrived.
+      const total = Math.round(list.reduce((a, o) => a + num(o.final_amount), 0) * 100) / 100;
+      const mismatch = Math.round(num(c.amount)) !== Math.round(total);
+      const left = Math.round((num(c.amount) - total) * 100) / 100;
+      if (mismatch && !override) {
+        return res.status(409).json({
+          ok: false, amountMismatch: true, paymentAmount: num(c.amount), orderAmount: total, orderIds: ids, split, left,
+          // 💡 The payment is bigger than this one order: it may well be paying for another order too.
+          canSplit: !split && left > 0,
+          message: split
+            ? 'These ' + ids.length + ' orders come to ₹' + total + ' but the payment is ₹' + num(c.amount) + ' (' + (left > 0 ? '₹' + left + ' left over' : '₹' + Math.abs(left) + ' short') + '). Link anyway only with a reason.'
+            : 'Amount differs: payment ₹' + num(c.amount) + ', order ₹' + total + '. Link anyway only with a reason.',
+        });
+      }
       if (mismatch && !reason) return res.status(400).json({ ok: false, field: 'reason', amountMismatch: true, message: 'Write why the amounts differ.' });
       const ig = await ignoredInfo(c);
       const cols = await st.ignoreColumns();
-      const r = await db.query('UPDATE bank_credits SET consumed_order_id = ?' + (cols ? ', ignored_at = NULL, ignored_reason = NULL, ignored_note = NULL' : '') + ' WHERE id = ? AND consumed_order_id IS NULL', [o.order_id, id]);
+      const first = list[0];
+      const r = await db.query('UPDATE bank_credits SET consumed_order_id = ?' + (cols ? ', ignored_at = NULL, ignored_reason = NULL, ignored_note = NULL' : '') + ' WHERE id = ? AND consumed_order_id IS NULL', [s(first.order_id), id]);
       if (!r || !r.affectedRows) return res.status(409).json({ ok: false, message: 'This payment was just used by another order — refresh and try again.' });
+      if (split) {
+        let saved;
+        try { saved = await banklinks.save(db.query, id, list.map((o) => ({ orderId: s(o.order_id), amount: num(o.final_amount) }))); }
+        catch (e) { saved = { ok: false, message: String((e && e.message) || e) }; }
+        if (!saved.ok) {
+          // Put the payment back exactly as it was — a half-done split must never exist.
+          await db.query('UPDATE bank_credits SET consumed_order_id = NULL WHERE id = ? AND consumed_order_id = ?', [id, s(first.order_id)]).catch(() => {});
+          await banklinks.clearCredit(db.query, id).catch(() => {});
+          return res.status(409).json(Object.assign({ ok: false, message: 'The split could not be saved — nothing was changed.' }, saved, { ok: false }));
+        }
+      }
       if (ig && ig.where === 'settings') { const map = await st.fallbackIgnores(); delete map[String(id)]; await st.saveSetting(IGNORE_KEY, JSON.stringify(map)).catch(() => {}); }
-      const status = up(o.status);
+      const parts = list.map((o) => ({ orderId: s(o.order_id), amount: num(o.final_amount), name: s(o.name), service: s(o.service), plan: s(o.plan), status: up(o.status), canMarkPaid: up(o.status) === 'CREATED' && s(o.source) === 'node' }));
+      const unpaid = parts.filter((p) => p.status === 'CREATED');
+      const status = up(first.status);
       audit.record(req, {
         action: 'bank.link', entity: 'bank_credit', id,
-        summary: 'Linked ₹' + num(c.amount) + ' (ref ' + s(c.upi_ref) + ') to order ' + o.order_id + ' (₹' + num(o.final_amount) + ', ' + (status || '-') + ')' + (mismatch ? ' · amount differs: ' + reason : reason ? ' · ' + reason : ''),
-        details: { orderId: o.order_id, upiRef: s(c.upi_ref), paymentAmount: num(c.amount), orderAmount: num(o.final_amount), amountMismatch: mismatch, reason, orderStatus: status, wasIgnored: ig || null },
+        summary: (split ? 'Split ₹' + num(c.amount) + ' (ref ' + s(c.upi_ref) + ') between ' + parts.length + ' orders: ' + parts.map((p) => p.orderId + ' ₹' + p.amount).join(' + ') + ' = ₹' + total
+          : 'Linked ₹' + num(c.amount) + ' (ref ' + s(c.upi_ref) + ') to order ' + s(first.order_id) + ' (₹' + num(first.final_amount) + ', ' + (status || '-') + ')')
+          + (mismatch ? ' · amount differs: ' + reason : reason ? ' · ' + reason : ''),
+        details: { orderId: s(first.order_id), orderIds: parts.map((p) => p.orderId), split, parts, upiRef: s(c.upi_ref), paymentAmount: num(c.amount), orderAmount: total, amountMismatch: mismatch, reason, orderStatus: status, wasIgnored: ig || null },
       });
-      const canMarkPaid = status === 'CREATED' && s(o.source) === 'node';
+      const canMarkPaid = status === 'CREATED' && s(first.source) === 'node';
       res.json({
-        ok: true, id, orderId: o.order_id, upiRef: s(c.upi_ref), orderStatus: status, amountMismatch: mismatch, needsPaid: status === 'CREATED', canMarkPaid,
-        message: '🔗 Linked to ' + o.order_id + '.' + (status === 'CREATED' ? (canMarkPaid ? ' The order is still unpaid — use "Mark paid + deliver" if this payment is for it.' : ' The order is still unpaid (old-site order: it cannot be marked paid here).') : ''),
+        ok: true, id, orderId: s(first.order_id), orderIds: parts.map((p) => p.orderId), parts, split, upiRef: s(c.upi_ref),
+        orderStatus: status, amountMismatch: mismatch, needsPaid: status === 'CREATED', canMarkPaid, unpaid,
+        message: split
+          ? '🔗 Split between ' + parts.length + ' orders: ' + parts.map((p) => p.orderId + ' ₹' + p.amount).join(' + ') + '.' + (unpaid.length ? ' ' + unpaid.length + ' of them ' + (unpaid.length === 1 ? 'is' : 'are') + ' still unpaid — use "Mark paid + deliver".' : '')
+          : '🔗 Linked to ' + s(first.order_id) + '.' + (status === 'CREATED' ? (canMarkPaid ? ' The order is still unpaid — use "Mark paid + deliver" if this payment is for it.' : ' The order is still unpaid (old-site order: it cannot be marked paid here).') : ''),
       });
     } catch (e) { fail(res, e); }
   });
@@ -283,10 +433,14 @@ function mount(app, deps) {
       const c = await loadCredit(id);
       if (!c) return res.status(404).json({ ok: false, message: 'Bank payment not found.' });
       if (!c.consumed_order_id) return res.json({ ok: true, already: true, id, message: 'This payment is not linked to an order.' });
+      // 🧾 A split payment is unlinked from ALL its orders in one go (they were one transfer).
+      const orderIds = await banklinks.ordersOf(db.query, id, c.consumed_order_id);
       const r = await db.query('UPDATE bank_credits SET consumed_order_id = NULL WHERE id = ? AND consumed_order_id = ?', [id, c.consumed_order_id]);
       if (!r || !r.affectedRows) return res.status(409).json({ ok: false, message: 'This payment just changed — refresh and try again.' });
-      audit.record(req, { action: 'bank.unlink', entity: 'bank_credit', id, summary: 'Unlinked ₹' + num(c.amount) + ' (ref ' + s(c.upi_ref) + ') from order ' + c.consumed_order_id + ' · ' + reason, details: { orderId: c.consumed_order_id, reason } });
-      res.json({ ok: true, id, orderId: c.consumed_order_id, message: '↩️ Unlinked from ' + c.consumed_order_id + '. The order itself was not changed (a paid order stays paid).' });
+      await banklinks.clearCredit(db.query, id).catch(() => {});
+      const many = orderIds.length > 1;
+      audit.record(req, { action: 'bank.unlink', entity: 'bank_credit', id, summary: 'Unlinked ₹' + num(c.amount) + ' (ref ' + s(c.upi_ref) + ') from ' + (many ? orderIds.length + ' orders ' + orderIds.join(' + ') : 'order ' + c.consumed_order_id) + ' · ' + reason, details: { orderId: c.consumed_order_id, orderIds, split: many, reason } });
+      res.json({ ok: true, id, orderId: c.consumed_order_id, orderIds, split: many, message: '↩️ Unlinked from ' + orderIds.join(' + ') + '. ' + (many ? 'Those orders were' : 'The order itself was') + ' not changed (a paid order stays paid).' });
     } catch (e) { fail(res, e); }
   });
 

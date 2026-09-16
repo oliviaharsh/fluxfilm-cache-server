@@ -447,6 +447,7 @@ function mount(app, deps) {
         const backup = {
           erasedAt: fmtDt(now()), reason, order: o, subscriptions: subs,
           bankCredits: await rowsOf(conn, 'SELECT * FROM bank_credits WHERE consumed_order_id = ? FOR UPDATE', [id]),
+          bankCreditLinks: await optional(conn, 'SELECT * FROM bank_credit_links WHERE order_id = ?', [id]),
           couponUsage: await optional(conn, 'SELECT * FROM coupon_usage WHERE order_id = ?', [id]),
           coinSpends: await optional(conn, 'SELECT * FROM coin_spends WHERE order_id = ?', [id]),
           coinsLedger: await optional(conn, 'SELECT * FROM coins_ledger WHERE order_id = ?', [id]),
@@ -461,12 +462,25 @@ function mount(app, deps) {
         const holds = await releaseHolds(conn, o, 'order ' + id + ' erased (marked paid by mistake)');
         // 3) The real payment can now match the right order.
         const [bc] = await conn.query('UPDATE bank_credits SET consumed_order_id = NULL WHERE consumed_order_id = ?', [id]);
+        // 🧾 If one transfer paid for this order AND others (banklinks.js), take only this order out of it: the
+        // payment stays linked to the orders that are left, and is only freed when nothing is left.
+        let splitFreed = 0;
+        try {
+          const cids = [...new Set((await rowsOf(conn, 'SELECT credit_id FROM bank_credit_links WHERE order_id = ?', [id])).map((r) => Number(r.credit_id)).filter(Boolean))];
+          if (cids.length) await conn.query('DELETE FROM bank_credit_links WHERE order_id = ?', [id]);
+          for (const cid of cids) {
+            const left = await rowsOf(conn, 'SELECT order_id FROM bank_credit_links WHERE credit_id = ? ORDER BY id', [cid]);
+            if (left.length) await conn.query('UPDATE bank_credits SET consumed_order_id = ? WHERE id = ?', [String(left[0].order_id), cid]);
+            if (left.length <= 1) await conn.query('DELETE FROM bank_credit_links WHERE credit_id = ?', [cid]);
+            splitFreed++;
+          }
+        } catch (e) { if (!missingTable(e)) throw e; }
         await optional(conn, "UPDATE payment_claims SET status = 'REJECTED', reason = ?, updated_at = NOW() WHERE order_id = ? AND status IN ('WAITING', 'REVIEW')", ['Order erased by FluxFilm', id]);
         // 4) Placeholder subscription rows (never delivered), then the order itself.
         const [sd] = await conn.query("DELETE FROM subscriptions WHERE order_id = ? AND COALESCE(login_id, '') = '' AND UPPER(COALESCE(fulfillment_status, '')) <> 'FULFILLED'", [id]);
         const [od] = await conn.query('DELETE FROM orders WHERE order_id = ? LIMIT 1', [id]);
         if (!od || od.affectedRows !== 1) throw new Error('The order row could not be deleted — nothing was changed.');
-        return { o, holds, creditsFreed: (bc && bc.affectedRows) || 0, subsDeleted: (sd && sd.affectedRows) || 0, backup };
+        return { o, holds, creditsFreed: (bc && bc.affectedRows) || 0, splitFreed, subsDeleted: (sd && sd.affectedRows) || 0, backup };
       });
       if (done.already) return res.json({ ok: true, already: true, orderId: id, message: 'Already erased (a backup copy is kept as ' + backupKey + ').' });
       const o = done.o;
@@ -474,7 +488,7 @@ function mount(app, deps) {
       audit.record(req, {
         action: 'order.erase', entity: 'order', id,
         summary: 'Erased: ' + reason + ' · ' + s(o.service) + ' ' + s(o.plan) + ' ₹' + asNum(o.final_amount) + ' · ' + maskPhone(o.phone_norm) + ' · was ' + up(o.status) + '/' + (up(o.fulfillment_status) || '-') + ' · backup app_settings.' + backupKey,
-        details: { backupKey, reason, creditsFreed: done.creditsFreed, subsDeleted: done.subsDeleted, coins: h.coins, referral: h.referral, couponsReleased: h.couponsReleased, order: Object.assign({}, o, { raw_json: undefined }) },
+        details: { backupKey, reason, creditsFreed: done.creditsFreed, splitFreed: done.splitFreed, subsDeleted: done.subsDeleted, coins: h.coins, referral: h.referral, couponsReleased: h.couponsReleased, order: Object.assign({}, o, { raw_json: undefined }) },
       });
       const notes = [];
       if (done.creditsFreed) notes.push(done.creditsFreed + ' bank payment(s) are unmatched again and can be matched to the right order.');

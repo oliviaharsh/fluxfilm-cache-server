@@ -190,6 +190,18 @@ async function loadContext(query, orderIds) {
   for (const part of chunk(ids, 200)) {
     const rows = await query('SELECT id, upi_ref, amount, order_ids, raw, received_at, consumed_order_id FROM bank_credits WHERE consumed_order_id IN ' + inList(part.length), part);
     for (const r of rows) { const k = s(r.consumed_order_id); if (k && !credits.has(k)) credits.set(k, r); }
+    // 🧾 One transfer can pay two orders (banklinks.js): only the first is in consumed_order_id, so the others
+    // are looked up here — otherwise the second plan would show no payment and no payer name.
+    const rest = part.filter((x) => !credits.has(s(x)));
+    if (rest.length) {
+      const map = await require('./banklinks').creditFor(query, rest);
+      const wanted = [...new Set([...map.values()].map((v) => v.creditId).filter(Boolean))];
+      if (wanted.length) {
+        const cr = await query('SELECT id, upi_ref, amount, order_ids, raw, received_at, consumed_order_id FROM bank_credits WHERE id IN ' + inList(wanted.length), wanted);
+        const byId = new Map((Array.isArray(cr) ? cr : []).map((r) => [Number(r.id), r]));
+        for (const [orderId, v] of map) { const r = byId.get(Number(v.creditId)); if (r && !credits.has(orderId)) credits.set(orderId, Object.assign({}, r, { consumed_order_id: orderId, splitAmount: v.amount, splitFrom: s(r.consumed_order_id) })); }
+      }
+    }
     try {
       const cl = await query("SELECT order_id, payer_name, utr, status, source, credit_id, created_at, updated_at, decided_at FROM payment_claims WHERE status IN ('MATCHED', 'APPROVED') AND order_id IN " + inList(part.length), part);
       for (const c of cl) { const k = s(c.order_id); if (k && !claims.has(k)) claims.set(k, c); }

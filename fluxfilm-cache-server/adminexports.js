@@ -404,6 +404,18 @@ function mount(app, deps) {
       // The matched bank line: its note tells the website QR (order id inside) from a typed UTR, and holds the payer name.
       const bc = await optional('SELECT consumed_order_id, upi_ref, amount, order_ids, raw, received_at FROM bank_credits WHERE consumed_order_id IN ' + inList(part.length), part);
       for (const c of bc) { const k = s(c.consumed_order_id); if (k && !credits.has(k)) credits.set(k, c); }
+      // 🧾 One transfer that paid for several orders (banklinks.js): only the first is in consumed_order_id,
+      // so the other orders' payment is looked up here — otherwise the export would show them as unpaid by bank.
+      const rest = part.filter((x) => !credits.has(s(x)));
+      if (rest.length) {
+        const map = await require('./banklinks').creditFor(q, rest);
+        const want = [...new Set([...map.values()].map((v) => v.creditId).filter(Boolean))];
+        if (want.length) {
+          const more = await optional('SELECT id, consumed_order_id, upi_ref, amount, order_ids, raw, received_at FROM bank_credits WHERE id IN ' + inList(want.length), want);
+          const byId = new Map((Array.isArray(more) ? more : []).map((c) => [Number(c.id), c]));
+          for (const [orderId, v] of map) { const c = byId.get(Number(v.creditId)); if (c && !credits.has(orderId)) credits.set(orderId, Object.assign({}, c, { consumed_order_id: orderId, amount: v.amount })); }
+        }
+      }
     }
     const missing = renewIds.filter((id) => !subsById.has(id));
     for (const part of chunks(missing)) {

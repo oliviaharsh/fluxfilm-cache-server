@@ -5067,14 +5067,50 @@ function bankCard(c) {
   var h = '<div class="pmc" data-bk="' + c.id + '"><div class="row" style="justify-content:space-between;gap:8px;align-items:flex-start">' +
     '<div style="min-width:0"><div class="pmname">' + esc(c.payerName || '(no name in the alert)') + '</div><div class="muted" style="font-size:.76rem;margin-top:2px">' + prettyDate(c.receivedAt, true) + ' · ref <b>' + esc(c.upiRef) + '</b>' + (c.note && c.note !== 'UPI' ? ' · note ' + esc(c.note) : '') + (c.ifsc ? ' · ' + esc(c.ifsc) : '') + '</div></div>' +
     '<div style="text-align:right;flex-shrink:0"><div class="pmamt">' + money(c.amount) + '</div>' + pill + '</div></div>';
-  if (c.orderId) h += '<div class="qnote" style="margin-top:8px">🔗 <a href="#" data-bkorder="' + esc(c.orderId) + '"><b>' + esc(c.orderId) + '</b></a>' + (c.order ? ' · ' + esc(c.order.name || '') + ' · ' + esc(c.order.service || '') + ' ' + esc(c.order.plan || '') + ' · ' + money(c.order.amount) + ' ' + statusPill(c.order.status) : '') + '</div>';
+  // 🧾 One transfer that paid for several orders: list them all, each with its share.
+  if (c.orderId && (c.parts || []).length > 1) {
+    h += '<div class="qnote" style="margin-top:8px">🧾 <b>One payment, ' + c.parts.length + ' orders</b>' + c.parts.map(function (p) {
+      return '<div style="margin-top:4px">🔗 <a href="#" data-bkorder="' + esc(p.orderId) + '"><b>' + esc(p.orderId) + '</b></a> · ' + esc(p.name || '') + ' · ' + esc(p.service || '') + ' ' + esc(p.plan || '') + ' · ' + money(p.amount) + ' ' + statusPill(p.status) + '</div>';
+    }).join('') + '</div>';
+  } else if (c.orderId) h += '<div class="qnote" style="margin-top:8px">🔗 <a href="#" data-bkorder="' + esc(c.orderId) + '"><b>' + esc(c.orderId) + '</b></a>' + (c.order ? ' · ' + esc(c.order.name || '') + ' · ' + esc(c.order.service || '') + ' ' + esc(c.order.plan || '') + ' · ' + money(c.order.amount) + ' ' + statusPill(c.order.status) : '') + '</div>';
   if (c.ignored) h += '<div class="qnote" style="margin-top:8px">🙈 Not a sale: <b>' + esc(bkReason(c.ignored.reason)) + '</b>' + (c.ignored.note ? ' · ' + esc(c.ignored.note) : '') + (c.ignored.at ? ' <span class="muted">(' + prettyDate(String(c.ignored.at).replace('T', ' '), true) + ')</span>' : '') + '</div>';
   h += '<div class="pmbtns" style="margin-top:10px">';
   if (!c.orderId && !c.ignored) h += '<button class="btn sm" data-bkact="link">🔗 Link to order</button><button class="btn ghost sm" data-bkact="ignore">🙈 Not a sale</button>';
   if (c.ignored) h += '<button class="btn ghost sm" data-bkact="unignore">↩️ Undo "Not a sale"</button>';
-  if (c.orderId && c.order && String(c.order.status).toUpperCase() === 'CREATED') h += '<button class="btn green sm" data-bkact="paid" data-oid="' + esc(c.orderId) + '" data-ref="' + esc(c.upiRef) + '">✅ Mark paid + deliver</button>';
+  if (c.orderId && (c.parts || []).length > 1) c.parts.filter(function (p) { return p.status === 'CREATED'; }).forEach(function (p) {
+    h += '<button class="btn green sm" data-bkact="paid" data-oid="' + esc(p.orderId) + '" data-ref="' + esc(c.upiRef) + '">✅ Mark ' + esc(p.orderId) + ' paid + deliver</button>';
+  });
+  else if (c.orderId && c.order && String(c.order.status).toUpperCase() === 'CREATED') h += '<button class="btn green sm" data-bkact="paid" data-oid="' + esc(c.orderId) + '" data-ref="' + esc(c.upiRef) + '">✅ Mark paid + deliver</button>';
   if (c.orderId) h += '<button class="btn ghost sm" data-bkact="unlink">✂️ Unlink</button>';
   return h + '</div><div class="bkform"></div><div class="rf-state bkres"></div></div>';
+}
+// The order ids typed or tapped into the link box ("FF1, FF2" = one payment that paid for two orders).
+function bkIds(form) {
+  var raw = ((form.querySelector('.bkoid') || {}).value || '').toUpperCase();
+  var out = [];
+  raw.split(/[\s,;+]+/).forEach(function (x) { var v = x.trim(); if (v && out.indexOf(v) < 0) out.push(v); });
+  return out;
+}
+function bkToggle(form, oid) {
+  var inp = form.querySelector('.bkoid'); if (!inp) return;
+  var ids = bkIds(form); var i = ids.indexOf(String(oid).toUpperCase());
+  if (i < 0) ids.push(String(oid).toUpperCase()); else ids.splice(i, 1);
+  inp.value = ids.join(', ');
+}
+// "2 orders · ₹122 of ₹128 · ₹6 left over" while you pick, so a split is never a surprise.
+function bkTotal(form, c) {
+  var box = form.querySelector('.bktotal'); if (!box) return;
+  var ids = bkIds(form); var sug = form.BKSUG || {};
+  $$('[data-bkpick]', form).forEach(function (b) { b.classList.toggle('on', ids.indexOf(b.getAttribute('data-bkpick').toUpperCase()) >= 0); });
+  if (!ids.length) { box.textContent = ''; return; }
+  var known = ids.filter(function (x) { return sug[x]; });
+  var total = known.reduce(function (a, x) { return a + Number(sug[x].final_amount || 0); }, 0);
+  var line = ids.length + (ids.length === 1 ? ' order' : ' orders') + ': ' + ids.join(' + ');
+  if (known.length === ids.length) {
+    var left = Math.round((Number(c.amount || 0) - total) * 100) / 100;
+    line += ' = ' + money(total) + ' of ' + money(c.amount) + (left === 0 ? ' ✅ exact' : left > 0 ? ' · ' + money(left) + ' left over' : ' · ' + money(Math.abs(left)) + ' short');
+  } else line += ' · the amounts are checked when you press Link';
+  box.textContent = line;
 }
 function bkMarkPaid(orderId, ref, res) {
   if (!confirm('Mark ' + orderId + ' paid with bank ref ' + ref + ' and deliver the plan now?\n\nThe customer gets the login by email, like a website order.')) return;
@@ -5090,7 +5126,9 @@ function bankClick(e) {
   var id = Number(card.getAttribute('data-bk')), form = card.querySelector('.bkform'), res = card.querySelector('.bkres');
   var c = ((BK.data && BK.data.credits) || []).filter(function (x) { return x.id === id; })[0] || {};
   var ord = e.target.closest('[data-bkorder]'); if (ord) { e.preventDefault(); openOrder(ord.getAttribute('data-bkorder')); return; }
-  var pick = e.target.closest('[data-bkpick]'); if (pick) { var inp = form.querySelector('.bkoid'); if (inp) inp.value = pick.getAttribute('data-bkpick'); return; }
+  // Tapping an order ADDS it (tap again to take it off) — that is how one payment gets split between two orders.
+  var pick = e.target.closest('[data-bkpick]'); if (pick) { bkToggle(form, pick.getAttribute('data-bkpick')); bkTotal(form, c); return; }
+  var combo = e.target.closest('[data-bkcombo]'); if (combo) { var ci = form.querySelector('.bkoid'); if (ci) ci.value = combo.getAttribute('data-bkcombo').split(',').join(', '); bkTotal(form, c); return; }
   var reason = e.target.closest('[data-bkreason]'); if (reason) { $$('[data-bkreason]', form).forEach(function (b) { b.classList.toggle('on', b === reason); }); form.setAttribute('data-reason', reason.getAttribute('data-bkreason')); return; }
   var b = e.target.closest('[data-bkact]'); if (!b) return;
   var act = b.getAttribute('data-bkact');
@@ -5116,33 +5154,61 @@ function bankClick(e) {
     return;
   }
   if (act === 'link') {
-    form.innerHTML = '<div class="oaform" data-nodirty style="margin-top:8px"><b>🔗 Link ' + money(c.amount) + ' to an order</b><div class="bksug muted" style="font-size:.78rem;margin:6px 0">Looking for orders of ' + money(c.amount) + ' around that time…</div>' +
-      '<label>Order ID<input class="inp bkoid" placeholder="FF…" autocomplete="off" autocapitalize="characters"/></label><div class="bkover"></div>' +
+    form.innerHTML = '<div class="oaform" data-nodirty style="margin-top:8px"><b>🔗 Link ' + money(c.amount) + ' to an order</b><div class="bksug muted" style="font-size:.78rem;margin:6px 0">Looking for orders around that time…</div>' +
+      '<label>Order ID<input class="inp bkoid" placeholder="FF… (two ids separated by a comma if this one payment paid for two orders)" autocomplete="off" autocapitalize="characters"/></label>' +
+      '<div class="bktotal muted" style="font-size:.78rem;margin-top:6px"></div><div class="bkover"></div>' +
       '<div class="row" style="gap:6px;margin-top:8px"><button class="btn sm" data-bkact="link-save">🔗 Link</button><button class="btn ghost sm" data-bkact="close">Cancel</button></div></div>';
+    form.querySelector('.bkoid').addEventListener('input', function () { bkTotal(form, c); });
     api('/admin/api/bank-credits/suggest', { id: id }).then(function (r) {
       var box = form.querySelector('.bksug'); if (!box) return;
-      if (!r.ok || !r.orders.length) { box.textContent = 'No order of this amount around that time — type the order ID if you know it.'; return; }
-      box.innerHTML = 'Tap to pick:' + r.orders.map(function (o) { return '<button class="pmopt" style="margin-top:6px" data-bkpick="' + esc(o.order_id) + '"' + (o.linkedCreditId ? ' disabled' : '') + '><span style="flex:1;min-width:0;text-align:left"><b>' + esc(o.order_id) + '</b> · ' + esc(o.name || '') + ' ' + (o.inNote ? '<span class="pill p-ok">in the payment note</span> ' : '') + statusPill(o.status) + '<small>' + esc(o.service) + ' ' + esc(o.plan) + ' · ' + money(o.final_amount) + ' · ' + prettyDate(o.created_at_sheet, true) + (o.linkedCreditId ? ' · already has a bank payment' : '') + '</small></span></button>'; }).join('');
+      form.BKSUG = {};
+      (r.orders || []).forEach(function (o) { form.BKSUG[o.order_id] = o; });
+      (r.combos || []).forEach(function (x) { x.orders.forEach(function (o) { form.BKSUG[o.order_id] = o; }); });
+      if (!r.ok || (!r.orders.length && !(r.combos || []).length)) { box.textContent = 'No order of this amount around that time — type the order ID if you know it.'; return; }
+      // ➕ Two or three orders that add up to this payment (customers often pay for both plans in one transfer).
+      var combos = (r.combos || []).map(function (x) {
+        return '<div class="qnote" style="margin:6px 0;padding:8px"><b>' + (x.exact ? '➕ These ' + x.orders.length + ' orders add up to ' + money(x.total) : '➕ Closest: ' + money(x.total) + ' for ' + x.orders.length + ' orders') + '</b>' +
+          (x.why ? '<div class="muted" style="font-size:.74rem;margin-top:2px">' + esc(x.why) + '</div>' : '') +
+          x.orders.map(function (o) { return '<div style="font-size:.78rem;margin-top:3px"><b>' + esc(o.order_id) + '</b> · ' + esc(o.name || '') + ' · ' + esc(o.service) + ' ' + esc(o.plan) + ' · ' + money(o.final_amount) + '</div>'; }).join('') +
+          '<button class="btn sm" style="margin-top:6px" data-bkcombo="' + esc(x.orders.map(function (o) { return o.order_id; }).join(',')) + '">Use these ' + x.orders.length + '</button></div>';
+      }).join('');
+      var singles = (r.orders || []).map(function (o) {
+        var why = o.inNote ? '<span class="pill p-ok">in the payment note</span> ' : o.why === 'name' ? '<span class="pill p-grey">pays as ' + esc(r.payerName || '') + '</span> ' : '';
+        return '<button class="pmopt" style="margin-top:6px" data-bkpick="' + esc(o.order_id) + '"' + (o.linkedCreditId ? ' disabled' : '') + '><span style="flex:1;min-width:0;text-align:left"><b>' + esc(o.order_id) + '</b> · ' + esc(o.name || '') + ' ' + why + statusPill(o.status) + '<small>' + esc(o.service) + ' ' + esc(o.plan) + ' · ' + money(o.final_amount) + ' · ' + prettyDate(o.created_at_sheet, true) + (o.linkedCreditId ? ' · already has a bank payment' : '') + '</small></span></button>';
+      }).join('');
+      box.innerHTML = combos + (singles ? 'Tap to pick (tap two if one payment paid for two orders):' + singles : '');
+      if (r.splitReady === false) box.innerHTML += '<div class="qnote warn" style="margin-top:8px">To link one payment to more than one order, run <b>' + esc(r.splitSchemaFile || 'db/schema-v28.sql') + '</b> in phpMyAdmin first.</div>';
+      bkTotal(form, c);
     });
     return;
   }
   if (act === 'link-save') {
-    var oid = ((form.querySelector('.bkoid') || {}).value || '').trim();
-    if (!oid) { res.className = 'rf-state bkres bad'; res.textContent = 'Type or pick the order ID.'; return; }
+    var oids = bkIds(form);
+    if (!oids.length) { res.className = 'rf-state bkres bad'; res.textContent = 'Type or pick the order ID.'; return; }
     var over = form.querySelector('.bkreasonin');
-    var lb = { id: id, orderId: oid };
+    var lb = oids.length > 1 ? { id: id, orderIds: oids } : { id: id, orderId: oids[0] };
     if (over) { lb.override = true; lb.reason = over.value; }
     b.disabled = true; res.textContent = '⏳';
     post('/admin/api/bank-credits/link', lb).then(function (x) {
       b.disabled = false;
       if (!x.ok) {
         if (x.amountMismatch && !over) {
-          form.querySelector('.bkover').innerHTML = '<div class="qnote warn" style="margin-top:8px">⚠️ ' + esc(x.message) + '</div><label>Why do the amounts differ?<input class="inp bkreasonin" placeholder="e.g. paid ₹10 extra by mistake" autocomplete="off"/></label>';
+          // 💡 The payment is bigger than this order — it may well be paying for another order too.
+          form.querySelector('.bkover').innerHTML = '<div class="qnote warn" style="margin-top:8px">⚠️ ' + esc(x.message) +
+            (x.canSplit ? '<div style="margin-top:6px">🧾 <b>Does this payment cover another order too?</b> ' + money(x.left) + ' is left over — tap a second order above (or add its id after a comma) and press 🔗 Link again.</div>' : '') +
+            '</div><label>Or say why the amounts differ<input class="inp bkreasonin" placeholder="e.g. paid ₹10 extra by mistake" autocomplete="off"/></label>';
           b.textContent = '🔗 Link anyway'; res.textContent = ''; return;
         }
-        res.className = 'rf-state bkres bad'; res.textContent = '⚠️ ' + (x.message || 'failed'); return;
+        res.className = 'rf-state bkres bad'; res.textContent = '⚠️ ' + (x.message || 'failed') + (x.needsSchema ? ' (run ' + (x.schemaFile || 'db/schema-v28.sql') + ' in phpMyAdmin)' : ''); return;
       }
       toast(x.message || 'Linked'); res.textContent = '';
+      var toDeliver = (x.unpaid || []).filter(function (p) { return p.canMarkPaid; });
+      if (x.split && toDeliver.length) {
+        form.innerHTML = '<div class="qnote" style="margin-top:8px">🔗 Split between <b>' + x.orderIds.length + ' orders</b>. ' + (toDeliver.length === 1 ? 'One is' : toDeliver.length + ' are') + ' still unpaid — deliver now?</div><div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">' +
+          toDeliver.map(function (p) { return '<button class="btn green sm" data-bkact="paid" data-oid="' + esc(p.orderId) + '" data-ref="' + esc(x.upiRef) + '">✅ ' + esc(p.orderId) + ' (' + money(p.amount) + ')</button>'; }).join('') +
+          '<button class="btn ghost sm" data-bkact="refresh">Not now</button></div>';
+        return;
+      }
       if (x.needsPaid && x.canMarkPaid) {
         form.innerHTML = '<div class="qnote" style="margin-top:8px">🔗 Linked to <b>' + esc(x.orderId) + '</b>. It is still unpaid — deliver it now?</div><div class="row" style="gap:6px;margin-top:8px"><button class="btn green sm" data-bkact="paid" data-oid="' + esc(x.orderId) + '" data-ref="' + esc(x.upiRef) + '">✅ Mark paid + deliver</button><button class="btn ghost sm" data-bkact="refresh">Not now</button></div>';
         return;

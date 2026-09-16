@@ -20,6 +20,7 @@ const D = {
     { id: 5, upi_ref: '600000000005', amount: 199, order_ids: 'FF1000001', raw: alert('MATCHED PAYER', 'FF1000001'), received_at: '2026-09-15 10:00:00', consumed_order_id: 'FF1000001' },
     { id: 6, upi_ref: '600000000006', amount: 139, order_ids: '', raw: alert('WHATSAPP BUYER', 'UPI'), received_at: '2026-09-15 11:00:00', consumed_order_id: null },
   ],
+  links: [], linksTable: true, linkSeq: 0,
   orders: [
     { order_id: 'FF1000001', name: 'Matched', service: 'Netflix', plan: 'Private 1M', final_amount: 199, status: 'PAID', source: 'node', created_at_sheet: '2026-09-15 09:58:00' },
     { order_id: 'FF1000002', name: 'Waiting', service: 'Netflix (Group Offer)', plan: 'Sharing 1M', final_amount: 139, status: 'CREATED', source: 'node', created_at_sheet: '2026-09-15 10:55:00' },
@@ -64,6 +65,7 @@ const mockDb = {
       const f = matchWhere(sql.replace(/b\./g, ''), params);
       return D.credits.filter(f).sort((a, b) => (a.received_at < b.received_at ? 1 : -1)).map((c) => { const o = D.orders.find((x) => x.order_id === c.consumed_order_id) || {}; return Object.assign({}, c, { order_name: o.name, order_service: o.service, order_plan: o.plan, order_amount: o.final_amount, order_status: o.status }); });
     }
+    if (/FROM bank_credits WHERE id IN \(/.test(sql)) return D.credits.filter((c) => params.includes(c.id)).map((c) => Object.assign({}, c));
     if (/FROM bank_credits WHERE id = \? LIMIT 1$/.test(sql)) { const c = D.credits.find((x) => x.id === params[0]); return c ? [Object.assign({}, c)] : []; }
     if (/^SELECT id, upi_ref FROM bank_credits WHERE consumed_order_id = \? AND id <> \?/.test(sql)) return D.credits.filter((c) => c.consumed_order_id === params[0] && c.id !== params[1]);
     if (/^SELECT order_id, name, service, plan, final_amount, status, fulfillment_status, source, txn_ref FROM orders WHERE order_id = \?/.test(sql)) return D.orders.filter((o) => o.order_id === params[0]);
@@ -72,6 +74,37 @@ const mockDb = {
     if (/^UPDATE bank_credits SET consumed_order_id = \?/.test(sql)) { const c = D.credits.find((x) => x.id === params[1] && !x.consumed_order_id); if (!c) return { affectedRows: 0 }; c.consumed_order_id = params[0]; if (/ignored_at = NULL/.test(sql)) Object.assign(c, { ignored_at: null, ignored_reason: null, ignored_note: null }); return { affectedRows: 1 }; }
     if (/^UPDATE bank_credits SET consumed_order_id = NULL WHERE id = \? AND consumed_order_id = \?/.test(sql)) { const c = D.credits.find((x) => x.id === params[0] && x.consumed_order_id === params[1]); if (!c) return { affectedRows: 0 }; c.consumed_order_id = null; return { affectedRows: 1 }; }
     if (/FROM orders o WHERE o.order_id IN/.test(sql)) return D.orders.filter((o) => params.includes(o.order_id)).map((o) => Object.assign({}, o, { linked_credit_id: (D.credits.find((c) => c.consumed_order_id === o.order_id) || {}).id || null }));
+    // the plain order rows the link step reads
+    if (/^SELECT order_id, name, phone_norm, service, plan, final_amount, status, fulfillment_status, source, created_at_sheet FROM orders WHERE order_id IN/.test(sql)) return D.orders.filter((o) => params.includes(o.order_id)).map((o) => Object.assign({}, o));
+    // 🔎 the pool of open orders around the payment (suggestions + "add up to it")
+    if (/FROM orders o WHERE o.created_at_sheet BETWEEN/.test(sql)) {
+      const at = Date.parse(String(params[0]).replace(' ', 'T'));
+      return D.orders.filter((o) => ['CREATED', 'PAID'].includes(String(o.status).toUpperCase()))
+        .filter((o) => Math.abs(Date.parse(String(o.created_at_sheet).replace(' ', 'T')) - at) <= 2 * 86400e3)
+        .map((o) => Object.assign({}, o, { linked_credit_id: (D.credits.find((c) => c.consumed_order_id === o.order_id) || {}).id || null }))
+        .sort((a, b) => Math.abs(Date.parse(String(a.created_at_sheet).replace(' ', 'T')) - at) - Math.abs(Date.parse(String(b.created_at_sheet).replace(' ', 'T')) - at));
+    }
+    if (/^SELECT id, upi_ref, consumed_order_id FROM bank_credits WHERE consumed_order_id IN .* AND id <> \? LIMIT 3$/.test(sql)) {
+      const want = params.slice(0, -1), self = params[params.length - 1];
+      return D.credits.filter((c) => want.includes(c.consumed_order_id) && c.id !== self).slice(0, 3);
+    }
+    // 🧾 bank_credit_links (schema-v28)
+    if (/bank_credit_links/.test(sql)) {
+      if (!D.linksTable) { const e = new Error("Table 'u.bank_credit_links' doesn't exist"); e.code = 'ER_NO_SUCH_TABLE'; throw e; }
+      if (/^SELECT credit_id FROM bank_credit_links LIMIT 1$/.test(sql)) return D.links.slice(0, 1);
+      if (/^SELECT id, credit_id, order_id, amount FROM bank_credit_links WHERE credit_id IN/.test(sql)) return D.links.filter((l) => params.includes(l.credit_id));
+      if (/^SELECT credit_id, order_id, amount FROM bank_credit_links WHERE order_id IN/.test(sql)) return D.links.filter((l) => params.includes(l.order_id));
+      if (/^SELECT order_id, amount FROM bank_credit_links WHERE credit_id = \? ORDER BY id$/.test(sql)) return D.links.filter((l) => l.credit_id === params[0]);
+      if (/^SELECT id, credit_id, order_id, amount FROM bank_credit_links WHERE order_id = \?$/.test(sql)) return D.links.filter((l) => l.order_id === params[0]);
+      if (/^DELETE FROM bank_credit_links WHERE credit_id = \?$/.test(sql)) { const n = D.links.length; D.links = D.links.filter((l) => l.credit_id !== params[0]); return { affectedRows: n - D.links.length }; }
+      if (/^DELETE FROM bank_credit_links WHERE order_id = \?$/.test(sql)) { const n = D.links.length; D.links = D.links.filter((l) => l.order_id !== params[0]); return { affectedRows: n - D.links.length }; }
+      if (/^INSERT INTO bank_credit_links \(credit_id, order_id, amount\) VALUES \(\?, \?, \?\)$/.test(sql)) {
+        if (D.links.some((l) => l.order_id === params[1])) { const e = new Error("Duplicate entry '" + params[1] + "' for key 'uq_bcl_order'"); e.code = 'ER_DUP_ENTRY'; throw e; }
+        D.links.push({ id: ++D.linkSeq, credit_id: params[0], order_id: params[1], amount: params[2] });
+        return { affectedRows: 1 };
+      }
+      throw new Error('unexpected bank_credit_links SQL: ' + sql);
+    }
     if (/FROM orders o WHERE ROUND\(o.final_amount\) = ROUND\(\?\)/.test(sql)) return D.orders.filter((o) => Math.round(o.final_amount) === Math.round(params[0])).map((o) => Object.assign({}, o, { linked_credit_id: (D.credits.find((c) => c.consumed_order_id === o.order_id) || {}).id || null }));
     return [];
   },
@@ -170,6 +203,73 @@ const mockDb = {
     ok('unlink needs a reason', r.status === 400);
     r = await post('/admin/api/bank-credits/unlink', { id: 3, reason: 'wrong order' });
     ok('unlink frees the payment; the order is not touched', r.body.ok && D.credits[2].consumed_order_id === null && D.orders[2].status === 'PAID', r.body);
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+    // 🧾 ONE payment, TWO orders (owner, 16 Sep): "some customers make payment of 2 subs together".
+    // Live example that day: ₹128 from HARSH WALIA with FF9920344 (₹66) in the note — one order alone never matched.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+    section('one payment that paid for two orders');
+    const banklinks = require('../banklinks');
+    const paidvia = require('../paidvia');
+    D.orders.push(
+      { order_id: 'FF1000004', name: 'Mukesh', phone_norm: '9000000004', service: 'JioHotstar', plan: '1 Month', final_amount: 66, status: 'CREATED', source: 'node', created_at_sheet: '2026-09-15 12:03:00' },
+      { order_id: 'FF1000005', name: 'Mukesh', phone_norm: '9000000004', service: 'Prime Video', plan: '2 Devices 1M', final_amount: 56, status: 'CREATED', source: 'node', created_at_sheet: '2026-09-15 11:32:00' },
+    );
+    D.credits.push(
+      { id: 7, upi_ref: '600000000007', amount: 122, order_ids: '', raw: alert('MUKESH KUMAR', 'UPI'), received_at: '2026-09-15 12:05:00', consumed_order_id: null },
+      { id: 8, upi_ref: '600000000008', amount: 128, order_ids: 'FF1000004', raw: alert('MUKESH KUMAR', 'FF1000004'), received_at: '2026-09-15 12:06:00', consumed_order_id: null },
+    );
+    r = await get('/admin/api/bank-credits/suggest?id=7');
+    const c7 = r.body;
+    ok('₹122: no single order fits, so it suggests the TWO orders that add up to it', c7.ok && c7.combos.length >= 1 && c7.combos[0].exact === true && c7.combos[0].total === 122 && c7.combos[0].orders.map((o) => o.order_id).sort().join() === 'FF1000004,FF1000005', c7.combos);
+    ok('  ...and says why: same customer, bought minutes apart', /same customer/.test(c7.combos[0].why) && /31 min apart/.test(c7.combos[0].why) && c7.combos[0].samePhone === true, c7.combos[0].why);
+    ok('  ...the name on the payment ("MUKESH KUMAR") also finds that customer\'s orders on their own', c7.orders.length === 2 && c7.orders.every((o) => o.why === 'name' && o.payerMatch), c7.orders);
+    r = await post('/admin/api/bank-credits/link', { id: 7, orderIds: ['FF1000004', 'FF1000005', 'FF1000004'] });
+    await tick();
+    ok('split link: the payment is linked to both orders (the first one is still consumed_order_id, so nothing else changes)', r.body.ok && r.body.split === true && D.credits[6].consumed_order_id === 'FF1000004' && D.links.map((l) => l.order_id + ':' + l.amount).join() === 'FF1000004:66,FF1000005:56', { body: r.body, links: D.links });
+    ok('  ...it says both orders are still unpaid and can be delivered', r.body.unpaid.length === 2 && r.body.parts.every((p) => p.canMarkPaid) && /FF1000004 ₹66 \+ FF1000005 ₹56/.test(r.body.message), r.body.message);
+    ok('  ...logged as a split with both order ids', audits('bank.link').some((a) => /Split ₹122/.test(a.params[3]) && /FF1000004 ₹66 \+ FF1000005 ₹56 = ₹122/.test(a.params[3])), audits('bank.link').map((a) => a.params[3]));
+    r = await get('/admin/api/bank-credits?filter=matched');
+    const card = (r.body.credits || []).find((x) => x.id === 7) || {};
+    ok('the card shows every order of the payment', (card.parts || []).map((p) => p.orderId + ' ' + p.service + ' ₹' + p.amount).join(' + ') === 'FF1000004 JioHotstar ₹66 + FF1000005 Prime Video ₹56', card.parts);
+    const ctx = await paidvia.loadContext(mockDb.query, ['FF1000005']);
+    ok('💳 the SECOND plan knows its payment too, so Customer 360 still shows who paid', !!ctx.credits.get('FF1000005') && ctx.credits.get('FF1000005').id === 7 && ctx.credits.get('FF1000005').splitAmount === 56, [...ctx.credits.keys()]);
+    r = await post('/admin/api/bank-credits/link', { id: 8, orderId: 'FF1000005' });
+    ok('another payment cannot take an order that is already part of a split', r.status === 409 && /already part of bank payment #7/.test(r.body.message), r.body);
+    r = await post('/admin/api/bank-credits/link', { id: 7, orderIds: ['FF1000005', 'FF1000004'] });
+    ok('the same split again: already linked', r.body.ok && r.body.already === true, r.body);
+    r = await post('/admin/api/bank-credits/unlink', { id: 7, reason: 'wrong pair' });
+    await tick();
+    ok('unlink frees BOTH orders in one go (they were one transfer)', r.body.ok && r.body.split === true && r.body.orderIds.join() === 'FF1000004,FF1000005' && D.credits[6].consumed_order_id === null && D.links.length === 0, { body: r.body, links: D.links });
+
+    section('the payment is a bit more than the orders');
+    r = await get('/admin/api/bank-credits/suggest?id=8');
+    const c8 = r.body;
+    ok('₹128: nothing adds up exactly, so the closest pair is offered with the difference spelled out', c8.combos.length >= 1 && c8.combos[0].exact === false && c8.combos[0].total === 122 && c8.combos[0].diff === 6 && /₹6 LESS than the payment/.test(c8.combos[0].why), c8.combos[0]);
+    ok('  ...the order written in the payment note is still first in the list', c8.orders[0].order_id === 'FF1000004' && c8.orders[0].inNote === true && c8.orders[0].why === 'note', c8.orders[0]);
+    r = await post('/admin/api/bank-credits/link', { id: 8, orderId: 'FF1000004' });
+    ok('linking just that one order: refused, and it offers to split (₹62 left over)', r.status === 409 && r.body.amountMismatch && r.body.canSplit === true && r.body.left === 62, r.body);
+    r = await post('/admin/api/bank-credits/link', { id: 8, orderIds: ['FF1000004', 'FF1000005'] });
+    ok('both orders: refused too, saying ₹6 is left over (never linked quietly)', r.status === 409 && r.body.amountMismatch && r.body.orderAmount === 122 && r.body.paymentAmount === 128 && r.body.left === 6 && r.body.canSplit === false && /₹6 left over/.test(r.body.message), r.body);
+    r = await post('/admin/api/bank-credits/link', { id: 8, orderIds: ['FF1000004', 'FF1000005'], override: true });
+    ok('  ...and a reason is still required', r.status === 400 && r.body.field === 'reason');
+    r = await post('/admin/api/bank-credits/link', { id: 8, orderIds: ['FF1000004', 'FF1000005'], override: true, reason: 'paid ₹6 extra by mistake' });
+    await tick();
+    ok('with a reason it links both and keeps the reason in the change log', r.body.ok && r.body.split === true && D.links.length === 2 && audits('bank.link').some((a) => /amount differs: paid ₹6 extra by mistake/.test(a.params[3])), r.body);
+    await post('/admin/api/bank-credits/unlink', { id: 8, reason: 'tidy up' });
+
+    section('split guards');
+    r = await post('/admin/api/bank-credits/link', { id: 8, orderIds: ['FF1000004', 'FF1000005', 'FF1000003', 'FF1000002', 'FF1000001', 'FF9999999', 'FF9999998'] });
+    ok('at most 6 orders in one payment', r.status === 400 && /at most 6 orders/.test(r.body.message), r.body);
+    r = await post('/admin/api/bank-credits/link', { id: 8, orderIds: ['FF1000004', 'FF9999999'] });
+    ok('an unknown order in the list → nothing is linked', r.status === 404 && /No order FF9999999/.test(r.body.message) && D.credits[7].consumed_order_id === null, r.body);
+    D.linksTable = false; banklinks.resetCache();
+    r = await post('/admin/api/bank-credits/link', { id: 8, orderIds: ['FF1000004', 'FF1000005'] });
+    ok('before db/schema-v28.sql is run: the split is refused and NOTHING is changed', r.status === 409 && r.body.needsSchema === true && /schema-v28/.test(r.body.message) && D.credits[7].consumed_order_id === null && !D.links.length, { body: r.body, credit: D.credits[7] });
+    r = await post('/admin/api/bank-credits/link', { id: 8, orderId: 'FF1000004', override: true, reason: 'part payment' });
+    ok('  ...and an ordinary one-order link still works without the new table', r.body.ok && r.body.split === false && D.credits[7].consumed_order_id === 'FF1000004', r.body);
+    await post('/admin/api/bank-credits/unlink', { id: 8, reason: 'tidy up' });
+    D.linksTable = true; banklinks.resetCache();
 
     section('access');
     ok('list needs admin', (await fetch(base + '/admin/api/bank-credits')).status === 403);
