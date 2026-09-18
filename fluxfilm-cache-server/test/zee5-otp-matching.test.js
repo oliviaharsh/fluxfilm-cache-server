@@ -162,9 +162,15 @@ const pick = (text, opts) => pickOtpMail([mail(1, 1, text)], Object.assign({ key
     unlockedForToken: async () => [{ lead: { service: 'Zee5 Premium' }, rows: [{ sub_id: 'S1', order_id: 'O1', login_id: ZEE }] }],
   };
   const parse = async (m) => ({ subject: m.subject, text: m.text });
+  const searches = [];
   const imapWith = (mails, flags) => async (fn) => fn({
     getMailboxLock: async () => ({ release() {} }),
-    search: async () => mails.map((m) => m.uid),
+    // Gmail matches the subject as a substring; `seen: false` means unread only.
+    search: async (crit) => {
+      searches.push(crit || {});
+      return mails.filter((m) => (!crit || !crit.subject || String(m.subject || '').includes(crit.subject))
+        && (!crit || crit.seen !== false || !m.read)).map((m) => m.uid);
+    },
     fetch: async function* (uids) { for (const m of mails) if (uids.includes(m.uid)) yield { uid: m.uid, internalDate: m.date, source: m }; },
     messageFlagsAdd: async (q) => { flags.push(q.uid); },
   });
@@ -207,6 +213,30 @@ const pick = (text, opts) => pickOtpMail([mail(1, 1, text)], Object.assign({ key
   ok('every inline <script> in admin.html parses (' + scripts.length + ')', scripts.length > 0 && badScripts === 0);
 
   console.log('\n---------------------------------------');
-  console.log('PASS ' + pass + '   FAIL ' + fail);
+    // 🔎 18 Sep: the live diagnostics showed a JioHotstar run with 0 mails SEEN. The mail search itself was the
+  // blind spot — one fixed subject ("SMSForwarder") and unread-only — so a forwarder app with its own subject, or a
+  // mail the owner had already opened, looked exactly like "no OTP arrived".
+  const adminHtml = require('fs').readFileSync(require('path').join(__dirname, '..', 'admin.html'), 'utf8');
+  section('the mail search itself: a different forwarder subject, and already-read mails');
+  flags = []; searches.length = 0;
+  r = await otp.getLatestOtp('Zee5 Premium', '9111111111', 'tok', 'S1', { access, parse, now, withImap: imapWith([mail(30, 2, Z + 'Your OTP is: 314159 for ZEE5', 'SMS Mail Bridge')], flags) });
+  ok('a forwarder that calls its mails "SMS Mail Bridge" is found too', r.found === true && r.otp === '314159', r);
+  flags = []; searches.length = 0;
+  r = await otp.getLatestOtp('Zee5 Premium', '9111111111', 'tok', 'S1', { access, parse, now, withImap: imapWith([mail(31, 2, Z + 'Your OTP is: 271828 for ZEE5', 'my own forwarder app')], flags) });
+  ok('an unknown subject: found on the second look, with no subject filter at all', r.found === true && r.otp === '271828' && searches.length > 1 && searches[searches.length - 1].subject === undefined, searches);
+  let rec9 = JSON.parse(DB.settings.get('getotp_diag_zee5') || '{}');
+  ok('  ...and the owner is told, with the subject his forwarder uses (digits blanked)', rec9.looseSearch === true && rec9.mailsFound === 1 && rec9.subjects.join() === 'my own forwarder app', rec9);
+  flags = []; searches.length = 0;
+  const readMail = mail(32, 2, Z + 'Your OTP is: 161803 for ZEE5');
+  readMail.read = true;
+  r = await otp.getLatestOtp('Zee5 Premium', '9111111111', 'tok', 'S1', { access, parse, now, withImap: imapWith([readMail], flags) });
+  ok('a mail the owner had already opened on his phone is still used', r.found === true && r.otp === '161803', r);
+  flags = []; searches.length = 0;
+  r = await otp.getLatestOtp('Zee5 Premium', '9111111111', 'tok', 'S1', { access, parse, now, withImap: imapWith([], flags) });
+  rec9 = JSON.parse(DB.settings.get('getotp_diag_zee5') || '{}');
+  ok('no mail at all → said plainly in the diagnostics (the phone stopped forwarding)', r.found === false && rec9.mailsFound === 0 && rec9.looseSearch === false && rec9.seen === 0, rec9);
+  ok('the panel spells both out: nothing arrived, or only found without the subject filter', /No mail at all<\/b> reached us/.test(adminHtml) && /only found <b>without<\/b> the subject filter/.test(adminHtml) && /OTP_SUBJECTS/.test(adminHtml));
+
+console.log('PASS ' + pass + '   FAIL ' + fail);
   process.exitCode = fail ? 1 : 0;
 })().catch((e) => { console.error('THREW', e); process.exitCode = 1; });

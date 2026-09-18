@@ -22,6 +22,16 @@ const db = require('./db');
 const OTP_EXPIRY_MS = Number(process.env.OTP_FRESH_MIN || 10) * 60 * 1000;
 const OTP_EMAIL_FROM = process.env.OTP_EMAIL_FROM || process.env.IMAP_USER || 'harshwalia8888@gmail.com';
 const FOLDER = () => process.env.IMAP_FOLDER || '[Gmail]/All Mail';
+/**
+ * Subjects a forwarder app puts on the mail. The old app wrote "SMSForwarder"; the owner's own app (SMS Mail
+ * Bridge) writes its own, and a mail we cannot SEE looks exactly like "no OTP arrived" — which is how a working
+ * phone can still show "No OTP email yet". So we try each known subject, and if none of them match we look once
+ * more with no subject filter and read ones included. Nothing is loosened after that: the service keywords, the
+ * fresh-window and the recipient rules below still decide, so another customer's code can never be shown.
+ * Add more with OTP_SUBJECTS="My Forwarder,Something else" in Hostinger.
+ */
+const SUBJECTS = () => [...new Set(String(process.env.OTP_SUBJECTS || '').split(',').map((x) => x.trim()).filter(Boolean)
+  .concat(['SMSForwarder', 'SMS Mail Bridge', 'SMS Forwarder', 'SMS Bridge']))];
 const HOST = () => process.env.IMAP_HOST || 'imap.gmail.com';
 
 const KEYWORDS = {
@@ -135,7 +145,7 @@ function loginsIn(text, known) {
 }
 // ---- Admin diagnostics: how many mails were looked at and which check said no (never any customer data) ----
 const REASONS = { tooOld: 'too old', otherService: 'another service', numberMismatch: 'number mismatch', noCode: 'no code in it', shown: 'shown' };
-const newDiag = () => ({ seen: 0, shown: 0, tooOld: 0, otherService: 0, numberMismatch: 0, noCode: 0, lines: [] });
+const newDiag = () => ({ seen: 0, shown: 0, tooOld: 0, otherService: 0, numberMismatch: 0, noCode: 0, lines: [], mailsFound: 0, subjectUsed: '', looseSearch: false, subjects: [] });
 const maskNum = (v) => { const p = String(v == null ? '' : v).replace(/\D/g, '').slice(-10); return p.length >= 4 ? '••••••' + p.slice(-4) : '••••'; };
 const maskKey = (k) => (String(k || '').startsWith('e:') ? String(k).slice(2).replace(/^(.).*(@.*)$/, '$1•••$2') : maskNum(k));
 function note(diag, age, reason, keys) {
@@ -231,7 +241,9 @@ async function saveDiag(svcKey, diag, windowMin) {
     await db.query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [diagKey(svcKey), JSON.stringify(rec).slice(0, 4000)]);
   } catch (_) { /* diagnostics are optional */ }
   const why = ['tooOld', 'otherService', 'numberMismatch', 'noCode'].filter((k) => diag[k]).map((k) => diag[k] + ' ' + REASONS[k]).join(' · ');
-  console.log('[otp] ' + svcKey + ': ' + diag.seen + ' mail(s) in the last ' + windowMin + ' min, ' + diag.shown + ' shown' + (why ? ' · ' + why : ''));
+  console.log('[otp] ' + svcKey + ': ' + diag.seen + ' mail(s) in the last ' + windowMin + ' min, ' + diag.shown + ' shown' + (why ? ' · ' + why : '') +
+    (diag.looseSearch ? ' · found only WITHOUT the subject filter (subjects: ' + (diag.subjects || []).join(' | ') + ')' : '') +
+    (!diag.mailsFound ? ' · no mail at all from ' + OTP_EMAIL_FROM + ' in the last hour (is the phone still forwarding?)' : ''));
   return rec;
 }
 async function readDiag(svcKey) {
@@ -287,8 +299,20 @@ async function getLatestOtp(service, phone, token, subRef, deps) {
   return ((deps && deps.withImap) || withImap)(async (client) => {
     const lock = await client.getMailboxLock(FOLDER());
     try {
-      const uids = await client.search({ from: OTP_EMAIL_FROM, subject: 'SMSForwarder', since, seen: false });
-      if (!uids || !uids.length) {
+      // 1) each subject a forwarder app is known to use, newest mails only, unread
+      let uids = [];
+      for (const subject of SUBJECTS()) {
+        uids = (await client.search({ from: OTP_EMAIL_FROM, subject, since, seen: false })) || [];
+        if (uids.length) { diag.subjectUsed = subject; break; }
+      }
+      // 2) nothing with a known subject → look at everything that address sent in the last hour (read ones too).
+      //    Only the search is widened: the checks that pick a mail are exactly the same.
+      if (!uids.length) {
+        uids = (await client.search({ from: OTP_EMAIL_FROM, since })) || [];
+        diag.looseSearch = uids.length > 0;
+      }
+      diag.mailsFound = uids.length;
+      if (!uids.length) {
         await saveDiag(svcKey, diag, windowMin);
         return { ok: true, found: false, message: 'No OTP email yet. Log in to ' + svc + ' to trigger one, then tap Get OTP.' };
       }
@@ -298,6 +322,9 @@ async function getLatestOtp(service, phone, token, subRef, deps) {
         const date = msg.internalDate || new Date(0);
         if (now - date.getTime() > windowMs) { note(diag, now - date.getTime(), 'tooOld'); continue; } // too old: not even parsed
         const parsed = await parse(msg.source);
+        // What the forwarder calls its mails, so the owner can see it in 🔎 Get OTP check (digits blanked out).
+        const sj = blankNumbers(String(parsed.subject || '')).replace(/\s+/g, ' ').trim().slice(0, 40);
+        if (sj && diag.subjects.length < 3 && !diag.subjects.includes(sj)) diag.subjects.push(sj);
         items.push({ uid: msg.uid, date, subject: parsed.subject || '', text: String(parsed.text || parsed.html || '') });
       }
       const hit = pickOtpMail(items, { keywords, allowed, known, now, windowMs, diag });
