@@ -594,7 +594,7 @@ html.ff-lite .ff-rr { animation-duration: .18s; } html.ff-lite .ff-rr-ring .val 
 .ff-feed-badge.soon { background: linear-gradient(135deg,rgba(124,58,237,.92),rgba(219,39,119,.92)); }
 .ff-feed-media.ig ~ .ff-feed-badge, .ff-feed-media.vid ~ .ff-feed-badge { display: none; }
 /* 🎬 Feed video: tap-to-play card → YouTube (16:9 inside the same 4:5 box, no jump) or Instagram's embed (grows from the box height). */
-.ff-feed-play { position: absolute; inset: 0; width: 100%; border: 0; padding: 0; margin: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; font: inherit; color: #fff; background: linear-gradient(180deg,rgba(15,23,42,0) 40%,rgba(15,23,42,.55)); -webkit-tap-highlight-color: transparent; }
+.ff-feed-play { position: absolute; inset: 0; width: 100%; border: 0; padding: 0; margin: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; font: inherit; color: #fff; text-decoration: none; background: linear-gradient(180deg,rgba(15,23,42,0) 40%,rgba(15,23,42,.55)); -webkit-tap-highlight-color: transparent; }
 .ff-feed-play b { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font-size: 28px; background: rgba(220,38,38,.92); box-shadow: 0 8px 24px rgba(0,0,0,.35), 0 0 0 6px rgba(255,255,255,.18); transition: transform .15s ease; }
 .ff-feed-play.ig b { background: linear-gradient(135deg,#f59e0b,#db2777,#7c3aed); }
 .ff-feed-play span { max-width: 90%; padding: 6px 14px; border-radius: 999px; background: rgba(15,23,42,.72); font-size: 14px; font-weight: 800; }
@@ -605,10 +605,6 @@ html.ff-lite .ff-rr { animation-duration: .18s; } html.ff-lite .ff-rr-ring .val 
 .ff-feed-media.vid { background: #000; }
 .ff-feed-yt { position: absolute; left: 0; top: 50%; width: 100%; aspect-ratio: 16 / 9; transform: translateY(-50%); border: 0; }
 .ff-feed-vclose { position: absolute; top: 8px; right: 8px; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(15,23,42,.75); color: #fff; font-size: 17px; font-weight: 800; cursor: pointer; }
-.ff-feed-media.ig { aspect-ratio: auto; background: #fff; overflow: visible; display: flex; flex-direction: column; }
-.ff-feed-igbox { flex: 1; min-width: 0; }
-.ff-feed-igbox .instagram-media { margin: 0 auto !important; min-width: 0 !important; width: 100% !important; max-width: 100% !important; border: 0 !important; box-shadow: none !important; }
-.ff-feed-igbox iframe { display: block; width: 100% !important; min-width: 0 !important; max-width: 100% !important; border: 0; }
 .ff-feed-vbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid rgba(15,23,42,.08); }
 .ff-feed-vbar a, .ff-feed-vbar button { min-height: 36px; display: inline-flex; align-items: center; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 800; color: #475569; cursor: pointer; text-decoration: none; }
 .ff-feed-vbar a { color: #be185d; }
@@ -822,18 +818,17 @@ html.ff-lite .ff-rr { animation-duration: .18s; } html.ff-lite .ff-rr-ring .val 
 .ff-reel-note span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ff-reel-note button { flex: none; min-height: 30px; padding: 0 10px; border: 0; border-radius: 999px; background: #16a34a; color: #fff; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
 /* 🎬 Players inside a reel. .ff-reel-crop = overflow:hidden box the size of the slot; the iframe inside is sized / moved by
-   feedIgCrop_ / feedShortCrop_ so only the video shows (Instagram's header, "View more on Instagram" bar and footer, and
-   YouTube's title bar, sit outside the box: hidden and not tappable). */
+   feedShortCrop_ so only the video shows (YouTube's title bar and logo sit outside the box: hidden and not tappable). */
 .ff-reel-crop { position: absolute; inset: 0; z-index: 3; overflow: hidden; contain: strict; background: #000; }
 .ff-reel-crop iframe { position: absolute; display: block; max-width: none; border: 0; background: #000; }
 .ff-reel-crop.short { z-index: 1; }
 /* Instagram fallback row (always there while its player is open): never a dead screen if Instagram won't play here. */
-.ff-reel-igfb { position: absolute; left: 8px; right: 8px; top: calc(58px + env(safe-area-inset-top)); z-index: 6; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; pointer-events: none; }
-.ff-reel-igfb > * { pointer-events: auto; min-height: 34px; display: inline-flex; align-items: center; padding: 0 12px; border: 0; border-radius: 999px; background: rgba(0,0,0,.62); color: #fff; font: inherit; font-size: 12.5px; font-weight: 800; text-decoration: none; cursor: pointer; }
-.ff-reel-igfb > span { pointer-events: none; background: rgba(0,0,0,.4); font-weight: 700; }
-.ff-reel-igcrop iframe { pointer-events: auto; }
-.ff-reel.ig-on .ff-reel-cap, .ff-reel.ig-on .ff-reel-tags, .ff-reel.ig-on .ff-reel-rel, .ff-reel.ig-on .ff-reel-more, .ff-reel.ig-on .ff-reel-stage::after { display: none; }
-.ff-reel.ig-on .ff-reel-info { background: linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.6) 40%); padding-top: 24px; }
+/* 📸 An Instagram post in Reels: Instagram's own player cannot be shown cleanly (its "View more on Instagram"
+   bar is painted OVER the media, at a height that changes with the post), so we show our poster and these
+   buttons — one opens Instagram, the other plays the post's YouTube trailer here. */
+.ff-reel-igfb { position: absolute; left: 16px; right: 16px; top: 50%; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; transform: translateY(-50%); pointer-events: none; }
+.ff-reel-igfb > * { pointer-events: auto; min-height: 46px; display: inline-flex; align-items: center; padding: 0 18px; border: 0; border-radius: 999px; background: linear-gradient(135deg,rgba(245,158,11,.95),rgba(219,39,119,.95) 55%,rgba(124,58,237,.95)); color: #fff; font: inherit; font-size: 14px; font-weight: 800; text-decoration: none; cursor: pointer; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+.ff-reel-igfb > button { background: rgba(15,23,42,.8); }
 .ff-reel-video { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: cover; background: #000; }
 /* Bottom line = how much of the reel has played, and it can be dragged to move back / forward (Instagram). The strip
    is taller than the line so a finger can catch it, it sits under the CTA button, and a drag never scrolls the reels. */
@@ -13663,97 +13658,6 @@ function feedVideoEnd_(key) {
   feedVideo_.stop = null;
   window.ffVideoOn = false;
 }
-// instagram.com/embed.js: added once, only after the first tap on a Reel.
-const feedIgJs_ = {
-  state: '',
-  wait: []
-};
-function feedIgScript_(cb) {
-  if (window.instgrm && window.instgrm.Embeds) return cb(true);
-  feedIgJs_.wait.push(cb);
-  if (feedIgJs_.state === 'loading') return;
-  feedIgJs_.state = 'loading';
-  const done = ok => {
-    feedIgJs_.state = ok ? 'ok' : '';
-    const w = feedIgJs_.wait;
-    feedIgJs_.wait = [];
-    w.forEach(f => {
-      try {
-        f(ok);
-      } catch (e) {}
-    });
-  };
-  try {
-    const sc = document.createElement('script');
-    sc.async = true;
-    sc.src = 'https://www.instagram.com/embed.js';
-    sc.onload = () => done(!!(window.instgrm && window.instgrm.Embeds));
-    sc.onerror = () => {
-      try {
-        sc.remove();
-      } catch (e) {}
-      done(false);
-    };
-    document.body.appendChild(sc);
-  } catch (e) {
-    done(false);
-  }
-}
-// Blockquote + embed.js; if the script is blocked, or after 8 s there is no embed with a real height (embed.js sizes it by
-// message; some in-app browsers never deliver it) → Instagram's /embed/ iframe with a fixed height.
-// Without Instagram's own caption (v3): its full caption made the card very long; the post's own caption below has "more".
-function feedIgMount_(el, url, minH) {
-  if (!el || !feedIgUrl_(url)) return () => {};
-  let dead = false;
-  const iframe = () => {
-    if (dead) return;
-    el.textContent = '';
-    const f = document.createElement('iframe');
-    f.src = feedIgUrl_(url) + 'embed/';
-    f.title = 'Instagram video';
-    f.loading = 'lazy';
-    f.setAttribute('allow', 'encrypted-media; picture-in-picture');
-    f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox');
-    f.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
-    f.className = 'ff-feed-igframe';
-    f.style.height = Math.max(480, Math.round((minH || 0) + 160)) + 'px';
-    el.appendChild(f);
-  };
-  el.textContent = '';
-  const bq = document.createElement('blockquote');
-  bq.className = 'instagram-media';
-  bq.setAttribute('data-instgrm-permalink', feedIgUrl_(url));
-  bq.setAttribute('data-instgrm-version', '14');
-  const a = document.createElement('a');
-  a.href = feedIgUrl_(url);
-  a.target = '_blank';
-  a.rel = 'noopener noreferrer';
-  a.textContent = 'View this post on Instagram';
-  bq.appendChild(a);
-  el.appendChild(bq);
-  const timer = setTimeout(() => {
-    const f = el.querySelector('iframe');
-    if (!f || !(f.offsetHeight >= 60)) iframe();
-  }, 8000);
-  feedIgScript_(ok => {
-    if (dead) return;
-    if (!ok) {
-      clearTimeout(timer);
-      iframe();
-      return;
-    }
-    try {
-      window.instgrm.Embeds.process();
-    } catch (e) {
-      clearTimeout(timer);
-      iframe();
-    }
-  });
-  return () => {
-    dead = true;
-    clearTimeout(timer);
-  };
-}
 function FeedMedia({
   p,
   onLike
@@ -13763,13 +13667,8 @@ function FeedMedia({
   const [play, setPlay] = useState('');
   const [minH, setMinH] = useState(0);
   const boxRef = useRef(null);
-  const igRef = useRef(null);
   const key = 'post-' + p.id;
   useEffect(() => () => feedVideoEnd_(key), []);
-  useEffect(() => {
-    if (play !== 'ig') return;
-    return feedIgMount_(igRef.current, ig, minH);
-  }, [play]);
   function start(kind) {
     if (boxRef.current) setMinH(boxRef.current.offsetHeight);
     feedVideoStart_(key, () => {
@@ -13791,24 +13690,6 @@ function FeedMedia({
     width: 520,
     height: 650
   }) : null;
-  if (play === 'ig') return React.createElement("div", {
-    className: "ff-feed-media ig",
-    style: {
-      minHeight: minH || undefined
-    }
-  }, React.createElement("div", {
-    ref: igRef,
-    className: "ff-feed-igbox"
-  }), React.createElement("div", {
-    className: "ff-feed-vbar"
-  }, React.createElement("a", {
-    href: ig,
-    target: "_blank",
-    rel: "noopener noreferrer"
-  }, "Open in Instagram ↗"), React.createElement("button", {
-    type: "button",
-    onClick: stop
-  }, "✕ Close")));
   if (play === 'yt') return React.createElement("div", {
     className: "ff-feed-media vid"
   }, React.createElement("iframe", {
@@ -13835,14 +13716,16 @@ function FeedMedia({
   }, ig ? '' : '🍿'), ig && React.createElement("span", {
     className: "ff-feed-igchip",
     "aria-hidden": "true"
-  }, "📸 Instagram"), ig ? React.createElement("button", {
-    type: "button",
+  }, "📸 Instagram"), ig ? React.createElement("a", {
+    href: ig,
+    target: "_blank",
+    rel: "noopener noreferrer",
     className: img ? 'ff-feed-play ig thumb' : 'ff-feed-play ig',
     "aria-label": 'Watch on Instagram: ' + p.title,
-    onClick: () => start('ig')
+    onClick: () => feedEvent_(p.id, 'play')
   }, React.createElement("b", {
     "aria-hidden": "true"
-  }, "▶️"), !img && React.createElement("span", null, "📸 Watch on Instagram")) : yt ? React.createElement("button", {
+  }, "▶️"), React.createElement("span", null, "📸 Watch on Instagram ↗")) : yt ? React.createElement("button", {
     type: "button",
     className: "ff-feed-play",
     onClick: () => start('yt')
@@ -14380,24 +14263,6 @@ function feedYtShort_(url) {
 }
 function feedReelKind_(p) {
   return !p ? '' : feedVideoSrc_(p) ? 'video' : feedYtShort_(p.trailerUrl) ? 'short' : feedIgUrl_(p.instagramUrl) ? 'ig' : feedYouTubeId_(p.trailerUrl) ? 'yt' : '';
-}
-// Instagram's /embed/ page (measured Sept 2026): a 54 px header, then the media box = iframe width × 1.25 (4:5) with the
-// 9:16 video "contain"-ed inside, then ~150 px of buttons / likes / "View more on Instagram". To look like a real reel
-// the iframe is made big enough that the VIDEO covers the slot, and moved so the header and footer sit outside the
-// slot's overflow:hidden box (hidden and not tappable). Instagram may change this layout at any time.
-const FEED_IG_HEADER_ = 54;
-const FEED_IG_FOOTER_ = 190;
-function feedIgCrop_(slotW, slotH) {
-  const S = Math.max(1, Number(slotW) || 0);
-  const H = Math.max(1, Number(slotH) || 0);
-  const w = Math.ceil(Math.max(H / 1.25, S / (1.25 * 9 / 16)));
-  const media = w * 1.25;
-  return {
-    width: w,
-    height: Math.ceil(FEED_IG_HEADER_ + media + FEED_IG_FOOTER_),
-    left: Math.round((S - w) / 2),
-    top: Math.round((H - media) / 2 - FEED_IG_HEADER_)
-  };
 }
 // YouTube Short in a reel: 9:16 iframe covering the slot, 60 px taller at the top and bottom so YouTube's title bar and
 // logo are outside the box; our tap layer sits on top (controls=0), so its links can't be reached.
@@ -15408,6 +15273,11 @@ function FeedReels({
     const c = cur.current;
     if (!c.p) return;
     const kind = c.kind;
+    if (kind === 'ig') {
+      window.open(feedIgUrl_(c.p.instagramUrl), '_blank', 'noopener');
+      feedEvent_(c.p.id, 'play');
+      return;
+    }
     if (!c.playing) play(c.p);else if (kind === 'video' && videoRef.current) {
       const v = videoRef.current;
       if (v.paused) v.play().catch(() => {});else v.pause();
@@ -15426,7 +15296,7 @@ function FeedReels({
   }, React.createElement(FeedIcon, {
     name: "back",
     size: 28
-  })), React.createElement("b", null, "Reels"), playing && curKind === 'ig' ? React.createElement("button", {
+  })), React.createElement("b", null, "Reels"), false ? React.createElement("button", {
     type: "button",
     className: "ff-reel-x",
     "aria-label": "Close the Instagram player",
@@ -15484,11 +15354,11 @@ function FeedReels({
     const label = kind === 'video' || kind === 'short' ? 'Reel' : kind === 'ig' ? 'Instagram' : 'Trailer';
     return React.createElement("section", {
       key: p.id,
-      className: "ff-reel" + (on && kind === 'ig' ? ' ig-on' : '') + (on && kind === 'video' ? ' vid-on' : ''),
+      className: "ff-reel" + (on && kind === 'video' ? ' vid-on' : ''),
       "aria-label": p.title
     }, React.createElement("div", {
       className: "ff-reel-stage",
-      onClick: on && kind === 'ig' ? undefined : tapRef.current
+      onClick: tapRef.current
     }, near && p.image && !(on && kind === 'video') && React.createElement("img", {
       className: "ff-reel-bg",
       src: feedThumb_(p.image),
@@ -15594,7 +15464,7 @@ function FeedReels({
       size: 34
     })), !on && i === idx && React.createElement("span", {
       className: "ff-reel-hint"
-    }, hint ? 'Swipe up for more ↑' : kind === 'ig' ? 'Tap to watch' : kind === 'yt' ? 'Tap to play the trailer' : 'Tap to play'), on && !scrub && (kind === 'video' && paused || kind === 'short' && yt === 2 || kind === 'yt' && yt === 2) && React.createElement("span", {
+    }, hint ? 'Swipe up for more ↑' : kind === 'ig' ? 'Tap to watch it on Instagram' : kind === 'yt' ? 'Tap to play the trailer' : 'Tap to play'), on && !scrub && (kind === 'video' && paused || kind === 'short' && yt === 2 || kind === 'yt' && yt === 2) && React.createElement("span", {
       className: "ff-reel-play",
       "aria-hidden": "true"
     }, React.createElement(FeedIcon, {
@@ -15604,32 +15474,23 @@ function FeedReels({
       key: burst.n,
       className: "ff-reel-burst",
       "aria-hidden": "true"
-    }, "❤️")), on && kind === 'ig' && dims.h > 0 && React.createElement("div", {
-      className: "ff-reel-crop ig ff-reel-igcrop"
-    }, React.createElement("iframe", {
-      src: feedIgUrl_(p.instagramUrl) + 'embed/',
-      title: 'Instagram video: ' + p.title,
-      style: px(feedIgCrop_(dims.w, dims.h)),
-      scrolling: "no",
-      tabIndex: -1,
-      allow: "autoplay; encrypted-media; picture-in-picture",
-      sandbox: "allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox",
-      referrerPolicy: "strict-origin-when-cross-origin"
-    })), on && kind === 'ig' && React.createElement("div", {
+    }, "❤️")), kind === 'ig' && React.createElement("div", {
       className: "ff-reel-igfb"
-    }, React.createElement("span", null, "Tap the video to play"), feedYouTubeId_(p.trailerUrl) && React.createElement("button", {
+    }, React.createElement("a", {
+      href: feedIgUrl_(p.instagramUrl),
+      target: "_blank",
+      rel: "noopener noreferrer",
+      onClick: e => e.stopPropagation()
+    }, "📸 Watch on Instagram ↗"), feedYouTubeId_(p.trailerUrl) && React.createElement("button", {
       type: "button",
-      onClick: () => {
+      onClick: e => {
+        e.stopPropagation();
         setAltYt(p.id);
         setYt(-1);
         setPlaying(true);
         feedEvent_(p.id, 'play');
       }
-    }, "▶ Trailer"), React.createElement("a", {
-      href: feedIgUrl_(p.instagramUrl),
-      target: "_blank",
-      rel: "noopener noreferrer"
-    }, "Instagram ↗")), on && (kind === 'video' || kind === 'short') && React.createElement("button", {
+    }, "▶ Watch the trailer here")), on && (kind === 'video' || kind === 'short') && React.createElement("button", {
       type: "button",
       className: "ff-reel-mute",
       "aria-pressed": !muted,

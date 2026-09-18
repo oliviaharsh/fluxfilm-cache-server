@@ -218,8 +218,8 @@ function create(deps) {
     const orders = new Map(); const subsBy = new Map(); const names = new Map();
     if (ids.length) {
       const marks = ids.map(() => '?').join(',');
-      for (const o of (await q('SELECT order_id, name, status, fulfillment_status, verified_at, created_at_sheet FROM orders WHERE order_id IN (' + marks + ')', ids)) || []) orders.set(s(o.order_id), o);
-      for (const x of (await q('SELECT order_id, sub_id, expiry_date, ' + DELIVERY_COLS + ' FROM subscriptions WHERE order_id IN (' + marks + ')', ids)) || []) { const k = s(x.order_id); if (!subsBy.has(k)) subsBy.set(k, []); subsBy.get(k).push(x); }
+      for (const o of (await q('SELECT order_id, name, status, fulfillment_status, verified_at, created_at_sheet, final_amount, duration_days FROM orders WHERE order_id IN (' + marks + ')', ids)) || []) orders.set(s(o.order_id), o);
+      for (const x of (await q('SELECT order_id, sub_id, expiry_date, duration_days, ' + DELIVERY_COLS + ' FROM subscriptions WHERE order_id IN (' + marks + ')', ids)) || []) { const k = s(x.order_id); if (!subsBy.has(k)) subsBy.set(k, []); subsBy.get(k).push(x); }
     }
     try {
       const phones = [...new Set(rows.map((r) => norm(r.phone_norm)).filter(Boolean))];
@@ -231,11 +231,20 @@ function create(deps) {
       const subs = subsBy.get(s(r.order_id)) || [];
       const delivered = !!o && (up(o.fulfillment_status) === 'FULFILLED' || subs.some(isDeliveredSub));
       const paid = toDate(s(r.paid_at) || (o && paidAtOf(o)));
+      // 💸 What a refund would cost TODAY. The customer's own estimate was taken when they asked, which can be days
+      // old, so the owner sees the live one: days used, the suggested charge and what would be left to refund.
+      let usage = null;
+      if (delivered && o) {
+        const ends = subs.map((x) => s(x.expiry_date)).filter(Boolean).sort();
+        const totalDays = asNum(o.duration_days) || asNum((subs[0] || {}).duration_days) || 30;
+        const sc = refundsMod.suggestCharge({ paid: asNum(r.paid_amount) || asNum(o.final_amount), totalDays, periodEnd: ends[ends.length - 1] || '', now: now() });
+        usage = { daysUsed: sc.daysUsed, totalDays: sc.totalDays, suggestedCharge: sc.suggested, refundAfterCharge: Math.max(0, sc.paid - sc.suggested), paid: sc.paid, periodStart: sc.periodStart, periodEnd: sc.periodEnd };
+      }
       return {
         requestId: s(r.request_id), orderId: s(r.order_id), subId: s(r.sub_id), phone: norm(r.phone_norm), name: names.get(norm(r.phone_norm)) || (o && s(o.name)) || '', service: s(r.service), plan: s(r.plan),
         kind: up(r.kind), deliveryStateAtRequest: up(r.delivery_state), reason: up(r.reason), reasonLabel: REASONS[up(r.reason)] || '', text: s(r.reason_text), paid: asNum(r.paid_amount), estimatedCharge: asNum(r.estimated_charge),
         status: up(r.status), adminMessage: s(r.admin_message), offerId: s(r.offer_id), createdAt: s(r.created_at), decidedAt: s(r.decided_at), paidAt: paid ? fmtDt(paid) : '',
-        hoursSincePayment: paid ? Math.floor((t - paid.getTime()) / 3600e3) : null,
+        hoursSincePayment: paid ? Math.floor((t - paid.getTime()) / 3600e3) : null, usage,
         live: o ? { orderStatus: up(o.status), fulfillment: up(o.fulfillment_status), delivered } : null,
       };
     });

@@ -106,8 +106,8 @@ function run(sql, p) {
     S.requests.push(row); return { affectedRows: 1 };
   }
   if (/^SELECT \* FROM refund_requests ORDER BY \(status = 'OPEN'\) DESC, created_at DESC LIMIT 100$/.test(sql)) return S.requests.slice().sort((a, b) => (b.status === 'OPEN') - (a.status === 'OPEN')).map(clone);
-  if (/^SELECT order_id, name, status, fulfillment_status, verified_at, created_at_sheet FROM orders WHERE order_id IN/.test(sql)) return S.orders.filter((o) => p.includes(o.order_id)).map(clone);
-  if (/^SELECT order_id, sub_id, expiry_date, status, fulfillment_status, start_date, source, login_id, inventory_ref, account_id, profile_name, profile_number FROM subscriptions WHERE order_id IN/.test(sql)) return S.subs.filter((x) => p.includes(x.order_id)).map(clone);
+  if (/^SELECT order_id, name, status, fulfillment_status, verified_at, created_at_sheet, final_amount, duration_days FROM orders WHERE order_id IN/.test(sql)) return S.orders.filter((o) => p.includes(o.order_id)).map(clone);
+  if (/^SELECT order_id, sub_id, expiry_date, duration_days, status, fulfillment_status, start_date, source, login_id, inventory_ref, account_id, profile_name, profile_number FROM subscriptions WHERE order_id IN/.test(sql)) return S.subs.filter((x) => p.includes(x.order_id)).map(clone);
   if (/^SELECT \* FROM refund_requests WHERE request_id = \? LIMIT 1( FOR UPDATE)?$/.test(sql)) return S.requests.filter((r) => r.request_id === p[0]).map(clone);
   if (/^UPDATE refund_requests SET status = \?, open_key = NULL, admin_message = \?, offer_id = \?, decided_at = \? WHERE request_id = \? AND status = 'OPEN' LIMIT 1$/.test(sql)) { const r = S.requests.find((x) => x.request_id === p[4]); if (!r || r.status !== 'OPEN') return { affectedRows: 0 }; Object.assign(r, { status: p[0], open_key: null, admin_message: p[1], offer_id: p[2], decided_at: p[3] }); return { affectedRows: 1 }; }
   if (/^SELECT order_id, name, email, service, plan FROM orders WHERE order_id = \? LIMIT 1$/.test(sql)) return S.orders.filter((o) => o.order_id === p[0]).map(clone);
@@ -475,6 +475,11 @@ async function makeOffer(body) {
   const openList = (r.body.requests || []).filter((x) => x.status === 'OPEN');
   const lf1 = openList.find((x) => x.orderId === 'FF7002') || {};
   ok('Refunds screen lists open requests with reason, time since payment and live delivery state', r.body.ok && openList.length === 3 && lf1.reasonLabel === 'Didn’t receive' && lf1.hoursSincePayment === 50 && lf1.live && lf1.live.delivered === false && lf1.kind === 'UNDELIVERED', openList);
+  // 💸 Owner, 18 Sep: "when approving the refund on admin it does not show usage charges when a customer
+  // requested a refund" — every open request for a DELIVERED plan now carries the charge worked out TODAY.
+  const lfDel = openList.find((x) => x.kind === 'DELIVERED') || {};
+  ok('a delivered request carries the LIVE usage charge: days used, suggested charge and what is left to refund', !!lfDel.usage && lfDel.usage.totalDays > 0 && lfDel.usage.daysUsed >= 0 && lfDel.usage.daysUsed <= lfDel.usage.totalDays && lfDel.usage.suggestedCharge === Math.min(lfDel.usage.paid, Math.round(lfDel.usage.paid * lfDel.usage.daysUsed / lfDel.usage.totalDays)) && lfDel.usage.refundAfterCharge === Math.max(0, lfDel.usage.paid - lfDel.usage.suggestedCharge), lfDel.usage);
+  ok('a not-delivered request has no usage charge at all (full refund)', lf1.kind === 'UNDELIVERED' && lf1.usage === null, lf1.usage);
   r = await post('/admin/api/refund-requests/approve', { requestId: rq1.request_id }, { 'Content-Type': 'application/json' });
   ok('approve needs the admin key', r.status === 403 && order('FF7002').status === 'PAID');
   r = await post('/admin/api/refund-requests/approve', { requestId: rq2.request_id });
@@ -551,6 +556,7 @@ async function makeOffer(body) {
   const idx = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   ok('storefront: banner text, three choices, ✕ close, sent pop-up, API wrappers send only [phone, id, method]', /is ready — choose how you want it/.test(idx) && /🎟️ Coupon — ₹\$\{item\.amount\} \+ \$\{pct\}% = ₹\$\{item\.couponValue \|\| item\.credit\} coupon, valid \$\{item\.couponDays \|\| 180\} days, one use/.test(idx) && /className: "ff-refund-x"/.test(idx) && /"Refund sent"/.test(idx) && /apiCall_\('chooseRefund', \[phone, id, method\]/.test(idx) && /apiCall_\('refundSentSeen', \[phone, orderId\]/.test(idx) && /\[\?&\]refund=1/.test(idx));
   const adminHtml = fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8');
+  ok('the Refunds screen shows the usage charge on each open request and can close one with NO refund ("🤝 Sorted")', /Usage charge today:/.test(adminHtml) && /data-rqsorted/.test(adminHtml) && /Close this refund request WITHOUT a refund/.test(adminHtml) && /no refund is needed/.test(adminHtml) && /Not delivered → <b>no usage charge<\/b>/.test(adminHtml));
   ok('admin: 💸 Offer refund (order actions + subscription card), Refunds view with ✅ Done + UTR + settings', /data-oa="offer"/.test(adminHtml) && /offerRefundDialog\(\\'' \+ id \+ '\\'\)/.test(adminHtml) && /'\/admin\/api\/refund-offers'/.test(adminHtml) && /data-rfdone=/.test(adminHtml) && /refunds: refundsView/.test(adminHtml) && /'\/admin\/api\/refunds\/settings'/.test(adminHtml));
   const cardBtn = (adminHtml.match(/\(([^()]*(?:\([^()]*\))?[^()]*)\? '<button class="btn ghost sm" onclick="offerRefundDialog/) || [])[1] || '';
   ok('admin: subscription card shows 💸 Offer refund without a login (only hidden for REFUNDED / CANCELLED / REMOVED)', cardBtn && !/login_id/.test(cardBtn) && /REFUNDED\|CANCEL\|REMOVED/.test(cardBtn), cardBtn);
