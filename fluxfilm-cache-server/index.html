@@ -33,7 +33,14 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="preconnect" href="https://unpkg.com" crossorigin />
+<!-- The brand font must not hold up the page: a plain stylesheet link blocks rendering AND every script after it
+     (measured on the live shop: the CSS was fetched at 779 ms, React only started at 827 ms). Loading it as
+     media="print" and flipping to "all" on load keeps it off the critical path; display=swap already shows the
+     text in the fallback font first, so the only cost is the brand font arriving a moment later. -->
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" />
+<link rel="stylesheet" media="print" onload="this.media='all';this.onload=null" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" />
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" /></noscript>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; min-height: 100dvh; -webkit-font-smoothing: antialiased; background: #ffffff; }
@@ -52,14 +59,16 @@ html, body { background: #f5f7fb; }
 .ff-help { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; min-width: 44px; margin-left: auto; padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(22,163,74,.28); background: rgba(22,163,74,.08); color: #15803d; font-size: 13px; font-weight: 800; cursor: pointer; white-space: nowrap; }
 .ff-help:hover { background: rgba(22,163,74,.14); }
 .ff-help-long { display: none; }
-.ff-bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 2px; background: rgba(255,255,255,.97); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid rgba(15,23,42,.08); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px rgba(15,23,42,.06); }
+.ff-bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 2px; background: rgba(255,255,255,.97); border-top: 1px solid rgba(15,23,42,.08); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px rgba(15,23,42,.06); }
 .ff-bnav-btn { border: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; white-space: nowrap; font-weight: 700; color: #64748b; padding: 7px 0 6px; border-radius: 14px; cursor: pointer; }
 .ff-bnav-ic { font-size: 20px; line-height: 1; }
 .ff-bnav-btn.on { color: #15803d; background: rgba(22,163,74,.09); }
 @keyframes ffSlideIn { from { transform: perspective(1400px) translate3d(30px,0,-24px) rotateY(-7deg); opacity: 0; } to { transform: perspective(1400px) rotateY(0); opacity: 1; } }
 @keyframes ffSlideBack { from { transform: perspective(1400px) translate3d(-30px,0,-24px) rotateY(7deg); opacity: 0; } to { transform: perspective(1400px) rotateY(0); opacity: 1; } }
-.ff-slide { animation: ffSlideIn .26s cubic-bezier(.2,.8,.3,1) backwards; transform-origin: 50% 30%; }
-html.ff-lite .ff-slide { animation-duration: .2s; }
+.ff-slide { animation: ffSlideIn .2s cubic-bezier(.2,.8,.3,1) backwards; transform-origin: 50% 30%; }
+html.ff-lite .ff-slide { animation-duration: .16s; }
+/* Low-end phone / Data Saver: the header blur is the one that costs a repaint on every scroll frame. */
+html.ff-lite .ff-topbar, html.ff-lite .ff-sheet-bg { backdrop-filter: none; -webkit-backdrop-filter: none; }
 .ff-slide-back { animation-name: ffSlideBack; }
 @media (prefers-reduced-motion: reduce) { .ff-slide { animation: none; } }
 .ff-refbar { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; padding: 11px 14px; border-radius: 16px; background: linear-gradient(135deg,rgba(236,72,153,.10),rgba(245,158,11,.10)); border: 1px solid rgba(236,72,153,.22); font-size: 13.5px; font-weight: 700; color: #831843; }
@@ -562,7 +571,9 @@ html.ff-lite .ff-rr { animation-duration: .18s; } html.ff-lite .ff-rr-ring .val 
 .ff-feed-ptr.back { transition: transform .2s ease, opacity .2s ease; }
 @keyframes ffFeedSpin { to { transform: rotate(360deg); } }
 /* post */
-.ff-feed-post { position: relative; background: #fff; border: 1px solid rgba(15,23,42,.07); border-radius: 24px; margin: 0 0 14px; box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 8px 24px rgba(15,23,42,.04); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; animation: ffFeedIn .32s ease backwards; }
+/* Off-screen posts are not drawn at all (content-visibility). contain-intrinsic-size keeps the scrollbar and
+   "jump to this post" honest by telling the browser how tall a post usually is before it draws one. */
+.ff-feed-post { content-visibility: auto; contain-intrinsic-size: auto 560px; position: relative; background: #fff; border: 1px solid rgba(15,23,42,.07); border-radius: 24px; margin: 0 0 14px; box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 8px 24px rgba(15,23,42,.04); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; animation: ffFeedIn .32s ease backwards; }
 @keyframes ffFeedIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .ff-feed-post.hl { box-shadow: 0 0 0 3px rgba(22,163,74,.35), 0 8px 24px rgba(15,23,42,.1); }
 .ff-feed-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px 10px; }
@@ -593,6 +604,14 @@ html.ff-lite .ff-rr { animation-duration: .18s; } html.ff-lite .ff-rr-ring .val 
 .ff-feed-play-sm { position: absolute; left: 10px; bottom: 10px; min-height: 36px; padding: 0 12px; border: 0; border-radius: 999px; background: rgba(15,23,42,.8); color: #fff; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
 .ff-feed-igchip { position: absolute; left: 10px; top: 10px; z-index: 1; padding: 4px 10px; border-radius: 999px; background: rgba(15,23,42,.72); color: #fff; font-size: 12px; font-weight: 800; pointer-events: none; }
 .ff-feed-media.vid { background: #000; }
+/* Tap → the poster you were already looking at stays, dimmed, with a spinner, until the player can be seen.
+   Opacity only, so it costs nothing to draw. */
+.ff-feed-loading { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(15,23,42,.72); color: #fff; font-size: 13.5px; font-weight: 800; animation: ffFade .2s ease both; }
+.ff-feed-loading img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .35; z-index: -1; }
+.ff-feed-spin { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255,255,255,.3); border-top-color: #fff; animation: ffLoadSpin .8s linear infinite; }
+@keyframes ffLoadSpin { to { transform: rotate(360deg); } }
+@keyframes ffFade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ff-feed-spin { animation-duration: 2s; } .ff-feed-loading { animation: none; } }
 .ff-feed-yt { position: absolute; left: 0; top: 50%; width: 100%; aspect-ratio: 16 / 9; transform: translateY(-50%); border: 0; }
 .ff-feed-vclose { position: absolute; top: 8px; right: 8px; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(15,23,42,.75); color: #fff; font-size: 17px; font-weight: 800; cursor: pointer; }
 .ff-feed-burst { position: absolute; left: 50%; top: 50%; font-size: 90px; line-height: 1; margin: -45px 0 0 -45px; opacity: 0; pointer-events: none; animation: ffFeedBurst .7s ease both; }
@@ -948,7 +967,10 @@ button:active:where(:not(:disabled)) { filter: brightness(.94); }
 </style>
 <script>
 // Low-end phone (≤2 CPU cores or ≤2 GB RAM): html.ff-lite trims the extra 3D flourishes (stagger, shine, rings).
-try { if ((navigator.hardwareConcurrency || 8) <= 2 || (navigator.deviceMemory || 8) <= 2) document.documentElement.classList.add('ff-lite'); } catch (e) {}
+try {
+  var saveData = !!(navigator.connection && navigator.connection.saveData);
+  if ((navigator.hardwareConcurrency || 8) <= 2 || (navigator.deviceMemory || 8) <= 2 || saveData) document.documentElement.classList.add('ff-lite');
+} catch (e) {}
 </script>
 <script>
 // Installable app: keep Chrome's install prompt for our own "Install app" buttons; register the service worker
@@ -13651,11 +13673,13 @@ function FeedMedia({
   const yt = feedYouTubeId_(p.trailerUrl);
   const ig = feedIgUrl_(p.instagramUrl);
   const [play, setPlay] = useState('');
+  const [ready, setReady] = useState(false);
   const [minH, setMinH] = useState(0);
   const boxRef = useRef(null);
   const key = 'post-' + p.id;
   useEffect(() => () => feedVideoEnd_(key), []);
   function start(kind) {
+    setReady(false);
     if (boxRef.current) setMinH(boxRef.current.offsetHeight);
     feedVideoStart_(key, () => {
       setPlay('');
@@ -13682,11 +13706,20 @@ function FeedMedia({
     className: "ff-feed-yt",
     src: feedTrailerSrc_(yt),
     title: 'Trailer: ' + p.title,
-    loading: "lazy",
+    // No loading="lazy": this iframe is only created after a tap on a card that is already on screen, so lazy
+    // bought nothing and made some browsers wait. The poster below covers the gap until YouTube can be seen.
     allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
     allowFullScreen: true,
-    referrerPolicy: "strict-origin-when-cross-origin"
-  }), React.createElement("button", {
+    referrerPolicy: "strict-origin-when-cross-origin",
+    // YouTube fires load before its player has painted, so hold the poster a beat longer than the load itself.
+    onLoad: () => setTimeout(() => setReady(true), 400)
+  }), !ready && React.createElement("div", {
+    className: "ff-feed-loading",
+    "aria-live": "polite"
+  }, img, React.createElement("span", {
+    className: "ff-feed-spin",
+    "aria-hidden": "true"
+  }), React.createElement("b", null, "Loading the trailer…")), React.createElement("button", {
     type: "button",
     className: "ff-feed-vclose",
     "aria-label": "Close video",
@@ -14296,7 +14329,8 @@ function feedReelYtSrc_(id) {
 // Pre-warm only what the NEXT reel needs: open the connection to its video host once (nothing is downloaded).
 const feedWarm_ = {};
 function feedPrewarm_(kind) {
-  const host = kind === 'ig' ? 'https://www.instagram.com' : kind === 'yt' ? 'https://www.youtube-nocookie.com' : '';
+  // Instagram is no longer embedded (18 Sep), so there is nothing to warm up for an Instagram post any more.
+  const host = kind === 'yt' ? 'https://www.youtube-nocookie.com' : '';
   if (!host || feedWarm_[host]) return;
   feedWarm_[host] = 1;
   try {
@@ -15351,7 +15385,7 @@ function FeedReels({
       alt: "",
       "aria-hidden": "true",
       decoding: "async"
-    }), near && p.image && !(on && (kind === 'video' || kind === 'short')) && React.createElement("img", {
+    }), near && p.image && !(on && (kind === 'video' || (kind === 'short' && yt === 1))) && React.createElement("img", {
       className: "ff-reel-poster",
       src: p.image,
       alt: p.title + ' poster',
