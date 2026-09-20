@@ -19,6 +19,8 @@
  */
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 const s = (v) => String(v == null ? '' : v).trim();
+// HTML-safe text for the payment-link email (a name or a plan can contain & or <).
+const esc = (v) => s(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 function rawOf(v) { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (_) { return {}; } }
 
 const PAY_METHODS = ['UPI', 'CASH', 'BANK', 'OTHER'];
@@ -89,6 +91,9 @@ function checkFields(plan, body) {
   }
   return out;
 }
+
+// 💳 The payment link / QR for an order (paylink.js) — sent instead of "mark paid", so the payment matches itself.
+const paylink = require('./paylink');
 
 function mount(app, deps) {
   const { db, auth } = deps;
@@ -184,6 +189,53 @@ function mount(app, deps) {
       const rows = await db.query(
         'SELECT order_id, created_at_sheet, name, phone_norm, service, plan, final_amount, order_type FROM orders WHERE ' + where.join(' AND ') + ' ORDER BY created_at_sheet DESC LIMIT 40', params);
       res.json({ ok: true, orders: rows });
+    } catch (e) { fail(res, e); }
+  });
+
+  /** 💳 The payment link / QR / message for one order — for the unpaid list and the order card. */
+  async function payPackFor(orderId) {
+    const rows = await db.query('SELECT order_id, name, phone_norm, email, service, plan, final_amount, status FROM orders WHERE order_id = ? LIMIT 1', [s(orderId)]);
+    const o = rows && rows[0];
+    if (!o) return { ok: false, status: 404, message: 'No order ' + s(orderId) + '.' };
+    const st = s(o.status).toUpperCase();
+    if (st !== 'CREATED') return { ok: false, status: 409, message: 'Order ' + s(o.order_id) + ' is ' + st.toLowerCase() + ' — a payment link is only for an unpaid order.' };
+    return { ok: true, pay: paylink.packFor(o, ''), name: s(o.name), phone: s(o.phone_norm) };
+  }
+
+  app.get('/admin/api/quick/paylink', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      const r = await payPackFor(req.query.orderId);
+      if (!r.ok) return res.status(r.status || 400).json({ ok: false, message: r.message });
+      res.json({ ok: true, pay: r.pay, name: r.name });
+    } catch (e) { fail(res, e); }
+  });
+
+  // ✉️ Send the link to the customer's email. WhatsApp is a link the owner taps himself (no message is ever
+  // sent to a customer without him pressing send).
+  app.post('/admin/api/quick/send-paylink', async (req, res) => {
+    if (!auth(req, res)) return;
+    const b = req.body || {};
+    try {
+      const r = await payPackFor(b.orderId);
+      if (!r.ok) return res.status(r.status || 400).json({ ok: false, message: r.message });
+      const to = s(b.email) || r.pay.email;
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return res.status(400).json({ ok: false, field: 'email', message: 'This order has no email — use the WhatsApp button or copy the link.' });
+      const p = r.pay;
+      const html = '<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:520px;margin:auto">' +
+        '<h2 style="color:#15803d;margin-bottom:4px">Your FluxFilm payment link</h2>' +
+        '<p style="color:#475569;margin-top:0">Hi' + (r.name ? ' ' + esc(r.name.split(/\s+/)[0]) : '') + ', here is the link to pay for your plan.</p>' +
+        '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin:14px 0;font-size:14px">' +
+        '<b>' + esc(p.service) + '</b>' + (p.plan ? ' — ' + esc(p.plan) : '') + '<br>Order <b>' + esc(p.orderId) + '</b><br>' +
+        '<b style="color:#15803d;font-size:18px">₹' + esc(p.amount) + '</b></div>' +
+        '<p style="text-align:center;margin:18px 0"><a href="' + esc(p.payLink) + '" style="background:#15803d;color:#fff;text-decoration:none;padding:13px 22px;border-radius:999px;font-weight:800;display:inline-block">Open the payment page</a></p>' +
+        '<p style="text-align:center"><img src="' + esc(p.qr) + '" width="220" height="220" alt="UPI QR code"/></p>' +
+        '<p style="color:#475569;font-size:14px">Scan the QR with any UPI app, or open the link and tap the button on your phone. Please keep <b>' + esc(p.orderId) + '</b> as the payment note — that is how we spot your payment straight away.</p>' +
+        '<p style="color:#94a3b8;font-size:12px;margin-top:18px">Your plan is delivered as soon as the payment reaches us. Just reply to this email if you need help. 💚</p></div>';
+      const sent = await (deps.mailer || require('./mailer')).send(to, 'Your FluxFilm payment link — ₹' + p.amount + ' (' + p.orderId + ')', html);
+      if (sent && sent.ok === false) return res.status(502).json({ ok: false, message: sent.message || 'The email could not be sent.' });
+      audit.record(req, { action: 'order.payLinkSent', entity: 'order', id: p.orderId, summary: 'Payment link emailed · ₹' + p.amount + ' · ' + esc(p.service) + ' ' + esc(p.plan) });
+      res.json({ ok: true, orderId: p.orderId, to, message: '✉️ Payment link sent to ' + to });
     } catch (e) { fail(res, e); }
   });
 
@@ -285,6 +337,9 @@ function mount(app, deps) {
       const baseTxt = mode === 'RENEW' ? ' · starts from ' + (renewBase === 'EXPIRY' ? 'old expiry' : renewBase === 'TODAY' ? 'today' : 'shop rule') : '';
       audit.record(req, { action: 'quick.' + mode.toLowerCase(), entity: 'order', id: out.orderId, summary: (mode === 'RENEW' ? 'Renew ' + s(b.subId) : s(b.service) + ' · ' + s(b.plan)) + ' · ₹' + out.amount + ' · ' + phone + baseTxt + (onCredit ? ' · 💳 on credit, due ' + rawExtra.CreditDueDate : b.markPaid ? ' · marked paid (' + method + ')' : ' · unpaid'), details: mode === 'RENEW' ? { RenewBase: renewBase, credit: onCredit } : undefined });
       const result = { ok: true, mode, orderId: out.orderId, amount: out.amount, status: 'CREATED', upiLink: out.upiLink, customerCreated: !!out.customerCreated, renewNotice: out.renewNotice || '', renewPreview: out.renewPreview || null, renewBase: renewBase || undefined };
+      // 💳 Everything needed to ask the customer to pay: the link, the QR and a ready WhatsApp message.
+      // Read back from the order row, so a RENEW shows its own service and the customer's saved email.
+      try { const pk = await payPackFor(out.orderId); if (pk.ok) result.pay = pk.pay; } catch (_) { /* the order is made; the link is a bonus */ }
       if (onCredit) {
         const c = await (deps.startCredit || credit.startCredit)({ db, fulfill: M.fulfill.get() }, out.orderId);
         if (!c.ok) return res.json(Object.assign(result, { markPaidError: c.message }));

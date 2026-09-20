@@ -541,6 +541,8 @@ app.get('/olivia-photo.jpg', (_req, res) => {
 });
 // -- Installable app: manifests, service worker, icons (pwa.js) — before the storefront catch-all --
 try { require('./pwa').mount(app); } catch (e) { console.log('[pwa] not mounted:', e.message); }
+// 💳 /pay/<orderId>?t=… — the QR + UPI button we send a customer instead of marking the order paid by hand.
+try { require('./paylink').mount(app, { db }); } catch (e) { console.log('[paylink] not mounted:', e.message); }
 // SEO (seo.js): /robots.txt, /sitemap.xml, /og-image.png and the crawlable /plans, /plans/<service>, /faq, /whats-new, /about pages.
 let seo = null;
 try { seo = require('./seo'); seo.mount(app); } catch (e) { console.log('[seo] not mounted:', e.message); }

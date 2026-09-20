@@ -37,6 +37,13 @@ const PLANS = [
   section('quick order routes');
   const calls = { create: [], renew: [], paid: [], fulfil: [], sql: [] };
   let dupRows = [], custRows = [], subOwner = '9876543210';
+  // 💳 orders the payment page is asked about
+  const PAY_ORDERS = {
+    FF9: { order_id: 'FF9', name: 'Rahul Sharma', phone_norm: '9876543210', email: 'r@x.com', service: 'Netflix', plan: 'Private 1M', final_amount: 199, status: 'CREATED', fulfillment_status: '' },
+    FF8: { order_id: 'FF8', name: 'No Email', phone_norm: '9876500000', email: '', service: 'Zee5', plan: '1 Month', final_amount: 89, status: 'CREATED', fulfillment_status: '' },
+    FF7: { order_id: 'FF7', name: 'Paid Already', phone_norm: '9876511111', email: 'p@x.com', service: 'Netflix', plan: 'Private 1M', final_amount: 199, status: 'PAID', fulfillment_status: 'FULFILLED' },
+  };
+  const mails = [];
   const fakeOrder = {
     createOrder: async (p, o) => { calls.create.push({ p, o }); return { ok: true, orderId: 'FF1', amount: o.amountOverride != null ? Number(o.amountOverride) : 129, upiLink: 'upi://x' }; },
     createRenewOrder: async (sid, plan, cc, o) => { calls.renew.push({ sid, plan, cc, o }); return { ok: true, orderId: 'FF2', amount: Number(o.amountOverride) }; },
@@ -54,6 +61,8 @@ const PLANS = [
       if (/FROM orders WHERE phone_norm = \? AND service = \? AND plan = \?/.test(sql)) return dupRows;
       if (/SELECT customer_id, name, email FROM customers/.test(sql)) return custRows;
       if (/SELECT phone_norm FROM subscriptions WHERE sub_id/.test(sql)) return [{ phone_norm: subOwner }];
+      // 💳 paylink: one order row, by id (the payment page and /admin/api/quick/paylink read it)
+      if (/FROM orders WHERE order_id = \? LIMIT 1/.test(sql)) { const o = PAY_ORDERS[String(params[0]).toUpperCase()]; return o ? [Object.assign({}, o)] : []; }
       if (/FROM orders WHERE UPPER\(status\) = 'CREATED'/.test(sql)) return [{ order_id: 'FF9', name: 'A', phone_norm: '9876543210', service: 'Netflix', plan: 'Private 1M', final_amount: 199 }];
       return { affectedRows: 1 };
     },
@@ -64,7 +73,9 @@ const PLANS = [
   const express = require('express');
   const admin = require('../admin');
   const app = express(); app.use(express.json());
-  admin.mountAdmin(app, { db: mockDb, ADMIN_KEY: 'k', sync: require('../sync'), quick: { order: fakeOrder, fulfill: fakeFulfill, catalog: fakeCatalog } });
+  admin.mountAdmin(app, { db: mockDb, ADMIN_KEY: 'k', sync: require('../sync'), quick: { order: fakeOrder, fulfill: fakeFulfill, catalog: fakeCatalog },
+    mailer: { send: async (to, subject, html) => { mails.push({ to, subject, html }); return { ok: true }; } } });
+  require('../paylink').mount(app, { db: mockDb });
   const server = app.listen(0); await new Promise((r) => server.once('listening', r));
   const base = 'http://127.0.0.1:' + server.address().port;
   const H = { 'X-Admin-Key': 'k', 'Content-Type': 'application/json' };
@@ -134,6 +145,52 @@ const PLANS = [
   const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter((x) => x.trim());
   let parsed = true; for (const sc of scripts) { try { new Function(sc); } catch (e) { parsed = false; console.log('   parse error:', e.message); } }
   ok('panel has the Quick order screen and still parses', parsed && /function quickView\(/.test(html) && /\['quick', '⚡', 'Quick order'\]/.test(html));
+  // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+  // 💳 Owner, 20 Sep: "add option of sending payment link and qr also - we send qr to customer they make payment
+  // - it has order id and i go to admin and can link the payment easily then instead of direct marking it as paid"
+  // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+  section('payment link + QR for an order');
+  const paylink = require('../paylink');
+  process.env.SITE_URL = 'https://shop.fluxfilm.in';
+  process.env.UPI_VPA = 'fluxfilm@upi'; process.env.UPI_PAYEE = 'FluxFilm';
+  const link9 = paylink.linkFor('FF9');
+  const tok9 = link9.split('t=')[1];
+  ok('the link is the order id + a token, on our own domain', /^https:\/\/shop\.fluxfilm\.in\/pay\/FF9\?t=[0-9a-f]{16}$/.test(link9), link9);
+  ok('the token is checked: right one yes, wrong one no, another order\'s no', paylink.tokenOk('FF9', tok9) && !paylink.tokenOk('FF9', '0'.repeat(16)) && !paylink.tokenOk('FF8', tok9));
+  ok('the UPI link carries the ORDER ID as the note — that is what makes the payment match itself', paylink.upiLinkFor('FF9', 199) === 'upi://pay?pa=fluxfilm%40upi&pn=FluxFilm&am=199&cu=INR&tn=FF9');
+
+  const pageOf = async (p) => { const r = await fetch(base + p); return { status: r.status, html: await r.text() }; };
+  let pg = await pageOf('/pay/FF9?t=' + tok9);
+  ok('the customer page: amount, plan, order id, the QR and a Pay button — and no personal details', pg.status === 200 && /₹199/.test(pg.html) && /Private 1M/.test(pg.html) && /FF9/.test(pg.html) && /api\.qrserver\.com/.test(pg.html) && /upi:\/\/pay\?pa=/.test(pg.html) && !/Rahul/.test(pg.html) && !/9876543210/.test(pg.html) && !/r@x\.com/.test(pg.html), pg.html.slice(0, 200));
+  ok('  ...and it is never indexed', /noindex/.test(pg.html));
+  pg = await pageOf('/pay/FF9?t=' + '0'.repeat(16));
+  ok('a wrong token shows nothing at all (no amount, no QR)', pg.status === 404 && !/qrserver/.test(pg.html) && !/₹199/.test(pg.html));
+  pg = await pageOf('/pay/FF7?t=' + paylink.token('FF7'));
+  ok('an order that is already paid says so instead of asking for money again', pg.status === 200 && /Already paid/.test(pg.html) && !/qrserver/.test(pg.html));
+  pg = await pageOf('/pay/FFZZZZ?t=' + paylink.token('FFZZZZ'));
+  ok('an order that does not exist: a plain "not valid" page', pg.status === 404 && /not valid/.test(pg.html));
+  const st = await fetch(base + '/pay/FF9/status?t=' + tok9).then((x) => x.json());
+  const stPaid = await fetch(base + '/pay/FF7/status?t=' + paylink.token('FF7')).then((x) => x.json());
+  const stBad = await fetch(base + '/pay/FF9/status?t=' + '0'.repeat(16));
+  ok('the page can ask whether it is paid yet (and only with the token)', st.paid === false && stPaid.paid === true && stBad.status === 404, { st, stPaid });
+
+  r = await get('/admin/api/quick/paylink?orderId=FF9');
+  ok('admin can fetch the link, QR, UPI id and a ready WhatsApp message for an unpaid order', r.body.ok && r.body.pay.payLink === link9 && /qrserver/.test(r.body.pay.qr) && r.body.pay.note === 'FF9' && /wa\.me\/919876543210/.test(r.body.pay.waUrl) && /shop\.fluxfilm\.in\/pay\/FF9/.test(r.body.pay.whatsapp), r.body);
+  r = await get('/admin/api/quick/paylink?orderId=FF7');
+  ok('  ...but not for an order that is already paid', r.status === 409 && /only for an unpaid order/.test(r.body.message), r.body);
+  ok('  ...and not without the admin key', (await fetch(base + '/admin/api/quick/paylink?orderId=FF9')).status === 403);
+
+  mails.length = 0;
+  r = await postq('/admin/api/quick/send-paylink', { orderId: 'FF9' });
+  ok('✉️ emailing the link: to the order email, with the amount, the QR and the order number to keep', r.body.ok && mails.length === 1 && mails[0].to === 'r@x.com' && /₹199/.test(mails[0].subject) && /FF9/.test(mails[0].subject) && /qrserver/.test(mails[0].html) && /shop\.fluxfilm\.in\/pay\/FF9/.test(mails[0].html), { body: r.body, mail: mails[0] && mails[0].subject });
+  r = await postq('/admin/api/quick/send-paylink', { orderId: 'FF8' });
+  ok('  ...an order with no email says so instead of failing', r.status === 400 && /no email/.test(r.body.message) && mails.length === 1, r.body);
+  ok('  ...and it is in the change log', calls.sql.some((c) => /INSERT INTO audit_log/.test(c.sql) && c.params && c.params[0] === 'order.payLinkSent'));
+
+  const adminHtml = require('fs').readFileSync(require('path').join(__dirname, '..', 'admin.html'), 'utf8');
+  ok('the panel offers it after creating an order, on every unpaid order and on the order card', /💳 Ask the customer to pay/.test(adminHtml) && /function qPayBox\(/.test(adminHtml) && /data-payi=/.test(adminHtml) && /id="od_paylink"/.test(adminHtml) && /function payLinkModal\(/.test(adminHtml) && /send-paylink/.test(adminHtml));
+  ok('the WhatsApp message for an unpaid order carries the link instead of "send the screenshot"', /Please pay ₹' \+ r\.amount \+ ' here/.test(adminHtml) && /r\.pay\.payLink/.test(adminHtml));
+
   if (server.closeAllConnections) server.closeAllConnections();
   await new Promise((res) => server.close(res));
   Module._load = origLoad;
