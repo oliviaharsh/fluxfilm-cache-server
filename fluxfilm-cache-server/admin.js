@@ -137,7 +137,7 @@ function mountAdmin(app, deps) {
     res.json(ok ? { ok, weakPassword: weak(), ip: security.clientIp(req), forwardedFor: req.headers['x-forwarded-for'] || '' } : { ok, weakPassword: weak() });
   });
   // WhatsApp / phone sales: quick new + renew orders, mark paid (quickorders.js).
-  require('./quickorders').mount(app, Object.assign({ db, auth, audit }, deps.quick || {}));
+  require('./quickorders').mount(app, Object.assign({ db, auth, audit, mailer: deps.mailer }, deps.quick || {}));
   // 💳 Credit renewals: receivables, mark paid / partial / cancel, ✉️ reminder email + 💬 WhatsApp text (credit.js).
   require('./credit').mount(app, Object.assign({ db, auth, audit }, deps.credit || {}));
   // Order lookup + stock levels (adminlookup.js).
