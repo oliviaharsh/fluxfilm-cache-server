@@ -408,8 +408,14 @@ app.get('/admin/db-ping', async (req, res) => {
   if (!requireAdmin(req, res)) return;
   res.json(await db.ping());
 });
+// 🔒 The go → shop import finished on 14 Sep 2026 and MySQL is the master, so pulling the Sheet over MySQL would
+// undo real work. The route stays for a real emergency but refuses unless ALLOW_SHEET_SYNC=1 is set in Hostinger.
+const SHEET_SYNC_ALLOWED = () => String(process.env.ALLOW_SHEET_SYNC || '') === '1';
 app.get('/admin/sync', async (req, res) => {
   if (!requireAdmin(req, res)) return;
+  if (!SHEET_SYNC_ALLOWED()) {
+    return res.status(409).json({ ok: false, locked: true, message: 'The Sheet import is switched off: MySQL is the master and the one-time go-live import is done. If you really need it, set ALLOW_SHEET_SYNC=1 in Hostinger first.' });
+  }
   const dry = req.query.dry === '1' || req.query.dry === 'true';
   const tables = req.query.tables ? String(req.query.tables).split(',').map((x) => x.trim()).filter(Boolean) : [];
   try { res.json(await sync.runSync(tables, { dry })); }
@@ -669,7 +675,7 @@ async function autoSync() {
     console.log('[autosync] error', _lastSync.error);
   } finally { _syncing = false; }
 }
-if (db.ENABLED && SYNC_INTERVAL_MIN > 0) {
+if (db.ENABLED && SYNC_INTERVAL_MIN > 0 && SHEET_SYNC_ALLOWED()) {
   setTimeout(autoSync, 30000); // first run 30s after boot
   setInterval(autoSync, SYNC_INTERVAL_MIN * 60 * 1000);
   console.log('[autosync] enabled every ' + SYNC_INTERVAL_MIN + ' min');
