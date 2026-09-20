@@ -77,7 +77,7 @@ ok('coins ticked: box flips + amount spins (CSS on .ff-coin.on)', /\.ff-coin\.on
 ok('checkout steps: current / done dot flips', /\.ff-step\.on \.ff-step-n, \.ff-step\.done \.ff-step-n \{ animation: ffStepPop/.test(motionCss));
 ok('buttons: Btn has ff-btn and a 3D press', /return React\.createElement\("button", \{\s*type: type,\s*className: "ff-btn",/.test(html) && /\.ff-btn:active:not\(:disabled\) \{ transform: perspective\(600px\) translate3d\(0,2px,-10px\) scale\(\.975\) !important; \}/.test(motionCss));
 ok('tool tiles tilt on press; global button press kept', /\.ff-tool:active \{ transform: perspective\(700px\) rotateX\(7deg\) scale\(\.97\) !important; \}/.test(motionCss) && /button:active \{ transform: scale\(\.96\) !important; \}/.test(css));
-ok('screen slide is a light 3D swing, same short length', /@keyframes ffSlideIn \{ from \{ transform: perspective\(1400px\) translate3d\(30px,0,-24px\) rotateY\(-7deg\); opacity: 0; \}/.test(css) && /\.ff-slide \{ animation: ffSlideIn \.26s cubic-bezier\(\.2,\.8,\.3,1\) backwards; transform-origin: 50% 30%; \}/.test(css));
+ok('screen slide is a light 3D swing, now .2s (was .26s)', /@keyframes ffSlideIn \{ from \{ transform: perspective\(1400px\) translate3d\(30px,0,-24px\) rotateY\(-7deg\); opacity: 0; \}/.test(css) && /\.ff-slide \{ animation: ffSlideIn \.2s cubic-bezier\(\.2,\.8,\.3,1\) backwards; transform-origin: 50% 30%; \}/.test(css));
 
 section('timing');
 const durs = [...motionCss.matchAll(/animation: ff\w+ \.(\d+)s[^;]*?(?: \.(\d+)s)? backwards;/g)].map((m) => Number('0.' + m[1]) + (m[2] ? Number('0.' + m[2]) : 0));
