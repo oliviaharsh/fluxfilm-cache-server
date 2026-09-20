@@ -68,36 +68,36 @@ Three pages, no build step. Everything is plain JavaScript that runs as-is in th
 
 ### Blocks and widgets (the bits inside screens)
 
-| Block | Component | ~Line |
-|---|---|---|
-| Header bar, help button | `Topbar` 1929, `HelpButton` 1917 | |
-| Bottom menu (phone) | `BottomNav` | 2631 |
-| A plan card on My plans | `SubCard` | 3961 |
-| The login / password card | `CredCard` 2691, `DeviceLoginsCard` 2670 | |
-| Checkout step dots | `CheckoutSteps` | 2020 |
-| Coins toggle / wallet | `CoinToggle` 2455, `WalletPanel` 2514 | |
-| Refer & earn | `RefBanner` 2078, `ReferralPanel` 2295 | |
-| Coupons list | `CouponList` | 10542 |
-| Log in with email code | `EmailLoginSheet` 3015, `EmailLockSheet` 3162 | |
-| Recover picker sheet | `RecoverPickerModal` | 3286 |
-| Tools sheet (Get OTP etc.) | `ToolsSheet` 3445, `ToolsGrid` 3469 | |
-| Out of stock | `OutOfStockModal` | 4914 |
-| Avatar creator | `AvatarCreator` 9545 (drawing = `/avatar-maker.js`) | |
-| Offers bar / card / pop-up | `PromoBar` 11948, `PromoCard` 11977, `PromoPopup` 13314 | |
-| Install-the-app pop-up | `InstallPrompt` | 11406 |
-| Renewal-reminder pop-up | `RenewReminder` | 13081 |
-| Push permission prompt | `PushPrompt` | 11659 |
-| "New version ready" bar | `UpdateBar` | 11352 |
-| Paused-shop banner | `PauseBanner` | 11291 |
-| Refunds (customer side) | `RefundChoice` 12018, `RefundRequestButton` 12420, `RefundRequestSheet` 12448 | |
-| Help bubble / need-help card | `HelpBubble` 13818, `NeedHelpCard` 13844 | |
-| What's-new strip on Home | `FeedStrip` | 13885 |
-| A feed post | `FeedPost` 14677, media inside it `FeedMedia` 13661 | |
-| Comments | `FeedComments` 14393, `FeedAvatar` 14361 | |
-| **Reels (full screen)** | `FeedReels` | 14959 |
-| Liked / saved grids | `FeedLibrary` | 15643 |
-| Get OTP | `OtpScreen` 17037, `OtpPickerModal` 16619, `OtpVerifyCard` 16902 | |
-| Icons (our own set) | `FeedIcon` | 14656 |
+| Block | Where |
+|---|---|
+| Header bar, help button | `Topbar` 1929, `HelpButton` 1917 |
+| Bottom menu (phone) | `BottomNav` 2631 |
+| A plan card on My plans | `SubCard` 3961 |
+| The login / password card | `CredCard` 2691, `DeviceLoginsCard` 2670 |
+| Checkout step dots | `CheckoutSteps` 2020 |
+| Coins toggle / wallet | `CoinToggle` 2455, `WalletPanel` 2514 |
+| Refer & earn | `RefBanner` 2078, `ReferralPanel` 2295 |
+| Coupons list | `CouponList` 10542 |
+| Log in with email code | `EmailLoginSheet` 3015, `EmailLockSheet` 3162 |
+| Recover picker sheet | `RecoverPickerModal` 3286 |
+| Tools sheet (Get OTP etc.) | `ToolsSheet` 3445, `ToolsGrid` 3469 |
+| Out of stock | `OutOfStockModal` 4914 |
+| Avatar creator | `AvatarCreator` 9545 (drawing = `/avatar-maker.js`) |
+| Offers bar / card / pop-up | `PromoBar` 11948, `PromoCard` 11977, `PromoPopup` 13314 |
+| Install-the-app pop-up | `InstallPrompt` 11406 |
+| Renewal-reminder pop-up | `RenewReminder` 13081 |
+| Push permission prompt | `PushPrompt` 11659 |
+| "New version ready" bar | `UpdateBar` 11352 |
+| Paused-shop banner | `PauseBanner` 11291 |
+| Refunds (customer side) | `RefundChoice` 12018, `RefundRequestButton` 12420, `RefundRequestSheet` 12448 |
+| Help bubble / need-help card | `HelpBubble` 13818, `NeedHelpCard` 13844 |
+| What's-new strip on Home | `FeedStrip` 13885 |
+| A feed post | `FeedPost` 14677, media inside it `FeedMedia` 13661 |
+| Comments | `FeedComments` 14393, `FeedAvatar` 14361 |
+| **Reels (full screen)** | `FeedReels` 14959 |
+| Liked / saved grids | `FeedLibrary` 15643 |
+| Get OTP | `OtpScreen` 17037, `OtpPickerModal` 16619, `OtpVerifyCard` 16902 |
+| Icons (our own set) | `FeedIcon` 14656 |
 
 ### CSS: which block styles what (line = where the block starts in the `<style>`)
 
@@ -121,7 +121,9 @@ Three pages, no build step. Everything is plain JavaScript that runs as-is in th
 | 854 | Floating help bubble |
 | 870 / 886 | Install pop-up · push pop-up |
 | 903 | 📱 "App feel": brand glow, greeting card, section headers, bottom menu, presses |
-| 964 | Low-end phones (`html.ff-lite`) |
+
+(`html.ff-lite` — the low-end-phone trim — is not one block: the flag is set by the script at **963** and the
+rules are sprinkled through the style block next to what they trim.)
 
 ## 1.2 `admin.html` — the owner's panel
 
@@ -237,7 +239,9 @@ Every action is listed in `server.js` in one of four sets (`DB_READ_ACTIONS`, `D
 
 ## 2.3 Admin routes → module
 
-All under `/admin/api/…`, all key- or session-protected (`security.js`), all mounted from `admin.js`.
+All under `/admin/api/…`, all key- or session-protected (`security.js`). 28 of them are mounted by `admin.js`;
+the two exceptions are `adminrefundnow.js` (mounted by `adminorderactions.js`) and the **public** `/pay` page
+(`paylink.js`, mounted by `server.js`).
 
 | Screen / job | Module | Notes |
 |---|---|---|
