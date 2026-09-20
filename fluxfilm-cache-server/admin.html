@@ -305,7 +305,6 @@ table.sheet{border-collapse:separate;border-spacing:0;table-layout:fixed;font-si
 .ff-promo-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
 .ff-promo-row.center { justify-content: center; }
 @media (max-width: 520px) { .ff-promo-card { flex-direction: column; text-align: center; } .ff-promo-card .ff-promo-row { justify-content: center; } .ff-promo-img { width: 100%; height: 150px; } }
-.ff-promo-bg { position: fixed; inset: 0; z-index: 75; display: grid; place-items: center; padding: 16px; background: rgba(15,23,42,.45); animation: ffInstallFade .2s ease both; }
 .ff-promo-pop { width: 100%; max-width: 380px; padding: 26px 20px 16px; border-radius: 26px; text-align: center; box-shadow: 0 30px 70px rgba(15,23,42,.4); animation: ffPromoPop .4s cubic-bezier(.2,.9,.3,1.25) both; }
 .ff-promo-pop .ff-promo-big { font-size: 72px; margin: 0 auto 10px; }
 .ff-promo-pop .ff-promo-img { width: 100%; height: 170px; margin-bottom: 12px; }
@@ -620,7 +619,7 @@ var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
   ['TOOLS'], ['quick', '⚡', 'Quick order'], ['receivables', '💳', 'Receivables'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
-  ['DATA'], ['golive', '🚚', 'Go-live import'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'], ['integrations', '🔗', 'Integrations'],
+  ['DATA'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'], ['integrations', '🔗', 'Integrations'],
 ];
 function shell() {
   $('#app').innerHTML = '<div class="scrim" id="scrim" onclick="toggleSide(false)" aria-hidden="true"></div>' +
@@ -685,7 +684,7 @@ function wireSideClose() {
   }, { passive: true });
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, golive: goliveView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -4536,7 +4535,6 @@ function plLoad(then) {
     if (then) then(); else if (!PL.edit) plRenderList();
   });
 }
-function plFind(svc, plan) { var f = null; PL.list.forEach(function (g) { g.plans.forEach(function (p) { if (p.service === svc && p.plan === plan) f = p; }); }); return f; }
 function plRenderList() {
   hSubDone('plan');
   if (!PL.list.length) { $('#plbody').innerHTML = '<div class="card" style="text-align:center;padding:28px"><div style="font-size:2.4rem">🧾</div><h3>No plans yet</h3><p class="muted">Tap ➕ New plan.</p></div>'; return; }
@@ -4705,121 +4703,6 @@ function plPreview(e) {
     (e.primeTvQuestion || e.needsExtraField ? '<div class="pl-rule">❓ ' + esc(e.extraFieldLabel || 'Checkout question') + '</div>' : '') +
     '<div class="pl-buy">' + (e.isActive ? 'Buy now' : 'Plan is OFF — hidden from customers') + '</div></div>' +
     (e.postPaymentMessage ? '<div class="pl-ppm"><div class="muted" style="font-size:.72rem;margin-bottom:4px">After payment</div>' + esc(e.postPaymentMessage).replace(/\n/g, '<br>') + '</div>' : '');
-}
-
-/* ================= go-live: safe import of go's data (cutover.js) ================= */
-var GL = { timer: null, paused: false, preview: null };
-function goliveView() {
-  $('#view').innerHTML = '<div class="ph"><div><h1>🚚 Go-live import</h1><p>Copies the real customers, orders and subscriptions from go.fluxfilm.in (Google Sheet) into shop — once, when you switch go to shop.</p></div></div>' +
-    '<div class="card" style="margin-bottom:16px"><h3>What it does</h3><div class="gl-two"><div><b>✅ Copied from go</b><ul class="gl-ul"><li>Orders and subscriptions (by Order ID / Sub ID — never twice)</li><li>New customers (matched by the last 10 digits of the phone)</li><li>Empty name / email / photo filled in for existing customers</li><li>Coupon usage from go</li></ul></div>' +
-    '<div><b>🛡️ Not touched (shop stays as it is)</b><ul class="gl-ul"><li>Plans and prices</li><li>Coupons</li><li>Inventory accounts, profiles, capacity</li><li>Settings, referrals, payments</li><li>Anything created on shop</li></ul></div></div></div>' +
-    '<div class="card" style="margin-bottom:16px"><h3>1️⃣ Preview <span class="muted" style="font-weight:500">— writes nothing</span></h3>' +
-    '<label class="rf-tog"><input type="checkbox" id="glwallet"/> Also copy coin balances from go (skips anyone who used coins on shop)</label>' +
-    '<div class="row" style="margin-top:10px"><button class="btn dark" id="glprev">🔍 Preview</button><span class="rf-state" id="glpst"></span></div><div id="glres"></div></div>' +
-    '<div class="card"><h3>2️⃣ Import</h3><div id="glpause"></div>' +
-    '<div class="gl-go"><input class="inp" id="glconfirm" placeholder="Type IMPORT" autocomplete="off" autocapitalize="characters"/><button class="btn green" id="glrun" disabled>🚚 Import now</button></div><span class="rf-state" id="glrst"></span><div id="gldone"></div></div>' +
-    '<div class="card" style="margin-top:16px"><h3>3️⃣ Tidy up IDs <span class="muted" style="font-weight:500">— once, right after the import</span></h3>' +
-    '<p class="muted" style="margin:4px 0 10px">Gives every subscription the regular SUB-######### ID (SUB-LG / SUB-YT / SUB-PR / long ones), adds order records for plans whose order is missing (MIG… → FF…, ₹0), adds missing customers and expires old test clutter. After this the import is locked.</p>' +
-    '<div class="row"><button class="btn dark" id="clprev">🔍 Preview</button><span class="rf-state" id="clpst"></span></div><div id="clres"></div>' +
-    '<div class="gl-go"><input class="inp" id="clconfirm" placeholder="Type CLEANUP" autocomplete="off" autocapitalize="characters"/><button class="btn green" id="clrun" disabled>🧹 Tidy up now</button></div><span class="rf-state" id="clrst"></span></div>';
-  api('/admin/api/store').then(function (r) { GL.paused = !!(r && r.ok && r.settings.paused); glPauseNote(); glEnable(); });
-  $('#glprev').onclick = function () { glStart('preview'); };
-  $('#glrun').onclick = function () {
-    if (!confirm('Import go\'s data into shop now?\n\nOrders, subscriptions and customers will be copied. Plans, coupons and inventory stay as they are.')) return;
-    glStart('run');
-  };
-  $('#glconfirm').oninput = glEnable;
-  $('#clprev').onclick = clPreview;
-  $('#clconfirm').oninput = clEnable;
-  $('#clrun').onclick = function () {
-    if (!confirm('Tidy up IDs now?\n\nSubscription IDs will be renamed everywhere, missing orders and customers added. This runs once and locks the import.')) return;
-    var b = this; b.disabled = true; $('#clrst').className = 'rf-state dirty'; $('#clrst').textContent = '⏳ Tidying up…';
-    post('/admin/api/cleanup/apply', { confirm: 'CLEANUP' }).then(function (r) {
-      if (!r.ok) { $('#clrst').className = 'rf-state bad'; $('#clrst').textContent = '⚠️ ' + (r.message || 'error'); clEnable(); return; }
-      var c = r.counts; GL.clean = { done: true };
-      $('#clrst').className = 'rf-state ok'; $('#clrst').textContent = '✅ Done: ' + c.subsRenamed + ' IDs renamed (' + c.references + ' links updated), ' + c.ordersCreated + ' orders added, ' + c.customersCreated + ' customers added, ' + c.clutterExpired + ' test plans expired';
-      $('#clres').innerHTML = clTables(r, true); clEnable();
-    });
-  };
-  glPoll();
-}
-function clEnable() { var b = $('#clrun'); if (b) b.disabled = !(GL.paused && GL.clean && !GL.clean.done && GL.clean.importDone && ($('#clconfirm').value || '').trim().toUpperCase() === 'CLEANUP'); }
-function clPreview() {
-  $('#clpst').className = 'rf-state dirty'; $('#clpst').textContent = '⏳ Checking…';
-  post('/admin/api/cleanup/preview', {}).then(function (r) {
-    if (!r.ok) { $('#clpst').className = 'rf-state bad'; $('#clpst').textContent = '⚠️ ' + (r.message || 'error'); return; }
-    GL.clean = { done: !!r.done, importDone: !!r.importDone };
-    $('#clpst').className = 'rf-state ' + (r.done ? 'ok' : r.importDone ? 'ok' : 'bad');
-    $('#clpst').textContent = r.done ? '✅ Already done ' + prettyDate(r.done.at, true) : r.importDone ? '✅ Preview ready' : '⚠️ Run the import (step 2) first';
-    $('#clres').innerHTML = clTables(r, false); clEnable();
-  });
-}
-function clTables(r, done) {
-  var n = function (x) { return Number(x || 0).toLocaleString('en-IN'); };
-  var shapes = Object.keys(r.renames.byShape || {}).map(function (k) { return esc(k) + ' × ' + r.renames.byShape[k]; }).join(' · ');
-  var h = '<div class="gl-grid">' +
-    '<div class="gl-card"><b>🆔 Subscription IDs</b><div class="gl-row"><span>To rename</span><b>' + n(r.renames.count) + '</b></div><div class="muted" style="font-size:.75rem;margin-top:4px">' + shapes + '</div></div>' +
-    '<div class="gl-card"><b>🧾 Missing orders</b><div class="gl-row"><span>Order records to add</span><b>' + n(r.orders.count) + '</b></div><div class="gl-row"><span>MIG… → new FF ID</span><b>' + n(r.orders.newIds) + '</b></div><div class="gl-row"><span>Plans linked</span><b>' + n(r.orders.subs) + '</b></div></div>' +
-    '<div class="gl-card"><b>👤 Missing customers</b><div class="gl-row"><span>To add</span><b>' + n(r.customers.count) + '</b></div>' + r.customers.list.map(function (c) { return '<div class="gl-row"><span>' + esc(c.phone) + '</span><b>' + esc(c.name || '—') + '</b></div>'; }).join('') + '</div>' +
-    '<div class="gl-card"><b>🧹 Test clutter</b>' + (r.clutter.length ? r.clutter.map(function (c) { return '<div class="gl-row"><span>' + esc(c.orderId) + ' · ' + esc(c.phone) + '</span><b>' + c.subs + ' plans</b></div>'; }).join('') : '<div class="gl-row"><span>None</span><b>✓</b></div>') + '</div></div>';
-  if (r.renames.sample && r.renames.sample.length) h += '<div style="overflow-x:auto;margin-top:10px"><table class="rf-ex"><tr><th>Old ID</th><th>New ID</th><th>Service</th><th>Phone</th></tr>' + r.renames.sample.map(function (x) { return '<tr><td>' + esc(x.from) + '</td><td>' + esc(x.to) + '</td><td>' + esc(x.service) + '</td><td>' + esc(x.phone) + '</td></tr>'; }).join('') + '</table></div>' + (done ? '' : '<p class="muted" style="font-size:.75rem">New IDs are picked again when you tidy up (these are examples).</p>');
-  var rep = r.report || {};
-  h += '<div class="qnote warn" style="margin-top:10px"><b>For you to check (not changed):</b><br>' +
-    n(rep.phoneMismatchCount) + ' plan(s) where the order phone differs from the plan phone (typo at checkout)' + (rep.phoneMismatch && rep.phoneMismatch.length ? ': ' + rep.phoneMismatch.slice(0, 8).map(function (x) { return esc(x.orderId) + ' ' + esc(x.orderPhone) + '→' + esc(x.planPhone); }).join(', ') : '') + '<br>' +
-    n(rep.paidNoPlanCount) + ' paid order(s) with no plan for that phone + service' + (rep.paidNoPlan && rep.paidNoPlan.length ? ': ' + rep.paidNoPlan.slice(0, 12).map(esc).join(', ') : '') + '<br>' +
-    n(rep.staleActive) + ' plan(s) still marked ACTIVE after they ended (harmless — stock uses the dates)</div>';
-  return h;
-}
-function glPauseNote() {
-  var el = $('#glpause'); if (!el) return;
-  el.innerHTML = GL.paused ? '<div class="rf-banner ok">🚧 New orders are paused — safe to import.</div>' :
-    '<div class="rf-banner bad">⚠️ Pause new orders first, so nobody buys while the data is copied. <button class="btn sm red" onclick="nav(\'maintenance\')">🚧 Open Maintenance</button></div>';
-}
-function glEnable() { var b = $('#glrun'); if (b) b.disabled = !(GL.paused && GL.preview && ($('#glconfirm').value || '').trim().toUpperCase() === 'IMPORT'); }
-function glStart(kind) {
-  var body = { wallet: $('#glwallet').checked };
-  if (kind === 'run') body.confirm = 'IMPORT';
-  var st = kind === 'run' ? '#glrst' : '#glpst';
-  $(st).className = 'rf-state'; $(st).textContent = '⏳ Starting…';
-  post('/admin/api/cutover/' + kind, body).then(function (r) {
-    if (!r.ok) { $(st).className = 'rf-state bad'; $(st).textContent = '⚠️ ' + (r.message || 'error'); return; }
-    glPoll();
-  });
-}
-function glPoll() {
-  clearTimeout(GL.timer);
-  if (!$('#glres')) return;
-  api('/admin/api/cutover/status').then(function (s) {
-    if (!$('#glres') || !s.ok) return;
-    var st = s.kind === 'run' ? '#glrst' : '#glpst';
-    if (s.state === 'running') {
-      $(st).className = 'rf-state dirty'; $(st).textContent = '⏳ Reading the Google Sheet' + (s.kind === 'run' ? ' and copying' : '') + '… this can take a minute';
-      $('#glprev').disabled = true; $('#glrun').disabled = true;
-      GL.timer = setTimeout(glPoll, 2000); return;
-    }
-    $('#glprev').disabled = false;
-    if (s.state === 'failed') { $(st).className = 'rf-state bad'; $(st).textContent = '⚠️ ' + (s.kind === 'run' ? 'Import' : 'Preview') + ' failed: ' + s.error + (s.kind === 'run' ? ' — nothing half-done is hidden: run Preview again to see what is left.' : ''); glEnable(); return; }
-    if (s.state === 'done' && s.result) {
-      if (s.kind === 'preview') { GL.preview = s.result; $(st).className = 'rf-state ok'; $(st).textContent = '✅ Preview ready (' + prettyDate(s.finishedAt, true) + ')'; $('#glres').innerHTML = glTables(s.result, false); }
-      else { GL.preview = s.result; $(st).className = 'rf-state ok'; $(st).textContent = '✅ Import finished (' + prettyDate(s.finishedAt, true) + ')'; $('#gldone').innerHTML = '<div class="rf-banner ok" style="margin-top:12px">✅ Done. Next: check a few customers in Customer 360, then resume orders in 🚧 Maintenance.</div>' + glTables(s.result, true); }
-    }
-    glEnable();
-  });
-}
-function glTables(r, done) {
-  var n = function (x) { return Number(x || 0).toLocaleString('en-IN'); };
-  var card = function (icon, title, rows) { return '<div class="gl-card"><b>' + icon + ' ' + title + '</b>' + rows.map(function (x) { return '<div class="gl-row"><span>' + x[0] + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div>'; };
-  var d = r.done || {};
-  var h = '<div class="gl-grid">' +
-    card('🧾', 'Orders', [['In the Sheet', n(r.orders.sheetRows)], ['➕ New', n(done ? (d.orders || {}).added : r.orders.add)], ['🔄 Updated from go', n(done ? (d.orders || {}).updated : r.orders.update)], ['✅ Already the same', n(r.orders.same)], ['🛡️ Shop copy kept', n(r.orders.keptShopCount)]]) +
-    card('🎬', 'Subscriptions', [['In the Sheet', n(r.subscriptions.sheetRows)], ['➕ New', n(r.subscriptions.add)], ['🔄 Updated from go', n(r.subscriptions.update)], ['✅ Already the same', n(r.subscriptions.same)], ['🛡️ Shop copy kept', n(r.subscriptions.keptShopCount)]]) +
-    card('👤', 'Customers', [['In the Sheet', n(r.customers.sheetRows)], ['➕ New', n(done ? (d.customers || {}).added : r.customers.add)], ['✏️ Empty fields filled', n(done ? (d.customers || {}).filled : r.customers.fillBlanks)], ['✅ Already the same', n(r.customers.same)]]) +
-    card('🎟️', 'Coupon usage', [['In the Sheet', n(r.couponUsage.sheetRows)], ['🛡️ Shop redemptions kept', n(r.couponUsage.keepShop)]]) +
-    (r.wallet ? card('🪙', 'Coin balances', [['In the Sheet', n(r.wallet.sheetRows)], ['➕ New', n(r.wallet.add)], ['🔄 Updated', n(r.wallet.update)], ['🛡️ Shop balance kept', n(r.wallet.keptShopBalances)]]) : '') + '</div>';
-  if (r.warnings && r.warnings.length) h += '<div class="qnote warn" style="margin-top:12px">' + r.warnings.map(esc).join('<br>') + '</div>';
-  else h += '<div class="rf-banner ok" style="margin-top:12px">✅ No duplicates or clashes found.</div>';
-  if (r.clashes && r.clashes.length) h += '<div style="overflow-x:auto;margin-top:8px"><table class="rf-ex"><tr><th>Profile slot</th><th>go subscription</th><th>shop subscription</th><th>shop phone</th></tr>' + r.clashes.map(function (c) { return '<tr><td>' + esc(c.inventoryRef) + '</td><td>' + esc(c.goSub) + '</td><td>' + esc(c.shopSub) + '</td><td>' + esc(c.shopPhone) + '</td></tr>'; }).join('') + '</table></div>';
-  return h;
 }
 
 /* ================= maintenance: pause / resume new orders ================= */

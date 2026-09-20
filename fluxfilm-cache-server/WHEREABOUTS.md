@@ -8,8 +8,8 @@ Written 21 Sep 2026 against `main`. **Names are the reliable thing; line numbers
 off, search for the name (`function FeedReels(`, `feedView`, …). Every server file starts with its own comment
 block saying what it does — this map tells you *which* file to open; that header tells you the detail.
 
-Sizes today: `index.html` 18,821 lines · `admin.html` 6,692 · `games.html` 1,068 · 105 server modules ≈ 32,000 lines ·
-79 test files.
+Sizes today: `index.html` 18,821 lines · `admin.html` 6,692 · `games.html` 1,068 · 102 server modules ≈ 31,400 lines ·
+77 test files.
 
 ---
 
@@ -156,7 +156,6 @@ function that draws it; `route()` calls it. Add a screen = add to `MENU` + `view
 | 🎁 Referrals | `referralsView` | 5912 | `adminreferrals.js`, `referrals.js` |
 | 🪙 Coins | `coinsView` | 5847 | `admincoins.js`, `coins.js` |
 | 🎮 Games | `gamesView` | 5998 | `admingames.js`, `games.js` |
-| 🚚 Go-live import | `goliveView` | 4712 | `admincutover.js`, `cutover.js`, `cleanup.js` |
 | 📋 Sheets | `dataView` | 1172 | `admin.js` (the generic table grid) |
 | 🧾 Plans | `plansView` | 4512 | `adminplans.js` |
 | 🎟️ Coupons | `couponsView` | 1457 | `admin.js` |
@@ -264,7 +263,6 @@ the two exceptions are `adminrefundnow.js` (mounted by `adminorderactions.js`) a
 | 🎁 Referrals · 🪙 Coins · 🎮 Games · 📣 Offers · 🚧 Maintenance · 🤖 Olivia | `adminreferrals.js` · `admincoins.js` · `admingames.js` · `adminpromos.js` · `adminstore.js` · `adminolivia.js` | each has a matching engine module |
 | 🧾 Plans editor | `adminplans.js` | |
 | 📤 Exports | `adminexports.js` + `xlsx.js` | |
-| 🚚 Go-live import | `admincutover.js`, `cutover.js`, `cleanup.js` | one-time |
 | 🔗 n8n | `adminn8n.js`, `n8n.js`, `n8nhooks.js`, `n8nbackup.js` | |
 | ✉️ Email sender check | `adminmail.js` | |
 
@@ -296,7 +294,7 @@ Tables and **who writes them** (readers are many; the writer is who to blame):
 | `plans` | `adminplans.js` only |
 | `coupons`, `coupon_usage` | `admin.js`, `order.js`, `games.js`, `refunds.js` |
 | `wallet`, `coins_ledger`, `coin_spends` | `coins.js` (+ `games.js`) |
-| `inventory_accounts` / `_profiles` / `_capacity` | `accounttools.js`, `accountid.js`, `cleanup.js` |
+| `inventory_accounts` / `_profiles` / `_capacity` | `accounttools.js`, `accountid.js` |
 | `bank_credits` | `payments.js` (writes them), `adminbankcredits.js`, `paymatch.js` (consume) |
 | `bank_credit_links` | `banklinks.js` (schema-v28) |
 | `payment_claims`, `customer_payer_names` | `paymatch.js` |
@@ -309,7 +307,13 @@ Tables and **who writes them** (readers are many; the writer is who to blame):
 | `sms_otp_log` | `otp.js` |
 | `audit_log` | `audit.js` (every admin write) |
 | `app_settings` | **everything** — it is the settings drawer (feed posts, offers, refund settings, OTP window, n8n keys, R2 keys…) |
-| `trending_items`, `sync_log` | `sync.js` / `cutover.js` (import only) |
+| `trending_items`, `sync_log` | `sync.js` (the one-time import; see the note below) |
+
+> 🔒 **The Sheet import is retired (21 Sep 2026).** `cutover.js` / `cleanup.js` / the 🚚 Go-live import screen are
+> gone — the import ran on 14 Sep and both it and the cleanup were locked afterwards (kept in
+> `_deleted-old-code/2026-09-21_go-live-machinery/`). `sync.js` **stays**, because the 📋 Sheets grid uses its
+> `TABLES` column map; its `/admin/sync` route now refuses unless `ALLOW_SHEET_SYNC=1` is set in Hostinger, so the
+> Sheet can never be pulled over MySQL by accident.
 
 Schema files: `db/schema-v11.sql` … **`schema-v28.sql`** (v28 = one payment, several orders). Run them once each in
 phpMyAdmin; every module that needs a new table fails soft and says which file to run.
@@ -337,7 +341,7 @@ phpMyAdmin; every module that needs a new table fails soft and says which file t
 | n8n webhooks | `n8nhooks.js` | 1 min |
 | Sheet → MySQL sync | `server.js` | **off** (`SYNC_INTERVAL_MIN=0`, MySQL is master) |
 
-## 2.7 Tests — 79 files, `npm test` runs them all
+## 2.7 Tests — 77 files, `npm test` runs them all
 
 One file per area, named after it: `feed*.test.js`, `refunds-v3`, `bank-credits`, `quick-orders`, `payment-flows`,
 `getotp-security`, `zee5-otp-matching`, `credit-renewals`, `paid-via`, `r2-video-storage`, `games`, `olivia`, … Each
@@ -350,6 +354,7 @@ the network.** Several also read `index.html` / `admin.html` and check the marku
    `app_settings`. The owner can change these on a phone.
 2. **Hostinger env vars** — only secrets and connections: `DB_*`, `IMAP_USER/PASS`, `SMTP_*`, `UPI_VPA`, `UPI_PAYEE`,
    `CACHE_CLEAR_KEY` (the admin key), `ADMIN_PASSWORD`, `TG_*`, `SITE_URL`, `PAYLINK_SECRET`, R2 and AI keys.
+   One switch is a safety catch rather than a secret: `ALLOW_SHEET_SYNC=1` (off) unlocks the retired Sheet import.
 3. **Code** — only the things that are not settings (the rules in 2.4).
 
 If you are about to add a "constant" the owner might want to change, it belongs in 1, not 3.
@@ -357,7 +362,7 @@ If you are about to add a "constant" the owner might want to change, it belongs 
 
 ## 2.9 Every server file, A–Z
 
-All 105 modules with the first line of their own header comment. Open the file for the rest — each one explains its
+All 102 modules with the first line of their own header comment. Open the file for the rest — each one explains its
 own rules, and most list their routes at the top.
 
 | File | Lines | What it is |
@@ -370,7 +375,6 @@ own rules, and most list their routes at the top.
 | `admin.js` | 525 | Admin panel v3: Customer 360 cards, Sheets-style grid, coupons, expiring. GET /panel serves the dashboard… |
 | `adminbankcredits.js` | 464 | admin 🏦 Bank payments (admin-only): every UPI credit the bank-mail watcher stored (bank_credits). |
 | `admincoins.js` | 80 | admin 🪙 Coins screen (admin-only). |
-| `admincutover.js` | 69 | admin 🚚 Go-live import (admin-only). See cutover.js for exactly what is copied. |
 | `adminexpired.js` | 120 | admin "🚪 Expired customers still on accounts" + one-tap cleanup (admin-only, mounted by admin.js). |
 | `adminexports.js` | 605 | 📤 admin exports: orders list and customer profiles to Excel (.xlsx) or CSV… |
 | `adminfeed.js` | 316 | admin 🍿 Feed (admin-only). See feed.js. |
@@ -398,11 +402,9 @@ own rules, and most list their routes at the top.
 | `avatars.js` | 62 | "✨ Create your avatar" (Account → Profile). The drawing code is avatarmaker.js (shared with the browser). |
 | `banklinks.js` | 127 | 🧾 ONE bank payment split across SEVERAL orders (schema-v28, table `bank_credit_links`). |
 | `catalog.js` | 120 | storefront catalog from MySQL. |
-| `cleanup.js` | 179 | one-time data cleanup, run RIGHT AFTER the go-live import (admin → 🚚 Go-live import → step 3)… |
 | `coins.js` | 452 | loyalty coins on MySQL: earning (on fulfilment + Refer & earn), and spending at checkout… |
 | `credit.js` | 400 | 💳 admin credit renewals, receivables and ✉️/💬 renewal reminders (owner request 16 Sep 2026). |
 | `customerauth.js` | 376 | 🔐 customer login with an email code + signed sessions (15 Sep 2026, owner: "Send OTP to email for first time login"). |
-| `cutover.js` | 248 | safe go → shop import (admin → 🚚 Go-live import). Used once, at cutover. |
 | `db.js` | 60 | MySQL connection pool. Reads config from env vars. If DB env vars are missing, db is "disabled" and callers should fal… |
 | `delivered.js` | 38 | "was this subscription delivered?" One shared rule for refunds.js (💸 Offer refund), refundrequests.js… |
 | `devicelogins.js` | 137 | multiple devices: same login or a separate login for each device (F1, decided 2026-09-14). |
@@ -470,7 +472,7 @@ own rules, and most list their routes at the top.
 
 Not modules: `index.html`, `admin.html`, `games.html` (Part 1) · `db/schema-v*.sql` (the migrations) ·
 `test/` (79 test files) · `icons/`, `icons-default/` (app icons) · `scripts/` (one-off helpers) ·
-`apps-script-snippet` (a leftover from the Sheet days) · `n8n/` at the repo root (the owner's 5 automations).
+ `n8n/` at the repo root (the owner's 5 automations).
 
 ---
 

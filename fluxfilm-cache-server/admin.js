@@ -191,8 +191,6 @@ function mountAdmin(app, deps) {
   require('./adminn8n').mount(app, Object.assign({ db, auth, audit }, deps.n8n || {}));
   // Plans editor: builder, copy, on/off, safe delete (adminplans.js).
   require('./adminplans').mount(app, Object.assign({ db, auth, audit }, deps.plans || {}));
-  // Go-live: safe one-time import of go's customers / orders / subscriptions (admincutover.js).
-  require('./admincutover').mount(app, Object.assign({ db, auth, audit }, deps.cutover || {}));
 
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};

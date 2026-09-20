@@ -167,8 +167,6 @@ html.ff-lite .ff-slide { animation-duration: .2s; }
 .ff-coupon-desc { font-size: 13px; font-weight: 700; color: #334155; margin-top: 8px; line-height: 1.4; }
 .ff-coupon-facts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .ff-coupon-facts span { font-size: 11.5px; font-weight: 700; color: #475569; background: #f1f5f9; border-radius: 999px; padding: 4px 9px; }
-.ff-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 4px; margin: 4px 0 14px; scrollbar-width: none; }
-.ff-tabs::-webkit-scrollbar { display: none; }
 .ff-tab { flex-shrink: 0; border: 1px solid rgba(15,23,42,.10); background: #fff; color: #334155; padding: 9px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 800; cursor: pointer; white-space: nowrap; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
 .ff-tab.on { background: #16a34a; border-color: #16a34a; color: #fff; box-shadow: 0 4px 14px rgba(22,163,74,.25); }
 .ff-soon { text-align: center; padding: 28px 18px; }
@@ -192,7 +190,6 @@ html.ff-lite .ff-slide { animation-duration: .2s; }
 .ff-home { display: flex; flex-direction: column; }
 .ff-home-left, .ff-home-right { display: contents; }
 .ff-o1 { order: 1; } .ff-o2 { order: 2; } .ff-o3 { order: 3; } .ff-o4 { order: 4; } .ff-o5 { order: 5; } .ff-o6 { order: 6; }
-.ff-home-points { display: none; }
 @media (min-width: 640px) {
   .ff-grid-svc { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
 }
@@ -226,8 +223,6 @@ html.ff-lite .ff-slide { animation-duration: .2s; }
   .ff-home-h1 { font-size: 46px !important; line-height: 1.05 !important; letter-spacing: -1.2px !important; }
   .ff-home-tag { font-size: 18px !important; max-width: 460px; }
   .ff-home-tag br { display: none; }
-  .ff-home-points { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
-  .ff-home-points span { padding: 8px 14px; border-radius: 999px; background: #fff; border: 1px solid rgba(15,23,42,.09); font-size: 13.5px; font-weight: 700; color: #334155; }
   .ff-home-right > * + * { margin-top: 14px; }
 }
 @media (min-width: 1100px) {
@@ -258,10 +253,6 @@ input { font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif; 
 .ff-tool-t { font-size: 15.5px; font-weight: 800; color: #0f172a; line-height: 1.25; }
 .ff-tool-s { font-size: 12.5px; font-weight: 600; color: #64748b; line-height: 1.4; }
 .ff-tool-go { margin-top: auto; padding-top: 10px; font-size: 14px; font-weight: 800; }
-.ff-tool-otp { border-color: rgba(124,58,237,.18); }
-.ff-tool-otp::after { background: #7c3aed; }
-.ff-tool-otp .ff-tool-ic { background: linear-gradient(135deg,#a78bfa,#7c3aed); box-shadow: 0 6px 16px rgba(124,58,237,.28); }
-.ff-tool-otp .ff-tool-go { color: #6d28d9; }
 .ff-tool-nf { border-color: rgba(229,9,20,.16); }
 .ff-tool-nf::after { background: #e50914; }
 .ff-tool-nf .ff-tool-ic { background: linear-gradient(135deg,#f43f5e,#b20710); box-shadow: 0 6px 16px rgba(229,9,20,.24); }
@@ -534,7 +525,6 @@ html.ff-lite .ff-rr { animation-duration: .18s; } html.ff-lite .ff-rr-ring .val 
    comments bottom sheet, sticky CTA pill, collapsible filters). Images keep a fixed 4:5 box so nothing jumps. ── */
 .ff-feed { max-width: 520px; margin: 0 auto; position: relative; }
 .ff-feed-h { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.ff-feed-sub { margin: -4px 0 12px; font-size: 13px; font-weight: 600; color: #64748b; }
 .ff-feed-top { position: sticky; top: var(--ff-top-h, 0px); z-index: 12; margin: 0 -6px 12px; padding: 8px 6px 6px; background: rgba(244,246,249,.96); transition: transform .24s ease, opacity .24s ease; }
 .ff-feed-top.hide { transform: translateY(-110%); opacity: 0; pointer-events: none; }
 .ff-feed-bar { display: flex; gap: 8px; align-items: center; }
@@ -605,9 +595,6 @@ html.ff-lite .ff-rr { animation-duration: .18s; } html.ff-lite .ff-rr-ring .val 
 .ff-feed-media.vid { background: #000; }
 .ff-feed-yt { position: absolute; left: 0; top: 50%; width: 100%; aspect-ratio: 16 / 9; transform: translateY(-50%); border: 0; }
 .ff-feed-vclose { position: absolute; top: 8px; right: 8px; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(15,23,42,.75); color: #fff; font-size: 17px; font-weight: 800; cursor: pointer; }
-.ff-feed-vbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid rgba(15,23,42,.08); }
-.ff-feed-vbar a, .ff-feed-vbar button { min-height: 36px; display: inline-flex; align-items: center; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 800; color: #475569; cursor: pointer; text-decoration: none; }
-.ff-feed-vbar a { color: #be185d; }
 .ff-feed-burst { position: absolute; left: 50%; top: 50%; font-size: 90px; line-height: 1; margin: -45px 0 0 -45px; opacity: 0; pointer-events: none; animation: ffFeedBurst .7s ease both; }
 @keyframes ffFeedBurst { 0% { transform: scale(0); opacity: 0; } 30% { transform: scale(1.15); opacity: 1; } 70% { transform: scale(1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
 /* compact action row: ❤️ n · 💬 n · 📤 ··· 🔖 */
@@ -661,7 +648,6 @@ html.ff-lite .ff-rr { animation-duration: .18s; } html.ff-lite .ff-rr-ring .val 
 .ff-feed-skel .ff-feed-name i { margin: 5px 0; }
 .ff-feed-skel .ff-feed-body { padding-top: 10px; }
 @keyframes ffFeedShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-.ff-feed-attr { margin: 8px 0 0; font-size: 11px; font-weight: 600; color: #94a3b8; text-align: center; line-height: 1.5; }
 /* Home / My plans "New this week" strip */
 .ff-feed-strip { margin: 4px 0 18px; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
 .ff-feed-strip-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -16615,7 +16601,6 @@ function RestoringScreen({
   }, trending[trendIndex]));
 }
 const OTP_SERVICES = ['JioHotstar', 'Zee5', 'SonyLIV'];
-const OTP_COMING_SOON = ['Prime Video', 'Amazon Prime'];
 function OtpPickerModal({
   open,
   allSubs,
