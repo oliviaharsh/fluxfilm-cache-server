@@ -186,6 +186,7 @@ The order pop-up is `openOrder()` → used by Orders, Today, Customer 360 and Ba
 | The payment page a customer gets by link | `paylink.js` (HTML is inside that file) |
 | An email's wording | `mailer.js` (access / reminders), `refunds.js`, `credit.js`, `quickorders.js` (payment link) |
 | The WhatsApp message admin copies after an order | `admin.html` `qWaText()` (the renewal days line comes from `fulfill.js` `renewMessage`) |
+| The 📤 shared price card (picture + text) | `index.html` `priceCard_` (the SVG, and SVG → JPEG) + `shareText_.prices` (the message) |
 | The feed's look | `index.html` CSS 533–853 + `FeedPost` / `FeedReels` |
 
 ---
@@ -345,10 +346,10 @@ phpMyAdmin; every module that needs a new table fails soft and says which file t
 | n8n webhooks | `n8nhooks.js` | 1 min |
 | Sheet → MySQL sync | `server.js` | **off** (`SYNC_INTERVAL_MIN=0`, MySQL is master) |
 
-## 2.7 Tests — 79 files, `npm test` runs them all
+## 2.7 Tests — 80 files, `npm test` runs them all
 
 One file per area, named after it: `feed*.test.js`, `refunds-v3`, `bank-credits`, `quick-orders`, `payment-flows`,
-`getotp-security`, `zee5-otp-matching`, `credit-renewals`, `renew-days-message`, `message-style`, `paid-via`, `r2-video-storage`, `games`, `olivia`, … Each
+`getotp-security`, `zee5-otp-matching`, `credit-renewals`, `renew-days-message`, `message-style`, `price-card`, `paid-via`, `r2-video-storage`, `games`, `olivia`, … Each
 starts with a comment saying what it covers. They use fake in-memory databases — **no test ever touches live data or
 the network.** Several also read `index.html` / `admin.html` and check the markup, so a UI change can fail a test.
 
