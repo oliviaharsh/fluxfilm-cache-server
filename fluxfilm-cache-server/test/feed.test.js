@@ -299,7 +299,11 @@ feed._internal.setFetch(fakeFetch);
   const fakeApi = { getFeed: (ok2) => { apiCalls.push('getFeed'); ok2({ ok: true, posts: [{ id: 'fp1' }], tmdb: false }); }, feedEvent: (id, kind, dev) => apiCalls.push(kind + ':' + id + ':' + dev) };
   const h = H({ getItem: (k) => store[k] || null, setItem: (k, v2) => { store[k] = String(v2); } }, fakeApi, () => {}, { location: { origin: 'https://shop.fluxfilm.in', href: 'https://shop.fluxfilm.in/' } }, {});
   const cat = [{ service: 'Netflix', price: 139, logoUrl: '' }, { service: 'Netflix', price: 199, logoUrl: 'https://x/nf.png' }, { service: 'Netflix (Group Offer)', price: 99 }, { service: 'Prime Video', price: 39 }, { service: 'Prime Video + Shopping', price: 69 }];
-  ok('CTA price = cheapest plan of that exact platform; logo from catalog', JSON.stringify(h.feedServiceInfo_('Netflix', cat)) === JSON.stringify({ service: 'Netflix', price: 139, logoUrl: 'https://x/nf.png' }));
+  ok('CTA price = cheapest plan of that exact platform; logo from catalog', JSON.stringify(h.feedServiceInfo_('Netflix', cat)) === JSON.stringify({ service: 'Netflix', price: 139, soldOut: false, logoUrl: 'https://x/nf.png' }));
+  // Sold-out plans are skipped, and a platform with nothing left loses the price instead of advertising one.
+  const cat2 = [{ service: 'Netflix', plan: 'a', price: 139 }, { service: 'Netflix', plan: 'b', price: 199 }];
+  ok('CTA skips a sold-out plan for the next one that is sellable', h.feedServiceInfo_('Netflix', cat2, { 'Netflix|||a': { stockLevel: 'OUT' } }).price === 199);
+  ok('CTA drops the price when the whole platform is out', (() => { const i = h.feedServiceInfo_('Netflix', cat2, { 'Netflix|||a': { stockLevel: 'OUT' }, 'Netflix|||b': { stockLevel: 'OUT' } }); return i.price === 0 && i.soldOut === true && i.service === 'Netflix'; })());
   ok('platform not in catalog by exact name → starts-with match; unknown → no button', h.feedServiceInfo_('Prime', cat).service === 'Prime Video' && h.feedServiceInfo_('Prime', cat).price === 39 && h.feedServiceInfo_('Hulu', cat) === null && h.feedServiceInfo_('', cat) === null);
   ok('release line: future = Coming date, past = Released', /^🗓️ Coming \d{1,2} \w+$/.test(h.feedRelease_(day(5), 'movie')) && /^🎬 Released/.test(h.feedRelease_(day(-5), 'movie')) && /^📺 Released/.test(h.feedRelease_(day(-5), 'series')) && h.feedRelease_('nope') === '');
   ok('deep link ?post=<id> read safely', h.feedPostFromUrl_('?post=fp0123456789') === 'fp0123456789' && h.feedPostFromUrl_('?post=<script>') === '' && h.feedPostFromUrl_('?ref=X') === '');

@@ -2314,6 +2314,46 @@ function copyText_(text, done) {
   }
 }
 /**
+ * 💸 The cheapest plan of ONE service that a customer can actually buy right now.
+ *
+ * Sold-out plans are skipped. Quoting a price we cannot deliver is exactly how "From ₹69/mo" stayed on the
+ * JioHotstar and SonyLiv tiles while every plan at that price was out of stock (found 23 Sep 2026 while
+ * building the share card, which already refused to quote them).
+ *
+ * A missing or null levels map means the stock data has not arrived yet → everything counts as in stock, so no
+ * tile ever flashes "sold out" on the way in. Callers pass it in; nothing here reads a global.
+ *
+ * → { plan, price, durationDays, soldOut } | null when the service has no priced plan at all.
+ *   soldOut = every plan of this service is OUT; the price is then the cheapest overall, so a caller can still
+ *   say what it normally costs instead of showing nothing.
+ */
+function livePrice_(service, plans, levels) {
+  const all = Array.isArray(plans) ? plans : [];
+  const lv = levels || null;
+  const name = String(service == null ? '' : service).trim();
+  const list = all.filter(p => p && p.service === name && Number(p.price) > 0);
+  if (!list.length) return null;
+  const live = list.filter(p => !soldOut_(p, lv));
+  const pick = (live.length ? live : list).reduce((a, b) => (Number(b.price) < Number(a.price) ? b : a));
+  return { plan: pick, price: Math.round(Number(pick.price) || 0), durationDays: Number(pick.durationDays) || 30, soldOut: !live.length };
+}
+/** Is this exact plan out of stock? No levels yet = not out (see livePrice_). */
+function soldOut_(p, levels) {
+  const lv = (levels || {})[p.service + '|||' + p.plan];
+  return !!lv && String(lv.stockLevel || '').toUpperCase() === 'OUT';
+}
+/**
+ * "/mo" is only honest for a monthly plan. When the cheapest plan a customer can buy is a 3-month or a yearly
+ * one — which is what happens when the monthlies sell out — say that instead of quoting a year at "/mo".
+ */
+function priceTerm_(days) {
+  const d = Math.round(Number(days) || 30);
+  if (d <= 31) return '/mo';
+  if (d % 365 === 0) return d === 365 ? '/yr' : ' · ' + (d / 365) + ' yrs';
+  if (d % 30 === 0) return ' · ' + (d / 30) + ' months';
+  return ' · ' + d + ' days';
+}
+/**
  * 💸 Price card — the plan list as ONE picture you can send on WhatsApp.
  *
  * Why a picture and not just text: a price list pasted into a chat is a wall of words, and WhatsApp sends an
@@ -5007,7 +5047,9 @@ function DashboardScreen({
 }
 function Buy1Screen({
   nav,
-  boot
+  boot,
+  stockLevels = {},
+  stockLoading = false
 }) {
   const plans = boot?.plans || [];
   const services = [...new Set(plans.map(p => p.service))].sort((a, b) => a.localeCompare(b));
@@ -5052,7 +5094,8 @@ function Buy1Screen({
     key: svc,
     svc: svc,
     plans: plans,
-    nav: nav
+    nav: nav,
+    levels: stockLoading ? null : stockLevels
   }))), React.createElement("div", {
     style: {
       marginTop: 16
@@ -5074,11 +5117,14 @@ function Buy1Screen({
 function ServiceTile({
   svc,
   plans,
-  nav
+  nav,
+  levels
 }) {
     const svcPlans = plans.filter(p => p.service === svc);
     const hasManual = svcPlans.some(p => String(p.fulfillmentMode || '').toUpperCase() === 'MANUAL');
-    const minPrice = Math.min(...svcPlans.map(p => Number(p.price || 999)));
+    // The price the tile promises is the cheapest plan that is actually in stock — never one we cannot sell.
+    const live = livePrice_(svc, plans, levels);
+    const soldOut = !!(live && live.soldOut);
     const logoUrl = svcPlans.map(p => p.logoUrl).find(u => u) || '';
     const [hov, setHov] = useState(false);
     return React.createElement("div", {
@@ -5136,13 +5182,13 @@ function ServiceTile({
       style: {
         fontFamily: PJS,
         fontSize: 11.5,
-        color: C.muted,
-        fontWeight: 600,
+        color: soldOut ? '#991b1b' : C.muted,
+        fontWeight: soldOut ? 800 : 600,
         marginBottom: 8
       }
-    }, "From ₹", minPrice, "/mo"), React.createElement(Badge, {
-      tone: hasManual ? 'warn' : 'ok'
-    }, hasManual ? '🕒 Manual' : '⚡ Instant'));
+    }, soldOut ? 'Out of stock' : live ? 'From ₹' + live.price + priceTerm_(live.durationDays) : 'See plans'), React.createElement(Badge, {
+      tone: soldOut ? 'bad' : hasManual ? 'warn' : 'ok'
+    }, soldOut ? '🔔 Notify me' : hasManual ? '🕒 Manual' : '⚡ Instant'));
 }
 function OutOfStockModal({
   open,
@@ -13736,7 +13782,10 @@ function buyClearUrl_() {
   } catch (e) {}
 }
 // Catalog match: the exact service name, else one that starts with it ("Netflix" → "Netflix (Group Offer)"). Cheapest active plan.
-function feedServiceInfo_(service, plans) {
+// The post's "Get <service> from ₹X" pill. Same rule as the tiles: the price is the cheapest plan in stock,
+// and when the whole service is sold out the price is dropped rather than advertising something we cannot sell
+// (the pill then just says "Get <service>", and the post still opens the plans, where 🔔 Notify me lives).
+function feedServiceInfo_(service, plans, levels) {
   const all = Array.isArray(plans) ? plans : [];
   const name = String(service || '').trim();
   if (!name) return null;
@@ -13746,10 +13795,13 @@ function feedServiceInfo_(service, plans) {
     list = all.filter(p => String(p.service || '').toLowerCase().startsWith(lc));
   }
   if (!list.length) return null;
-  const cheapest = list.reduce((a, b) => Number(b.price) < Number(a.price) ? b : a);
+  const lv = levels || {};
+  const live = list.filter(p => Number(p.price) > 0 && String((lv[p.service + '|||' + p.plan] || {}).stockLevel || '').toUpperCase() !== 'OUT');
+  const cheapest = (live.length ? live : list).reduce((a, b) => Number(b.price) < Number(a.price) ? b : a);
   return {
     service: cheapest.service,
-    price: Number(cheapest.price) || 0,
+    price: live.length ? Number(cheapest.price) || 0 : 0,
+    soldOut: !live.length,
     logoUrl: list.map(p => p.logoUrl).find(Boolean) || ''
   };
 }
@@ -15188,7 +15240,7 @@ function FeedPost({
       feedEvent_(p.id, 'click');
       onCta(p, info, renewSub);
     }
-  }, React.createElement("span", null, renewSub ? '🔁 Renew ' + info.service : 'Get ' + info.service + ' from ₹' + info.price, React.createElement("small", null, renewSub ? 'Keep watching — renew your plan' : 'Streaming on ' + name)), React.createElement("span", {
+  }, React.createElement("span", null, renewSub ? '🔁 Renew ' + info.service : 'Get ' + info.service + (info.price ? ' from ₹' + info.price : ''), React.createElement("small", null, renewSub ? 'Keep watching — renew your plan' : 'Streaming on ' + name)), React.createElement("span", {
     "aria-hidden": "true"
   }, "›"))));
 }
@@ -15599,7 +15651,7 @@ function FeedReels({
         feedEvent_(p.id, 'click');
         onCta(p, b.info, b.renewSub);
       }
-    }, React.createElement("span", null, b.renewSub ? '🔁 Renew ' + b.info.service : 'Get ' + b.info.service + ' from ₹' + b.info.price), React.createElement("b", {
+    }, React.createElement("span", null, b.renewSub ? '🔁 Renew ' + b.info.service : 'Get ' + b.info.service + (b.info.price ? ' from ₹' + b.info.price : '')), React.createElement("b", {
       "aria-hidden": "true"
     }, "›")) : null;
     const label = kind === 'video' || kind === 'short' ? 'Reel' : kind === 'ig' ? 'Instagram' : 'Trailer';
@@ -16448,7 +16500,7 @@ function FeedScreen({
     onClick: clearAll
   }, "✖ Clear filters"));else body = ordered.slice(0, shown).map(p => {
     const plan = p.ctaService || p.service;
-    const info = p.cta === 'service' ? feedServiceInfo_(plan, plans) : null;
+    const info = p.cta === 'service' ? feedServiceInfo_(plan, plans, shareText_.data.levels) : null;
     const renewSub = info ? subs.find(s => s && s.service === info.service && s.showRenewButton !== false) || null : null;
     if (info) ctaOf[p.id] = {
       p,
@@ -16459,7 +16511,7 @@ function FeedScreen({
       key: p.id,
       p: p,
       info: info,
-      shareInfo: info || feedServiceInfo_(p.ctaService || p.service, plans),
+      shareInfo: info || feedServiceInfo_(p.ctaService || p.service, plans, shareText_.data.levels),
       renewSub: renewSub,
       highlight: !!target && p === target,
       onCta: onCta,
@@ -16487,10 +16539,10 @@ function FeedScreen({
   const hasSaved = marks.saved.length > 0 || when === 'saved';
   // Everything a post needs (catalog price, renew, brand logo) — shared by the feed list, Reels and the ☰ grid.
   function bitsOf(p) {
-    const info = p.cta === 'service' ? feedServiceInfo_(p.ctaService || p.service, plans) : null;
+    const info = p.cta === 'service' ? feedServiceInfo_(p.ctaService || p.service, plans, shareText_.data.levels) : null;
     return {
       info,
-      shareInfo: info || feedServiceInfo_(p.ctaService || p.service, plans),
+      shareInfo: info || feedServiceInfo_(p.ctaService || p.service, plans, shareText_.data.levels),
       renewSub: info ? subs.find(s => s && s.service === info.service && s.showRenewButton !== false) || null : null,
       brandInfo: feedBrandInfo_(feedPostBrand_(p), plans)
     };
@@ -16679,7 +16731,7 @@ function FeedScreen({
       feedEvent_(x.p.id, 'click');
       onCta(x.p, x.info, x.renewSub);
     }
-  }, React.createElement("span", null, ctaOf[float].renewSub ? '🔁 Renew ' + ctaOf[float].info.service : 'Get ' + ctaOf[float].info.service + ' from ₹' + ctaOf[float].info.price), React.createElement("b", {
+  }, React.createElement("span", null, ctaOf[float].renewSub ? '🔁 Renew ' + ctaOf[float].info.service : 'Get ' + ctaOf[float].info.service + (ctaOf[float].info.price ? ' from ₹' + ctaOf[float].info.price : '')), React.createElement("b", {
     "aria-hidden": "true"
   }, "›")));
   // Data-source credit moved off the feed to the /about page's Credits (owner 2026-09-15; TMDB terms allow an About/Credits page).
@@ -18607,7 +18659,9 @@ function App() {
     autoOpenOtp: d._openOtp
   }), screen === 'buy1' && React.createElement(Buy1Screen, {
     nav: nav,
-    boot: boot
+    boot: boot,
+    stockLevels: stockLevels,
+    stockLoading: stockLoading
   }), screen === 'buy2' && React.createElement(Buy2Screen, {
     nav: nav,
     service: d.service,
