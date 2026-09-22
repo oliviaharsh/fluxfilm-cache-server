@@ -1800,6 +1800,9 @@ function qWaText(r) {
   if (a.deviceType === 'TV' || a.deviceType === 'NON_TV' || a.deviceType === 'MIXED') lines.push('Use on: ' + (a.deviceType === 'TV' ? 'TV' : a.deviceType === 'NON_TV' ? 'mobile / laptop' : 'TV + mobile'));
   var exp = f.newExpiryText || (f.expiry ? prettyDate(f.expiry) : '');
   if (exp) lines.push('', 'Valid till: ' + exp);
+  // 🎁 A renewal can land on a date that is short of a full plan (late days counted) or long (days gifted).
+  // Without this sentence the customer only sees the date and cannot tell we already forgave the difference.
+  if (f.renewMessage) lines.push(f.renewMessage);
   if (f.fulfillment === 'MANUAL_PENDING') lines.push('', 'We are activating it now and will send the details shortly.');
   if (r.status === 'CREDIT') lines.push('', 'Amount due: ₹' + r.amount + (r.creditDueDate ? ' by ' + prettyDate(r.creditDueDate) : '') + ' — please pay by UPI and send the screenshot. Order: ' + r.orderId);
   else if (unpaidLink) lines.push('', 'Please pay ₹' + r.amount + ' here — it opens a QR and a Pay button:', r.pay.payLink, '', 'Your order number ' + r.orderId + ' is already in it, so we see your payment straight away and send the login. 💚');
@@ -2004,6 +2007,10 @@ function openOrder(id, flash) {
     var body = (flash || '') + steps +
       '<div class="okvs">' + kv('Customer', esc(o.name || '') + (r.customer && r.customer.customer_id ? ' · ' + esc(r.customer.customer_id) : '')) + kv('Phone', esc(o.phone_norm || o.phone)) + kv('Email', esc(o.email || '')) +
       kv('Service', esc(o.service) + ' · ' + esc(o.plan)) + kv('Type', esc(o.order_type || 'NEW') + (o.renew_sub_id ? ' of ' + esc(o.renew_sub_id) : '')) +
+      // 🎁 Renewal days: what the late-renewal rule counted and gifted, plus the sentence the customer was given.
+      kv('Renewal days', m.renewNote ? esc(m.renewNote) +
+        (m.renewCounted || m.renewGifted ? ' <span class="muted" style="font-weight:400">· ' + esc(m.renewCounted || 0) + ' counted, ' + esc(m.renewGifted || 0) + ' gifted</span>' : '') +
+        ' <button class="copy" data-copy="' + esc(m.renewNote) + '">Copy</button>' : '') +
       kv('Amount', money(o.final_amount) + (asNumber(o.discount) > 0 ? ' <span class="muted">(list ' + money(o.price) + ', −' + money(o.discount) + (o.coupon_code ? ' ' + esc(o.coupon_code) : '') + ')</span>' : '')) +
       kv('<span title="' + esc(PV_TIP) + '">Created via ⓘ</span>', esc(m.createdVia === 'ADMIN' ? '⚡ Admin quick order' : m.createdVia === 'WEBSITE' ? '🌐 Website' : '📄 Old Sheet site') + ' <span class="muted" style="font-weight:400">· where the order was made</span>') +
       // 💸 Which QR / route the money actually came through (paidvia.js) — the owner's question of 16 Sep.

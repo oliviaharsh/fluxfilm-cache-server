@@ -88,6 +88,12 @@ function run(sqlRaw, params) {
   }
   if (/^UPDATE orders SET fulfillment_status = 'FAILED'/.test(sql)) { S.orders.find((o) => o.order_id === params[0]).fulfillment_status = 'FAILED'; S.writes.push('failed'); return { affectedRows: 1 }; }
   if (/^UPDATE orders SET fulfillment_status = 'FULFILLED'/.test(sql)) { S.orders.find((o) => o.order_id === params[0]).fulfillment_status = 'FULFILLED'; S.writes.push('fulfilled'); return { affectedRows: 1 }; }
+  if (/^UPDATE orders SET raw_json = JSON_SET/.test(sql)) {
+    const o = S.orders.find((x) => x.order_id === params[4]);
+    if (o) Object.assign(o, { renewNote: params[0], renewCounted: params[1], renewGifted: params[2], renewCase: params[3] });
+    S.writes.push('days-note');
+    return { affectedRows: o ? 1 : 0 };
+  }
   if (/^INSERT INTO orders/.test(sql)) { S.writes.push('order'); return { affectedRows: 1 }; }
   if (/^INSERT INTO coupon_usage/.test(sql)) return { affectedRows: 1 };
   throw new Error('fake db: unhandled SQL: ' + sql.slice(0, 120));
@@ -103,7 +109,7 @@ const origLoad = Module._load;
 Module._load = function (req) {
   if (req === './db') return mockDb;
   if (req === './coins') return { awardCoins: async () => ({ ok: true }) };
-  if (req === './mailer') return { sendAccessEmail: async () => { S.emails += 1; } };
+  if (req === './mailer') return { sendAccessEmail: async (p) => { S.emails += 1; S.lastEmail = p || {}; } };
   if (req === './payments') return { findByOrder: async () => null, findByRef: async () => null };
   return origLoad.apply(this, arguments);
 };
@@ -113,7 +119,7 @@ const order = require('../order');
 // ---------------------------------------------------------------- base inventory
 function base() {
   return {
-    writes: [], emails: 0,
+    writes: [], emails: 0, lastEmail: null,
     plans: [
       { service: 'Prime Video', plan: '1 Month', duration_days: 30, price: 39, is_active: 'TRUE', raw_json: JSON.stringify({ AllocationPolicy: 'CAPACITY' }) },
       { service: 'Netflix', plan: 'Private 1M', duration_days: 30, price: 169, is_active: 'TRUE', raw_json: JSON.stringify({ AllocationPolicy: 'PROFILE' }) },
@@ -145,6 +151,8 @@ function base() {
   };
 }
 const sub = (o) => Object.assign({ sub_id: 'SUB-ME', phone: '9876543210', email: 'me@x', expiry_date: '2026-09-10 10:00:00', account_id: '', login_id: 'old@login', password: 'oldpass', profile_name: '', profile_pin: '', profile_number: '', device_type: 'NON_TV', device_count: 1, tv_count: 0, occupying: true, status: 'ACTIVE', source: null }, o);
+// The renewed order row, to read back the days note fulfil stored on it.
+const order1 = () => S.orders.find((o) => o.order_id === 'FF-R1') || {};
 const other = (ref, service, o) => Object.assign({ sub_id: 'SUB-X' + Math.random().toString(36).slice(2, 7), service, plan: '1 Month', inventory_ref: ref, device_count: 1, tv_count: 0, device_type: 'NON_TV', occupying: true }, o);
 
 (async () => {
@@ -249,10 +257,10 @@ const other = (ref, service, o) => Object.assign({ sub_id: 'SUB-X' + Math.random
   const me = () => S.subs.find((s) => s.sub_id === 'SUB-ME');
   ok('retired account: moved to PRI-B with its login', f.fulfillment === 'FULFILLED' && f.accountChanged === true && f.access.user === 'b@prime' && f.access.pass === 'pb' && me().inventory_ref === 'PRI-B', f);
   ok('subscription row now holds the new login (recover/account page show it)', me().login_id === 'b@prime' && me().password === 'pb' && me().account_id === 'PRI-B');
-  ok('move happens before the extension, order marked fulfilled', JSON.stringify(S.writes) === JSON.stringify(['move', 'extend', 'fulfilled']), S.writes);
+  ok('move happens before the extension, order marked fulfilled', JSON.stringify(S.writes) === JSON.stringify(['move', 'extend', 'fulfilled', 'days-note']), S.writes);
   ok('customer is told why the login changed', /no longer available/.test(f.message), f.message);
   f = await fulfill.fulfillForAdmin('FF-R1');
-  ok('repeat call is idempotent and shows the NEW login', f.fulfillment === 'FULFILLED' && f.access.user === 'b@prime' && S.writes.length === 3, { f, writes: S.writes });
+  ok('repeat call is idempotent and shows the NEW login', f.fulfillment === 'FULFILLED' && f.access.user === 'b@prime' && S.writes.length === 4, { f, writes: S.writes });
 
   S = base();
   S.subs.push(sub({ service: 'Prime Video', plan: '1 Month', inventory_ref: 'PRI-B', login_id: 'b@prime', password: 'pb' }));
@@ -291,6 +299,10 @@ const other = (ref, service, o) => Object.assign({ sub_id: 'SUB-X' + Math.random
     ok('removed customer: 4 free days, 2 goodwill -> 28 days from payment', daysFromNow() === 28, { days: daysFromNow(), expiry: me().expiry_date });
     ok('customer told what was counted and gifted', /counted only 2 days and gifted you 2 days/.test(f.renewMessage) && /runs until/.test(f.message), f);
     ok('fun bubble included', /hours/.test(f.renewBubble), f.renewBubble);
+    // 🎁 The date alone is not enough: the counted/gifted sentence has to travel with it.
+    ok('the gifted days are kept on the order for later', /gifted you 2 days/.test(String(order1().renewNote)) && Number(order1().renewCounted) === 2 && Number(order1().renewGifted) === 2, { note: order1().renewNote, counted: order1().renewCounted, gifted: order1().renewGifted });
+    await new Promise((r) => setTimeout(r, 0)); // the email is sent without being awaited
+    ok('the credentials email carries the same sentence', /gifted you 2 days/.test(String((S.lastEmail || {}).renewNote)), S.lastEmail && S.lastEmail.renewNote);
     ok('"removed" tick cleared after renewal', Number(me().removed) === 0 && me().removed_at === null, me());
 
     S = base();

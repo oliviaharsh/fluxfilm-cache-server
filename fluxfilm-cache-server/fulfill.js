@@ -1068,6 +1068,16 @@ async function _fulfillRenew(o) {
       await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
     });
 
+    // 🎁 Remember what the late-renewal rule did (renewal.js): how many days it counted, how many it gifted and
+    // the sentence the customer is told. Without it the new expiry just looks short, and nobody can see later that
+    // we already forgave the difference (owner, 22 Sep 2026: Swayam's renewal). Outside the transaction and
+    // best-effort on purpose — a note must never be able to undo a renewal that has already happened.
+    try {
+      await conn.query(
+        "UPDATE orders SET raw_json = JSON_SET(COALESCE(raw_json, JSON_OBJECT()), '$.RenewNote', ?, '$.RenewCounted', ?, '$.RenewGifted', ?, '$.RenewCase', ?) WHERE order_id = ? LIMIT 1",
+        [String(rn.message || ''), Number(rn.counted || 0), Number(rn.gifted || 0), String(rn.case || ''), o.order_id]);
+    } catch (e) { console.log('[renew] could not store the days note for', o.order_id + ':', e.message); }
+
     const access = await accessFor(rows);
     const notice = moved && (rows.length > 1 || d.mode === 'SPLIT') ? _renewalMessage(Object.assign({}, d, { rows: d.mode === 'SPLIT' ? [s] : d.rows })) : '';
     afterFulfillHook({
@@ -1079,6 +1089,8 @@ async function _fulfillRenew(o) {
       expiry: fmtDt(newExpiry), postPaymentMessage: '',
       access: access.logins ? access : { user: access.user, pass: access.pass, profileName: access.profileName, profilePin: access.profilePin, deviceType: access.deviceType },
       loginNotice: notice,
+      // 🎁 "we counted only X days and gifted you Y" — the email said only the new date before.
+      renewNote: rn.message || '', renewGifted: rn.gifted || 0, renewCounted: rn.counted || 0,
     });
     const head = d.mode === 'SPLIT' ? '✅ Renewed! No single account could take all your devices, so each device now has its own login.'
       : moved ? (rows.length > 1 ? '✅ Renewed! Some of your old logins were no longer available, so the new ones are below.' : '✅ Renewed! Your old account was no longer available, so here is your new login.')

@@ -10,7 +10,7 @@ function row(label, val) {
     '</td><td style="padding:8px 12px;font-weight:700;font-size:14px">' + val + '</td></tr>';
 }
 
-// payload: { orderId, email, name, service, plan, amount, expiry, manual, postPaymentMessage,
+// payload: { orderId, email, name, service, plan, amount, expiry, manual, postPaymentMessage, renewNote,
 //            access:{ user, pass, profileName, profilePin, deviceType } }
 async function sendAccessEmail(payload) {
   const p = payload || {};
@@ -59,6 +59,8 @@ async function sendAccessEmail(payload) {
       row('Service', p.service) + row('Plan', p.plan) + row('Order ID', p.orderId) + row('Valid till', p.expiry) + rows +
       '</table></div>' +
       (p.loginNotice ? '<div style="background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:12px;font-size:13px;color:#9a3412;margin-bottom:10px">ℹ️ ' + escHtml(p.loginNotice) + '</div>' : '') +
+      // 🎁 Renewal: why the new date is what it is — how many late days were counted and how many were gifted.
+      (p.renewNote ? '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:12px;font-size:13px;color:#166534;margin-bottom:10px">' + escHtml(p.renewNote) + '</div>' : '') +
       (p.postPaymentMessage ? '<div style="background:#fef9c3;border-radius:10px;padding:12px;white-space:pre-line;font-size:13px">' + p.postPaymentMessage + '</div>' : '') +
       '<p style="color:#94a3b8;font-size:12px;margin-top:18px">Need help? Just reply to this email or message us on WhatsApp. 💚</p></div>';
   }
