@@ -2279,6 +2279,19 @@ const shareText_ = {
     const off = shareText_.rupees(info.friendDiscount);
     const code = shareText_.clean(info.code);
     return shareText_.join([info.link ? '👉 ' + info.link : null, off ? `🎁 *${off} OFF* your first *FluxFilm* plan` : '🎁 Join me on *FluxFilm*', code ? `🔑 Code: *${code}*` : null]);
+  },
+  // 💸 The price list as a WhatsApp message. It goes in the share sheet next to the picture, and it IS the
+  // share when a phone cannot send files. service = '' → one line per service; 'Netflix' → that service's plans.
+  prices(catalog, service, site) {
+    const name = shareText_.clean(service);
+    const s = name ? shareText_.svc(name) : null;
+    const got = priceCard_.rows(catalog, name);
+    const lines = got.kind === 'services'
+      ? got.rows.map(r => `${r.icon} *${r.name}* from *${shareText_.rupees(r.price)}*`)
+      : got.rows.map(r => `• *${r.name}*${r.note ? '  ·  ' + r.note : ''} — *${shareText_.rupees(r.price)}*`);
+    const head = name ? `${s ? s.emoji : '🎬'} *${name}* on *FluxFilm*` : '🎬 *FluxFilm* — streaming plans for less';
+    return shareText_.join([head, '', ...(lines.length ? lines : ['🍿 Message us for today\'s prices']), '',
+      shareText_.PERKS, '👉 ' + (site || 'https://shop.fluxfilm.in')]);
   }
 };
 function copyText_(text, done) {
@@ -2299,6 +2312,214 @@ function copyText_(text, done) {
   } catch (e) {
     fallback();
   }
+}
+/**
+ * 💸 Price card — the plan list as ONE picture you can send on WhatsApp.
+ *
+ * Why a picture and not just text: a price list pasted into a chat is a wall of words, and WhatsApp sends an
+ * .svg as a *document* (the other person sees a file, not a card). So the card is written here as SVG, drawn
+ * into a canvas and handed over as a PNG, which WhatsApp shows in the chat.
+ *
+ * Everything in the card is text and shapes we draw ourselves — no service logo, no web font, no external
+ * URL of any kind. That is deliberate: one remote image taints the canvas and toBlob() then throws, and a
+ * web font would silently fall back mid-render. The FluxFilm mark is the same SVG as /icons/logo.svg, inlined.
+ *
+ * Nothing is ever sent by itself: share() opens the phone's own share sheet, or saves the picture and copies
+ * the text on a desktop.
+ */
+const priceCard_ = {
+  W: 1080,
+  PAD: 72,
+  ROW: 112,
+  GAP: 16,
+  MAX1: 8, // more rows than this and the card goes to two columns
+
+  TOP: 400,
+  FONT: 'ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif',
+  esc(v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  },
+  // Written out by hand: toLocaleDateString gives "Sept" on some builds and "Sep" on others, and this date is
+  // printed on a picture people keep — it has to read the same everywhere (same trap as renewal.js prettyDate).
+  day(t) {
+    const d = new Date(t);
+    return d.getDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()] + ' ' + d.getFullYear();
+  },
+  // "30 days" → "1 month"; the plan name usually says it already, so this is only the honest fallback.
+  term(days) {
+    const d = Math.round(Number(days) || 0);
+    if (!d) return '';
+    if (d % 365 === 0) return (d / 365) + ' year' + (d === 365 ? '' : 's');
+    if (d % 30 === 0) return (d / 30) + ' month' + (d === 30 ? '' : 's');
+    return d + ' days';
+  },
+  /**
+   * What goes on the card. Sold-out plans are never shown — the whole point is a list the customer can buy from.
+   *   service '' → { kind: 'services', rows: [{ icon, name, note: 'from', price }] }  (cheapest live plan each)
+   *   service 'Netflix' → { kind: 'plans', rows: [{ icon: '', name: plan, note: term, price }] }, cheapest first
+   */
+  rows(catalog, service) {
+    const name = shareText_.clean(service);
+    if (!name) {
+      return { kind: 'services', rows: (shareText_.offers(catalog) || []).map(o => ({ icon: o.emoji, name: o.name, note: 'from', price: o.price })) };
+    }
+    const plans = catalog && Array.isArray(catalog.plans) ? catalog.plans : [];
+    const levels = catalog && catalog.levels || {};
+    const out = [];
+    for (const p of plans) {
+      if (!p || shareText_.clean(p.service) !== name) continue;
+      const lv = levels[p.service + '|||' + p.plan];
+      if (lv && String(lv.stockLevel).toUpperCase() === 'OUT') continue;
+      const price = Math.round(Number(p.price) || 0);
+      if (price > 0) out.push({ icon: '', name: shareText_.clean(p.plan), note: priceCard_.term(p.durationDays), price });
+    }
+    return { kind: 'plans', rows: out.sort((a, b) => a.price - b.price) };
+  },
+  /** The FluxFilm mark (icons/logo.svg), inlined so the card needs nothing from the network. */
+  logo(x, y, size) {
+    return '<g transform="translate(' + x + ' ' + y + ') scale(' + (size / 512) + ')">' +
+      '<rect width="512" height="512" rx="112" fill="url(#pc-lbg)"/>' +
+      '<rect width="512" height="512" rx="112" fill="url(#pc-lhi)"/>' +
+      '<g filter="url(#pc-lsh)"><path transform="translate(8 0)" d="M170 128V384L392 256Z" fill="url(#pc-lmk)" stroke="url(#pc-lmk)" stroke-width="64" stroke-linejoin="round" mask="url(#pc-lf)"/></g></g>';
+  },
+  /** → { svg, w, h }. Pure string building: no DOM, so it is unit-tested. */
+  svg(got, opts) {
+    const o = opts || {};
+    const e = priceCard_.esc;
+    const W = priceCard_.W, PAD = priceCard_.PAD, ROW = priceCard_.ROW, GAP = priceCard_.GAP, TOP = priceCard_.TOP;
+    const rows = (got && got.rows) || [];
+    // A service like Netflix has 16 live plans. One column of 16 is a 1080×2644 strip, which WhatsApp shows as
+    // an unreadable sliver — past 8 rows the card goes to two columns instead and stays roughly 2:3.
+    const two = rows.length > priceCard_.MAX1;
+    const per = two ? Math.ceil(rows.length / 2) : rows.length;
+    const CW = two ? (W - PAD * 2 - 24) / 2 : W - PAD * 2;
+    const RH = two ? 104 : ROW;
+    const RG = two ? 12 : GAP;
+    const H = TOP + per * (RH + RG) + 196;
+    const service = shareText_.clean(o.service);
+    const s = service ? shareText_.svc(service) : null;
+    const title = service ? (s ? s.emoji + ' ' : '🎬 ') + service : '💸 Plans & prices';
+    const sub = service ? 'Instant login right after your UPI payment' : 'Every service · instant login after your UPI payment';
+    const body = rows.map((r, i) => {
+      const x = PAD + (two && i >= per ? CW + 24 : 0);
+      const y = TOP + (two ? i % per : i) * (RH + RG);
+      const box = '<rect x="' + x + '" y="' + y + '" width="' + CW + '" height="' + RH + '" rx="' + (two ? 22 : 28) + '" fill="#ffffff" fill-opacity=".07" stroke="#ffffff" stroke-opacity=".10"/>';
+      // Narrow column: the name gets its own line, the length and the price share the one below it.
+      if (two) {
+        return box +
+          '<text x="' + (x + 26) + '" y="' + (y + 44) + '" font-size="31" font-weight="800" fill="#ffffff">' + e(shareText_.trim(r.icon ? r.icon + ' ' + r.name : r.name, 24)) + '</text>' +
+          (r.note ? '<text x="' + (x + 26) + '" y="' + (y + 80) + '" font-size="22" font-weight="600" fill="#86c9ab">' + e(r.note) + '</text>' : '') +
+          '<text x="' + (x + CW - 26) + '" y="' + (y + 82) + '" text-anchor="end" font-size="37" font-weight="800" fill="#a7f3d0">' + e(shareText_.rupees(r.price)) + '</text>';
+      }
+      const cy = y + RH / 2;
+      const tx = x + (r.icon ? 112 : 44);
+      return box +
+        (r.icon ? '<text x="' + (x + 42) + '" y="' + (cy + 17) + '" font-size="46">' + e(r.icon) + '</text>' : '') +
+        '<text x="' + tx + '" y="' + (r.note ? cy - 2 : cy + 15) + '" font-size="41" font-weight="800" fill="#ffffff">' + e(shareText_.trim(r.name, 26)) + '</text>' +
+        (r.note ? '<text x="' + tx + '" y="' + (cy + 37) + '" font-size="25" font-weight="600" fill="#86c9ab">' + e(r.note) + '</text>' : '') +
+        '<text x="' + (x + CW - 42) + '" y="' + (cy + 19) + '" text-anchor="end" font-size="50" font-weight="800" fill="#a7f3d0">' + e(shareText_.rupees(r.price)) + '</text>';
+    }).join('');
+    const fy = TOP + per * (RH + RG) + 20;
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" font-family="' + priceCard_.FONT + '">' +
+      '<defs>' +
+      '<linearGradient id="pc-bg" x1="0" y1="0" x2="' + W + '" y2="' + H + '" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#12382a"/><stop offset="1" stop-color="#04140e"/></linearGradient>' +
+      '<radialGradient id="pc-hi" cx="' + Math.round(W * 0.22) + '" cy="60" r="' + Math.round(W * 0.95) + '" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity=".14"/><stop offset=".6" stop-color="#ffffff" stop-opacity="0"/></radialGradient>' +
+      '<linearGradient id="pc-lbg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#12382a"/><stop offset="1" stop-color="#04140e"/></linearGradient>' +
+      '<radialGradient id="pc-lhi" cx="143" cy="61" r="460" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset=".55" stop-color="#ffffff" stop-opacity="0"/></radialGradient>' +
+      '<linearGradient id="pc-lmk" x1="0" y1="96" x2="0" y2="416" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#a7f3d0"/><stop offset="1" stop-color="#34d399"/></linearGradient>' +
+      '<filter id="pc-lsh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity=".45"/></filter>' +
+      '<mask id="pc-lf" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect width="512" height="512" fill="#fff"/><g fill="#000"><rect x="198" y="186" width="36" height="148" rx="6"/><rect x="198" y="186" width="98" height="32" rx="6"/><rect x="198" y="244" width="78" height="30" rx="6"/></g></mask>' +
+      '</defs>' +
+      '<rect width="' + W + '" height="' + H + '" fill="url(#pc-bg)"/><rect width="' + W + '" height="' + H + '" fill="url(#pc-hi)"/>' +
+      priceCard_.logo(PAD, 58, 128) +
+      '<text x="' + (PAD + 156) + '" y="130" font-size="58" font-weight="800" fill="#ffffff">FluxFilm</text>' +
+      '<text x="' + (PAD + 159) + '" y="174" font-size="27" font-weight="600" fill="#7fd1ae">streaming for less</text>' +
+      '<text x="' + PAD + '" y="300" font-size="46" font-weight="800" fill="#ffffff">' + e(title) + '</text>' +
+      '<text x="' + PAD + '" y="348" font-size="27" font-weight="600" fill="#86c9ab">' + e(sub) + '</text>' +
+      body +
+      '<text x="' + W / 2 + '" y="' + (fy + 46) + '" text-anchor="middle" font-size="27" font-weight="700" fill="#86c9ab">' + e(shareText_.PERKS) + '</text>' +
+      '<text x="' + W / 2 + '" y="' + (fy + 106) + '" text-anchor="middle" font-size="42" font-weight="800" fill="#a7f3d0">shop.fluxfilm.in</text>' +
+      '<text x="' + W / 2 + '" y="' + (fy + 152) + '" text-anchor="middle" font-size="23" font-weight="600" fill="#5f9d83">' + e('Prices on ' + priceCard_.day(o.now || Date.now()) + ' · subject to change') + '</text>' +
+      '</svg>';
+    return { svg, w: W, h: H };
+  },
+  /**
+   * SVG string → a JPEG blob, through a canvas. JPEG, not PNG: the same card is ~1.2 MB as a PNG and ~150 KB
+   * as a JPEG, the card has no transparency, and WhatsApp recompresses it to JPEG anyway — the customer just
+   * waits less on mobile data. Rejects rather than handing over something half-drawn.
+   */
+  image(svg, w, h) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+      const img = new Image();
+      const fail = (e) => { URL.revokeObjectURL(url); reject(e instanceof Error ? e : new Error('card')); };
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          const g = c.getContext('2d');
+          g.fillStyle = '#04140e';
+          g.fillRect(0, 0, w, h);
+          g.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url);
+          c.toBlob(b => b ? resolve(b) : reject(new Error('empty card')), 'image/jpeg', 0.92);
+        } catch (e) { fail(e); }
+      };
+      img.onerror = () => fail(new Error('card did not draw'));
+      img.src = url;
+    });
+  },
+  save(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  },
+  /**
+   * Share the prices. done('shared' | 'saved' | 'copied' | '') — '' = the person closed the share sheet.
+   * Phone → the share sheet with the picture attached. Desktop → the picture is saved and the text copied.
+   */
+  share(catalog, service, done) {
+    const fin = (how) => done && done(how);
+    const text = shareText_.prices(catalog, service, window.location.origin);
+    const got = priceCard_.rows(catalog, service);
+    if (!got.rows.length) { copyText_(text, () => fin('copied')); return; }
+    const card = priceCard_.svg(got, { service });
+    const name = 'fluxfilm-prices' + (shareText_.clean(service) ? '-' + shareText_.clean(service).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : '') + '.jpg';
+    priceCard_.image(card.svg, card.w, card.h).then(blob => {
+      let file = null;
+      try { file = new File([blob], name, { type: 'image/jpeg' }); } catch (e) { file = null; }
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], text }).then(() => fin('shared'), () => fin(''));
+        return;
+      }
+      // Desktop, or a phone that will not attach files: save the picture and put the text on the clipboard.
+      priceCard_.save(file || blob, name);
+      copyText_(text, () => fin('saved'));
+    }, () => copyText_(text, () => fin('copied')));
+  }
+};
+/** 📤 "Share these prices" — on the service list (all prices) and on one service (its plans). */
+function SharePricesBtn({ service }) {
+  const [state, setState] = useState('');
+  const label = { busy: '⏳ Making the card…', shared: '✅ Shared', saved: '✅ Saved — text copied too', copied: '✅ Prices copied' }[state] || '📤 Share these prices';
+  return React.createElement(Btn, {
+    variant: "ghost",
+    full: true,
+    disabled: state === 'busy',
+    onClick: () => {
+      if (state === 'busy') return;
+      setState('busy');
+      priceCard_.share(shareText_.data, service || '', (how) => {
+        setState(how);
+        if (how) setTimeout(() => setState(x => x === how ? '' : x), 2400);
+      });
+    }
+  }, label);
 }
 function ReferralPanel({
   phone,
@@ -4832,7 +5053,11 @@ function Buy1Screen({
     svc: svc,
     plans: plans,
     nav: nav
-  }))), React.createElement("a", {
+  }))), React.createElement("div", {
+    style: {
+      marginTop: 16
+    }
+  }, React.createElement(SharePricesBtn, null)), React.createElement("a", {
     href: "/plans",
     className: "ff-all-plans",
     style: {
@@ -5508,7 +5733,13 @@ function Buy2Screen({
     }, "🔔 Notify Me")));
   })), React.createElement(Hint, {
     tone: "green"
-  }, "💸 All plans are cheaper than official pricing. Instant activation after payment verification."), React.createElement(OutOfStockModal, {
+  }, "💸 All plans are cheaper than official pricing. Instant activation after payment verification."), React.createElement("div", {
+    style: {
+      marginTop: 14
+    }
+  }, React.createElement(SharePricesBtn, {
+    service: service
+  })), React.createElement(OutOfStockModal, {
     open: oosModal.open,
     plan: oosModal.plan,
     service: oosModal.service,
