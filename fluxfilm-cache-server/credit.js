@@ -33,6 +33,7 @@
  *   POST /admin/api/credit/remind-email   { subId }
  */
 const renewRules = require('./renewrules');
+const watext = require('./watext');
 // 💳 A credit renewal is always "paid via credit" — the detail turns from DUE into PAID when the owner records it.
 const paidvia = require('./paidvia');
 
@@ -89,21 +90,40 @@ function creditState(o, now) {
 
 // ---------------- reminder text ----------------
 function renewLink(subId) { return SITE() + '/?source=push&renew=' + encodeURIComponent(s(subId)); }
-function firstName(name) { return s(name).split(/\s+/)[0] || ''; }
+function firstName(name) { return watext.firstName(name); }
 
-/** WhatsApp text: expired / expiring / credit due. p = { name, service, plan, expiry, subId, due, dueDate, now } */
+/**
+ * The reminder, on WhatsApp: expired / expires today / expires soon / renewed but money still due.
+ * p = { name, service, plan, expiry, subId, due, dueDate, now }
+ *
+ * Short lines with a blank line between them, the numbers and dates in *bold*, one emoji per line — a reminder
+ * is read on a phone in two seconds, and the old one-sentence version buried the date and the amount in prose
+ * (owner, 23 Sep 2026). **admin.html crWaText() must say exactly the same thing** — test/message-style.test.js
+ * runs both and compares them, so changing one alone fails the build.
+ */
 function whatsappText(p) {
-  const hi = 'Hi' + (firstName(p.name) ? ' ' + firstName(p.name) : '') + ',';
+  const name = watext.firstName(p.name);
+  const hi = 'Hi' + (name ? ' ' + name : '') + ',';
   const exYmd = renewRules.expiryYmd(p.expiry);
   const dl = renewRules.daysLeftIst(p.expiry, p.now);
-  const what = 'your FluxFilm ' + s(p.service) + (s(p.plan) ? ' (' + s(p.plan) + ')' : '');
+  // The plan name is typed by the owner in admin: strip any * of its own or it breaks the bold around it.
+  const what = 'your FluxFilm *' + watext.clean(p.service) + '*' + (watext.clean(p.plan) ? ' (' + watext.clean(p.plan) + ')' : '');
   if (num(p.due) > 0) {
-    return hi + ' ' + what + ' is renewed' + (exYmd && dl != null && dl >= 0 ? ' till ' + ymdText(exYmd) : '') + '. ₹' + rupees(p.due) + ' is due' +
-      (p.dueDate ? ' by ' + ymdText(p.dueDate) : '') + ' — please pay by UPI and send the screenshot here. Thank you! 🙏';
+    return watext.join([hi, '',
+      '✅ ' + what.replace('your', 'Your') + ' is renewed' + (exYmd && dl != null && dl >= 0 ? ' — valid till *' + ymdText(exYmd) + '*' : '') + '.', '',
+      '💳 *₹' + rupees(p.due) + '* is due' + (p.dueDate ? ' by *' + ymdText(p.dueDate) + '*' : '') + '.',
+      'Please pay by UPI and send the screenshot here.', '',
+      'Thank you! 🙏']);
   }
-  if (dl == null) return hi + ' ' + what + ' is due for renewal. Renew here: ' + renewLink(p.subId);
-  const when = dl < 0 ? 'expired on ' + ymdText(exYmd) : dl === 0 ? 'expires today' : 'expires on ' + ymdText(exYmd) + ' (' + dl + ' day' + (dl === 1 ? '' : 's') + ' left)';
-  return hi + ' ' + what + ' ' + when + '. Renew here: ' + renewLink(p.subId) + ' 🙏';
+  if (dl == null) {
+    return watext.join([hi, '', '🔄 ' + what.replace('your', 'Your') + ' is due for renewal.', '',
+      '👉 Renew in a minute:', renewLink(p.subId), '', 'Thanks for being with FluxFilm 💚']);
+  }
+  const when = dl < 0 ? '⏰ ' + what.replace('your', 'Your') + ' *expired* on *' + ymdText(exYmd) + '*.'
+    : dl === 0 ? '⏳ ' + what.replace('your', 'Your') + ' *expires today*.'
+      : '⏳ ' + what.replace('your', 'Your') + ' expires on *' + ymdText(exYmd) + '* — *' + dl + ' day' + (dl === 1 ? '' : 's') + '* left.';
+  return watext.join([hi, '', when, '', '👉 Renew in a minute:', renewLink(p.subId), '',
+    dl < 0 ? 'Pick up right where you left off 💚' : 'Renew early and keep watching without a break 💚']);
 }
 function waUrl(phone, text) { let d = String(phone || '').replace(/\D/g, ''); if (d.length === 10) d = '91' + d; return 'https://wa.me/' + d + '?text=' + encodeURIComponent(text); }
 
@@ -121,8 +141,8 @@ function reminderEmail(p) {
     '<h2 style="color:' + (credit ? '#1d4ed8' : ended ? '#dc2626' : '#b45309') + ';margin-bottom:4px">' + (credit ? '💳 A friendly payment reminder' : ended ? '⏰ Your plan has expired' : '⏳ Your plan is ending soon') + '</h2>' +
     '<p style="color:#475569;margin-top:0">Hi ' + esc(firstName(p.name) || 'there') + ',</p>' +
     '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin:14px 0;font-size:14px">' +
-    '<b>' + esc(p.service) + '</b>' + (s(p.plan) ? ' — ' + esc(p.plan) : '') + (when ? '<br>' + esc(credit && !ended ? 'Renewed — valid till ' + ymdText(exYmd) : when) : '') +
-    (credit ? '<br><b style="color:#1d4ed8">Amount due: ₹' + esc(rupees(p.due)) + '</b>' + (p.dueDate ? ' (by ' + esc(ymdText(p.dueDate)) + ')' : '') : '') + '</div>' +
+    '<b>' + esc(p.service) + '</b>' + (s(p.plan) ? ' — ' + esc(p.plan) : '') + (when ? '<br>' + (credit && !ended ? 'Renewed — valid till <b>' + esc(ymdText(exYmd)) + '</b>' : esc(when)) : '') +
+    (credit ? '<br><b style="color:#1d4ed8">Amount due: ₹' + esc(rupees(p.due)) + '</b>' + (p.dueDate ? ' (by <b>' + esc(ymdText(p.dueDate)) + '</b>)' : '') : '') + '</div>' +
     (credit
       ? '<p style="color:#475569;font-size:14px">We renewed your plan so you could keep watching. Please pay ₹' + esc(rupees(p.due)) + ' by UPI and reply with the screenshot (or send it on WhatsApp). Thank you for being with FluxFilm! 💚</p>'
       : '<p style="color:#475569;font-size:14px">' + (ended ? 'Renew now to get back to watching.' : 'Renew early and keep watching without a break.') + ' It takes a minute:</p>' +

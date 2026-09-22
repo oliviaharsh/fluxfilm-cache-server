@@ -17,6 +17,7 @@
 const crypto = require('crypto');
 
 const s = (v) => String(v == null ? '' : v).trim();
+const watext = require('./watext');
 const up = (v) => s(v).toUpperCase();
 const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const esc = (v) => s(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -56,12 +57,20 @@ function qrFor(upiLink, size) {
   const px = Math.max(160, Math.min(600, parseInt(size, 10) || 320));
   return 'https://api.qrserver.com/v1/create-qr-code/?size=' + px + 'x' + px + '&margin=8&data=' + encodeURIComponent(s(upiLink));
 }
-/** Ready-to-send message (WhatsApp / SMS). Short, no jargon, the link does the rest. */
+/**
+ * Ready-to-send message (WhatsApp / SMS). Short lines, the amount in *bold*, the link on its own line so the
+ * phone makes it tappable. No jargon — the page does the rest.
+ */
 function messageFor(o, link) {
-  const name = s(o && o.name).split(/\s+/)[0];
-  return (name ? 'Hi ' + name + ', ' : 'Hi, ') + 'here is the payment link for your FluxFilm ' + s(o && o.service) +
-    (s(o && o.plan) ? ' (' + s(o.plan) + ')' : '') + ' — ₹' + num(o && o.final_amount) + '.\n' + s(link) +
-    '\nScan the QR or tap the button in your UPI app. Your plan is delivered as soon as the payment reaches us. 💚';
+  const name = watext.firstName(o && o.name);
+  return watext.join([
+    'Hi' + (name ? ' ' + name : '') + ',', '',
+    '🧾 Your FluxFilm *' + watext.clean(o && o.service) + '*' + (watext.clean(o && o.plan) ? ' — ' + watext.clean(o.plan) : ''),
+    '💳 Amount: *₹' + num(o && o.final_amount) + '*', '',
+    '👉 Pay here — it opens a QR and a Pay button:',
+    s(link), '',
+    'Your order number is already inside the payment, so we see it the moment it arrives and send your login. 💚',
+  ]);
 }
 function waUrlFor(o, link) {
   const ph = s(o && (o.phone || o.phone_norm)).replace(/\D/g, '').slice(-10);

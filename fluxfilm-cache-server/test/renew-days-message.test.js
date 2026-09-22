@@ -31,9 +31,10 @@ function lift(src, name) {
   throw new Error('unbalanced ' + name);
 }
 
-// qWaText only needs prettyDate from the rest of the page.
-const qWaText = new Function('prettyDate', lift(admin, 'qWaText') + '; return qWaText;')(
-  (v) => String(v).slice(0, 10));
+// qWaText needs prettyDate and the little WhatsApp-text helpers from the rest of the page.
+const qWaText = new Function('prettyDate',
+  [lift(admin, 'waClean'), lift(admin, 'waName'), lift(admin, 'waJoin'), lift(admin, 'qWaText'), 'return qWaText;'].join('\n'))(
+  (v) => { const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? +m[3] + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+m[2] - 1] + ' ' + m[1] : String(v || ''); });
 
 const renewal = require('../renewal');
 const DAY = 86400000;
@@ -50,36 +51,37 @@ section('the copied WhatsApp message');
   const result = {
     name: 'Swayam Garg', phone: '9971430096', service: 'Netflix (Group Offer)', plan: 'Sharing 1M',
     orderId: 'FF5034938', amount: 99, status: 'CREDIT', mode: 'RENEW', creditDueDate: '2026-09-30',
-    fulfillment: { fulfillment: 'FULFILLED', access: { user: 'a@b.c', pass: 'p' }, newExpiryText: rn.newExpiryText, renewMessage: rn.message },
+    fulfillment: { fulfillment: 'FULFILLED', access: { user: 'a@b.c', pass: 'p' }, newExpiryText: rn.newExpiryText, renewMessage: rn.message, renewMessageWa: rn.messageWa },
   };
   const text = qWaText(result);
-  ok('it still gives the new date', text.includes('Valid till: ' + rn.newExpiryText), text);
-  ok('it now says what was counted and what was gifted', /counted only 5 days/.test(text) && /gifted you 3 days/.test(text), text);
-  ok('the gift sits with the date, not at the end after the payment ask', text.indexOf('gifted you') > 0 && text.indexOf('gifted you') < text.indexOf('Amount due'), text);
-  ok('a credit renewal still asks for the money', /Amount due: ₹99/.test(text) && text.includes('FF5034938'), text);
+  ok('it still gives the new date', text.includes('*Valid till:* ' + rn.newExpiryText), text);
+  ok('it now says what was counted and what was gifted', /counted only \*5 days\*/.test(text) && /gifted you \*3 days\* free/.test(text), text);
+  ok('the gift sits with the date, not at the end after the payment ask', text.indexOf('gifted you') > 0 && text.indexOf('gifted you') < text.indexOf('is due'), text);
+  ok('a credit renewal still asks for the money', /💳 \*₹99\* is due/.test(text) && text.includes('FF5034938'), text);
 }
 
 {
   // Renewed early / on time: the message is reassurance rather than a gift, and must not be dropped.
   const rn = renewal.computeRenewal({ expiry: new Date(Date.now() + 3 * DAY), removed: false, now: new Date(), durationDays: 30 });
   const text = qWaText({ name: 'A', service: 'Prime Video', plan: '1 Month', orderId: 'FF1', amount: 39, status: 'PAID', mode: 'RENEW',
-    fulfillment: { fulfillment: 'FULFILLED', access: {}, newExpiryText: rn.newExpiryText, renewMessage: rn.message } });
-  ok('on-time renewal says nothing was lost', /added on top of your current plan/.test(text), text);
+    fulfillment: { fulfillment: 'FULFILLED', access: {}, newExpiryText: rn.newExpiryText, renewMessage: rn.message, renewMessageWa: rn.messageWa } });
+  ok('on-time renewal says nothing was lost', /added \*on top\* of your current plan/.test(text), text);
 }
 
 {
   // A new order has no renewal message at all — nothing extra should appear.
   const text = qWaText({ name: 'A', service: 'Prime Video', plan: '1 Month', orderId: 'FF2', amount: 39, status: 'PAID',
     fulfillment: { fulfillment: 'FULFILLED', access: { user: 'x@y' }, newExpiryText: '22 Oct 2026' } });
-  ok('a new purchase gains no stray line', !/gifted|counted/.test(text) && /Valid till: 22 Oct 2026/.test(text), text);
+  ok('a new purchase gains no stray line', !/gifted|counted/.test(text) && /\*Valid till:\* 22 Oct 2026/.test(text), text);
 }
 
 section('the same sentence follows the renewal everywhere else');
-ok('fulfil hands it to the email', /renewNote: rn\.message/.test(fulfil), false);
+ok('fulfil hands it to the email', /renewNote: rn\.messageWa/.test(fulfil), false);
 ok('fulfil stores it on the order so it can be read back', /\$\.RenewNote/.test(fulfil) && /RenewCounted/.test(fulfil) && /RenewGifted/.test(fulfil), false);
 ok('storing the note can never undo the renewal', /catch \(e\) \{ console\.log\('\[renew\] could not store the days note/.test(fulfil), false);
 ok('the credentials email prints it', /p\.renewNote \?/.test(mailer), false);
 ok('the admin order card shows it', /kv\('Renewal days'/.test(admin), false);
+ok('the WhatsApp text prefers the bold version, the card keeps the plain one', /f\.renewMessageWa \|\| f\.renewMessage/.test(admin) && /esc\(m\.renewNote\)/.test(admin), false);
 
 console.log('\n---------------------------------------');
 console.log('PASS ' + pass + '   FAIL ' + fail);

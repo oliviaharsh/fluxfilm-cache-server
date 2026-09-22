@@ -934,7 +934,7 @@ async function planRenewal(subId, plan) {
     const message = _renewalMessage(d);
     const rem = _purchaseRemoval(rows);
     const rn = computeRenewal({ expiry: s.expiry_date, removed: rem.removed, removedAt: rem.removedAt, now: new Date(), durationDays: d.durationDays });
-    const preview = { newExpiryText: rn.newExpiryText, message: rn.message, bubble: rn.bubble, counted: rn.counted, gifted: rn.gifted, case: rn.case };
+    const preview = { newExpiryText: rn.newExpiryText, message: rn.message, messageWa: rn.messageWa, bubble: rn.bubble, counted: rn.counted, gifted: rn.gifted, case: rn.case };
     const out = { mode: d.mode, reason: d.reason || '', message, preview };
     if (rows.length > 1 || d.mode === 'SPLIT') Object.assign(out, { leadSubId: rows[0].sub_id, logins: rows.length, devices: rows.reduce((x, r) => x + _heldDevices(r).dev, 0) });
     return out;
@@ -1074,8 +1074,8 @@ async function _fulfillRenew(o) {
     // best-effort on purpose — a note must never be able to undo a renewal that has already happened.
     try {
       await conn.query(
-        "UPDATE orders SET raw_json = JSON_SET(COALESCE(raw_json, JSON_OBJECT()), '$.RenewNote', ?, '$.RenewCounted', ?, '$.RenewGifted', ?, '$.RenewCase', ?) WHERE order_id = ? LIMIT 1",
-        [String(rn.message || ''), Number(rn.counted || 0), Number(rn.gifted || 0), String(rn.case || ''), o.order_id]);
+        "UPDATE orders SET raw_json = JSON_SET(COALESCE(raw_json, JSON_OBJECT()), '$.RenewNote', ?, '$.RenewNoteWa', ?, '$.RenewCounted', ?, '$.RenewGifted', ?, '$.RenewCase', ?) WHERE order_id = ? LIMIT 1",
+        [String(rn.message || ''), String(rn.messageWa || ''), Number(rn.counted || 0), Number(rn.gifted || 0), String(rn.case || ''), o.order_id]);
     } catch (e) { console.log('[renew] could not store the days note for', o.order_id + ':', e.message); }
 
     const access = await accessFor(rows);
@@ -1089,8 +1089,9 @@ async function _fulfillRenew(o) {
       expiry: fmtDt(newExpiry), postPaymentMessage: '',
       access: access.logins ? access : { user: access.user, pass: access.pass, profileName: access.profileName, profilePin: access.profilePin, deviceType: access.deviceType },
       loginNotice: notice,
-      // 🎁 "we counted only X days and gifted you Y" — the email said only the new date before.
-      renewNote: rn.message || '', renewGifted: rn.gifted || 0, renewCounted: rn.counted || 0,
+      // 🎁 "we counted only X days and gifted you Y" — the email said only the new date before. The email is
+      // given the *bold* version and turns the markers into <b> itself (mailer.js → watext.html).
+      renewNote: rn.messageWa || '', renewGifted: rn.gifted || 0, renewCounted: rn.counted || 0,
     });
     const head = d.mode === 'SPLIT' ? '✅ Renewed! No single account could take all your devices, so each device now has its own login.'
       : moved ? (rows.length > 1 ? '✅ Renewed! Some of your old logins were no longer available, so the new ones are below.' : '✅ Renewed! Your old account was no longer available, so here is your new login.')
@@ -1098,7 +1099,7 @@ async function _fulfillRenew(o) {
     return {
       ok: true, found: true, orderId: o.order_id, fulfillment: 'FULFILLED',
       message: head + ' Your plan now runs until ' + rn.newExpiryText + '.',
-      renewMessage: rn.message, renewBubble: rn.bubble, renewCounted: rn.counted, renewGifted: rn.gifted, newExpiryText: rn.newExpiryText,
+      renewMessage: rn.message, renewMessageWa: rn.messageWa, renewBubble: rn.bubble, renewCounted: rn.counted, renewGifted: rn.gifted, newExpiryText: rn.newExpiryText,
       postPaymentMessage: '', access, subId: sid, newExpiry: fmtDt(newExpiry), accountChanged: moved,
       loginNotice: notice,
     };

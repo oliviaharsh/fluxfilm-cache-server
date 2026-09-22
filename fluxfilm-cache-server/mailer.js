@@ -60,7 +60,8 @@ async function sendAccessEmail(payload) {
       '</table></div>' +
       (p.loginNotice ? '<div style="background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:12px;font-size:13px;color:#9a3412;margin-bottom:10px">ℹ️ ' + escHtml(p.loginNotice) + '</div>' : '') +
       // 🎁 Renewal: why the new date is what it is — how many late days were counted and how many were gifted.
-      (p.renewNote ? '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:12px;font-size:13px;color:#166534;margin-bottom:10px">' + escHtml(p.renewNote) + '</div>' : '') +
+      // The sentence arrives with WhatsApp's *bold* markers (watext.js); here they become <b>, escaped.
+      (p.renewNote ? '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:12px;font-size:13px;color:#166534;margin-bottom:10px">' + require('./watext').html(p.renewNote) + '</div>' : '') +
       (p.postPaymentMessage ? '<div style="background:#fef9c3;border-radius:10px;padding:12px;white-space:pre-line;font-size:13px">' + p.postPaymentMessage + '</div>' : '') +
       '<p style="color:#94a3b8;font-size:12px;margin-top:18px">Need help? Just reply to this email or message us on WhatsApp. 💚</p></div>';
   }

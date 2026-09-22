@@ -189,7 +189,7 @@ const PLANS = [
 
   const adminHtml = require('fs').readFileSync(require('path').join(__dirname, '..', 'admin.html'), 'utf8');
   ok('the panel offers it after creating an order, on every unpaid order and on the order card', /💳 Ask the customer to pay/.test(adminHtml) && /function qPayBox\(/.test(adminHtml) && /data-payi=/.test(adminHtml) && /id="od_paylink"/.test(adminHtml) && /function payLinkModal\(/.test(adminHtml) && /send-paylink/.test(adminHtml));
-  ok('the WhatsApp message for an unpaid order carries the link instead of "send the screenshot"', /Please pay ₹' \+ r\.amount \+ ' here/.test(adminHtml) && /r\.pay\.payLink/.test(adminHtml));
+  ok('the WhatsApp message for an unpaid order carries the link instead of "send the screenshot"', /Please pay \*₹' \+ r\.amount \+ '\* here/.test(adminHtml) && /r\.pay\.payLink/.test(adminHtml));
 
   if (server.closeAllConnections) server.closeAllConnections();
   await new Promise((res) => server.close(res));
