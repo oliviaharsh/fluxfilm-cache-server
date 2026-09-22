@@ -15,8 +15,13 @@
  * day who renewed 5 days later was renewed from the old expiry and lost 5 days
  * they could not watch. Real case: Prince Rajput, Netflix, 5 Sep 2026.
  *
+ * Every sentence here is written with WhatsApp's *bold* markers (watext.js): `message` is the plain version the
+ * shop screen prints, `messageWa` keeps the markers for the WhatsApp text and the email turns them into <b>.
+ * One wording, three channels — the owner asked for bold and emoji on 23 Sep 2026 and this is where it starts.
+ *
  * Pure: no database access, so every case is unit-tested (test/renewal-rules.test.js).
  */
+const watext = require('./watext');
 const DAY = 86400000;
 
 function cfgFromEnv(env) {
@@ -77,11 +82,11 @@ function computeRenewal(p) {
   const out = { case: '', counted: 0, accessDays: 0, gifted: 0, accessMs: 0, daysSinceRemoval: null, message: '', bubble: '' };
 
   if (!E) {
-    Object.assign(out, { case: 'NO_EXPIRY', newExpiry: addDays(T, D), message: 'Your plan starts fresh from today.' });
+    Object.assign(out, { case: 'NO_EXPIRY', newExpiry: addDays(T, D), message: '🎬 Your plan starts fresh from *today*.' });
     return finish(out);
   }
   if (T.getTime() <= E.getTime()) {
-    Object.assign(out, { case: 'ON_TIME', newExpiry: addDays(E, D), message: 'Renewed without a break — added on top of your current plan.' });
+    Object.assign(out, { case: 'ON_TIME', newExpiry: addDays(E, D), message: '✅ Renewed without a break — the new days are added *on top* of your current plan.' });
     return finish(out);
   }
 
@@ -93,19 +98,19 @@ function computeRenewal(p) {
     if (out.daysSinceRemoval > cfg.windowDays) {
       out.case = 'REMOVED_LONG_AGO';
       out.counted = 0;
-      out.message = 'Welcome back! Your plan starts fresh from today — nothing is counted. 🎉';
+      out.message = '🎉 Welcome back! Your plan starts fresh from *today* — *nothing* is counted.';
     } else if (out.accessDays === 0) {
       out.case = 'REMOVED_AT_EXPIRY';
       out.counted = 0;
-      out.message = 'Your plan starts fresh from today. 🎉';
+      out.message = '🎉 Your plan starts fresh from *today* — *nothing* is counted.';
     } else {
       out.case = 'REMOVED_RECENTLY';
       out.counted = Math.max(0, Math.min(out.accessDays, cfg.capDays) - cfg.goodwillDays);
       out.gifted = out.accessDays - out.counted;
-      out.message = 'Your access carried on for ' + plural(out.accessDays, 'day') + ' after your plan ended (until ' + prettyDate(R) + '). '
+      out.message = '⏳ Your access carried on for *' + plural(out.accessDays, 'day') + '* after your plan ended (until *' + prettyDate(R) + '*). '
         + (out.counted > 0
-          ? 'We have counted only ' + plural(out.counted, 'day') + ' and gifted you ' + plural(out.gifted, 'day') + '. 🎁'
-          : 'We have gifted all of them — nothing is counted. 🎁');
+          ? '🎁 We have counted only *' + plural(out.counted, 'day') + '* and gifted you *' + plural(out.gifted, 'day') + '* free.'
+          : '🎁 We have gifted you *all of them* — nothing is counted.');
     }
     out.gifted = out.accessDays - out.counted;
   } else {
@@ -115,11 +120,11 @@ function computeRenewal(p) {
     out.counted = Math.min(out.accessDays, cfg.capDays);
     out.gifted = out.accessDays - out.counted;
     out.message = out.accessDays === 0
-      ? 'Your plan just ended — renewed without a break.'
-      : 'Your plan ended ' + plural(out.accessDays, 'day') + ' ago but you kept your access, so '
+      ? '✅ Your plan just ended — renewed without a break.'
+      : '⏳ Your plan ended *' + plural(out.accessDays, 'day') + '* ago but you kept watching, so '
         + (out.gifted > 0
-          ? 'we have counted only ' + plural(out.counted, 'day') + ' and gifted you ' + plural(out.gifted, 'day') + '. 🎁'
-          : 'those ' + plural(out.counted, 'day') + ' are counted.');
+          ? '🎁 we have counted only *' + plural(out.counted, 'day') + '* and gifted you *' + plural(out.gifted, 'day') + '* free.'
+          : 'those *' + plural(out.counted, 'day') + '* are counted.');
   }
 
   out.newExpiry = addDays(T, D - out.counted);
@@ -131,6 +136,12 @@ function computeRenewal(p) {
 
 function finish(out) {
   out.newExpiryText = prettyDate(out.newExpiry);
+  // The sentence is authored once with *bold* markers: WhatsApp gets it as it is, everything that prints plain
+  // text (the shop's own "renewed" line, the admin note, the stored order note) gets it without the markers.
+  out.messageWa = watext.wa(out.message);
+  out.message = watext.plain(out.message);
+  out.bubbleWa = watext.wa(out.bubble);
+  out.bubble = watext.plain(out.bubble);
   return out;
 }
 
@@ -153,13 +164,13 @@ function computeAdminRenewal(p) {
   if (base === 'EXPIRY' && E) {
     out.case = 'ADMIN_FROM_EXPIRY';
     out.newExpiry = addDays(E, D);
-    out.message = 'Renewed from the old expiry date (' + prettyDate(E) + ') — the new period continues from there.';
+    out.message = '✅ Renewed from your old expiry date (*' + prettyDate(E) + '*) — the new period carries on from there.';
   } else {
     out.case = base === 'EXPIRY' ? 'NO_EXPIRY' : 'ADMIN_FROM_TODAY';
     out.newExpiry = addDays(T, D);
     out.message = E && E.getTime() > T.getTime()
-      ? 'Starts fresh from today — the days left on the current plan are not added.'
-      : 'Starts fresh from today.';
+      ? '🎬 Starts fresh from *today* — the days left on the current plan are not added.'
+      : '🎬 Starts fresh from *today*.';
   }
   return finish(out);
 }

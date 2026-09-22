@@ -89,8 +89,8 @@ function run(sqlRaw, params) {
   if (/^UPDATE orders SET fulfillment_status = 'FAILED'/.test(sql)) { S.orders.find((o) => o.order_id === params[0]).fulfillment_status = 'FAILED'; S.writes.push('failed'); return { affectedRows: 1 }; }
   if (/^UPDATE orders SET fulfillment_status = 'FULFILLED'/.test(sql)) { S.orders.find((o) => o.order_id === params[0]).fulfillment_status = 'FULFILLED'; S.writes.push('fulfilled'); return { affectedRows: 1 }; }
   if (/^UPDATE orders SET raw_json = JSON_SET/.test(sql)) {
-    const o = S.orders.find((x) => x.order_id === params[4]);
-    if (o) Object.assign(o, { renewNote: params[0], renewCounted: params[1], renewGifted: params[2], renewCase: params[3] });
+    const o = S.orders.find((x) => x.order_id === params[params.length - 1]);
+    if (o) Object.assign(o, { renewNote: params[0], renewNoteWa: params[1], renewCounted: params[2], renewGifted: params[3], renewCase: params[4] });
     S.writes.push('days-note');
     return { affectedRows: o ? 1 : 0 };
   }
@@ -300,9 +300,11 @@ const other = (ref, service, o) => Object.assign({ sub_id: 'SUB-X' + Math.random
     ok('customer told what was counted and gifted', /counted only 2 days and gifted you 2 days/.test(f.renewMessage) && /runs until/.test(f.message), f);
     ok('fun bubble included', /hours/.test(f.renewBubble), f.renewBubble);
     // 🎁 The date alone is not enough: the counted/gifted sentence has to travel with it.
-    ok('the gifted days are kept on the order for later', /gifted you 2 days/.test(String(order1().renewNote)) && Number(order1().renewCounted) === 2 && Number(order1().renewGifted) === 2, { note: order1().renewNote, counted: order1().renewCounted, gifted: order1().renewGifted });
+    ok('the gifted days are kept on the order for later', /gifted you 2 days free/.test(String(order1().renewNote)) && Number(order1().renewCounted) === 2 && Number(order1().renewGifted) === 2, { note: order1().renewNote, counted: order1().renewCounted, gifted: order1().renewGifted });
+    // The stored note comes in both flavours: plain for a screen, *bold* for the WhatsApp text.
+    ok('and in both flavours — plain on the card, bold for WhatsApp', !String(order1().renewNote).includes('*') && /gifted you \*2 days\* free/.test(String(order1().renewNoteWa)), { plain: order1().renewNote, wa: order1().renewNoteWa });
     await new Promise((r) => setTimeout(r, 0)); // the email is sent without being awaited
-    ok('the credentials email carries the same sentence', /gifted you 2 days/.test(String((S.lastEmail || {}).renewNote)), S.lastEmail && S.lastEmail.renewNote);
+    ok('the credentials email carries the same sentence', /gifted you \*2 days\* free/.test(String((S.lastEmail || {}).renewNote)), S.lastEmail && S.lastEmail.renewNote);
     ok('"removed" tick cleared after renewal', Number(me().removed) === 0 && me().removed_at === null, me());
 
     S = base();

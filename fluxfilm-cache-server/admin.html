@@ -605,6 +605,41 @@ function paidViaPill(key, label) {
 }
 function svcIcon(s) { var k = String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); for (var n in ICONS) if (k.indexOf(n) > -1) return ICONS[n]; return '🎞️'; }
 function waLink(phone, text) { var p = String(phone || '').replace(/\D/g, ''); if (p.length === 10) p = '91' + p; return 'https://wa.me/' + p + '?text=' + encodeURIComponent(text); }
+/* 💬 Customer messages are written once with WhatsApp's own *bold* markers — the same rules the server uses
+   (watext.js). waClean strips markers out of anything the owner typed (a plan name, a customer name) so it
+   cannot break the bold around it; waJoin turns lines into a message with no doubled or trailing blank lines. */
+function waClean(v) { return String(v == null ? '' : v).replace(/[*_~`]/g, '').replace(/\s+/g, ' ').trim(); }
+function waName(v) { var w = waClean(v).split(/\s+/)[0] || ''; return /^[\p{L}\p{M}.'’-]{2,20}$/u.test(w) ? w : ''; }
+function waJoin(lines) { return lines.filter(function (l) { return l != null && l !== false; }).join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, ''); }
+function waYmd(v) { var m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? (+m[3]) + ' ' + MON[+m[2] - 1] + ' ' + m[1] : ''; }
+/**
+ * 🔔 The renewal reminder — expired / today / soon / renewed but money still due.
+ * p = { name, service, plan, expiry, subId, due, dueDate, daysLeft }
+ * This says EXACTLY what the server's credit.js whatsappText() says. test/message-style.test.js runs both on
+ * the same input and compares them character for character, so neither can be reworded on its own.
+ */
+function waRemindText(p) {
+  var hi = 'Hi' + (waName(p.name) ? ' ' + waName(p.name) : '') + ',';
+  var ex = waYmd(p.expiry);
+  var dl = p.daysLeft;
+  var what = 'Your FluxFilm *' + waClean(p.service) + '*' + (waClean(p.plan) ? ' (' + waClean(p.plan) + ')' : '');
+  if (Number(p.due) > 0) {
+    return waJoin([hi, '',
+      '✅ ' + what + ' is renewed' + (ex && dl != null && dl >= 0 ? ' — valid till *' + ex + '*' : '') + '.', '',
+      '💳 *₹' + p.due + '* is due' + (p.dueDate ? ' by *' + waYmd(p.dueDate) + '*' : '') + '.',
+      'Please pay by UPI and send the screenshot here.', '',
+      'Thank you! 🙏']);
+  }
+  if (dl == null) {
+    return waJoin([hi, '', '🔄 ' + what + ' is due for renewal.', '',
+      '👉 Renew in a minute:', crRenewLink(p.subId), '', 'Thanks for being with FluxFilm 💚']);
+  }
+  var when = dl < 0 ? '⏰ ' + what + ' *expired* on *' + ex + '*.'
+    : dl === 0 ? '⏳ ' + what + ' *expires today*.'
+      : '⏳ ' + what + ' expires on *' + ex + '* — *' + dl + ' day' + (dl === 1 ? '' : 's') + '* left.';
+  return waJoin([hi, '', when, '', '👉 Renew in a minute:', crRenewLink(p.subId), '',
+    dl < 0 ? 'Pick up right where you left off 💚' : 'Renew early and keep watching without a break 💚']);
+}
 
 /* ================= login + shell ================= */
 function loginView(msg) {
@@ -1124,8 +1159,9 @@ function subCard(s) {
     '<div class="rmbox' + (rm ? '' : ' off') + '" id="rmb_' + id + '"><label class="row" style="gap:6px;cursor:pointer"><input type="checkbox" id="rm_' + id + '"' + (rm ? ' checked' : '') + '/> <b>Removed from account</b></label>' +
     '<input type="datetime-local" id="rmat_' + id + '" value="' + esc(t) + '" title="India time — leave empty for now"/>' +
     '<button class="btn dark sm" onclick="saveRemoved(\'' + id + '\')">Save</button><span id="rmmsg_' + id + '" class="muted" style="font-size:.72rem">' + (rm && !t ? 'no time → counted as removed at expiry' : '') + '</span></div>';
-  // 💬 text + ✉️ reminder / 💳 credit bar live in the credit block (crWaText / crSubExtras); guarded so the card still renders alone.
-  var remind = typeof crWaText === 'function' ? crWaText(s, d, null) : 'Hi! Your FluxFilm ' + (s.service || '') + ' (' + (s.plan || '') + ') ' + (d != null && d > 0 ? 'expires in ' + d + ' day(s)' : 'has expired') + '. Renew now on shop.fluxfilm.in 🙏';
+  // 💬 the 💬 Remind text (waRemindText, same wording as the server); the ✉️ reminder / 💳 credit bar below it
+  // live in the credit block (crSubExtras), which is guarded so the card still renders on its own.
+  var remind = waRemindText({ name: (typeof S !== 'undefined' && S.cust && S.cust.profile && S.cust.profile.name) || '', service: s.service, plan: s.plan, expiry: s.expiry_date, subId: s.sub_id, daysLeft: d });
   return '<div class="sc' + (act ? '' : ' exp') + '"><div class="hd"><div class="sic">' + svcIcon(s.service) + '</div><div class="ttl"><b>' + esc(s.service || '—') + '</b><small>' + esc(s.plan || '') + (s.device_count ? ' · ' + esc(s.device_count) + ' device(s)' : '') + (s.device_type ? ' · ' + esc(s.device_type) : '') + (s.device_name ? ' · 📱 <b>' + esc(s.device_name) + '</b>' : '') + (Number(s.group_size) > 1 ? ' · <b>Device ' + esc(s.group_index) + ' of ' + esc(s.group_size) + '</b> (separate logins, order ' + esc(s.order_id || '') + ')' : '') + '</small></div>' +
     '<div class="rt">' + pill + '<div style="margin-top:6px">Start: ' + prettyDate(s.start_date) + '</div><div>Expiry: <b style="color:var(--ink)">' + prettyDate(s.expiry_date, true) + '</b></div></div></div>' +
     (stopped ? '<div class="qnote warn" style="margin:8px 0">This plan was refunded — it has ended. Can\'t be renewed or extended. Tick <b>Removed from account</b> once you change the password.</div>' : '<div class="bar' + (d != null && d <= 0 ? ' b' : d != null && d <= 7 ? ' w' : '') + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>') +
@@ -1159,7 +1195,8 @@ function loadExp(days) {
     if (!r.rows.length) { $('#exp').innerHTML = '<p class="muted">🎉 Nothing expiring in the next ' + days + ' days.</p>'; return; }
     $('#exp').innerHTML = r.rows.map(function (s) {
       var d = daysLeft(s.expiry_date);
-      var msg = 'Hi! Your FluxFilm ' + s.service + ' (' + s.plan + ') expires in ' + d + ' day(s). Renew now on shop.fluxfilm.in to keep it active 🙏';
+      // Same reminder as everywhere else, and it now carries this plan's own renew link instead of the bare site.
+      var msg = waRemindText({ service: s.service, plan: s.plan, expiry: s.expiry_date, subId: s.sub_id, daysLeft: d });
       return '<div class="li"><span class="pill ' + (d <= 2 ? 'p-bad' : 'p-warn') + '" style="min-width:48px;text-align:center">' + d + 'd</span><span style="font-size:1.1rem">' + svcIcon(s.service) + '</span>' +
         '<div class="grow"><b>' + esc(s.service) + '</b> <span class="muted">· ' + esc(s.plan) + '</span><div class="muted" style="font-size:.72rem">Ends ' + prettyDate(s.expiry_date, true) + ' · ' + esc(s.email || '') + '</div></div>' +
         '<a class="celllink" onclick="store(\'ff_last_phone\',\'' + esc(s.phone) + '\');nav(\'customer\')">' + esc(s.phone) + '</a><a class="btn wa sm" target="_blank" href="' + waLink(s.phone, msg) + '">💬 WhatsApp</a></div>';
@@ -1786,30 +1823,36 @@ function qSubmit() {
   };
   send(false);
 }
+/**
+ * 📋 The message the owner copies after creating or renewing an order: the login, the date, and what is still
+ * owed. Labels are bold, values are not — a password can contain a * of its own and bolding it would both
+ * break the formatting and put a character in front of what the customer copies.
+ */
 function qWaText(r) {
   var f = r.fulfillment || {}, a = f.access || {};
-  var first = String(r.name || '').trim().split(/\s+/)[0];
+  var first = waName(r.name);
+  var what = '*' + waClean(r.service) + '*' + (waClean(r.plan) ? ' (' + waClean(r.plan) + ')' : '');
   var unpaidLink = r.status !== 'PAID' && r.status !== 'CREDIT' && r.pay && r.pay.payLink;
   var lines = [unpaidLink
-    ? 'Hi' + (first ? ' ' + first : '') + '! Here is your FluxFilm ' + (r.service || '') + ' (' + (r.plan || '') + ') order.'
-    : 'Hi' + (first ? ' ' + first : '') + '! ✅ Your FluxFilm ' + (r.service || '') + ' (' + (r.plan || '') + ') ' + (r.mode === 'RENEW' ? 'is renewed.' : 'is ready.')];
-  if (a.user) lines.push('', 'Login: ' + a.user);
-  if (a.pass) lines.push('Password: ' + a.pass);
-  if (a.profileName || a.profileNumber) lines.push('Profile: ' + [a.profileName, a.profileNumber ? '#' + a.profileNumber : ''].filter(Boolean).join(' '));
-  if (a.profilePin) lines.push('Profile PIN: ' + a.profilePin);
-  if (a.deviceType === 'TV' || a.deviceType === 'NON_TV' || a.deviceType === 'MIXED') lines.push('Use on: ' + (a.deviceType === 'TV' ? 'TV' : a.deviceType === 'NON_TV' ? 'mobile / laptop' : 'TV + mobile'));
+    ? 'Hi' + (first ? ' ' + first : '') + '! 🧾 Here is your FluxFilm ' + what + ' order.'
+    : 'Hi' + (first ? ' ' + first : '') + '! ✅ Your FluxFilm ' + what + ' ' + (r.mode === 'RENEW' ? 'is *renewed*.' : 'is *ready*.')];
+  if (a.user) lines.push('', '🔑 *Login:* ' + a.user);
+  if (a.pass) lines.push('🔒 *Password:* ' + a.pass);
+  if (a.profileName || a.profileNumber) lines.push('👤 *Profile:* ' + [a.profileName, a.profileNumber ? '#' + a.profileNumber : ''].filter(Boolean).join(' '));
+  if (a.profilePin) lines.push('📌 *Profile PIN:* ' + a.profilePin);
+  if (a.deviceType === 'TV' || a.deviceType === 'NON_TV' || a.deviceType === 'MIXED') lines.push('📺 *Use on:* ' + (a.deviceType === 'TV' ? 'TV' : a.deviceType === 'NON_TV' ? 'mobile / laptop' : 'TV + mobile'));
   var exp = f.newExpiryText || (f.expiry ? prettyDate(f.expiry) : '');
-  if (exp) lines.push('', 'Valid till: ' + exp);
+  if (exp) lines.push('', '📅 *Valid till:* ' + exp);
   // 🎁 A renewal can land on a date that is short of a full plan (late days counted) or long (days gifted).
   // Without this sentence the customer only sees the date and cannot tell we already forgave the difference.
-  if (f.renewMessage) lines.push(f.renewMessage);
-  if (f.fulfillment === 'MANUAL_PENDING') lines.push('', 'We are activating it now and will send the details shortly.');
-  if (r.status === 'CREDIT') lines.push('', 'Amount due: ₹' + r.amount + (r.creditDueDate ? ' by ' + prettyDate(r.creditDueDate) : '') + ' — please pay by UPI and send the screenshot. Order: ' + r.orderId);
-  else if (unpaidLink) lines.push('', 'Please pay ₹' + r.amount + ' here — it opens a QR and a Pay button:', r.pay.payLink, '', 'Your order number ' + r.orderId + ' is already in it, so we see your payment straight away and send the login. 💚');
-  else if (r.status !== 'PAID') lines.push('', 'Please pay ₹' + r.amount + ' by UPI and send the screenshot. Order: ' + r.orderId);
-  else lines.push('', 'Order: ' + r.orderId);
-  lines.push('Need help? Just reply here 🙏');
-  return lines.join('\n');
+  if (f.renewMessageWa || f.renewMessage) lines.push(f.renewMessageWa || f.renewMessage);
+  if (f.fulfillment === 'MANUAL_PENDING') lines.push('', '⏳ We are activating it now and will send the details shortly.');
+  if (r.status === 'CREDIT') lines.push('', '💳 *₹' + r.amount + '* is due' + (r.creditDueDate ? ' by *' + prettyDate(r.creditDueDate) + '*' : '') + ' — please pay by UPI and send the screenshot.', '🧾 Order: *' + r.orderId + '*');
+  else if (unpaidLink) lines.push('', '💳 Please pay *₹' + r.amount + '* here — it opens a QR and a Pay button:', r.pay.payLink, '', 'Your order number *' + r.orderId + '* is already in it, so we see your payment straight away and send the login. 💚');
+  else if (r.status !== 'PAID') lines.push('', '💳 Please pay *₹' + r.amount + '* by UPI and send the screenshot.', '🧾 Order: *' + r.orderId + '*');
+  else lines.push('', '🧾 Order: *' + r.orderId + '*');
+  lines.push('', 'Need help? Just reply here 🙏');
+  return waJoin(lines);
 }
 /**
  * 💳 "Ask the customer to pay": the QR, the link and the buttons. The order id is the UPI note, so when the
@@ -6157,14 +6200,13 @@ function switchAccountDialog(subId) {
 var CR = { list: null };
 function crRenewLink(subId) { return 'https://shop.fluxfilm.in/?source=push&renew=' + encodeURIComponent(subId || ''); }
 function crFirst(n) { return String(n || '').trim().split(/\s+/)[0] || ''; }
-// Same wording as credit.js whatsappText (expired / expiring / credit due).
+// The customer 360 card's 💬 Remind / 💬 WhatsApp ₹ due — one wording, built by waRemindText.
 function crWaText(s, d, c) {
-  var name = (S.cust && S.cust.profile && S.cust.profile.name) || '';
-  var hi = 'Hi' + (crFirst(name) ? ' ' + crFirst(name) : '') + ',';
-  var what = 'your FluxFilm ' + (s.service || '') + (s.plan ? ' (' + s.plan + ')' : '');
-  if (c && Number(c.due) > 0) return hi + ' ' + what + ' is renewed' + (s.expiry_date && d != null && d >= 0 ? ' till ' + prettyDate(s.expiry_date) : '') + '. ₹' + c.due + ' is due' + (c.dueDate ? ' by ' + prettyDate(c.dueDate) : '') + ' — please pay by UPI and send the screenshot here. Thank you! 🙏';
-  var when = d == null ? 'is due for renewal' : d < 0 ? 'expired on ' + prettyDate(s.expiry_date) : d === 0 ? 'expires today' : 'expires on ' + prettyDate(s.expiry_date) + ' (' + d + ' day' + (d === 1 ? '' : 's') + ' left)';
-  return hi + ' ' + what + ' ' + when + '. Renew here: ' + crRenewLink(s.sub_id) + ' 🙏';
+  return waRemindText({
+    name: (S.cust && S.cust.profile && S.cust.profile.name) || '',
+    service: s.service, plan: s.plan, expiry: s.expiry_date, subId: s.sub_id,
+    due: c && Number(c.due) > 0 ? c.due : 0, dueDate: c && c.dueDate, daysLeft: d,
+  });
 }
 function crDuePill(c) { return '<span class="pill ' + (c.overdue ? 'p-bad' : 'p-blue') + '">💳 Credit ' + money(c.due) + ' due' + (c.dueDate ? (c.overdue ? ' · overdue since ' : ' · by ') + prettyDate(c.dueDate) : '') + '</span>'; }
 function crExtrasInner(s, d, stopped, c, last) {

@@ -134,7 +134,7 @@ function mount(app, deps) {
         meta: { createdVia: s(raw.CreatedVia) || (o.source === 'node' ? 'WEBSITE' : 'SHEET'), paymentMethod: s(raw.PaymentMethod), adminNote: s(raw.AdminNote), loginMode: s(raw.LoginMode),
           // 🎁 Renewal days (fulfill.js writes these at fulfil): what the rule counted, what we gifted, and the
           // exact sentence the customer was given — so the owner can re-read or re-send it.
-          renewNote: s(raw.RenewNote), renewCounted: Number(raw.RenewCounted || 0), renewGifted: Number(raw.RenewGifted || 0), renewBase: s(raw.RenewBase) },
+          renewNote: s(raw.RenewNote), renewNoteWa: s(raw.RenewNoteWa), renewCounted: Number(raw.RenewCounted || 0), renewGifted: Number(raw.RenewGifted || 0), renewBase: s(raw.RenewBase) },
       });
     } catch (e) { fail(res, e); }
   });
