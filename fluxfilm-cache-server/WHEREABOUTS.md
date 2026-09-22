@@ -185,6 +185,7 @@ The order pop-up is `openOrder()` → used by Orders, Today, Customer 360 and Ba
 | An admin screen | `admin.html` `xxxView()` + its `admin*.js` module |
 | The payment page a customer gets by link | `paylink.js` (HTML is inside that file) |
 | An email's wording | `mailer.js` (access / reminders), `refunds.js`, `credit.js`, `quickorders.js` (payment link) |
+| The WhatsApp message admin copies after an order | `admin.html` `qWaText()` (the renewal days line comes from `fulfill.js` `renewMessage`) |
 | The feed's look | `index.html` CSS 533–853 + `FeedPost` / `FeedReels` |
 
 ---
@@ -273,6 +274,7 @@ the two exceptions are `adminrefundnow.js` (mounted by `adminorderactions.js`) a
 | Which password does the customer actually get? | **`accesspassword.js`** (the account is the truth, the sub row is a copy) |
 | Was this subscription delivered? | **`delivered.js`** |
 | How many days does a late renewal cost? | `renewal.js`, `renewrules.js` |
+| What was the customer told about those days? | `fulfill.js` `renewMessage` → the WhatsApp text (`admin.html qWaText`), the credentials email (`mailer.js renewNote`) and the order's `raw_json.RenewNote` / `RenewCounted` / `RenewGifted` |
 | One real login = one account (Zee5 listed 4×) | `logins.js`, `accountgroups.js` |
 | Same login for every device, or one each? | `devicelogins.js` |
 | How was this paid, and who paid it? | `paidvia.js` |
@@ -341,10 +343,10 @@ phpMyAdmin; every module that needs a new table fails soft and says which file t
 | n8n webhooks | `n8nhooks.js` | 1 min |
 | Sheet → MySQL sync | `server.js` | **off** (`SYNC_INTERVAL_MIN=0`, MySQL is master) |
 
-## 2.7 Tests — 77 files, `npm test` runs them all
+## 2.7 Tests — 78 files, `npm test` runs them all
 
 One file per area, named after it: `feed*.test.js`, `refunds-v3`, `bank-credits`, `quick-orders`, `payment-flows`,
-`getotp-security`, `zee5-otp-matching`, `credit-renewals`, `paid-via`, `r2-video-storage`, `games`, `olivia`, … Each
+`getotp-security`, `zee5-otp-matching`, `credit-renewals`, `renew-days-message`, `paid-via`, `r2-video-storage`, `games`, `olivia`, … Each
 starts with a comment saying what it covers. They use fake in-memory databases — **no test ever touches live data or
 the network.** Several also read `index.html` / `admin.html` and check the markup, so a UI change can fail a test.
 

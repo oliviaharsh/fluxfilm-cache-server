@@ -131,7 +131,10 @@ function mount(app, deps) {
         // 💸 How the money actually came in (website QR / typed UTR / backup QR / coins / ₹0 / admin / credit).
         paidVia: { key: pv.via, detail: pv.detail, label: pv.label, at: pv.at, stored: pv.stored, payerName: s((bankCredits[0] || {}).payerName) || paidvia.displayName(claim && claim.payer_name) },
         // Who/how it was created (admin quick orders tag these); never the access-token hash.
-        meta: { createdVia: s(raw.CreatedVia) || (o.source === 'node' ? 'WEBSITE' : 'SHEET'), paymentMethod: s(raw.PaymentMethod), adminNote: s(raw.AdminNote), loginMode: s(raw.LoginMode) },
+        meta: { createdVia: s(raw.CreatedVia) || (o.source === 'node' ? 'WEBSITE' : 'SHEET'), paymentMethod: s(raw.PaymentMethod), adminNote: s(raw.AdminNote), loginMode: s(raw.LoginMode),
+          // 🎁 Renewal days (fulfill.js writes these at fulfil): what the rule counted, what we gifted, and the
+          // exact sentence the customer was given — so the owner can re-read or re-send it.
+          renewNote: s(raw.RenewNote), renewCounted: Number(raw.RenewCounted || 0), renewGifted: Number(raw.RenewGifted || 0), renewBase: s(raw.RenewBase) },
       });
     } catch (e) { fail(res, e); }
   });
