@@ -35,12 +35,16 @@ function run(sqlRaw, params) {
   const c = conditions(sql, params);
   const activeOnly = /UPPER\(is_active\)='TRUE'/.test(sql);
 
-  if (/FROM plans/.test(sql)) return S.plans.filter((p) => p.service === c.service && p.plan === c.plan).map(clone);
+  // 'WHERE service = ? AND plan = ?' (one plan) and 'WHERE service = ?' (the service's whole list, which is
+  // how renewQuote checks a plan change is a real, active plan of the same service).
+  if (/FROM plans/.test(sql)) return S.plans.filter((p) => (c.service == null || p.service === c.service) && (c.plan == null || p.plan === c.plan)).map(clone);
   if (/FROM inventory_accounts/.test(sql)) {
     return S.accounts.filter((a) => (c.account_id == null || a.account_id === c.account_id) && (!c.like || likes(a.service, c.like)) && (!activeOnly || a.is_active === 'TRUE')).map(clone);
   }
   if (/FROM inventory_capacity/.test(sql)) return S.caps.filter((x) => (c.account_id == null || x.account_id === c.account_id) && (!c.like || likes(x.service, c.like))).map(clone);
   if (/FROM inventory_profiles/.test(sql)) return S.profiles.filter((x) => (c.account_id == null || x.account_id === c.account_id) && (!c.like || likes(x.service, c.like))).map(clone);
+  // F1: a purchase with one login per device — every row of the group renews together (_renewalRows).
+  if (/FROM subscriptions WHERE group_id = \?/.test(sql)) return S.subs.filter((s) => s.group_id === params[0]).sort((x, y) => (x.group_index || 0) - (y.group_index || 0)).map((s) => ({ ...clone(s), occupying: s.occupying ? 1 : 0 }));
   if (/FROM subscriptions WHERE order_id = \?/.test(sql)) return S.subs.filter((s) => s.order_id === c.order_id).map(clone);
   if (/FROM subscriptions WHERE sub_id = \?/.test(sql)) return S.subs.filter((s) => s.sub_id === c.sub_id).map((s) => ({ ...clone(s), occupying: s.occupying ? 1 : 0 }));
   if (/FROM subscriptions/.test(sql) && /GROUP BY inventory_ref/.test(sql)) {
@@ -79,9 +83,11 @@ function run(sqlRaw, params) {
     S.writes.push('access-repair');
     return { affectedRows: s ? 1 : 0 };
   }
-  if (/^UPDATE subscriptions SET expiry_date/.test(sql)) {
-    const s = S.subs.find((x) => x.sub_id === params[4]);
-    Object.assign(s, { expiry_date: params[0], order_id: params[2], occupying: true });
+  // The renewal write: the row becomes the plan that was bought (name, length, devices) and moves its expiry.
+  //   plan, duration_days, device_count, tv_count, expiry, new_expiry, order_id, release, [raw_json x3], sub_id
+  if (/^UPDATE subscriptions SET plan = \?, duration_days/.test(sql)) {
+    const s = S.subs.find((x) => x.sub_id === params[params.length - 1]);
+    Object.assign(s, { plan: params[0], duration_days: params[1], device_count: params[2], tv_count: params[3], expiry_date: params[4], order_id: params[6], occupying: true });
     if (/removed = 0, removed_at = NULL/.test(sql)) Object.assign(s, { removed: 0, removed_at: null });
     S.writes.push('extend');
     return { affectedRows: 1 };
@@ -346,6 +352,65 @@ const other = (ref, service, o) => Object.assign({ sub_id: 'SUB-X' + Math.random
     const freshFulfill = require('../fulfill');
     f = await freshFulfill.fulfillForAdmin('FF-R1');
     ok('before schema-v13 runs: renewal still fulfils, treated as not removed (3 days counted)', f.fulfillment === 'FULFILLED' && f.renewCounted === 3, { fulfillment: f.fulfillment, counted: f.renewCounted, message: f.message });
+  }
+
+  // ------------------------------------------------------------------ 🔄 changing the plan on renewal
+  // Owner, 23 Sep 2026: "plan change on renewal - private to sharing and devices".
+  // The rule: a different kind or a different number of devices can never keep the old place, so it is
+  // allocated fresh — and if nothing is free the renewal is refused BEFORE the customer pays.
+  section('renewal that changes the plan (Private ↔ Sharing, devices)');
+  {
+    const nfOrder = (o) => renewOrder(Object.assign({ service: 'Netflix', plan: 'Sharing 1M', final_amount: 139 }, o));
+    const nfSub = (o) => sub(Object.assign({ service: 'Netflix', plan: 'Sharing 1M', inventory_ref: 'NF-1#P1', account_id: 'NF-1', profile_number: '1', profile_name: 'Shared', profile_pin: '1111', login_id: 'n1@nf', password: 'pn' }, o));
+    const me = () => S.subs.find((s) => s.sub_id === 'SUB-ME');
+
+    // Sharing → Private: the shared seat is not a private profile, so they get a private one (#2 or #3).
+    S = base();
+    S.subs.push(nfSub({}));
+    S.orders.push(nfOrder({ plan: 'Private 1M', final_amount: 169 }));
+    let f = await fulfill.fulfillForAdmin('FF-R1');
+    ok('Sharing → Private: a private profile, never the shared seat', f.fulfillment === 'FULFILLED' && f.accountChanged === true && /#P[23]$/.test(me().inventory_ref), { ref: me().inventory_ref, f: f.message });
+    ok('...and the row becomes the plan they bought', me().plan === 'Private 1M', { plan: me().plan });
+    ok('...and they are told the login changes', /new login/i.test(String(f.loginNotice || f.message)), { notice: f.loginNotice, message: f.message });
+
+    // Private → Sharing: the private profile is given up for the shared seat (#1, the reserved one).
+    S = base();
+    S.subs.push(nfSub({ plan: 'Private 1M', inventory_ref: 'NF-1#P2', profile_number: '2', profile_name: 'Two', profile_pin: '2222' }));
+    S.orders.push(nfOrder({ plan: 'Sharing 1M' }));
+    f = await fulfill.fulfillForAdmin('FF-R1');
+    ok('Private → Sharing: moved to the reserved sharing profile', f.fulfillment === 'FULFILLED' && me().inventory_ref === 'NF-1#P1', { ref: me().inventory_ref });
+    ok('...and the row says Sharing 1M', me().plan === 'Sharing 1M' && Number(me().device_count) === 1, me());
+
+    // Only the length changes: the same profile is kept, and the row finally carries the new plan name.
+    S = base();
+    S.subs.push(nfSub({ inventory_ref: 'NF-1#P2', profile_number: '2', plan: 'Private 1M' }));
+    S.orders.push(nfOrder({ plan: 'Private 3M', duration_days: 90, final_amount: 449 }));
+    f = await fulfill.fulfillForAdmin('FF-R1');
+    ok('longer, same kind: the profile is kept', f.fulfillment === 'FULFILLED' && !f.accountChanged && me().inventory_ref === 'NF-1#P2', { ref: me().inventory_ref, changed: f.accountChanged });
+    ok('...and the row is updated to the longer plan (it used to keep the old name for ever)', me().plan === 'Private 3M' && Number(me().duration_days) === 90, me());
+
+    // 1 → 2 devices on Prime: the new count is what gets placed, and the row records it.
+    S = base();
+    S.subs.push(sub({ service: 'Prime Video', plan: '1 Month', inventory_ref: 'PRI-B', login_id: 'b@prime', password: 'pb', device_count: 1, tv_count: 0 }));
+    S.orders.push(renewOrder({ plan: '2 Devices 1M', final_amount: 59 }));
+    f = await fulfill.fulfillForAdmin('FF-R1');
+    ok('1 → 2 devices: fulfilled, and the row now holds 2', f.fulfillment === 'FULFILLED' && Number(me().device_count) === 2 && me().plan === '2 Devices 1M', { dev: me().device_count, plan: me().plan, f: f.message });
+
+    // …and when there is no room for the second device, nothing is sold: refused before payment.
+    S = base();
+    S.caps[1].max_total = 1; // PRI-B can take one device
+    S.subs.push(sub({ service: 'Prime Video', plan: '1 Month', inventory_ref: 'PRI-B', login_id: 'b@prime', password: 'pb' }));
+    S.subs.push(other('PRI-A', 'Prime Video')); // PRI-A's only free place taken
+    S.caps[0].max_total = 1;
+    const blocked = await order.createRenewOrder('SUB-ME', '2 Devices 1M');
+    ok('no room for the extra device: refused BEFORE payment, no order', blocked.ok === false && blocked.renewBlocked === true && !S.writes.includes('order'), { blocked, writes: S.writes });
+
+    // A purchase with a separate login per device still cannot change how many devices it has.
+    S = base();
+    S.subs.push(sub({ sub_id: 'SUB-ME', service: 'Prime Video', plan: '2 Devices 1M', inventory_ref: 'PRI-A', login_id: 'a@prime', password: 'pa', device_count: 1, group_id: 'G-1', group_size: 2, group_index: 1 }));
+    S.subs.push(sub({ sub_id: 'SUB-ME2', service: 'Prime Video', plan: '2 Devices 1M', inventory_ref: 'PRI-B', login_id: 'b@prime', password: 'pb', device_count: 1, group_id: 'G-1', group_size: 2, group_index: 2 }));
+    const shrink = await order.createRenewOrder('SUB-ME', '1 Month');
+    ok('separate logins: dropping to 1 device is refused, with the reason', shrink.ok === false && /separate login/i.test(String(shrink.message)), shrink.message);
   }
 
   console.log('\n---------------------------------------');

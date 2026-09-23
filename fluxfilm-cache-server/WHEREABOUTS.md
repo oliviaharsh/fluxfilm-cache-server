@@ -276,6 +276,7 @@ the two exceptions are `adminrefundnow.js` (mounted by `adminorderactions.js`) a
 | Which password does the customer actually get? | **`accesspassword.js`** (the account is the truth, the sub row is a copy) |
 | Was this subscription delivered? | **`delivered.js`** |
 | How many days does a late renewal cost? | `renewal.js`, `renewrules.js` |
+| Which plans may a customer renew into? | `renewrules.js` `renewPlanMoves` / `renewNeedsNewPlace` — any plan of the same service; a kind or device change gets a NEW place (`fulfill.js`) |
 | How is a customer message written? | **`watext.js`** — one wording with `*bold*` markers, rendered as WhatsApp / plain text / email HTML |
 | The renewal reminder (expired / today / soon / ₹ due) | `credit.js whatsappText()` **and** `admin.html waRemindText()` — the same text, pinned together by `test/message-style.test.js` |
 | What was the customer told about those days? | `fulfill.js` `renewMessage` → the WhatsApp text (`admin.html qWaText`), the credentials email (`mailer.js renewNote`) and the order's `raw_json.RenewNote` / `RenewCounted` / `RenewGifted` |

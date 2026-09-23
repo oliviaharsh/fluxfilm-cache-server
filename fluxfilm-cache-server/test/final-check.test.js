@@ -138,22 +138,30 @@ const sub = (o) => Object.assign({ sub_id: 'SUB-100000001', service: 'Prime Vide
   stockMode = { stock: 5 };
 
   // ------------------------------------------------------------------------------------------------
-  section('renewals: only the duration may change');
+  section('renewals: the plan may change, and a change gets a new place');
   ok('planVariant("Sharing 2 Devices 3M") = "sharing 2 devices"', order.planVariant('Sharing 2 Devices 3M') === 'sharing 2 devices');
   ok('planVariant("1Year") = planVariant("1 Month") = ""', order.planVariant('1Year') === '' && order.planVariant('1 Month') === '');
   ok('planVariant("Private 1M") ≠ planVariant("Sharing 1M")', order.planVariant('Private 1M') !== order.planVariant('Sharing 1M'));
   ok('planVariant("2 Devices 1M") ≠ planVariant("1 Month")', order.planVariant('2 Devices 1M') !== order.planVariant('1 Month'));
 
+  // Dropping to fewer devices: allowed, and the order is the 1-device plan at the 1-device price. The old rule
+  // refused this because the row would have kept 2 devices; fulfil now re-places it (renewal-account-check).
   S = fresh(); S.subs.push(sub({ plan: '2 Devices 1M' }));
   r = await order.createRenewOrder('SUB-100000001', '1 Month');
-  ok('2-device sub renewed as "1 Month" (₹39, keeps 2 devices) → refused', r.ok === false && r.renewBlocked === true, r);
-  ok('… and no order row written', S.inserted.length === 0);
+  ok('2 devices → "1 Month": allowed, charged ₹39 for one device', r.ok === true && lastAmount() === 39 && r.deviceCount === 1 && r.newPlace !== false, { r: r.ok, amt: lastAmount(), dev: r.deviceCount });
+  // Going up: they pay the 2-device price, and the order carries 2 devices — never the old "pay for 2, get 1".
   S = fresh(); S.subs.push(sub({ plan: '1 Month' }));
   r = await order.createRenewOrder('SUB-100000001', '2 Devices 1M');
-  ok('1-device sub renewed as "2 Devices 1M" (pays, gets 1 device) → refused', r.ok === false && r.renewBlocked === true, r);
+  ok('1 device → "2 Devices 1M": allowed, charged ₹59 and the order says 2 devices', r.ok === true && lastAmount() === 59 && r.deviceCount === 2, { amt: lastAmount(), dev: r.deviceCount });
+  // Private → Sharing at the Sharing price is now fine, because the private profile is given up for a shared seat.
   S = fresh(); S.subs.push(sub({ service: 'Netflix', plan: 'Private 1M' }));
   r = await order.createRenewOrder('SUB-100000001', 'Sharing 1M');
-  ok('Netflix Private renewed at the Sharing price → refused', r.ok === false && r.renewBlocked === true, r);
+  ok('Netflix Private → Sharing: allowed at the Sharing price', r.ok === true && lastAmount() === 139, { amt: lastAmount() });
+  // A plan that is not this service's (or not active) is still refused — a renewal never crosses services.
+  S = fresh(); S.subs.push(sub({ service: 'Netflix', plan: 'Private 1M' }));
+  r = await order.createRenewOrder('SUB-100000001', 'Nonsense 9M');
+  ok('a plan that is not an active plan of this service → refused', r.ok === false && r.renewBlocked === true, r);
+  ok('… and no order row written', S.inserted.length === 0);
   S = fresh(); S.subs.push(sub({ plan: '2 Devices 1M' }));
   r = await order.createRenewOrder('SUB-100000001', '2 Devices 3M');
   ok('same devices, longer duration → allowed', r.ok === true && lastAmount() === 149, { r, amt: lastAmount() });
@@ -308,7 +316,7 @@ const sub = (o) => Object.assign({ sub_id: 'SUB-100000001', service: 'Prime Vide
   ok('server: old Netflix "1 Month" renews into "Sharing 1M"', r.ok === true, r);
   S = fresh(); S.subs.push(sub({ service: 'Netflix', plan: '1 Month' }));
   r = await order.createRenewOrder('SUB-100000001', 'Sharing 2 Devices 1M');
-  ok('server: old Netflix "1 Month" → 2-device plan refused (page does not offer it)', r.ok === false && r.renewBlocked === true, r);
+  ok('server: old Netflix "1 Month" → a 2-device plan is now allowed, at the 2-device price', r.ok === true && lastAmount() === 189, { r: r.ok, amt: lastAmount() });
   S = fresh(); S.subs.push(sub({ service: 'Netflix', plan: 'Private 1M' }));
   S.plans.push({ service: 'Netflix', plan: 'Private 3M', duration_days: 90, price: 450, is_active: 'FALSE', raw_json: '{}' });
   r = await order.createRenewOrder('SUB-100000001', 'Private 3M');
@@ -325,14 +333,26 @@ const sub = (o) => Object.assign({ sub_id: 'SUB-100000001', service: 'Prime Vide
 
   const html0 = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const grab = (name) => { const m = html0.match(new RegExp('function ' + name + '\\([^)]*\\) \\{[\\s\\S]*?\\n\\}')); return m ? m[0] : ''; };
-  const pageFns = new Function(grab('renewPlanVariant_') + '\n' + grab('renewPlanDevices_') + '\n' + grab('renewPlanChoices_') + '\nreturn { v: renewPlanVariant_, c: renewPlanChoices_ };')();
+  const pageFns = new Function(grab('renewPlanVariant_') + '\n' + grab('renewPlanDevices_') + '\n' + grab('renewPlanChoices_') + '\n' + grab('renewNeedsNewPlace_') + '\nreturn { v: renewPlanVariant_, c: renewPlanChoices_, np: renewNeedsNewPlace_ };')();
   const names = legacy.concat(NF, PV, ['Sharing 2 Device 1 Year', '4 Devices Yearly', 'Private Screen', 'Family 5 Devices 1M', '', null]);
   ok('index.html renewPlanChoices_ gives exactly the server answers', names.every((n) => pageFns.v(n) === RR.planVariant(n) && same(pageFns.c(n, NF), RR.renewPlanChoices(n, NF)) && same(pageFns.c(n, PV), RR.renewPlanChoices(n, PV))));
+  // 🔄 "does this renewal need a new profile?" decides both what the page warns about and what fulfil does —
+  // the two copies must never disagree, or the page would promise a kept login that fulfil then moves.
+  ok('index.html renewNeedsNewPlace_ gives exactly the server answers', names.every((a) => names.every((b) => pageFns.np(a, b) === RR.renewNeedsNewPlace(a, b))));
+  ok('a longer plan of the same kind keeps the place; Private ↔ Sharing and a device change do not',
+    RR.renewNeedsNewPlace('Sharing 1M', 'Sharing 3M') === false && RR.renewNeedsNewPlace('Sharing 1M', 'Private 1M') === true &&
+    RR.renewNeedsNewPlace('Private 1M', 'Private 2 Devices 1M') === true && RR.renewNeedsNewPlace('1 Month', '1 Year') === false);
+  const moves = RR.renewPlanMoves('Sharing 1M', ['Sharing 1M', 'Sharing 3M', 'Private 1M', 'Sharing 2 Devices 1M']);
+  ok('renewPlanMoves labels each choice', JSON.stringify(moves.map((m) => m.plan + ':' + m.move)) === JSON.stringify(['Sharing 1M:DURATION', 'Sharing 3M:DURATION', 'Private 1M:CHANGE', 'Sharing 2 Devices 1M:CHANGE']), moves);
 
   // ------------------------------------------------------------------------------------------------
   section('storefront renew page');
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  ok('renew page lists the shared renewPlanChoices_ (same kind; old names → same devices, else all)', /const renewAllowed_ = renewPlanChoices_\(currentPlan, allServicePlans\.map\(p => p\.plan\)\);/.test(html) && /const servicePlans = allServicePlans\.filter\(p => renewAllowed_\.includes\(p\.plan\)\);/.test(html));
+  // The renew page now offers every plan of the service, with the ones that change the kind or the devices
+  // kept behind "Change my plan" so the default list is as short as it was.
+  ok('renew page offers every plan of the service, split into keep-your-place and change', /const servicePlans = allServicePlans;/.test(html) && /const sameKindPlans = servicePlans\.filter\(p => !renewNeedsNewPlace_\(currentPlan, p\.plan\)\);/.test(html) && /const changePlans = servicePlans\.filter\(p => renewNeedsNewPlace_\(currentPlan, p\.plan\)\);/.test(html));
+  ok('the plan changes are hidden until asked for', /🔀 Change my plan/.test(html) && /setShowChange\(v => !v\)/.test(html));
+  ok('and the customer is warned the login changes before they pay', /changesPlace && React\.createElement/.test(html) && /comes with a new login/.test(html));
   ok('renew page shows only the discount the server gives (no biggest-tier fallback)', !/earlyRenewDiscountEligible \|\| 0\) \|\| Math\.max\(Number\(sub\.earlyDiscount8Plus/.test(html));
   let parsed = 0; let bad = '';
   const re = /<script(?![^>]*type=["'](?:application\/ld\+json|application\/json|text\/babel))[^>]*>([\s\S]*?)<\/script>/gi; let m;

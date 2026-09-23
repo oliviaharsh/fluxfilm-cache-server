@@ -82,9 +82,9 @@ function run(sqlRaw, params) {
     S.writes.push('move');
     return { affectedRows: 1 };
   }
-  if (/^UPDATE subscriptions SET expiry_date/.test(sql)) {
-    const x = S.subs.find((r) => r.sub_id === params[4]);
-    Object.assign(x, { expiry_date: params[0], order_id: params[2], status: 'ACTIVE', occupying: true, removed: 0, removed_at: null });
+  if (/^UPDATE subscriptions SET plan = \?, duration_days/.test(sql)) {
+    const x = S.subs.find((r) => r.sub_id === params[params.length - 1]);
+    Object.assign(x, { expiry_date: params[4], order_id: params[6], status: 'ACTIVE', occupying: true, removed: 0, removed_at: null });
     S.writes.push('extend');
     return { affectedRows: 1 };
   }

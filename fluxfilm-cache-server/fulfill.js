@@ -8,6 +8,7 @@ const db = require('./db');
 const { loginKey, buildLoginGroups } = require('./logins');
 const { computeRenewal } = require('./renewal');
 const deviceLogins = require('./devicelogins');
+const renewRules = require('./renewrules');
 // 🔑 One shared rule: an access card never shows a password the account no longer has.
 const accessPassword = require('./accesspassword');
 
@@ -828,6 +829,8 @@ async function _canKeepAccount(conn, policy, s, plan) {
 }
 
 const RENEW_MOVE_MESSAGE = {
+  // 🔄 They chose a different plan, so the old profile is released and a new one is set up for them.
+  PLAN_CHANGED: 'You are changing your plan, so this comes with a new login — your current profile is released when the new one is ready.',
   FULL: 'Your previous place on this account has been taken since your plan ended, so you will get a new login right after renewal.',
   DEFAULT: 'Your old account is no longer available, so you will get a new login right after renewal.',
 };
@@ -836,15 +839,22 @@ const RENEW_NONE_MESSAGE = "Sorry — your old account is no longer available an
 async function _renewalDecision(conn, s, plan) {
   const targetPlan = plan || s.plan;
   const info = await _renewalPlanInfo(conn, s.service, targetPlan);
-  if (info.policy === 'MANUAL') return { mode: 'SAME', policy: info.policy, durationDays: info.durationDays };
-  const keep = await _canKeepAccount(conn, info.policy, s, targetPlan);
-  if (keep.keep) return { mode: 'SAME', policy: info.policy, creds: keep.creds, durationDays: info.durationDays };
-  const { dev, tv } = _heldDevices(s);
+  if (info.policy === 'MANUAL') return { mode: 'SAME', policy: info.policy, durationDays: info.durationDays, wantDev: deviceLogins.devicesForPlan(targetPlan) };
+  // 🔄 Changing the KIND (Private ↔ Sharing) or the number of DEVICES cannot reuse the place the customer has:
+  // a Sharing seat is not a Private profile, and a second device needs room nobody reserved for them. So the old
+  // place is not even considered — this is allocated like a fresh purchase of the new plan (owner, 23 Sep 2026).
+  const newPlace = renewRules.renewNeedsNewPlace(s.plan, targetPlan);
+  const keep = newPlace ? { keep: false, reason: 'PLAN_CHANGED' } : await _canKeepAccount(conn, info.policy, s, targetPlan);
+  if (keep.keep) return { mode: 'SAME', policy: info.policy, creds: keep.creds, durationDays: info.durationDays, wantDev: _heldDevices(s).dev };
+  // The devices to place are the NEW plan's, not the ones the row happens to hold.
+  const held = _heldDevices(s);
+  const dev = newPlace ? deviceLogins.devicesForPlan(targetPlan) : held.dev;
+  const tv = Math.min(held.tv, dev);
   const { alloc, dt } = await pickAllocation(conn, info.policy, {
-    service: s.service, plan: targetPlan, durationDays: info.durationDays, deviceCount: dev, tvCount: Math.min(tv, dev),
+    service: s.service, plan: targetPlan, durationDays: info.durationDays, deviceCount: dev, tvCount: tv,
   });
-  if (alloc && alloc.ok) return { mode: 'MOVE', policy: info.policy, reason: keep.reason, alloc, dt, durationDays: info.durationDays };
-  return { mode: 'NONE', policy: info.policy, reason: keep.reason, durationDays: info.durationDays };
+  if (alloc && alloc.ok) return { mode: 'MOVE', policy: info.policy, reason: keep.reason, alloc, dt, durationDays: info.durationDays, wantDev: dev, wantTv: tv };
+  return { mode: 'NONE', policy: info.policy, reason: keep.reason, durationDays: info.durationDays, wantDev: dev };
 }
 
 const accountOfRef = (ref) => { const r = String(ref || '').trim(); const cut = r.indexOf('#P'); return cut >= 0 ? r.slice(0, cut) : r; };
@@ -864,9 +874,13 @@ async function _purchaseRenewalDecision(conn, rows, plan) {
     d.keeps = d.mode === 'SAME' ? [{ row: lead, creds: d.creds }] : [];
     d.moves = d.mode === 'MOVE' ? [{ row: lead, reason: d.reason, part: { alloc: d.alloc, dt: d.dt } }] : [];
     if (d.mode !== 'NONE') return d;
-    const { dev, tv } = _heldDevices(lead);
+    // The device count to place is the NEW plan's when the plan changed (1 → 2 devices renews into 2 logins
+    // when no single account can take both).
+    const held = _heldDevices(lead);
+    const dev = d.wantDev || held.dev;
+    const tv = Math.min(held.tv, dev);
     if (dev > 1 && await _deviceLoginsOn(conn, lead.service, targetPlan, d.policy, dev)) {
-      const parts = await _separateParts(conn, d.policy, { service: lead.service, plan: targetPlan, tvCount: Math.min(tv, dev) }, dev);
+      const parts = await _separateParts(conn, d.policy, { service: lead.service, plan: targetPlan, tvCount: tv }, dev);
       if (parts) return Object.assign(d, { mode: 'SPLIT', parts });
     }
     return d;
@@ -874,11 +888,16 @@ async function _purchaseRenewalDecision(conn, rows, plan) {
   const info = await _renewalPlanInfo(conn, lead.service, targetPlan);
   const base = { policy: info.policy, durationDays: info.durationDays, rows, keeps: [], moves: [] };
   const held = rows.reduce((n, r) => n + _heldDevices(r).dev, 0);
+  // This purchase has one login per device. Renewing into a different NUMBER of devices would mean releasing or
+  // adding whole logins, so it is still refused here (before payment) with the message below — the customer can
+  // change Private ↔ Sharing, or the length, and buy separately to change how many devices they have.
   if (deviceLogins.devicesForPlan(targetPlan) !== held) return Object.assign(base, { mode: 'NONE', reason: 'DEVICES' });
   if (info.policy === 'MANUAL') return Object.assign(base, { mode: 'SAME', keeps: rows.map((row) => ({ row })) });
+  // 🔄 Private ↔ Sharing: every device needs a new place, exactly as for a single row.
+  const newPlace = renewRules.renewNeedsNewPlace(lead.plan, targetPlan);
   const moving = [];
   for (const row of rows) {
-    const k = await _canKeepAccount(conn, info.policy, row, targetPlan);
+    const k = newPlace ? { keep: false, reason: 'PLAN_CHANGED' } : await _canKeepAccount(conn, info.policy, row, targetPlan);
     if (k.keep) base.keeps.push({ row, creds: k.creds }); else moving.push({ row, reason: k.reason });
   }
   if (!moving.length) return Object.assign(base, { mode: 'SAME' });
@@ -1048,7 +1067,7 @@ async function _fulfillRenew(o) {
             row.sub_id = await freeSubId();
             while (next.some((x) => x.sub_id === row.sub_id)) row.sub_id = await freeSubId();
             await conn.query(SUB_INSERT_SQL,
-              [row.sub_id, o.order_id, o.phone, o.phone_norm, o.email, lead.service, lead.plan, asNum(o.duration_days) || 30,
+              [row.sub_id, o.order_id, o.phone, o.phone_norm, o.email, lead.service, String(o.plan || '').trim() || lead.plan, asNum(o.duration_days) || 30,
                 fmtDt(require('./renewal').toDate(lead.start_date) || new Date()), fmtDt(newExpiry), 'RENEW', part.alloc.inventoryRef, part.alloc.accountId || part.alloc.inventoryRef,
                 row.login_id, row.password, row.profile_number, row.profile_name, row.profile_pin, dt, 1, tv, fmtDt(release), groupId, size, i + 1]);
           }
@@ -1060,10 +1079,20 @@ async function _fulfillRenew(o) {
 
       // Back on the account: clear the "removed" tick so the next renewal starts clean.
       const clearRemoval = (await _hasRemovalColumns(conn)) ? ', removed = 0, removed_at = NULL' : '';
+      // 🔄 The row becomes the plan that was actually bought. Until now a renewal only moved the expiry, so a
+      // customer who renewed "Sharing 1M" into "Sharing 3M" still had a row saying "Sharing 1M" — harmless while
+      // only the length could change, but wrong the moment Private ↔ Sharing or the devices can change too.
+      // raw_json is kept in step for the legacy rows that have one (CLAUDE.md), using the Sheet's own key names.
+      const rowPlan = String(o.plan || '').trim() || d.rows[0].plan;
+      const rowDays = asNum(o.duration_days) || d.durationDays || 30;
+      const rowDev = d.mode === 'SPLIT' ? 1 : (d.wantDev || _heldDevices(d.rows[0]).dev);
       for (const r of rows) {
+        const dev = d.mode === 'SPLIT' ? 1 : rowDev; // the NEW plan's devices, not the ones the row used to hold
+        const tv = r.tv_count == null || r.tv_count === '' ? null : Math.min(asNum(r.tv_count), dev);
         await conn.query(
-          "UPDATE subscriptions SET expiry_date = ?, new_expiry = ?, order_id = ?, status = 'ACTIVE', fulfillment_status = 'FULFILLED', release_eligible_at = ?, fulfilled_at = NOW(), source = 'node'" + clearRemoval + ' WHERE sub_id = ?',
-          [fmtDt(newExpiry), fmtDt(newExpiry), o.order_id, fmtDt(release), r.sub_id]);
+          "UPDATE subscriptions SET plan = ?, duration_days = ?, device_count = ?, tv_count = ?, expiry_date = ?, new_expiry = ?, order_id = ?, status = 'ACTIVE', fulfillment_status = 'FULFILLED', release_eligible_at = ?, fulfilled_at = NOW(), source = 'node'" + clearRemoval +
+          ", raw_json = IF(raw_json IS NULL, NULL, JSON_SET(raw_json, '$.Plan', ?, '$.DurationDays', ?, '$.DeviceConcurrency', ?)) WHERE sub_id = ?",
+          [rowPlan, rowDays, dev, tv, fmtDt(newExpiry), fmtDt(newExpiry), o.order_id, fmtDt(release), rowPlan, rowDays, dev, r.sub_id]);
       }
       await conn.query("UPDATE orders SET fulfillment_status = 'FULFILLED', fulfilled_at = NOW() WHERE order_id = ?", [o.order_id]);
     });

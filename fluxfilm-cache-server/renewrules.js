@@ -6,10 +6,16 @@
  *    server price check (order.js renewQuote), so the page and the server always agree.
  *    Renew is allowed until LATE_RENEW_DAYS (6) days after the expiry date, the same as before.
  *
- * 2) Which plans a subscription may renew into. A renewal keeps the same account and devices, so only the
- *    duration may change. Old imported plan names ("1 Month", "Yearly", "30 Days", "12M", "1 Year") are
- *    normalised the same way as current names ("Sharing 1M"). If the old plan's kind is unknown, the plans of
- *    the same service with the same device count are offered; if none, every plan of the service. Never none.
+ * 2) Which plans a subscription may renew into. **Any active plan of the same service** (owner, 23 Sep 2026:
+ *    "plan change on renewal — private to sharing and devices"). Two sorts of move:
+ *      DURATION — same kind and the same number of devices, only the length changes. The customer keeps the
+ *                 account and the profile they already have.
+ *      CHANGE   — a different kind (Private ↔ Sharing) or a different number of devices. This cannot reuse the
+ *                 old place: a Sharing seat is not a Private profile, and a second device needs room that was
+ *                 never reserved. fulfill.js allocates fresh for the new plan, and the customer is told the
+ *                 login may change. If nothing is free, the renewal is refused BEFORE any money is taken.
+ *    renewPlanChoices (the DURATION set) is still what the old "only the duration may change" rule allowed;
+ *    old imported names ("1 Month", "Yearly", "12M") are normalised the same way as current ones.
  *
  * index.html has a copy of planVariant / planDevices / renewPlanChoices (renewPlanChoices_); a test checks both
  * give the same answers.
@@ -87,4 +93,29 @@ function renewPlanChoices(subPlan, planNames) {
   return names;
 }
 
-module.exports = { LATE_RENEW_DAYS, istYmd, expiryYmd, daysLeftIst, renewEligibility, planVariant, planDevices, renewPlanChoices };
+/**
+ * Every plan name the customer may renew into, and how far each moves from what they have now.
+ * → [{ plan, move: 'DURATION' | 'CHANGE', devices, kindChanged, devicesChanged }], input order kept.
+ */
+function renewPlanMoves(subPlan, planNames) {
+  const names = [];
+  for (const p of planNames || []) { const n = String(p == null ? '' : p).trim(); if (n && !names.includes(n)) names.push(n); }
+  const v = planVariant(subPlan);
+  const dev = planDevices(subPlan);
+  return names.map((plan) => {
+    const kindChanged = planVariant(plan) !== v;
+    const devicesChanged = planDevices(plan) !== dev;
+    return { plan, move: kindChanged || devicesChanged ? 'CHANGE' : 'DURATION', devices: planDevices(plan), kindChanged, devicesChanged };
+  });
+}
+
+/**
+ * Does renewing into this plan need a NEW account / profile rather than the one the customer has?
+ * True whenever the kind or the number of devices changes — a Sharing seat cannot become a Private profile and
+ * a second device needs room nobody reserved. fulfill.js asks this before trying to keep the current place.
+ */
+function renewNeedsNewPlace(subPlan, plan) {
+  return planVariant(plan) !== planVariant(subPlan) || planDevices(plan) !== planDevices(subPlan);
+}
+
+module.exports = { LATE_RENEW_DAYS, istYmd, expiryYmd, daysLeftIst, renewEligibility, planVariant, planDevices, renewPlanChoices, renewPlanMoves, renewNeedsNewPlace };

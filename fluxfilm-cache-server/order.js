@@ -497,19 +497,18 @@ async function renewQuote(subId, planOverride) {
   if (!renewableStatus(sub)) return { ok: false, renewBlocked: true, message: 'This plan cannot be renewed online. Please contact WhatsApp support.' };
   const plan = String(planOverride || '').trim() || String(sub.plan || '').trim();
   const samePlan = plan === String(sub.plan || '').trim();
-  // A renewal extends the SAME account/profile and keeps its device count, so it may only change the DURATION.
-  // Before: "2 Devices 1M" renewed as "1 Month" paid the 1-device price and kept 2 devices; a Netflix Private
-  // profile renewed at the Sharing price kept the private profile.
-  // The allowed plans are exactly the ones the renew page lists (renewrules.renewPlanChoices over the active plans of
-  // the service): same kind when it is known; for an old plan name of unknown kind, same device count, else any.
+  // The customer may renew into ANY active plan of the same service — a longer one, Private ↔ Sharing, or a
+  // different number of devices (owner, 23 Sep 2026). A different service is a new purchase, not a renewal.
+  // Changing the kind or the devices cannot reuse the old place, so fulfil allocates fresh (renewNeedsNewPlace)
+  // and planRenewal below decides that BEFORE payment — a renewal that cannot be placed is refused, not sold.
   if (!samePlan) {
     const svcRows = await db.query('SELECT plan, is_active, raw_json FROM plans WHERE service = ?', [sub.service]);
     const activeNames = (svcRows || []).filter((r) => {
       const a = (r.is_active != null && r.is_active !== '') ? r.is_active : rawOf(r.raw_json).IsActive;
       return String(a == null ? '' : a).trim().toUpperCase() === 'TRUE';
     }).map((r) => String(r.plan || '').trim());
-    if (!renewRules.renewPlanChoices(sub.plan, activeNames).includes(plan)) {
-      return { ok: false, renewBlocked: true, message: 'A renewal can only change the duration of your plan. To change devices or Private/Sharing, please buy a new plan.' };
+    if (!activeNames.includes(plan)) {
+      return { ok: false, renewBlocked: true, message: 'That plan is not available for ' + sub.service + ' right now. Please pick one of the plans shown, or contact WhatsApp support.' };
     }
   }
 
@@ -518,7 +517,9 @@ async function renewQuote(subId, planOverride) {
   if (!prow) return { ok: false, message: 'Renewal plan not found — please contact support.' };
   const praw = rawOf(prow.raw_json);
 
-  // R1: check the account can still serve this customer BEFORE they pay.
+  // R1: check the account can still serve this customer BEFORE they pay. A kind / device change is allocated
+  // fresh here too, so "no room" is a refusal before payment rather than a failed delivery after it.
+  const newPlace = !samePlan && renewRules.renewNeedsNewPlace(sub.plan, plan);
   const renewal = await require('./fulfill').planRenewal(sid, plan);
 
   // days left from current expiry -> tiered early-renew discount. The SAME calendar-day count (India, expiry date)
@@ -531,7 +532,7 @@ async function renewQuote(subId, planOverride) {
     else if (daysLeft >= 2) earlyDiscount = asNum(praw.EarlyRenewDiscount_7to2);
   }
   const price = asNum(prow.price);
-  return { ok: true, sub, plan, price, daysLeft, renewEligibility: renewRules.renewEligibility(daysLeft), earlyDiscount, amount: Math.max(0, price - earlyDiscount), renewal };
+  return { ok: true, sub, plan, price, daysLeft, renewEligibility: renewRules.renewEligibility(daysLeft), earlyDiscount, amount: Math.max(0, price - earlyDiscount), renewal, planChanged: !samePlan, newPlace };
 }
 
 /**
