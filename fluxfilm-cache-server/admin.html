@@ -2760,7 +2760,7 @@ function loadAudit() {
 }
 
 /* ================= password change (F5) ================= */
-var PW = { q: '', accounts: null, pick: null, impact: null, result: null, showAll: {} };
+var PW = { q: '', accounts: null, pick: null, impact: null, result: null, showAll: {}, prefill: '' };
 // 🔑 "2 Sep 2026 (14 days ago)" / "unknown" — d = passwordChangedAt from the server (passwordage.js), short = "2 Sep".
 function pwAgeText(d, short) {
   if (!d || !d.at) return 'unknown';
@@ -2815,6 +2815,8 @@ function renderPassword() {
   $('#pwreveal').onclick = function () { var c = $('#pwcur'); var shown = c.textContent !== '••••••••'; c.textContent = shown ? '••••••••' : c.getAttribute('data-p'); this.textContent = shown ? 'Show' : 'Hide'; };
   var mo = $('#pwmoveoff'); if (mo) mo.onclick = function () { moveOffDialog(im.account.accountId, im.account.service); };
   $('#pwshow').onclick = function () { var i = $('#pwnew'); i.type = i.type === 'password' ? 'text' : 'password'; };
+  // Arrived from ✨ Ask with a suggested password: show it filled in (visible, so it can be read out) — still unsaved.
+  if (PW.prefill) { $('#pwnew').value = PW.prefill; $('#pwnew').type = 'text'; PW.prefill = ''; }
   el.onclick = function (e) { var m = e.target.closest('[data-more]'); if (m) { var k = m.getAttribute('data-more'); PW.showAll[k] = !PW.showAll[k]; var keep = $('#pwnew') && $('#pwnew').value; renderPassword(); if (keep) $('#pwnew').value = keep; } };
   $('#pwgo').onclick = function () {
     var pw = $('#pwnew').value.trim();
@@ -2890,7 +2892,7 @@ function renderPwResult() {
     '<div class="fld" style="margin-top:14px"><label>For your AI agent (WhatsApp)</label><textarea class="inp" id="pwcopy" rows="10" style="width:100%;font-family:inherit">' + esc(lines.join('\n')) + '</textarea></div>' +
     '<div class="row" style="margin-top:10px"><button class="btn green" id="pwcp">📋 Copy</button><button class="btn ghost" id="pwagain">🔑 Another account</button></div></div>';
   $('#pwcp').onclick = function () { copy($('#pwcopy').value); };
-  $('#pwagain').onclick = function () { PW = { q: '', accounts: null, pick: null, impact: null, result: null, showAll: {} }; renderPassword(); };
+  $('#pwagain').onclick = function () { PW = { q: '', accounts: null, pick: null, impact: null, result: null, showAll: {}, prefill: '' }; renderPassword(); };
 }
 
 /* ================= renewal reminders ================= */
@@ -6731,4 +6733,95 @@ function exCustomersDialog() {
     $('#exc_go').onclick = function () { exDownload('customers', build(), $('#exc_go'), $('#exc_msg')); };
   });
 }
-</script></body></html>
+</script>
+<script>
+/* ================= ✨ Ask: the admin assistant (adminask.js) ================= */
+// Self-contained: the ✨ Ask menu item + screen live here, so the shared MENU / viewMap lines stay untouched.
+// ⚠️ It never writes. It answers a question, or it opens the right screen with the right thing already filled in —
+// the last press is always the owner's. Nothing typed here can create an order or change a login on its own.
+var ASK = { busy: false, out: null, examples: [], typed: '', aiKeySet: true };
+(function () {
+  if (!MENU.some(function (m) { return m[0] === 'ask'; })) {
+    var at = -1; MENU.forEach(function (m, i) { if (m[0] === 'quick') at = i; });
+    MENU.splice(at >= 0 ? at : MENU.length, 0, ['ask', '✨', 'Ask']);
+  }
+  var baseViewMap = viewMap;
+  viewMap = function () { var m = baseViewMap(); m.ask = askView; return m; };
+})();
+var ASK_LABEL = { quick: '⚡ Quick order', customer: '🔍 Customer 360', password: '🔑 Password change', stock: '📦 Stock', receivables: '💳 Receivables' };
+function askNavLabel(g) {
+  if (ASK_LABEL[g.view]) return 'Open ' + ASK_LABEL[g.view];
+  var m = MENU.filter(function (x) { return x.length > 1 && x[0] === g.view; })[0];
+  return 'Open ' + (m ? m[1] + ' ' + m[2] : g.view);
+}
+function askView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>✨ Ask</h1><p>Type it the way you would say it — I look it up, or open the right screen with it filled in</p></div></div>' +
+    '<div class="card"><div class="row" style="flex-wrap:nowrap"><input id="askq" class="inp" placeholder="e.g. strong password for PRI-32" autocomplete="off" style="flex:1"/><button class="btn" id="askgo">✨ Ask</button></div>' +
+    '<div class="row" id="askex" style="gap:6px;margin-top:10px"></div>' +
+    '<p class="muted" style="font-size:.78rem;margin:10px 0 0">Nothing here saves anything. Orders, passwords and moves still need your press on their own screen.</p></div>' +
+    '<div id="askout"></div>';
+  $('#askq').value = ASK.typed;
+  $('#askgo').onclick = function () { askRun($('#askq').value); };
+  $('#askq').addEventListener('keydown', function (e) { if (e.key === 'Enter') askRun($('#askq').value); });
+  $('#askex').onclick = function (e) { var b = e.target.closest('[data-ex]'); if (!b) return; $('#askq').value = b.getAttribute('data-ex'); askRun(b.getAttribute('data-ex')); };
+  askRenderOut();
+  if (ASK.examples.length) askRenderExamples();
+  else api('/admin/api/ask/examples').then(function (r) { if (!r || !r.ok) return; ASK.examples = r.examples || []; ASK.aiKeySet = r.aiKeySet !== false; askRenderExamples(); });
+  $('#askq').focus();
+}
+function askRenderExamples() {
+  var el = $('#askex'); if (!el) return;
+  el.innerHTML = ASK.examples.map(function (x) { return '<button class="chip" data-ex="' + esc(x) + '">' + esc(x) + '</button>'; }).join('');
+}
+function askRun(text) {
+  var t = String(text || '').trim();
+  ASK.typed = t;
+  if (!t || ASK.busy) return;
+  ASK.busy = true; ASK.out = { thinking: true }; askRenderOut();
+  post('/admin/api/ask', { text: t }).then(function (r) {
+    ASK.busy = false;
+    ASK.out = r && r.ok ? r : { title: '⚠️ ' + ((r && r.message) || 'Could not ask'), lines: [] };
+    askRenderOut();
+  });
+}
+function askRenderOut() {
+  var el = $('#askout'); if (!el) return;
+  var r = ASK.out;
+  if (!r) { el.innerHTML = ''; return; }
+  if (r.thinking) { el.innerHTML = '<div class="card muted">Looking…</div>'; return; }
+  var lines = (r.lines || []).map(function (l) { return String(l) === '' ? '<div style="height:8px"></div>' : '<div>' + esc(l) + '</div>'; }).join('');
+  // A suggested password is shown the same way every other credential is shown in this panel.
+  var copyBox = r.copy ? '<div class="creds" style="margin:10px 0"><div class="cr"><span>Password</span><code>' + esc(r.copy) + '</code><button class="copy" data-copy="' + esc(r.copy) + '">Copy</button></div></div>' : '';
+  // More than one customer matches: pick one instead of typing the name again.
+  var people = (r.people && r.people.length > 1)
+    ? '<div class="list" id="askppl" style="margin-top:8px">' + r.people.map(function (p, i) { return '<div class="li" role="button" data-p="' + i + '" style="cursor:pointer"><div class="grow"><b>' + esc(p.name || '—') + '</b> <span class="muted">· ' + esc(p.phone) + '</span></div><span class="muted">Open ›</span></div>'; }).join('') + '</div>'
+    : '';
+  var openBtn = r.nav && r.nav.view ? '<div><button class="btn" id="asknav" style="margin-top:10px">' + esc(askNavLabel(r.nav)) + ' ›</button></div>' : '';
+  var note = r.note ? '<p class="muted" style="font-size:.78rem;margin:8px 0 0">' + esc(r.note) + '</p>' : '';
+  var by = r.source === 'model' ? '<p class="muted" style="font-size:.72rem;margin:8px 0 0">✨ Worked out by the AI — check it before you act on it.</p>' : '';
+  el.innerHTML = '<div class="card"><h3 style="margin-top:0">' + esc(r.title || '') + '</h3>' + lines + copyBox + people + openBtn + note + by + '</div>';
+  var nb = $('#asknav'); if (nb) nb.onclick = function () { askGo(r.nav); };
+  var pl = $('#askppl'); if (pl) pl.onclick = function (e) { var b = e.target.closest('[data-p]'); if (!b) return; askGo({ view: 'customer', phone: r.people[+b.getAttribute('data-p')].phone }); };
+}
+/** Open the screen the answer points at, with the thing already filled in. Nothing is saved by getting there. */
+function askGo(g) {
+  if (!g || !g.view) return;
+  if (g.view === 'customer' && g.phone) store('ff_last_phone', g.phone);
+  if (g.view === 'quick') {
+    qReset(g.tab === 'renew' ? 'renew' : 'new');
+    if (g.customer && g.customer.phone) {
+      Q.cust = { customerId: '', name: g.customer.name || '', email: g.customer.email || '', phone: g.customer.phone, activeSubs: 0 };
+      delete SUBS_CACHE[g.customer.phone];
+      qRememberCustomer();
+    }
+    if (g.subId) Q.subId = g.subId;
+  }
+  if (g.view === 'password' && g.account && g.account.accountId) {
+    PW.q = g.account.accountId; PW.pick = { service: g.account.service, accountId: g.account.accountId };
+    PW.impact = null; PW.result = null; PW.prefill = g.password || '';
+    nav('password'); loadImpact(); return;
+  }
+  nav(g.view);
+}
+</script>
+</body></html>
