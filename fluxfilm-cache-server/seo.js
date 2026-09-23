@@ -128,10 +128,13 @@ function servicesOf(data) {
   for (const [name, list] of by) {
     list.sort((a, b) => devicesOf(a) - devicesOf(b) || typeOf(b).localeCompare(typeOf(a)) || a.durationDays - b.durationDays || a.price - b.price);
     const inStock = list.filter((p) => p.stockLevel !== 'OUT');
-    const cheapest = list.reduce((a, b) => (b.price < a.price ? b : a));
+    // "from ₹X" must be a price someone can pay today: quote the cheapest plan IN STOCK. Only when the whole
+    // service is sold out does it fall back to the full list — and the card carries an "Out of stock" badge.
+    const quotable = inStock.length ? inStock : list;
+    const cheapest = quotable.reduce((a, b) => (b.price < a.price ? b : a));
     out.push({
       name, slug: serviceSlug(name), plans: list,
-      minPrice: cheapest.price, minMonthly: Math.min(...list.map(monthly)),
+      minPrice: cheapest.price, minMonthly: Math.min(...quotable.map(monthly)),
       level: !inStock.length ? 'OUT' : inStock.some((p) => p.stockLevel === 'OK') ? 'OK' : 'LOW',
       logoUrl: (list.map((p) => s(p.logoUrl)).find((u) => /^https:\/\/[^\s"'<>]+$/i.test(u)) || ''),
       manual: list.every((p) => s(p.fulfillmentMode).toUpperCase() === 'MANUAL'),
@@ -147,7 +150,8 @@ function servicesOf(data) {
   const rank = (x) => { const i = ORDER.indexOf(x.slug); return i < 0 ? 99 : i; };
   return out.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }
-function cheapestPrice(services) { return services.length ? Math.min(...services.map((x) => x.minPrice)) : 0; }
+// The "from ₹X" in the page title and the lead — only services someone can actually buy from today.
+function cheapestPrice(services) { const live = services.filter((x) => x.level !== 'OUT'); return live.length ? Math.min(...live.map((x) => x.minPrice)) : 0; }
 
 // ---------- shared JSON-LD ----------
 function orgLd() {
