@@ -35,7 +35,8 @@ const HOUR = 3600000;
 const DEFAULTS = {
   abandoned: { on: false, afterHours: 2, withinHours: 48 },
   expiryMail: { on: false, daysBefore: [3, 1], onExpiryDay: true, afterExpiry: true, onlyWithoutPush: true },
-  winback: { on: false, afterDays: 30, everyDays: 90, code: '', percent: 0 },
+  // withCode false = still write to lapsed customers, but give nothing away. The owner's switch, 23 Sep 2026.
+  winback: { on: false, withCode: true, afterDays: 30, everyDays: 90, code: '', percent: 0 },
   quietStart: 9,
   quietEnd: 21,
   maxPerRun: 30,
@@ -104,11 +105,13 @@ async function saveSettings(input, deps) {
   if (i.winback) {
     const w = i.winback;
     if (w.on != null) next.winback.on = !!w.on;
+    if (w.withCode != null) next.winback.withCode = !!w.withCode;
     if (w.afterDays != null) next.winback.afterDays = Math.min(365, Math.max(7, num(w.afterDays, 30)));
     if (w.everyDays != null) next.winback.everyDays = Math.min(365, Math.max(14, num(w.everyDays, 90)));
     if (w.percent != null) next.winback.percent = Math.min(90, Math.max(0, num(w.percent, 0)));
     if (w.code != null) next.winback.code = s(w.code).toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 24);
-    if (next.winback.on && !next.winback.code) errs.push('Set the discount code before switching win-back on.');
+    // A code is only demanded when one is actually being offered.
+    if (next.winback.on && next.winback.withCode && !next.winback.code) errs.push('Set the discount code, or turn off "offer a discount code".');
   }
   if (i.quietStart != null) next.quietStart = num(i.quietStart, cur.quietStart);
   if (i.quietEnd != null) next.quietEnd = num(i.quietEnd, cur.quietEnd);
@@ -166,19 +169,26 @@ function abandonedEmail(p) {
   };
 }
 
-/** 3 · "come back" — one code, capped, one use each. The code is named, never invented here. */
+/**
+ * 3 · "come back". With a code, or without one: withCode=false still writes to a lapsed customer but gives
+ * nothing away, and then the mail never mentions a discount at all rather than promising a vague one.
+ * The code is NAMED here, never invented — it has to exist in 🎟️ Coupons already.
+ */
 function winbackEmail(p) {
   const link = SITE() + '/?source=winback';
+  const withCode = p.withCode !== false && !!s(p.code);
   const off = Number(p.percent) > 0 ? Number(p.percent) + '% off' : 'a discount';
   return {
-    subject: '💚 We miss you at FluxFilm — ' + off + ' when you come back',
+    subject: withCode ? '💚 We miss you at FluxFilm — ' + off + ' when you come back' : '💚 We miss you at FluxFilm',
     html: shell('<h2 style="color:#16a34a;margin-bottom:4px">💚 It has been a while</h2>' +
       '<p style="color:#475569;margin-top:0">Hi ' + esc(firstName(p.name) || 'there') + ',</p>' +
       '<p style="color:#475569;font-size:14px">Your ' + esc(p.service || 'FluxFilm') + ' plan ended a while back and we would love to have you watching again.</p>' +
-      '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:14px;margin:14px 0;text-align:center">' +
-      '<div style="color:#15803d;font-size:13px">Use this code at checkout</div>' +
-      '<div style="font-size:26px;font-weight:800;letter-spacing:2px;color:#14532d;margin-top:4px">' + esc(p.code) + '</div>' +
-      '<div style="color:#15803d;font-size:13px;margin-top:4px">' + esc(off) + '</div></div>' +
+      (withCode
+        ? '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:14px;margin:14px 0;text-align:center">' +
+          '<div style="color:#15803d;font-size:13px">Use this code at checkout</div>' +
+          '<div style="font-size:26px;font-weight:800;letter-spacing:2px;color:#14532d;margin-top:4px">' + esc(p.code) + '</div>' +
+          '<div style="color:#15803d;font-size:13px;margin-top:4px">' + esc(off) + '</div></div>'
+        : '<p style="color:#475569;font-size:14px">Everything is where you left it — your profile, your watch history, the lot.</p>') +
       button(link, 'Pick a plan')),
     link,
   };
@@ -272,7 +282,7 @@ async function winbackCandidates(settings, now, deps) {
 // ── rendering one candidate, for preview and for sending ──────────────────────────────────────────────────────
 function renderFor(job, cand, settings, now, deps) {
   if (job === 'abandoned') return abandonedEmail(cand);
-  if (job === 'winback') return winbackEmail(Object.assign({}, cand, { code: settings.winback.code, percent: settings.winback.percent }));
+  if (job === 'winback') return winbackEmail(Object.assign({}, cand, { code: settings.winback.code, percent: settings.winback.percent, withCode: settings.winback.withCode }));
   const credit = dep(deps, 'credit', './credit');
   return credit.reminderEmail({ name: cand.name, service: cand.service, plan: cand.plan, expiry: cand.expiry, subId: cand.subId, now: new Date(now) });
 }
@@ -371,7 +381,8 @@ async function run(now, deps) {
   const jobs = [];
   for (const name of ['abandoned', 'expiryMail', 'winback']) {
     if (!settings[name].on) continue;
-    if (name === 'winback' && !settings.winback.code) continue;   // never offer a code that does not exist
+    // Never offer a code that does not exist. With the discount switched off there is nothing to check.
+    if (name === 'winback' && settings.winback.withCode && !settings.winback.code) continue;
     jobs.push(await runJob(name, settings, at, deps));
   }
   return { ok: true, ran: jobs.length, jobs };
