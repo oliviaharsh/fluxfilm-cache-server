@@ -44,7 +44,7 @@ function hhLog(phone, mode, got, acc, tried) {
   const done = mode === 'update' ? '🏠 this TV made the home' : mode === 'verify' ? '🔐 sign-in code given' : '✅ TV code given';
   const where = acc ? s(acc.ref) + ' · ' : '';
   try {
-    require('./householdlog').record(null, null, {
+    require('./customerlog').record(null, null, {
       action, phone,
       summary: 'in Olivia chat · ' + where + label + ' · ' + (got ? done : '⚠️ nothing yet — asked to try again'),
       details: { what: mode, via: 'olivia', accountId: acc ? s(acc.ref) : '', email: acc ? s(acc.email) : '', ok: !!got, tried: Math.min(tried || 0, 4) },

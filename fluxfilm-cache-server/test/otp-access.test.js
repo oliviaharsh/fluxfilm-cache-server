@@ -80,7 +80,7 @@ const access = require('../otpaccess');
   ok('"Confirm it’s you" asks the customer to TYPE their email; no masked email hint', /API\.otpSendCode\(phone, em,/.test(card) && /label: "Your email"/.test(card) && !/maskedEmail/.test(card) && /setGetOtpToken_\(phone, r\)/.test(card));
   ok('storefront asks for the email code when the token is missing, or when this plan is not unlocked by it', /if \(r\.needsVerify \|\| r\.noActive\) \{/.test(html));
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  ok('server: Get OTP uses the email-checked code + token, rate limits stay', /otptool\.getLatestOtp\(a\[0\], a\[1\], typeof a\[2\] === 'string' \? a\[2\] : '', typeof a\[3\] === 'string' \? a\[3\] : ''\)/.test(server) &&
+  ok('server: Get OTP uses the email-checked code + token, rate limits stay', /otptool\.getLatestOtp\(a\[0\], a\[1\], typeof a\[2\] === 'string' \? a\[2\] : '', typeof a\[3\] === 'string' \? a\[3\] : '', null, req\)/.test(server) &&
     /sendGetOtpCode\(String\(a\[0\] \|\| ''\), String\(a\[1\] \|\| ''\)\)/.test(server) && /verifyGetOtpCode\(ph, em, code\)/.test(server) &&
     /otpSendCode: security\.rateLimiter\(4, 60 \* 60e3\)/.test(server) && /otpVerifyCode: security\.rateLimiter\(12, 15 \* 60e3\)/.test(server));
 

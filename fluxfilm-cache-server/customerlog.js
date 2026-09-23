@@ -1,9 +1,11 @@
 /**
- * FluxFilm — 🕘 who used the Netflix household help, and what happened.
+ * FluxFilm — 🕘 what a CUSTOMER did with a self-service tool, and how it ended.
  *
- * One place, because there are two doors into the same thing: the customer's own 🧰 Tools → 🏠 Netflix Household
- * (householdhelp.js) and Olivia doing it for them in chat (olivia.js). A log that only covered one of them would
- * quietly answer the owner's question wrong.
+ * One place, because a tool usually has more than one door into it and a log that covers only one door answers the
+ * owner's question wrong. Today: 🏠 Netflix Household — the customer's own 🧰 Tools screen (householdhelp.js) and
+ * Olivia doing it for them in chat (olivia.js) — and 🔎 Get OTP (otp.js).
+ *
+ * Was householdlog.js until 24 Sep 2026; the old copy is in _deleted-old-code/2026-09-24_householdlog-renamed/.
  *
  * Lines go into audit_log — the same table, and the same 🕘 Change log screen, as the admin panel's own actions,
  * filtered by the 'household.' prefix. Every line carries the customer's NAME and number, so the owner can read it

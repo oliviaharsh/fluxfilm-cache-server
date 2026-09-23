@@ -109,9 +109,17 @@ function mount(app, deps) {
   app.post('/admin/api/otp-settings', async (req, res) => {
     if (!auth(req, res)) return;
     try {
-      const r = await OTP().saveSettings({ windowMin: (req.body || {}).windowMin });
+      const b = req.body || {};
+      const r = await OTP().saveSettings({ windowMin: b.windowMin, quotas: b.quotas });
       if (!r.ok) return res.status(r.status || 400).json(r);
-      audit.record(req, { action: 'otp.settings', entity: 'settings', id: 'getotp_settings', summary: '🔎 Get OTP: a forwarded mail is used for ' + r.settings.windowMin + ' min (was ' + r.before.windowMin + ')', details: { before: r.before, after: r.settings } });
+      const qs = Object.entries(r.settings.quotas || {}).map(([k, v]) => k + ' ' + v).join(', ');
+      const was = Object.entries((r.before || {}).quotas || {}).map(([k, v]) => k + ' ' + v).join(', ');
+      audit.record(req, {
+        action: 'otp.settings', entity: 'settings', id: 'getotp_settings',
+        summary: '🔎 Get OTP: a forwarded mail is used for ' + r.settings.windowMin + ' min (was ' + r.before.windowMin + ')'
+          + (qs !== was ? ' · monthly limits: ' + (qs || 'none, back to the env vars') + (was ? ' (was ' + was + ')' : '') : ''),
+        details: { before: r.before, after: r.settings },
+      });
       res.json({ ok: true, settings: r.settings, message: '✅ Saved. Forwarded mails are used for ' + r.settings.windowMin + ' minutes.' });
     } catch (e) { fail(res, e); }
   });

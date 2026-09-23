@@ -59,7 +59,7 @@ const fakeHh = {
 const origLoad = Module._load;
 Module._load = function (req) { if (req === './db') return fakeDb; if (req === './oliviahousehold') return fakeHh; return origLoad.apply(this, arguments); };
 const hh = require('../householdhelp');
-const hhlog = require('../householdlog');   // the shared logger, loaded while ./db is still the fake
+const hhlog = require('../customerlog');   // the shared logger, loaded while ./db is still the fake
 Module._load = origLoad;
 const deps = { household: fakeHh };
 
@@ -231,10 +231,10 @@ const deps = { household: fakeHh };
 
   ok('Olivia logs all three household actions she does in chat', (() => {
     const o = read('olivia.js');
-    return (o.match(/hhLog\(c\.phone, mode, got, gotAcc, usable\.length\);/g) || []).length === 3 && /require\('\.\/householdlog'\)\.record\(/.test(o);
+    return (o.match(/hhLog\(c\.phone, mode, got, gotAcc, usable\.length\);/g) || []).length === 3 && /require\('\.\/customerlog'\)\.record\(/.test(o);
   })());
-  ok('householdhelp and Olivia share one logger', /require\('\.\/householdlog'\)/.test(read('householdhelp.js')));
-  ok('🔐 no code is ever handed to the logger', !/record\([^)]*code/.test(read('householdlog.js')) && !/code: r\.code[^)]*note\(/.test(read('householdhelp.js')));
+  ok('householdhelp and Olivia share one logger', /require\('\.\/customerlog'\)/.test(read('householdhelp.js')));
+  ok('🔐 no code is ever handed to the logger', !/record\([^)]*code/.test(read('customerlog.js')) && !/code: r\.code[^)]*note\(/.test(read('householdhelp.js')));
   // The three pictures are DRAWN, not photographed: no customer's email on them, ~3 KB each, and crisp at any size.
   section('the pictures the customer taps');
   {
