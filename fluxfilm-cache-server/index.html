@@ -12335,7 +12335,12 @@ function AnnivBar({
   }, React.createElement("b", null, info.title), info.note ? ' ' + info.note : ''), !live && info.startsAtMs && React.createElement("span", {
     className: "ff-promo-timer",
     "aria-label": "Time left"
-  }, "⏳ ", annivLeft_(info.startsAtMs)), !live && React.createElement("button", {
+  }, "⏳ ", annivLeft_(info.startsAtMs)), live && info.coupon && React.createElement("button", {
+    type: "button",
+    className: "ff-promo-code",
+    onClick: () => copyText_(info.coupon, () => setNote('Code copied — paste it at checkout.')),
+    title: "Copy the code"
+  }, React.createElement("span", null, "CODE"), React.createElement("b", null, info.coupon)), !live && React.createElement("button", {
     type: "button",
     className: "ff-anniv-btn",
     disabled: state === 'busy' || state === 'on',

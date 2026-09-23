@@ -16,6 +16,7 @@ const section = (t) => console.log('\n=== ' + t + ' ===');
 // ---------------------------------------------------------------- fakes for db + push, before anniversary loads
 const SETTINGS = {};
 const SQL = [];
+const COUPONS = [{ code: 'FLUX4', type: 'PERCENT', value: 20, min_amount: 0, max_discount: 100, expiry: '2026-10-03', per_user_limit: 1, active: 'FALSE', raw_json: JSON.stringify({ Code: 'FLUX4', CouponCode: 'FLUX4', Type: 'PERCENT', Value: 20, MaxDiscount: 100, MinAmount: 0, Active: 'FALSE' }) }];
 const fakeDb = {
   ENABLED: true,
   query: async (sql, p) => {
@@ -24,6 +25,15 @@ const fakeDb = {
     if ((sql.match(/\?/g) || []).length !== p.length) throw new Error('placeholder count mismatch: ' + sql);
     if (/^SELECT value FROM app_settings WHERE setting_key = \? LIMIT 1$/.test(sql)) return SETTINGS[p[0]] === undefined ? [] : [{ value: SETTINGS[p[0]] }];
     if (/^INSERT INTO app_settings \(setting_key, value\) VALUES \(\?, \?\) ON DUPLICATE KEY UPDATE value = VALUES\(value\)$/.test(sql)) { SETTINGS[p[0]] = p[1]; return { affectedRows: 1 }; }
+    if (/FROM coupons WHERE UPPER\(code\) = \?/.test(sql)) return COUPONS.filter((c) => c.code.toUpperCase() === String(p[0]).toUpperCase()).map((c) => Object.assign({}, c));
+    if (/^UPDATE coupons SET active = \?, raw_json = /.test(sql)) {
+      const c = COUPONS.find((x) => x.code.toUpperCase() === String(p[2]).toUpperCase());
+      if (!c) return { affectedRows: 0 };
+      // The real statement writes BOTH; the fake writes both too, or the test could not notice one being dropped.
+      c.active = p[0];
+      const raw = JSON.parse(c.raw_json); raw.Active = p[1]; c.raw_json = JSON.stringify(raw);
+      return { affectedRows: 1 };
+    }
     throw new Error('fake db: unhandled SQL: ' + sql);
   },
 };
@@ -45,6 +55,8 @@ const { istMs, istText } = anniv._internal;
 const AT = '2026-10-14 10:00';
 const START = istMs(AT);
 const HOUR = 3600e3;
+// The shipped settings end on 3 Oct; these checks use a 14 Oct fixture, so they start from a base with no end.
+const BASE = Object.assign({}, anniv.DEFAULTS, { endsAt: '' });
 
 (async () => {
   // ── India time, done by hand so a server in another zone cannot change the answer ─────────────────────────
@@ -56,17 +68,17 @@ const HOUR = 3600e3;
   // ── what the owner may set ────────────────────────────────────────────────────────────────────────────────
   section('the settings');
   let threw = '';
-  try { anniv.validate({ startsAt: 'soon' }, anniv.DEFAULTS); } catch (e) { threw = e.message; }
+  try { anniv.validate({ startsAt: 'soon' }, BASE); } catch (e) { threw = e.message; }
   ok('a date that is not a date is refused, with a plain reason', /must look like/.test(threw), threw);
   threw = '';
-  try { anniv.validate({ startsAt: AT, endsAt: '2026-10-13 10:00' }, anniv.DEFAULTS); } catch (e) { threw = e.message; }
+  try { anniv.validate({ startsAt: AT, endsAt: '2026-10-13 10:00' }, BASE); } catch (e) { threw = e.message; }
   ok('an end before the start is refused', /after the start/.test(threw), threw);
-  ok('the browser\'s 2026-10-14T10:00 is accepted and stored with a space', anniv.validate({ startsAt: '2026-10-14T10:00' }, anniv.DEFAULTS).startsAt === AT);
-  ok('a very long heading is cut, not rejected', anniv.validate({ title: 'x'.repeat(500) }, anniv.DEFAULTS).title.length === 80);
+  ok('the browser\'s 2026-10-14T10:00 is accepted and stored with a space', anniv.validate({ startsAt: '2026-10-14T10:00' }, BASE).startsAt === AT);
+  ok('a very long heading is cut, not rejected', anniv.validate({ title: 'x'.repeat(500) }, BASE).title.length === 80);
   ok('moving the date re-arms the announcement',
-    anniv.validate({ startsAt: '2026-10-15 10:00' }, Object.assign({}, anniv.DEFAULTS, { startsAt: AT, announcedFor: AT, announcedAt: 'x' })).announcedFor === '');
+    anniv.validate({ startsAt: '2026-10-15 10:00' }, Object.assign({}, BASE, { startsAt: AT, announcedFor: AT, announcedAt: 'x' })).announcedFor === '');
   ok('…but changing only the wording does NOT re-arm it',
-    anniv.validate({ title: 'New words' }, Object.assign({}, anniv.DEFAULTS, { startsAt: AT, announcedFor: AT })).announcedFor === AT);
+    anniv.validate({ title: 'New words' }, Object.assign({}, BASE, { startsAt: AT, announcedFor: AT })).announcedFor === AT);
 
   // ── the bar the shop draws ────────────────────────────────────────────────────────────────────────────────
   section('what the shop is told');
@@ -76,7 +88,7 @@ const HOUR = 3600e3;
   await anniv.saveSettings({ on: true, startsAt: '' });
   r = await anniv.publicInfo(START - 5 * 86400e3);
   ok('on but no date → still nothing (no countdown to nowhere)', r.on === false, r);
-  await anniv.saveSettings({ on: true, startsAt: AT, title: '🎉 Anniversary', note: 'Best prices', liveTitle: '🎉 It is ON', liveNote: 'Go look' });
+  await anniv.saveSettings({ on: true, startsAt: AT, endsAt: '', title: '🎉 Anniversary', note: 'Best prices', liveTitle: '🎉 It is ON', liveNote: 'Go look' });
   r = await anniv.publicInfo(START - 5 * 86400e3);
   ok('before the day → the countdown, with the instant to count to', r.on === true && r.live === false && r.startsAtMs === START && r.title === '🎉 Anniversary', r);
   ok('and the button is worth showing', r.canNotify === true);
@@ -85,7 +97,7 @@ const HOUR = 3600e3;
   await anniv.saveSettings({ endsAt: '2026-10-20 10:00' });
   r = await anniv.publicInfo(istMs('2026-10-21 10:00'));
   ok('after the end date → the bar is gone by itself', r.on === false, r);
-  ok('nothing private is ever in it', Object.keys(await anniv.publicInfo(START - HOUR)).every((k) => ['ok', 'on', 'live', 'title', 'note', 'startsAtMs', 'endsAtMs', 'canNotify'].indexOf(k) > -1));
+  ok('nothing private is ever in it', Object.keys(await anniv.publicInfo(START - HOUR)).every((k) => ['ok', 'on', 'live', 'title', 'note', 'startsAtMs', 'endsAtMs', 'canNotify', 'coupon'].indexOf(k) > -1));
   await anniv.saveSettings({ endsAt: '' });
 
   // ── 🔔 Notify me ──────────────────────────────────────────────────────────────────────────────────────────
@@ -141,6 +153,57 @@ const HOUR = 3600e3;
   }
   ok('the owner can always send it by hand', (await anniv.run(START - 90 * 86400e3, { force: true })).announced === true);
 
+  // ── the sale coupon ───────────────────────────────────────────────────────────────────────────────────────
+  section('the coupon');
+  // The announcement section above has already run a sale, so put the coupon back as a freshly created one.
+  COUPONS[0].active = 'FALSE';
+  COUPONS[0].raw_json = JSON.stringify(Object.assign(JSON.parse(COUPONS[0].raw_json), { Active: 'FALSE' }));
+  await anniv.saveSettings({ on: true, startsAt: AT, endsAt: '', couponCode: 'FLUX4', couponAuto: true });
+  r = await anniv.publicInfo(START - 86400e3);
+  ok('⚠️ before the sale the code is NOT sent to the browser at all', r.on === true && r.live === false && !r.coupon, r);
+  r = await anniv.publicInfo(START + 60e3);
+  ok('once it is on, the shop gets the code', r.live === true && r.coupon === 'FLUX4', r);
+  ok('a code is letters and numbers only', anniv.validate({ couponCode: ' flux4! ' }, BASE).couponCode === 'FLUX4');
+  {
+    let threw = '';
+    try { anniv.validate({ couponCode: '!!!' }, BASE); } catch (e) { threw = e.message; }
+    ok('…and something with no letters or numbers in it is refused', /letters and numbers/.test(threw), threw);
+  }
+  ok('the coupon starts switched OFF (coupons have no start date, only an expiry)', COUPONS[0].active === 'FALSE');
+  {
+    const before = await anniv.couponState('FLUX4');
+    ok('the admin screen can see it: 20% off, max ₹100, no minimum, 1 each',
+      before.exists && before.active === false && before.type === 'PERCENT' && before.value === 20 && before.maxDiscount === 100 && before.minAmount === 0 && before.perUserLimit === 1, before);
+  }
+  {
+    // Re-arm and run the day: the coupon comes on WITH the announcement, not before it.
+    const st = JSON.parse(SETTINGS[anniv.KEY]);
+    SETTINGS[anniv.KEY] = JSON.stringify(Object.assign({}, st, { announcedFor: '', announcedAt: '' }));
+    PUSHED.toPhone.length = 0;
+    r = await anniv.run(START + 60e3);
+    ok('the day arrives → the coupon is switched on', r.announced === true && r.coupon && r.coupon.found === true && COUPONS[0].active === 'TRUE', r.coupon);
+    ok('⚠️ typed column AND raw_json together — checkout reads raw_json only', JSON.parse(COUPONS[0].raw_json).Active === 'TRUE', COUPONS[0].raw_json);
+    ok('and the message names the code', /Use code FLUX4\./.test(PUSHED.toPhone[0].message.body), PUSHED.toPhone[0].message.body);
+  }
+  {
+    // A code that was never created must not stop the announcement going out.
+    const st = JSON.parse(SETTINGS[anniv.KEY]);
+    SETTINGS[anniv.KEY] = JSON.stringify(Object.assign({}, st, { announcedFor: '', announcedAt: '', couponCode: 'NOSUCH' }));
+    PUSHED.toPhone.length = 0;
+    r = await anniv.run(START + 60e3);
+    ok('a code that does not exist: the sale is still announced, and the message does not promise one',
+      r.announced === true && r.coupon.found === false && !/Use code/.test(PUSHED.toPhone[0].message.body), { coupon: r.coupon, body: PUSHED.toPhone[0].message.body });
+  }
+  {
+    const st = JSON.parse(SETTINGS[anniv.KEY]);
+    SETTINGS[anniv.KEY] = JSON.stringify(Object.assign({}, st, { announcedFor: '', announcedAt: '', couponCode: 'FLUX4', couponAuto: false }));
+    COUPONS[0].active = 'FALSE';
+    PUSHED.toPhone.length = 0;
+    r = await anniv.run(START + 60e3);
+    ok('with "switch it on by itself" off, the coupon is left alone', r.announced === true && !r.coupon && COUPONS[0].active === 'FALSE', r.coupon);
+    SETTINGS[anniv.KEY] = JSON.stringify(Object.assign({}, JSON.parse(SETTINGS[anniv.KEY]), { couponAuto: true, couponCode: 'FLUX4' }));
+  }
+
   // ── the routes ────────────────────────────────────────────────────────────────────────────────────────────
   section('routes');
   const routes = [];
@@ -191,7 +254,13 @@ const HOUR = 3600e3;
     /setState\(pr && pr\.ok \? 'on' : 'saved'\)/.test(html) && /state === 'saved' \? '✅ Saved'/.test(html) && /You're on the list\. /.test(html));
   ok('once the sale is on, the button is gone', /!live && React\.createElement\("button", \{/.test(html));
 
+  ok('the bar shows the code only when the sale is on, and tapping it copies',
+    /live && info\.coupon && React\.createElement\("button", \{/.test(html) && /copyText_\(info\.coupon,/.test(html));
   const admin = read('admin.html');
+  ok("the coupon is written by the panel's OWN coupon endpoint, not a second one",
+    /post\('\/admin\/api\/coupon', \{/.test(admin) && !/INSERT INTO coupons/.test(read('anniversary.js')));
+  ok('…created switched off, one per customer, expiring with the sale',
+    /active: 'FALSE', showInProfile: 'TRUE'/.test(admin) && /perUserLimit: 1, globalLimit: 0/.test(admin) && /expiry: ends/.test(admin));
   ok('the 🎉 Anniversary screen is in the menu', /\['anniv', '🎉', 'Anniversary'\]/.test(admin) && /m\.anniv = annivView;/.test(admin));
   ok('the owner sets the date, the words and who gets told', /annivInput\('an_startsAt'/.test(admin) && /annivInput\('an_notifyTitle'/.test(admin) && /id="an_everyone"/.test(admin));
   ok('sending it by hand asks first', /confirm\('Send the anniversary notification NOW/.test(admin));
@@ -200,7 +269,10 @@ const HOUR = 3600e3;
   // ── it writes nothing but its own two settings rows ───────────────────────────────────────────────────────
   section('it touches nothing else');
   const writes = SQL.filter((q) => !/^SELECT /i.test(q));
-  ok('every write in this whole run was one app_settings row', writes.every((q) => /^INSERT INTO app_settings /.test(q)), writes.filter((q) => !/^INSERT INTO app_settings /.test(q)).slice(0, 3));
+  ok('every write in this whole run was an app_settings row or the one coupon on/off flip',
+    writes.every((q) => /^INSERT INTO app_settings /.test(q) || /^UPDATE coupons SET active = /.test(q)),
+    writes.filter((q) => !/^INSERT INTO app_settings /.test(q) && !/^UPDATE coupons SET active = /.test(q)).slice(0, 3));
+  ok('…and the coupon flip only ever touches that one row', writes.filter((q) => /^UPDATE coupons/.test(q)).every((q) => q.endsWith('WHERE UPPER(code) = ? LIMIT 1')));
   ok('and only the two keys it owns', Object.keys(SETTINGS).sort().join(',') === [anniv.KEY, anniv.LIST_KEY].sort().join(','), Object.keys(SETTINGS));
   ok('no schema change is needed', !fs.existsSync(path.join(__dirname, '..', 'db', 'schema-v21.sql')) || true);
 
@@ -208,6 +280,7 @@ const HOUR = 3600e3;
   ok('the owner\'s date is in: 30 Sep 2026, 10:00 India time', anniv.DEFAULTS.startsAt === '2026-09-30 10:00' && istMs(anniv.DEFAULTS.startsAt) === Date.parse('2026-09-30T04:30:00.000Z'), anniv.DEFAULTS.startsAt);
   ok('and it is switched on, so the countdown runs as soon as this is deployed', anniv.DEFAULTS.on === true);
   ok('not midnight — the announcement rides the hourly tick and nobody wants a push at 00:00', /10:00$/.test(anniv.DEFAULTS.startsAt));
+  ok('the sale runs to the end of 3 Oct, and the coupon is FLUX4', anniv.DEFAULTS.endsAt === '2026-10-03 23:59' && anniv.DEFAULTS.couponCode === 'FLUX4' && anniv.DEFAULTS.couponAuto === true, { endsAt: anniv.DEFAULTS.endsAt, code: anniv.DEFAULTS.couponCode });
 
   console.log('\n---------------------------------------\nPASS ' + pass + '   FAIL ' + fail);
   process.exit(fail ? 1 : 0);
