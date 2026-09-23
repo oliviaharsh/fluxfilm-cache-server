@@ -1150,32 +1150,30 @@ async function turn(c, input, ctx) {
     const na = await tools().netflixAccounts(c.phone).catch(() => null);
     let usable = na && na.ok ? (na.accounts || []).filter((x) => x.email && x.kind) : [];
     if (Array.isArray(st.hhSubs) && st.hhSubs.length) { const set = new Set(st.hhSubs); const pref = usable.filter((x) => set.has(x.subId)); if (pref.length) usable = pref; }
-    if (!usable.length) return supportReplies(c, ctx, 'household', '', { noAuto: true });
-    if (action === 'hhupdate') {
+    if (!usable.length) { st.hhTries = 0; delete st.hhMode; return supportReplies(c, ctx, 'household', '', { noAuto: true }); }
+    // The permanent update, or the temporary code. "I clicked, check again" repeats whichever the customer started.
+    const mode = (action === 'hhupdate' || (action === 'hhretry' && st.hhMode === 'update')) ? 'update' : 'travel';
+    st.hhMode = mode;
+    let got = null;
+    if (mode === 'update') {
       // Permanent update (state-changing) - only reachable when OLIVIA_HH_UPDATE=on; nothing is pressed until confirmed.
-      let done = null;
-      for (const acc of usable.slice(0, 4)) { const r = await tools().householdUpdate(acc).catch(() => null); if (r && r.ok && r.updated) { done = r; break; } }
-      ctx.meta.push({ tool: 'householdUpdate', ok: !!done, tried: Math.min(usable.length, 4) });
-      if (done) { st.hhTries = 0; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
-      return supportReplies(c, ctx, 'household', '', { noAuto: true });
+      for (const acc of usable.slice(0, 4)) { const r = await tools().householdUpdate(acc).catch(() => null); if (r && r.ok && r.updated) { got = r; break; } }
+      ctx.meta.push({ tool: 'householdUpdate', ok: !!got, tried: Math.min(usable.length, 4) });
+      if (got) { st.hhTries = 0; delete st.hhMode; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
+    } else {
+      for (const acc of usable.slice(0, 4)) { const r = await tools().householdCode(acc).catch(() => null); if (r && r.ok && /^\d{4}$/.test(String(r.code))) { got = r; break; } }
+      ctx.meta.push({ tool: 'householdCode', ok: !!got, tried: Math.min(usable.length, 4) });
+      if (got) { st.hhTries = 0; delete st.hhMode; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     }
-    let res = null;
-    for (const acc of usable.slice(0, 4)) { const r = await tools().householdCode(acc).catch(() => null); if (r && r.ok && /^\d{4}$/.test(String(r.code))) { res = r; break; } }
-    ctx.meta.push({ tool: 'householdCode', ok: !!res, tried: Math.min(usable.length, 4) });
-    if (res) {
-      st.hhTries = 0;
-      if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
-      return [{ intent: 'HH_CODE_READY', card: { type: 'code', code: String(res.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }];
-    }
-    // No fresh code yet: the customer probably hasn't pressed "Watch temporarily" / "Update household" -> "Send email" on
-    // the TV. Guide them, let them tap "I clicked, check again", and try up to 3 times before giving the manual Helper.
+    // Nothing yet: the customer probably hasn't pressed "Watch temporarily" / "Update household" -> "Send email" on the TV.
+    // Guide them, let them tap "I clicked, check again", and try up to 5 times before giving the manual Helper.
     st.hhTries = (Number(st.hhTries) || 0) + 1;
-    if (st.hhTries < 3) {
+    if (st.hhTries < 5) {
       if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
-      return [{ intent: 'HH_CODE_NOT_YET', facts: { attempt: st.hhTries }, buttons: withBackToPay(st, lang, [btn('hhretry', lang), btn('hhupdate', lang), btn('whatsapp', lang), btn('menu', lang)]) }];
+      return [{ intent: 'HH_CODE_NOT_YET', facts: { attempt: st.hhTries, mode }, buttons: withBackToPay(st, lang, [btn('hhretry', lang), btn('hhupdate', lang), btn('whatsapp', lang), btn('menu', lang)]) }];
     }
-    st.hhTries = 0;
-    return supportReplies(c, ctx, 'household', '', { noAuto: true }); // tried 3 times: the manual Helper steps + link
+    st.hhTries = 0; delete st.hhMode;
+    return supportReplies(c, ctx, 'household', '', { noAuto: true }); // tried 5 times: the manual Helper steps + link
   }
   if (SUPPORT_KINDS.has(action) || action === 'support') return supportReplies(c, ctx, action === 'support' ? 'login' : action, ents.service || '');
   if (action.startsWith('help:')) {

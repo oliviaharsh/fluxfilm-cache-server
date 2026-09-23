@@ -769,7 +769,11 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   r = await say({ text: 'kar diya' });
   ok('typed "kar diya" retries (2nd try) and hints to check it is the right account', last(r).intent === 'HH_CODE_NOT_YET' && /account/i.test(last(r).text) && ids(last(r))[0] === 'hhretry', last(r));
   r = await say({ choice: 'hhretry' });
-  ok('3rd empty try → now the manual Household Helper (Link) + WhatsApp', last(r).intent === 'HOUSEHOLD_HELPER' && !r.messages.some((m) => m.card) && ids(last(r)).includes('helper2'), r.messages);
+  ok('3rd empty try → still guiding (5 tries allowed before manual)', last(r).intent === 'HH_CODE_NOT_YET' && ids(last(r))[0] === 'hhretry', last(r));
+  r = await say({ choice: 'hhretry' });
+  ok('4th empty try → still guiding', last(r).intent === 'HH_CODE_NOT_YET', last(r));
+  r = await say({ choice: 'hhretry' });
+  ok('5th empty try → now the manual Household Helper (Link) + WhatsApp', last(r).intent === 'HOUSEHOLD_HELPER' && !r.messages.some((m) => m.card) && ids(last(r)).includes('helper2'), r.messages);
   // and once the TV prompt is really there, the retry returns the code
   shop.hhCode = '5150'; shop.hhCodeSub = '';
   await say({ choice: 'menu' });
@@ -823,8 +827,12 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   shop.hhUpdated = false;
   await say({ choice: 'menu' });
   r = await say({ text: 'tv code maang raha hai household' });
+  let cbU = calls.length;
   r = await say({ choice: 'hhupdate' });
-  ok('update on but could not confirm → manual Household Helper, nothing claimed done', last(r).intent === 'HOUSEHOLD_HELPER' && !r.messages.some((m) => m.intent === 'HH_UPDATE_DONE'), r.messages);
+  ok('update on but nothing pending (1st) → guide to press "Update household" on the TV + retry, not manual yet', last(r).intent === 'HH_CODE_NOT_YET' && /Update household/i.test(last(r).text) && ids(last(r))[0] === 'hhretry' && calls.slice(cbU).some((c) => c[0] === 'householdUpdate') && !r.messages.some((m) => m.intent === 'HH_UPDATE_DONE'), last(r));
+  cbU = calls.length;
+  r = await say({ choice: 'hhretry' });
+  ok('"I clicked, check again" repeats the UPDATE (what was started), not the code fetch', last(r).intent === 'HH_CODE_NOT_YET' && calls.slice(cbU).some((c) => c[0] === 'householdUpdate') && !calls.slice(cbU).some((c) => c[0] === 'householdCode'), last(r));
   shop.hhUpdateOn = false; shop.hhUpdated = false;
   // oliviahousehold: kind, tag, the travel-code parser (spaced digits), and a blocked sign-in / reCAPTCHA page
   const hhmod = require('../oliviahousehold.js');
