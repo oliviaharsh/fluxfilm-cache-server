@@ -531,6 +531,12 @@ const T = {
     hinglish: (f) => 'Sorry ji, pareshani ke liye 🙏\nPehle My plans kholkar apne plan par Recover dabaiye, latest login wahin milega (login kabhi-kabhi badalta hai).' + (f.household ? '\nNetflix household ya TV code maang raha hai? Household Helper kholiye.' : '') + (f.otp ? '\nApp OTP maang raha hai? Get OTP kholiye.' : '') + '\nPhir bhi na chale to WhatsApp par team check karegi.',
     hi: (f) => 'माफ़ कीजिए जी, परेशानी के लिए 🙏\nपहले My plans खोलकर अपने प्लान पर Recover दबाइए, नया लॉगिन वहीं मिलेगा (लॉगिन कभी-कभी बदलता है)।' + (f.household ? '\nNetflix household या TV कोड माँग रहा है? Household Helper खोलिए।' : '') + (f.otp ? '\nऐप OTP माँग रहा है? Get OTP खोलिए।' : '') + '\nफिर भी न चले तो WhatsApp पर टीम चेक करेगी।',
   },
+  // Profiles question (Harsh, 23 Sep 2026): Private = full control, Sharing = your own profile only. Never a buy pitch.
+  PROFILE_ANSWER: {
+    en: () => 'Good question 😊\nPrivate plan: the account is fully yours — you can add, edit or rename profiles as you like.\nSharing plan: the account is shared, so please use only your own profile and do not rename or delete the others.\nNot sure which one you have? Open "My plans".',
+    hinglish: () => 'Achha sawaal 😊\nPrivate plan: account poora aapka hai — profiles freely add, edit ya rename kar sakte hain.\nSharing plan: account shared hota hai, isliye sirf apna profile use kijiye, baaki ko rename ya delete mat kijiye.\nPata nahi kaunsa plan hai? "My plans" kholiye.',
+    hi: () => 'अच्छा सवाल 😊\nPrivate plan: account पूरा आपका है — profiles freely add, edit या rename कर सकते हैं।\nSharing plan: account shared होता है, इसलिए सिर्फ़ अपना profile use कीजिए, बाकी को rename या delete मत कीजिए।\nपता नहीं कौनसा plan है? "My plans" खोलिए।',
+  },
   REFUND_TO_TEAM: {
     en: () => 'I understand 🙏\nRefunds are decided by our team, I cannot do it here.\nPlease message the team on WhatsApp with your order.',
     hinglish: () => 'Ji, samajh sakti hoon 🙏\nRefund ka faisla hamari team karti hai, main yahan nahi kar sakti.\nWhatsApp par apna order batakar team se baat kijiye.',
@@ -672,7 +678,7 @@ const LEAD_EMOJI = {
   CONFIRM_PLAN: '🧾', CONFIRM_PLAN_COUPON: '🧾', SEND_PAYMENT: '💳', PAYMENT_REMINDER: '💳', PAYMENT_NOT_YET: '⏳', BACKUP_UNDER_REVIEW: '⏳',
   RENEW_PICK: '🔁', RENEW_DURATION: '🔁', RENEW_CONFIRM: '🔁', RENEW_CONFIRM_COUPON: '🔁', RENEW_NOTHING: '🔁',
   PRICE_HELP: '💰', PRICE_HELP_PLAN: '💰', PRICE_MATCH: '💰', PRICE_FROM: '💰', PAYMENT_METHOD: '💳', WHEN_LOGIN: '🔐', WHEN_LOGIN_MANUAL: '🔐', VALIDITY: '📅', DEVICES_ANSWER: '📱', QUALITY_UNSURE: '💬',
-  ASK_DEVICES_SHARING_OR_PRIVATE: '📱', MULTI_DEVICE_PLANS: '📱', ASK_SAME_TIME: '📺', ASK_LOGIN_MODE: '🔑', EARLY_RENEW_DISCOUNT: '🎁', HH_OFFER_CODE: '🏠', HH_CODE_READY: '🔑', HH_CODE_NOT_YET: '📺', HH_UPDATE_DONE: '✅', HH_EXPLAIN: '💬', HH_LINK_WHICH: '🔗', HH_LINK_STEPS: '🔗', MULTI_DEVICE_NONE: '📱', SWITCH_CONFIRM: '🔄', QUESTION_TO_TEAM: '💬', ASK_COUPON: '🎟️', COUPON_INVALID: '🎟️',
+  ASK_DEVICES_SHARING_OR_PRIVATE: '📱', MULTI_DEVICE_PLANS: '📱', ASK_SAME_TIME: '📺', ASK_LOGIN_MODE: '🔑', EARLY_RENEW_DISCOUNT: '🎁', HH_OFFER_CODE: '🏠', HH_CODE_READY: '🔑', HH_CODE_NOT_YET: '📺', HH_UPDATE_DONE: '✅', HH_EXPLAIN: '💬', HH_LINK_WHICH: '🔗', HH_LINK_STEPS: '🔗', PROFILE_ANSWER: '👤', MULTI_DEVICE_NONE: '📱', SWITCH_CONFIRM: '🔄', QUESTION_TO_TEAM: '💬', ASK_COUPON: '🎟️', COUPON_INVALID: '🎟️',
 };
 const escRe = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function format(text, facts, intent, opts) {
