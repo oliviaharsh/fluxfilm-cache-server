@@ -7088,9 +7088,12 @@ var NF = { data: null, pics: null, acc: '', mode: 'household', out: null, busy: 
   var baseViewMap = viewMap;
   viewMap = function () { var m = baseViewMap(); m.netflix = netflixView; return m; };
 })();
-var NF_MODES = [['household', '🏠 Household'], ['travel', '✈️ Travel code'], ['code', '🔐 Verification code']];
+// 🔑 Sign-in code is a FOURTH lookup, not a rename of the third: 4 digits when the account email is typed at the
+// Netflix login screen, 6 digits after a password sign-in on a new device. Owner-only — the customer's own tool
+// still offers the 6-digit one alone, which is the one people are actually stuck on.
+var NF_MODES = [['household', '🏠 Household'], ['travel', '✈️ Travel code'], ['code', '🔐 Verification code'], ['signin', '🔑 Sign-in code']];
 function netflixView() {
-  $('#view').innerHTML = '<div class="ph"><div><h1>📺 Netflix helper</h1><p>The newest household, travel or verification mail Netflix sent one of our accounts</p></div></div><div id="nfbody"><p class="muted">Loading…</p></div>';
+  $('#view').innerHTML = '<div class="ph"><div><h1>📺 Netflix helper</h1><p>The newest household, travel, verification or sign-in mail Netflix sent one of our accounts</p></div></div><div id="nfbody"><p class="muted">Loading…</p></div>';
   if (NF.data && NF.pics) renderNetflix();
   else Promise.all([api('/admin/api/netflix/accounts'), api('/admin/api/netflix/pictures')]).then(function (rs) { NF.data = rs[0]; NF.pics = rs[1]; renderNetflix(); });
 }
@@ -7118,7 +7121,8 @@ function renderNetflix() {
     '</div>' +
     '<div class="card qsec"><h3>2 · What are you looking for?</h3><div class="row" id="nfmodes" style="gap:6px">' +
     NF_MODES.map(function (m) { return '<button class="chip' + (NF.mode === m[0] ? ' on' : '') + '" data-mode="' + m[0] + '">' + m[1] + '</button>'; }).join('') + '</div>' +
-    (NF.mode === 'code' ? '<div class="qnote bad" style="margin-top:10px">🔐 <b>This code signs in to the Netflix account itself.</b> It is for you, not for a customer — never send it on.</div>' : '') +
+    (NF.mode === 'code' || NF.mode === 'signin' ? '<div class="qnote bad" style="margin-top:10px">🔐 <b>This code signs in to the Netflix account itself.</b> It is for you, not for a customer — never send it on.'
+      + (NF.mode === 'signin' ? ' The <b>4-digit sign-in code</b>: Netflix emails it when the account email is typed at the login screen. You can also skip it — <i>Get help</i> under the boxes, then <i>Use password</i>.' : ' The <b>6-digit verify code</b>: after a password sign-in, the first time on that device.') + '</div>' : '') +
     '<button class="btn" id="nfgo" style="margin-top:12px"' + (r.mailReady ? '' : ' disabled') + '>🔎 Find the newest one</button>' +
     '<div id="nfmsg" class="muted" style="margin-top:8px;font-size:.8rem"></div></div>' +
     '<div id="nfout"></div>';
@@ -7194,14 +7198,18 @@ function renderNetflixOut() {
   var r = NF.out;
   if (!r) { el.innerHTML = NF.busy ? '<div class="card muted">Reading…</div>' : ''; return; }
   if (!r.mail) {
-    el.innerHTML = '<div class="card"><h3 style="margin-top:0">Nothing recent</h3><p class="muted">No ' + esc(r.mode) + ' mail for ' + esc(r.accountId) + ' in the last few days. Ask Netflix for it on the TV first, then look again.</p></div>';
+    var NF_NOTHING = { household: 'household', travel: 'travelling code', code: '6-digit verification code', signin: '4-digit sign-in code' };
+    el.innerHTML = '<div class="card"><h3 style="margin-top:0">Nothing recent</h3><p class="muted">No ' + esc(NF_NOTHING[r.mode] || r.mode) + ' mail for ' + esc(r.accountId) + ' in the last few days. '
+      + (r.mode === 'signin' ? 'Type the account email at the Netflix login screen first — the code is only sent once it is asked for.'
+        : r.mode === 'code' ? 'Sign in with the password on the new device first — the code is only sent once it is asked for.'
+        : 'Ask Netflix for it on the TV first, then look again.') + '</p></div>';
     return;
   }
   var m = r.mail;
   el.innerHTML = '<div class="card"><h3 style="margin-top:0">' + esc(r.accountId) + ' · ' + esc(r.mode) + '</h3>' +
     '<div class="muted" style="font-size:.82rem">' + esc(m.subject) + '</div>' +
     '<div class="muted" style="font-size:.75rem;margin-top:3px">' + esc(prettyDate(m.date, true)) + ' · found by ' + esc(m.foundBy === 'label' ? 'its Gmail label' : 'the subject tag') + '</div>' +
-    (m.code ? '<div class="creds" style="margin:12px 0"><div class="cr"><span>Code</span><code style="font-size:1.3rem;letter-spacing:.2em">' + esc(m.code) + '</code><button class="copy" data-copy="' + esc(m.code) + '">Copy</button></div></div>' +
+    (m.code ? '<div class="creds" style="margin:12px 0"><div class="cr"><span>' + (m.digits === 4 ? 'Sign-in code' : m.digits === 6 ? 'Verify code' : 'Code') + '</span><code style="font-size:1.3rem;letter-spacing:.2em">' + esc(m.code) + '</code><button class="copy" data-copy="' + esc(m.code) + '">Copy</button></div></div>' +
       '<div class="qnote bad">Expires about 15 minutes after Netflix sent it. Never send it to a customer.</div>' : '') +
     (m.actionUrl ? '<div style="margin-top:12px"><a class="btn" href="' + esc(m.actionUrl) + '" target="_blank" rel="noopener noreferrer">Open the Netflix link ›</a></div>' +
       '<p class="muted" style="font-size:.74rem;margin:8px 0 0">Opens Netflix in a new tab. Nothing is pressed for you.</p>' : '') +

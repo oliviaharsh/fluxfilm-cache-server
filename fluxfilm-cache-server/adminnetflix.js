@@ -1,8 +1,10 @@
 /**
  * FluxFilm — 📺 Netflix helper (admin), the Apps Script that lived on the ffnetflixhub inbox, moved onto the server.
  *
- * The owner picks one of our Netflix accounts and sees the newest **household**, **travel** or **verification code**
- * mail Netflix sent it, with the link to act on. Same job as the old web app, with three differences that matter:
+ * The owner picks one of our Netflix accounts and sees the newest **household**, **travel**, **verification code**
+ * or **sign-in code** mail Netflix sent it, with the link to act on. The last two are different codes at different
+ * moments — 4 digits when the account email is typed at the login screen, 6 after a password sign-in on a new
+ * device — and they share a mailbox, so they are told apart by their length. The sign-in one is admin-only. Same job as the old web app, with three differences that matter:
  *   · no PIN in a URL — it sits behind the ordinary admin sign-in;
  *   · the account list comes from `inventory_accounts`, so it cannot drift from the shop;
  *   · it reads the same Gmail labels the script read (NETFLIX/acc1 … acc4), through IMAP.
@@ -31,6 +33,7 @@ function mount(app, deps) {
     household: '🏠 Looked up the household mail',
     travel: '✈️ Looked up the travelling code',
     code: '🔐 Looked up the 6-digit VERIFICATION CODE',
+    signin: '🔑 Looked up the 4-digit SIGN-IN code',
   };
 
   /** Every Netflix account we own, with the tag and the Gmail label its mail is filed under. */
@@ -82,7 +85,7 @@ function mount(app, deps) {
     try {
       const b = req.body || {};
       const asked = s(b.mode).toLowerCase();
-      const mode = asked === 'travel' || asked === 'code' ? asked : 'household';
+      const mode = asked === 'travel' || asked === 'code' || asked === 'signin' ? asked : 'household';
       const a = await accountFor(b.accountId);
       if (!process.env.NETFLIX_IMAP_PASS) return res.status(409).json({ ok: false, message: 'NETFLIX_IMAP_PASS is not set on the server, so the inbox cannot be read.' });
       // A tag is only needed for the shared hub, where four accounts' mail is mixed together. An account read
@@ -92,9 +95,10 @@ function mount(app, deps) {
       // 🕘 Who looked, when, at which account — so the owner can prove only they ever did.
       // 🔐 The code is NOT written down: the line says one was shown, not what it was.
       audit.record(req, {
-        action: 'netflix.' + (mode === 'code' ? 'code' : 'mail'), entity: 'inventory_account', id: a.accountId,
-        summary: NF_LOOKED[mode === 'code' ? 'code' : mode] + ' · ' + a.accountId + ' · ' + (mail ? 'found, ' + (mail.date || '').slice(0, 16) : 'nothing in the inbox'),
-        details: { accountId: a.accountId, email: a.email, mode, found: !!mail, subject: mail ? mail.subject : '', via: a.via },
+        action: 'netflix.' + (mode === 'code' || mode === 'signin' ? mode : 'mail'), entity: 'inventory_account', id: a.accountId,
+        summary: (NF_LOOKED[mode] || NF_LOOKED.household) + ' · ' + a.accountId + ' · '
+          + (mail ? 'found, ' + (mail.date || '').slice(0, 16) + (mail.digits ? ' · ' + mail.digits + ' digits' : '') : 'nothing in the inbox'),
+        details: { accountId: a.accountId, email: a.email, mode, found: !!mail, subject: mail ? mail.subject : '', digits: mail ? mail.digits || 0 : 0, codeKind: mail ? mail.codeKind || '' : '', via: a.via },
       });
       res.json({ ok: true, accountId: a.accountId, email: a.email, label: a.label, mode, mail: mail || null });
     } catch (e) { fail(res, e); }

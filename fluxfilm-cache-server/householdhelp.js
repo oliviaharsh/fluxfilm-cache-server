@@ -88,7 +88,10 @@ async function start(phone, deps, req) {
 const WHAT = {
   household: { needs: 'update', label: 'make this TV the home' },
   travel: { needs: 'travel', label: 'get the TV code' },
-  signin: { needs: 'signin', label: 'get the sign-in code' },
+  // The 6-digit VERIFICATION code (emailed after a password sign-in, first time on that device). Not the 4-digit
+  // sign-in code, which is a different code at a different moment and lives in admin only — owner, 24 Sep 2026:
+  // "sign in code i just need in admin for myself". The key stays 'signin' so no saved screen or link breaks.
+  signin: { needs: 'signin', label: 'get the verification code' },
 };
 
 /**
@@ -148,7 +151,7 @@ async function fix(phone, accountId, what, deps, req) {
    */
   if (acc.kind !== 'H') {
     if (kind === 'signin') {
-      return end('household.link', 'sign-in code is not ours to read on a partner account',
+      return end('household.link', 'the verification code is not ours to read on a partner account',
         { ok: true, openLink: DARKFLIX_BASE() + '/household.php', notOurs: true, partnerSignin: true, email: acc.email, accountId: acc.accountId });
     }
     // Same two buttons as our own accounts. The link is the fallback, not the first answer.
@@ -168,9 +171,13 @@ async function fix(phone, accountId, what, deps, req) {
   }
   if (kind === 'signin') {
     const r = await H.verificationCode(target, deps);
-    return r && r.ok
-      ? end('household.signin', '🔐 sign-in code given', { ok: true, code: r.code, accountId: acc.accountId })
-      : end('household.signin', '⚠️ no code — needs doing by hand', { ok: false, manual: true });
+    if (!r || !r.ok) return end('household.signin', '⚠️ no code — needs doing by hand', { ok: false, manual: true });
+    // The length says which of the two it was, and the change log is worth that detail: a 6-digit verification code
+    // means somebody got past the password, which is a different event from a 4-digit sign-in code.
+    const digits = r.digits || String(r.code).length;
+    const which = digits === 4 ? '4-digit sign-in code' : digits + '-digit verification code';
+    return end('household.signin', '🔐 ' + which + ' given',
+      { ok: true, code: r.code, digits, codeKind: r.codeKind || (digits === 4 ? 'signin' : 'verify'), accountId: acc.accountId });
   }
   // household: make this TV the home. Only when the owner has switched that on (OLIVIA_HH_UPDATE).
   if (!H.updateEnabled()) return end('household.update', '⏸ turned off (OLIVIA_HH_UPDATE)', { ok: false, manual: true, updateOff: true });
