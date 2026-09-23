@@ -2796,7 +2796,13 @@ function renderPassword() {
     '<div class="creds" style="margin-top:10px"><div class="cr"><span>Login</span><code>' + esc(im.account.login) + '</code><button class="copy" data-copy="' + esc(im.account.login) + '">Copy</button></div>' +
     '<div class="cr"><span>Current</span><code id="pwcur" data-p="' + esc(im.account.password) + '">••••••••</code><button class="copy" id="pwreveal">Show</button></div>' +
     '<div class="cr" id="pwage"><span>Last changed</span><span' + (im.account.passwordChangedAt ? '' : ' class="muted"') + '>' + pwAgeText(im.account.passwordChangedAt) + '</span></div></div>' +
-    (im.sameLogin.length > 1 ? '<div class="qnote">This login is listed on ' + im.sameLogin.length + ' account rows (' + im.sameLogin.map(function (r) { return esc(r.account_id); }).join(', ') + ') — all of them get the new password.</div>' : '') + '</div>' +
+    (im.sameLogin.length > 1 ? '<div class="qnote">This login is listed on ' + im.sameLogin.length + ' account rows (' + im.sameLogin.map(function (r) { return esc(r.account_id); }).join(', ') + ') — all of them get the new password.</div>' : '') +
+    // 🔁 An account switched off in inventory keeps whoever is already on it — nobody new is placed there, but the
+    // customers stay until they are moved. One press moves them all (adminswitch.js move-off).
+    (im.account.isActive === false
+      ? '<div class="qnote bad" style="margin-top:10px"><b>⏸ This account is switched off.</b> Nobody new is placed on it, but ' + im.active.length + ' customer' + (im.active.length === 1 ? ' is' : 's are') + ' still on it.' +
+        (im.active.length ? '<div style="margin-top:8px"><button class="btn dark sm" id="pwmoveoff">🔁 Move everyone to another account</button></div>' : '') + '</div>'
+      : im.active.length ? '<div class="row" style="margin-top:10px"><button class="btn ghost sm" id="pwmoveoff">🔁 Move everyone to another account</button></div>' : '') + '</div>' +
     '<div class="card qsec"><h3>🟢 Active customers (' + im.active.length + ') <span class="muted" style="font-weight:400;font-size:.8rem">— new password saved for them</span></h3>' + peopleList('active', im.active) + '</div>' +
     '<div class="card qsec"><h3>🚪 Expired, not removed (' + im.expired.length + ') <span class="muted" style="font-weight:400;font-size:.8rem">— will be ticked removed</span></h3>' + peopleList('expired', im.expired, 'bad') + '</div>' +
     '<div class="card qsec"><div class="qnote">🔑 Every plan ever sold on this login (' + (im.totalSubs || im.active.length) + ' in total' + (im.olderCount ? ', ' + im.olderCount + ' already removed or refunded' : '') + ') gets the new password saved — not just the active ones. So if an ended plan is renewed later, that customer gets the NEW password.</div></div>' +
@@ -2807,6 +2813,7 @@ function renderPassword() {
     '<button class="btn qgo" id="pwgo">🔑 Change password</button><div id="pwmsg" class="muted" style="margin-top:8px;font-size:.8rem"></div></div></div></div>';
   el.querySelector('[data-back]').onclick = function () { PW.pick = null; PW.impact = null; renderPassword(); };
   $('#pwreveal').onclick = function () { var c = $('#pwcur'); var shown = c.textContent !== '••••••••'; c.textContent = shown ? '••••••••' : c.getAttribute('data-p'); this.textContent = shown ? 'Show' : 'Hide'; };
+  var mo = $('#pwmoveoff'); if (mo) mo.onclick = function () { moveOffDialog(im.account.accountId, im.account.service); };
   $('#pwshow').onclick = function () { var i = $('#pwnew'); i.type = i.type === 'password' ? 'text' : 'password'; };
   el.onclick = function (e) { var m = e.target.closest('[data-more]'); if (m) { var k = m.getAttribute('data-more'); PW.showAll[k] = !PW.showAll[k]; var keep = $('#pwnew') && $('#pwnew').value; renderPassword(); if (keep) $('#pwnew').value = keep; } };
   $('#pwgo').onclick = function () {
@@ -2834,6 +2841,43 @@ function loadPwAccounts() {
 function loadImpact() {
   var p = PW.pick;
   api('/admin/api/accounts/impact', { service: p.service, account_id: p.accountId }).then(function (r) { if (PW.pick !== p) return; PW.impact = r; renderPassword(); });
+}
+/**
+ * 🔁 "Move everyone to another account". Shows exactly who would go where BEFORE anything happens, because this
+ * changes several customers' logins at once and emails them. The server works the targets out again as it goes —
+ * each move fills a place, so the preview is a forecast, not the plan.
+ */
+function moveOffDialog(accountId, service) {
+  modal('🔁 Move everyone off ' + esc(accountId), '<p class="muted">Working out where everyone can go…</p>', '', '');
+  api('/admin/api/accounts/move-off/preview', { accountId: accountId }).then(function (r) {
+    var body = $('#modal .mbody'); if (!body) return;
+    if (!r || !r.ok) { body.innerHTML = '<div class="qnote bad">' + esc((r && r.message) || 'Could not check this account.') + '</div>'; return; }
+    var list = r.customers || [];
+    if (!list.length) { body.innerHTML = '<p class="muted">Nobody is on ' + esc(accountId) + ' right now.</p>'; return; }
+    var withMail = list.filter(function (x) { return x.to && x.hasEmail; }).length;
+    body.innerHTML = '<div class="list">' + list.map(function (x) {
+      return '<div class="li"><span style="font-size:1.1rem">' + svcIcon(x.service) + '</span><div class="grow"><b>' + esc(x.name || '—') + '</b> <span class="muted">· ' + esc(x.phone) + '</span>' +
+        '<div class="muted" style="font-size:.72rem">' + esc(x.plan) + ' · ends ' + prettyDate(x.expiry) + ' · ' + esc(x.from) + '</div></div>' +
+        (x.to ? '<span class="pill p-ok">→ ' + esc(x.toLabel || x.to) + '</span>' : '<span class="pill p-bad" title="' + esc(x.blocked) + '">no room</span>') + '</div>';
+    }).join('') + '</div>' +
+      '<div class="qnote" style="margin-top:10px">' + r.movable + ' can move now' + (r.blocked ? ' · <b>' + r.blocked + ' cannot</b> — nothing is free for them, so they stay where they are' : '') + '.' +
+      ' Each one keeps its plan and dates; only the login changes.</div>' +
+      '<label class="qtoggle"><input type="checkbox" id="mo_mail" checked/> <span><b>Email the new login</b><small>' + withMail + ' of the ' + r.movable + ' have an email</small></span></label>' +
+      '<div id="mo_msg" class="muted" style="margin-top:8px;font-size:.8rem"></div>';
+    $('#modal .mft').innerHTML = '<button class="btn dark" id="mo_go"' + (r.movable ? '' : ' disabled') + '>🔁 Move ' + r.movable + ' customer' + (r.movable === 1 ? '' : 's') + '</button>';
+    var rid = 'mo' + Date.now().toString(36);
+    $('#mo_go').onclick = function () {
+      if (!confirm('Move ' + r.movable + ' customer' + (r.movable === 1 ? '' : 's') + ' off ' + accountId + '?\n\nEach gets a new login on another account' + ($('#mo_mail').checked ? ' and is emailed it' : '') + '. Their plan and dates do not change.')) return;
+      $('#mo_go').disabled = true;
+      $('#mo_msg').textContent = 'Moving… this takes a moment per customer.';
+      post('/admin/api/accounts/move-off', { accountId: accountId, service: service, email: $('#mo_mail').checked, requestId: rid }).then(function (x) {
+        if (!x || !x.ok) { $('#mo_go').disabled = false; $('#mo_msg').textContent = '⚠️ ' + ((x && x.message) || 'failed'); return; }
+        $('#mo_msg').innerHTML = '✅ ' + esc(x.message) + (x.failed && x.failed.length ? '<br>' + x.failed.map(function (f) { return esc(f.plan) + ': ' + esc(f.message); }).join('<br>') : '');
+        toast('🔁 ' + x.moved.length + ' moved');
+        PW.impact = null; loadImpact();
+      });
+    };
+  });
 }
 function renderPwResult() {
   var r = PW.result, a = r.account;

@@ -41,6 +41,15 @@ function run(sql, p) {
   guard(sql);
   if ((sql.match(/\?/g) || []).length !== p.length) throw new Error('placeholder count mismatch: ' + sql);
   if (/^SELECT \* FROM subscriptions WHERE sub_id = \? LIMIT 1$/.test(sql)) return S.subs.filter((x) => x.sub_id === p[0]).map(clone);
+  // 🔁 Move everyone off: the live plans sitting on one account (its own ref, or a profile of it).
+  if (/FROM subscriptions WHERE \(inventory_ref = \? OR inventory_ref LIKE \?\)/.test(sql)) {
+    const acc = p[0];
+    return S.subs
+      .filter((x) => (x.inventory_ref === acc || String(x.inventory_ref || '').indexOf(acc + '#') === 0) &&
+        String(x.status || '').toUpperCase() === 'ACTIVE' && Date.parse(String(x.expiry_date).replace(' ', 'T')) > Date.now())
+      .sort((u, v) => String(u.expiry_date).localeCompare(String(v.expiry_date)))
+      .map(clone);
+  }
   if (/^SELECT plan, raw_json FROM plans WHERE service = \?$/.test(sql)) return S.plans.filter((x) => x.service === p[0]).map(clone);
   if (/^SELECT service, raw_json FROM plans$/.test(sql)) return S.plans.map(clone);
   if (/^SELECT sub_id, inventory_ref, account_id, login_id, group_index FROM subscriptions WHERE group_id = \?$/.test(sql)) return S.subs.filter((x) => x.group_id && x.group_id === p[0]).map(clone);
@@ -377,6 +386,46 @@ function seed() {
   ok('no JOIN and no new-table SQL in adminswitch.js', sqls.length >= 8 && !sqls.some((q) => /\bJOIN\b/i.test(q) || NEW_T.test(q)), sqls);
   const adminJs = fs.readFileSync(path.join(__dirname, '..', 'admin.js'), 'utf8');
   ok('admin.js mounts adminswitch before adminexpired and the sub-removed route', adminJs.indexOf("require('./adminswitch').mount") > 0 && adminJs.indexOf("require('./adminswitch').mount") < adminJs.indexOf("require('./adminexpired').mount") && adminJs.indexOf("require('./adminswitch').mount") < adminJs.indexOf("app.post('/admin/api/sub-removed'"));
+
+  // ---------------------------------------------------------------- 🔁 move EVERYONE off one account
+  // Owner, 23 Sep 2026: "when an account is marked inactive - should add a button to transfer customers on it
+  // to next available account with one button press".
+  section('move everyone off an account, in one press');
+  {
+    seed();
+    // NFLX-D2 is switched off in inventory: three live plans still sit on it (SUB-204 ended long ago).
+    S.accounts.filter((a) => a.account_id === 'NFLX-D2').forEach((a) => { a.is_active = 'FALSE'; });
+    let pv = await get('/admin/api/accounts/move-off/preview?accountId=NFLX-D2');
+    const seen = pv.body.customers.map((c) => c.subId).sort();
+    ok('the preview lists only the live plans on that account', JSON.stringify(seen) === JSON.stringify(['SUB-201', 'SUB-202', 'SUB-203']), seen);
+    ok('each one is shown a target, or told there is no room', pv.body.customers.every((c) => c.to || c.blocked), pv.body.customers);
+    ok('and the plan, the date and the old place are shown so the owner can check', pv.body.customers.every((c) => c.plan && c.expiry && /^NFLX-D2/.test(c.from)), pv.body.customers[0]);
+    ok('nothing has moved yet — a preview only looks', S.subs.filter((x) => /^NFLX-D2/.test(x.inventory_ref) && x.status === 'ACTIVE' && x.sub_id !== 'SUB-204').length === 3);
+
+    const before = pv.body.movable;
+    let run = await post('/admin/api/accounts/move-off', { accountId: 'NFLX-D2', email: false, requestId: 'r1' });
+    ok('one press moves everyone it can', run.body.ok && run.body.moved.length === before && run.body.moved.length > 0, { moved: run.body.moved, failed: run.body.failed });
+    ok('…onto a DIFFERENT account each time, never the one they were on', run.body.moved.every((m) => m.to !== 'NFLX-D2' && /^NFLX-/.test(m.to)), run.body.moved);
+    const left = S.subs.filter((x) => /^NFLX-D2/.test(x.inventory_ref) && String(x.status).toUpperCase() === 'ACTIVE' && !/SUB-204/.test(x.sub_id));
+    ok('the account is empty of live plans afterwards (or the rest had nowhere to go)', left.length === (pv.body.blocked || 0), { left: left.map((x) => x.sub_id), blocked: pv.body.blocked });
+    ok('each move is a real switch: history and a note are written', S.subs.filter((x) => run.body.moved.some((m) => m.subId === x.sub_id)).every((x) => /Account switched off/.test(String(x.notes)) && JSON.parse(x.raw_json || '{}').SwitchHistory), run.body.moved);
+    ok('it is in the change log as one line', audits.some((a) => a.action === 'account.moveOff' && a.id === 'NFLX-D2' && /Moved \d+ customer/.test(a.summary)), audits.map((a) => a.action));
+
+    // Pressing it again does nothing: there is nobody left.
+    run = await post('/admin/api/accounts/move-off', { accountId: 'NFLX-D2', email: false, requestId: 'r2' });
+    ok('pressing it again is harmless', run.body.ok && run.body.moved.length === 0 && /Nobody is on/.test(run.body.message), run.body.message);
+
+    // Nothing free anywhere: everyone stays, and the owner is told rather than left guessing.
+    seed();
+    S.accounts.forEach((a) => { if (a.account_id !== 'NFLX-D1') a.is_active = 'FALSE'; });
+    pv = await get('/admin/api/accounts/move-off/preview?accountId=NFLX-D1');
+    ok('no room anywhere: every customer is marked blocked, with a reason', pv.body.customers.length > 0 && pv.body.movable === 0 && pv.body.customers.every((c) => !c.to && c.blocked), pv.body.customers.map((c) => c.blocked)[0]);
+    run = await post('/admin/api/accounts/move-off', { accountId: 'NFLX-D1', email: false, requestId: 'r3' });
+    ok('…and the run moves nobody rather than half-breaking things', run.body.ok && run.body.moved.length === 0 && run.body.failed.length === pv.body.customers.length, run.body);
+
+    ok('an account nobody is on says so', (await get('/admin/api/accounts/move-off/preview?accountId=NOPE-1')).body.customers.length === 0);
+    ok('both routes need the admin key', (await get('/admin/api/accounts/move-off/preview?accountId=NFLX-D2', {})).status === 403 && (await post('/admin/api/accounts/move-off', { accountId: 'NFLX-D2' }, {})).status === 403);
+  }
 
   section('admin card: 🔁 Switch account only on live plans');
   server.close();
