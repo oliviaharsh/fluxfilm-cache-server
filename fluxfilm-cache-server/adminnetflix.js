@@ -1,0 +1,94 @@
+/**
+ * FluxFilm — 📺 Netflix helper (admin), the Apps Script that lived on the ffnetflixhub inbox, moved onto the server.
+ *
+ * The owner picks one of our Netflix accounts and sees the newest **household**, **travel** or **verification code**
+ * mail Netflix sent it, with the link to act on. Same job as the old web app, with three differences that matter:
+ *   · no PIN in a URL — it sits behind the ordinary admin sign-in;
+ *   · the account list comes from `inventory_accounts`, so it cannot drift from the shop;
+ *   · it reads the same Gmail labels the script read (NETFLIX/acc1 … acc4), through IMAP.
+ *
+ * ⚠️ Read-only. It opens nothing and presses nothing: the owner gets the link and decides. "Get the code" uses
+ * oliviahousehold.travelCode, which the module documents as read-only and which never presses a button on a
+ * sign-in / captcha / expired page.
+ *
+ *   GET  /admin/api/netflix/accounts            our Netflix accounts + the label each one reads
+ *   POST /admin/api/netflix/mail  { accountId, mode }   newest household|travel|code mail: subject, date, link, code
+ *   POST /admin/api/netflix/code  { accountId }         the 4-digit travel code, fetched the read-only way
+ */
+const db = require('./db');
+
+const s = (v) => String(v == null ? '' : v).trim();
+
+function mount(app, deps) {
+  const { auth } = deps;
+  const audit = (deps && deps.audit) || { record: () => {} };
+  const hh = () => (deps && deps.household) || require('./oliviahousehold');
+  const q = (sql, p) => ((deps && deps.query) || db.query)(sql, p || []);
+  const fail = (res, e) => res.status((e && e.status) || 500).json({ ok: false, message: String((e && e.message) || e) });
+
+  /** Every Netflix account we own, with the tag and the Gmail label its mail is filed under. */
+  async function accounts() {
+    const rows = await q("SELECT account_id, service, login_id, is_active, raw_json FROM inventory_accounts WHERE LOWER(service) LIKE '%netflix%' ORDER BY account_id");
+    const H = hh();
+    return (rows || []).map((r) => {
+      const tag = H._internal.tagOf(s(r.account_id), r.raw_json, s(r.login_id));
+      return {
+        accountId: s(r.account_id), service: s(r.service), email: s(r.login_id),
+        isActive: s(r.is_active).toUpperCase() !== 'FALSE',
+        kind: H._internal.kindOfRef(s(r.account_id)),
+        tag, label: tag ? H._internal.labelFor(tag) : '',
+      };
+    });
+  }
+
+  async function accountFor(accountId) {
+    const id = s(accountId).toUpperCase();
+    if (!id) { const e = new Error('Pick an account first.'); e.status = 400; throw e; }
+    const all = await accounts();
+    const a = all.find((x) => x.accountId.toUpperCase() === id);
+    if (!a) { const e = new Error('No Netflix account called ' + id + '.'); e.status = 404; throw e; }
+    return a;
+  }
+
+  app.get('/admin/api/netflix/accounts', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      const list = await accounts();
+      res.json({
+        ok: true, accounts: list,
+        inbox: process.env.NETFLIX_IMAP_USER || 'ffnetflixhub@gmail.com',
+        mailReady: !!process.env.NETFLIX_IMAP_PASS,
+        untagged: list.filter((a) => !a.tag).map((a) => a.accountId),
+      });
+    } catch (e) { fail(res, e); }
+  });
+
+  app.post('/admin/api/netflix/mail', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      const b = req.body || {};
+      const asked = s(b.mode).toLowerCase();
+      const mode = asked === 'travel' || asked === 'code' ? asked : 'household';
+      const a = await accountFor(b.accountId);
+      if (!process.env.NETFLIX_IMAP_PASS) return res.status(409).json({ ok: false, message: 'NETFLIX_IMAP_PASS is not set on the server, so the inbox cannot be read.' });
+      if (!a.tag) return res.status(409).json({ ok: false, message: a.accountId + ' has no household tag, so its mail cannot be told apart from the other accounts. Set HouseholdTag on the account, or add it to OLIVIA_HH_ACC_MAP.' });
+      const mail = await hh().latestMail({ service: a.service, email: a.email, kind: a.kind, tag: a.tag, ref: a.accountId }, mode, deps && deps.hhDeps);
+      // The account and what was looked for are worth having in the log; the link is not written down.
+      audit.record(req, { action: 'netflix.mail', entity: 'inventory_account', id: a.accountId, summary: mode + ' mail looked up — ' + (mail ? 'found' : 'nothing recent') });
+      res.json({ ok: true, accountId: a.accountId, email: a.email, label: a.label, mode, mail: mail || null });
+    } catch (e) { fail(res, e); }
+  });
+
+  app.post('/admin/api/netflix/code', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      const a = await accountFor((req.body || {}).accountId);
+      const r = await hh().travelCode({ service: a.service, email: a.email, kind: a.kind, tag: a.tag, ref: a.accountId }, deps && deps.hhDeps);
+      audit.record(req, { action: 'netflix.code', entity: 'inventory_account', id: a.accountId, summary: r && r.ok ? 'travel code fetched' : 'travel code not available' });
+      // ⚠️ The code itself goes to the screen only — never into the change log.
+      res.json(r && r.ok ? { ok: true, accountId: a.accountId, code: r.code } : { ok: false, manual: true, message: 'No code could be read. Open the link above and do it by hand.' });
+    } catch (e) { fail(res, e); }
+  });
+}
+
+module.exports = { mount };
