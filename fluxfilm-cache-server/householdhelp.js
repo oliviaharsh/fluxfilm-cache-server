@@ -139,9 +139,24 @@ async function fix(phone, accountId, what, deps, req) {
     return out;
   };
 
-  // Not one of ours (a darkflix account): there is a page for it, and Olivia can walk them through it.
+  /**
+   * A PARTNER (darkflix) account. Two of the three still work here, because oliviahousehold.netflixLink() asks
+   * darkflix for the Netflix link the same way a person would, then reads the page itself — it never needed our
+   * inbox for those. Only the 6-digit verification code genuinely cannot work: that mail goes to the partner's
+   * mailbox, not ours, so there is nothing for us to read. Owner asked, 24 Sep 2026: "can our AI do the dark
+   * netflix account updates? just like ours can we not do that also in just 3 buttons".
+   */
   if (acc.kind !== 'H') {
-    return end('household.link', 'not our account — sent to the darkflix page',
+    if (kind === 'signin') {
+      return end('household.link', 'sign-in code is not ours to read on a partner account',
+        { ok: true, openLink: DARKFLIX_BASE() + '/household.php', notOurs: true, partnerSignin: true, email: acc.email, accountId: acc.accountId });
+    }
+    // Same two buttons as our own accounts. The link is the fallback, not the first answer.
+    const rp = kind === 'travel' ? await H.travelCode(target, deps)
+      : H.updateEnabled() ? await H.updateHousehold(target, deps) : null;
+    if (rp && rp.ok && kind === 'travel' && rp.code) return end('household.travel', '✅ TV code given (partner account)', { ok: true, code: rp.code, accountId: acc.accountId });
+    if (rp && rp.ok && kind !== 'travel') return end('household.update', '🏠 this TV made the home (partner account)', { ok: true, done: true, accountId: acc.accountId });
+    return end('household.link', 'partner account — could not do it, sent to their page',
       { ok: true, openLink: DARKFLIX_BASE() + '/household.php', notOurs: true, email: acc.email, accountId: acc.accountId });
   }
 

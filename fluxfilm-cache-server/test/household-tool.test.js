@@ -113,8 +113,11 @@ const deps = { household: fakeHh };
   {
     CALLS.length = 0;
     const d = await hh.fix('9971430096', 'NFLX-D3', 'travel', deps);
-    ok('a partner account → the page to open, and nothing is fetched from our inbox', d.ok && d.notOurs === true && /household\.php/.test(d.openLink) && CALLS.length === 0, { d, CALLS });
-    ok('…with the Netflix email to type in', d.email === 'someone@darkflix.shop', d);
+    // Changed 24 Sep 2026 (owner: "can we not do that also in just 3 buttons"): a partner account is FIXED now,
+    // not handed a link. The link only comes back when darkflix cannot do it - see the partner section below.
+    ok('a partner account is fixed too, not sent away', d.ok && d.code === '1234' && !d.openLink, { d, CALLS });
+    const sg = await hh.fix('9971430096', 'NFLX-D3', 'signin', deps);
+    ok('…and the one that cannot work still gives the page, with the email to type in', sg.notOurs === true && /household\.php/.test(sg.openLink) && sg.email === 'someone@darkflix.shop', sg);
   }
 
   // ── the example pictures ──────────────────────────────────────────────────────────────────────────────────
@@ -166,7 +169,7 @@ const deps = { household: fakeHh };
 
     AUDIT.length = 0;
     out = await hh.fix('9971430096', 'NFLX-D3', 'household', deps, req);
-    ok('a darkflix account is logged as sent to their page', out.ok && out.notOurs && last().action === 'household.link', last());
+    ok('a darkflix account is logged as the fix it now is', out.ok && out.done === true && last().action === 'household.update' && /partner account/.test(last().summary), last());
 
     // The lines that matter most: somebody asking for an account that is not theirs.
     AUDIT.length = 0;
@@ -205,6 +208,30 @@ const deps = { household: fakeHh };
     ok('…with the name in front of the number', /^Harsh Walia · 9971430096 · in Olivia chat/.test(row.summary), row.summary);
     ok('…the number normalised to 10 digits', row.entity_id === '9971430096', row.entity_id);
     ok('…and where it came from', row.ip === '198.51.100.4', row.ip);
+  }
+
+  // A PARTNER (darkflix) account: two of the three buttons work the same way, because the link comes from
+  // darkflix rather than our inbox. Only the 6-digit code cannot - that mail is not ours to read.
+  section('\🤝 partner accounts get the same buttons, where they can work');
+  {
+    CALLS.length = 0;
+    let p1 = await hh.fix('9971430096', 'NFLX-D3', 'travel', deps);
+    ok('\u2708\ufe0f the travelling code is fetched for a partner account too', p1.ok && p1.code === '1234' && !p1.openLink, p1);
+    ok('...through the same darkflix path, not our inbox', CALLS.some((c) => c[0] === 'travel' && c[1] === 'NFLX-D3'), CALLS);
+
+    updateOn = true;
+    CALLS.length = 0;
+    p1 = await hh.fix('9971430096', 'NFLX-D3', 'household', deps);
+    ok('\U0001f3e0 and the household is updated for a partner account', p1.ok && p1.done === true && !p1.openLink, p1);
+
+    p1 = await hh.fix('9971430096', 'NFLX-D3', 'signin', deps);
+    ok('\U0001f510 but the 6-digit code is refused - that mail goes to their mailbox, not ours', p1.ok && p1.notOurs === true && p1.partnerSignin === true && !!p1.openLink, p1);
+
+    // If darkflix cannot do it, the link is still there as the fallback rather than a dead end.
+    const sulky = Object.assign({}, fakeHh, { travelCode: async () => ({ ok: false, manual: true }) });
+    p1 = await hh.fix('9971430096', 'NFLX-D3', 'travel', { household: sulky });
+    ok('...and when darkflix cannot do it, they still get the page', p1.ok && p1.notOurs === true && /household\.php/.test(p1.openLink), p1);
+    updateOn = true;
   }
 
   // ── wiring ────────────────────────────────────────────────────────────────────────────────────────────────
