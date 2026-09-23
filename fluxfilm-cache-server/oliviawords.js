@@ -163,13 +163,13 @@ const T = {
   // Netflix for it, so the device step is said first ("pehle website pe jaoge toh code nahi milega").
   HH_OFFER_CODE: {
     en: () => 'No problem 🙏 Netflix wants to confirm this TV (a "household" check). Pick one below:\n🔑 "Get my code now" — I fetch the code, you type it on the TV.\n🏠 "This is my account" — make this TV your Netflix home.\n🔗 "Give me the link" — you do it yourself, I show the exact steps.\n💬 "Samjhao" — I explain it simply.',
-    hinglish: () => 'Koi baat nahi ji 🙏 Netflix is TV ko confirm karna chahta hai ("household" check). Neeche se ek chuniye:\n🔑 "Abhi code lo" — main code laati hoon, aap TV par daaliye.\n🏠 "Ye mera account hai" — is TV ko apna Netflix home banaiye.\n🔗 "Link do, khud karunga" — aap khud kijiye, main steps bata deti hoon.\n💬 "Samjhao" — main aasan bhasha mein samjha deti hoon.',
-    hi: () => 'कोई बात नहीं जी 🙏 Netflix इस TV को confirm करना चाहता है ("household" चेक)। नीचे से एक चुनिए:\n🔑 "अभी कोड लो" — मैं कोड लाती हूँ, आप TV पर डालिए।\n🏠 "यह मेरा account है" — इस TV को अपना Netflix होम बनाइए।\n🔗 "लिंक दो, खुद करूँगा" — आप खुद कीजिए, मैं steps बता देती हूँ।\n💬 "समझाओ" — मैं आसान भाषा में समझा देती हूँ।',
+    hinglish: () => 'Koi baat nahi ji 🙏 Netflix is TV ko confirm karna chahta hai ("household" check). Neeche se ek chuniye:\n🔑 "Get my code now" — main code laati hoon, aap TV par daaliye.\n🏠 "Ye mera account hai" — is TV ko apna Netflix home banaiye.\n🔗 "Link do, khud karunga" — aap khud kijiye, main steps bata deti hoon.\n💬 "Samjhao" — main aasan bhasha mein samjha deti hoon.',
+    hi: () => 'कोई बात नहीं जी 🙏 Netflix इस TV को confirm करना चाहता है ("household" चेक)। नीचे से एक चुनिए:\n🔑 "Get my code now" — मैं कोड लाती हूँ, आप TV पर डालिए।\n🏠 "यह मेरा account है" — इस TV को अपना Netflix होम बनाइए।\n🔗 "लिंक दो, खुद करूँगा" — आप खुद कीजिए, मैं steps बता देती हूँ।\n💬 "समझाओ" — मैं आसान भाषा में समझा देती हूँ।',
   },
   HH_EXPLAIN: {
     en: () => 'Sure 🙏 Netflix now checks that a TV belongs to your home. Once in a while it asks for a one-time confirmation — this is normal, your account is completely fine.\nTwo easy ways to fix it:\n1. "Get my code now" — I fetch a 4-digit code, you type it on the TV. Works for about 15 minutes.\n2. "This is my account" — set this TV as your home once, so it stops asking.\nWant me to just do it for you? Tap "Get my code now".',
-    hinglish: () => 'Zaroor ji 🙏 Netflix ab check karta hai ki TV aapke ghar ka hai ya nahi. Kabhi-kabhi ek baar confirm maangta hai — ye bilkul normal hai, aapke account mein koi dikkat nahi.\nDo aasan tarike:\n1. "Abhi code lo" — main 4 digit ka code laati hoon, aap TV par daaliye. Lagbhag 15 minute chalta hai.\n2. "Ye mera account hai" — is TV ko ek baar apna home bana dijiye, phir baar-baar nahi maangega.\nMain hi kar doon? "Abhi code lo" dabaiye.',
-    hi: () => 'ज़रूर जी 🙏 Netflix अब चेक करता है कि TV आपके घर का है या नहीं। कभी-कभी एक बार confirm माँगता है — यह बिलकुल normal है, आपके account में कोई दिक्कत नहीं।\nदो आसान तरीके:\n1. "अभी कोड लो" — मैं 4 अंक का कोड लाती हूँ, आप TV पर डालिए। लगभग 15 मिनट चलता है।\n2. "यह मेरा account है" — इस TV को एक बार अपना होम बना दीजिए, फिर बार-बार नहीं माँगेगा।\nमैं ही कर दूँ? "अभी कोड लो" दबाइए।',
+    hinglish: () => 'Zaroor ji 🙏 Netflix ab check karta hai ki TV aapke ghar ka hai ya nahi. Kabhi-kabhi ek baar confirm maangta hai — ye bilkul normal hai, aapke account mein koi dikkat nahi.\nDo aasan tarike:\n1. "Get my code now" — main 4 digit ka code laati hoon, aap TV par daaliye. Lagbhag 15 minute chalta hai.\n2. "Ye mera account hai" — is TV ko ek baar apna home bana dijiye, phir baar-baar nahi maangega.\nMain hi kar doon? "Get my code now" dabaiye.',
+    hi: () => 'ज़रूर जी 🙏 Netflix अब चेक करता है कि TV आपके घर का है या नहीं। कभी-कभी एक बार confirm माँगता है — यह बिलकुल normal है, आपके account में कोई दिक्कत नहीं।\nदो आसान तरीके:\n1. "Get my code now" — मैं 4 अंक का कोड लाती हूँ, आप TV पर डालिए। लगभग 15 मिनट चलता है।\n2. "यह मेरा account है" — इस TV को एक बार अपना होम बना दीजिए, फिर बार-बार नहीं माँगेगा।\nमैं ही कर दूँ? "Get my code now" दबाइए।',
   },
   HH_LINK_WHICH: {
     en: () => 'You have more than one Netflix here 🙏 Which account is the TV asking about? Tap the right email below.',
@@ -181,11 +181,11 @@ const T = {
       ? 'Here you go 🙏 To make this TV your home yourself:\n1. Tap "Open Household Helper" below.\n2. On that page, type the email you use to log into this Netflix, then press "Update household".\n3. Follow the Netflix page once — it sets this TV as your home so it stops asking.\nStuck? Tap "Get my code now" for a quick temporary code instead.'
       : 'Here you go 🙏 Do it yourself in 3 easy steps:\n1. Tap "Open Household Helper" below.\n2. On that page, type the email you use to log into this Netflix, then press "Get Travel Code".\n3. Netflix shows a 4-digit code — type it on your TV to keep watching (works ~15 minutes).\nStuck? Tap "Get my code now" and I will do it for you.',
     hinglish: (f) => f.mode === 'update'
-      ? 'Ye lijiye ji 🙏 Is TV ko khud apna home banane ke liye:\n1. Neeche "Household Helper kholo" dabaiye.\n2. Us page par wahi email daaliye jisse aap is Netflix mein login karte hain, phir "Update household" dabaiye.\n3. Netflix page ko ek baar follow kijiye — ye TV aapka home ban jayega, phir nahi maangega.\nAtak gaye? "Abhi code lo" dabaiye, main turant temporary code de deti hoon.'
-      : 'Ye lijiye ji 🙏 Khud karne ke 3 aasan step:\n1. Neeche "Household Helper kholo" dabaiye.\n2. Us page par wahi email daaliye jisse aap is Netflix mein login karte hain, phir "Get Travel Code" dabaiye.\n3. Netflix 4 digit ka code dikhayega — use apne TV par daaliye (lagbhag 15 minute chalta hai).\nAtak gaye? "Abhi code lo" dabaiye, main kar deti hoon.',
+      ? 'Ye lijiye ji 🙏 Is TV ko khud apna home banane ke liye:\n1. Neeche "Household Helper kholo" dabaiye.\n2. Us page par wahi email daaliye jisse aap is Netflix mein login karte hain, phir "Update household" dabaiye.\n3. Netflix page ko ek baar follow kijiye — ye TV aapka home ban jayega, phir nahi maangega.\nAtak gaye? "Get my code now" dabaiye, main turant temporary code de deti hoon.'
+      : 'Ye lijiye ji 🙏 Khud karne ke 3 aasan step:\n1. Neeche "Household Helper kholo" dabaiye.\n2. Us page par wahi email daaliye jisse aap is Netflix mein login karte hain, phir "Get Travel Code" dabaiye.\n3. Netflix 4 digit ka code dikhayega — use apne TV par daaliye (lagbhag 15 minute chalta hai).\nAtak gaye? "Get my code now" dabaiye, main kar deti hoon.',
     hi: (f) => f.mode === 'update'
-      ? 'यह लीजिए जी 🙏 इस TV को खुद अपना होम बनाने के लिए:\n1. नीचे "Household Helper खोलो" दबाइए।\n2. उस page पर वही ईमेल डालिए जिससे आप इस Netflix में login करते हैं, फिर "Update household" दबाइए।\n3. Netflix page को एक बार follow कीजिए — यह TV आपका होम बन जाएगा, फिर नहीं माँगेगा।\nअटक गए? "अभी कोड लो" दबाइए, मैं तुरंत temporary कोड दे देती हूँ।'
-      : 'यह लीजिए जी 🙏 खुद करने के 3 आसान step:\n1. नीचे "Household Helper खोलो" दबाइए।\n2. उस page पर वही ईमेल डालिए जिससे आप इस Netflix में login करते हैं, फिर "Get Travel Code" दबाइए।\n3. Netflix 4 अंक का कोड दिखाएगा — उसे अपने TV पर डालिए (लगभग 15 मिनट चलता है)।\nअटक गए? "अभी कोड लो" दबाइए, मैं कर देती हूँ।',
+      ? 'यह लीजिए जी 🙏 इस TV को खुद अपना होम बनाने के लिए:\n1. नीचे "Household Helper खोलो" दबाइए।\n2. उस page पर वही ईमेल डालिए जिससे आप इस Netflix में login करते हैं, फिर "Update household" दबाइए।\n3. Netflix page को एक बार follow कीजिए — यह TV आपका होम बन जाएगा, फिर नहीं माँगेगा।\nअटक गए? "Get my code now" दबाइए, मैं तुरंत temporary कोड दे देती हूँ।'
+      : 'यह लीजिए जी 🙏 खुद करने के 3 आसान step:\n1. नीचे "Household Helper खोलो" दबाइए।\n2. उस page पर वही ईमेल डालिए जिससे आप इस Netflix में login करते हैं, फिर "Get Travel Code" दबाइए।\n3. Netflix 4 अंक का कोड दिखाएगा — उसे अपने TV पर डालिए (लगभग 15 मिनट चलता है)।\nअटक गए? "Get my code now" दबाइए, मैं कर देती हूँ।',
   },
   HH_CODE_NOT_YET: {
     en: (f) => (f.attempt >= 2 ? 'Still no code 🙏 Two things to check:\n' : 'I could not find a code yet 🙏\n') + 'On the TV, tap "Watch temporarily" (or "Update household" -> "Send email").' + (f.attempt >= 2 ? '\nAlso make sure it is this Netflix, on this account.' : '') + '\nDone that? Tap "I clicked, check again".',
@@ -194,8 +194,8 @@ const T = {
   },
   HH_UPDATE_DONE: {
     en: () => 'Done ✅ This TV is now set as your Netflix home.\nPlease try playing again — it should work now.\nIf it still asks, tap "Get my code now" for a temporary code.',
-    hinglish: () => 'Ho gaya ✅ Ab yeh TV aapka Netflix home set ho gaya hai.\nEk baar dobara chala kar dekhiye, ab chal jana chahiye.\nPhir bhi maange to "Abhi code lo" dabakar temporary code le lijiye.',
-    hi: () => 'हो गया ✅ अब यह TV आपका Netflix होम सेट हो गया है।\nएक बार दोबारा चलाकर देखिए, अब चल जाना चाहिए।\nफिर भी माँगे तो "अभी कोड लो" दबाकर temporary कोड ले लीजिए।',
+    hinglish: () => 'Ho gaya ✅ Ab yeh TV aapka Netflix home set ho gaya hai.\nEk baar dobara chala kar dekhiye, ab chal jana chahiye.\nPhir bhi maange to "Get my code now" dabakar temporary code le lijiye.',
+    hi: () => 'हो गया ✅ अब यह TV आपका Netflix होम सेट हो गया है।\nएक बार दोबारा चलाकर देखिए, अब चल जाना चाहिए।\nफिर भी माँगे तो "Get my code now" दबाकर temporary कोड ले लीजिए।',
   },
   HH_CODE_READY: {
     en: () => 'Here is your code 🔑\n1. On your TV, tap "Watch temporarily" / "Enter code".\n2. Type these 4 digits and confirm — it will start playing.\nThe code works for about 15 minutes. Please do not share it with anyone.',
@@ -603,7 +603,7 @@ const B = {
   'lmode:separate': { en: '👥 Separate login for each', hinglish: '👥 Har device ka alag login', hi: '👥 हर डिवाइस का अलग लॉगिन' },
   helper1: { en: '🏠 Household Helper (Link 1)', hinglish: '🏠 Household Helper (Link 1)', hi: '🏠 Household Helper (Link 1)' },
   helper2: { en: '🏠 Household Helper (Link 2)', hinglish: '🏠 Household Helper (Link 2)', hi: '🏠 Household Helper (Link 2)' },
-  hhcode: { en: '🔑 Get my code now', hinglish: '🔑 Abhi code lo', hi: '🔑 अभी कोड लो' },
+  hhcode: { en: '🔑 Get my code now', hinglish: '🔑 Get my code now', hi: '🔑 Get my code now' },
   hhupdate: { en: '🏠 This is my account / Update household', hinglish: '🏠 Ye mera account hai / Update household', hi: '🏠 यह मेरा account है / Update household' },
   hhlink: { en: '🔗 Give me the link', hinglish: '🔗 Link do, khud karunga', hi: '🔗 लिंक दो, खुद करूँगा' },
   hhexplain: { en: '💬 Please explain', hinglish: '💬 Samjhao', hi: '💬 समझाओ' },
