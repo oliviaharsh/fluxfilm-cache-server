@@ -224,7 +224,7 @@ const deps = { household: fakeHh };
     /React\.createElement\(HouseholdGate, \{/.test(html) && !/Which link should I use\?/.test(html) && !/🔧 Open Link 1/.test(html));
   ok('it asks you to log in first, because it reads your own plans', /function HouseholdGate\(\{/.test(html) && /ffEnsureLogin_\('', p => \{/.test(html));
   ok('no plan → it offers the plans instead of a dead end', /window\.ffGoBuy\('Netflix'\)/.test(html));
-  ok('the three choices are shown with a picture each', /HH_WHATS = \[\{/.test(html) && /pics\[w\.id\] \? E\("img", \{/.test(html));
+  ok('the three choices are shown with a picture each', /HH_WHATS = \[\{/.test(html) && /hhPic_\(pics, w\.id\) \? E\("img", \{/.test(html));
   ok('a partner account is sent to its own page or to Olivia', /!picked\.ours/.test(html) && /Ask Olivia to do it/.test(html));
   const admin = read('admin.html');
   ok('the owner can upload the three examples', /NF_PICS = \[\['household'/.test(admin) && /post\('\/admin\/api\/netflix\/pictures'/.test(admin));
@@ -235,6 +235,34 @@ const deps = { household: fakeHh };
   })());
   ok('householdhelp and Olivia share one logger', /require\('\.\/householdlog'\)/.test(read('householdhelp.js')));
   ok('🔐 no code is ever handed to the logger', !/record\([^)]*code/.test(read('householdlog.js')) && !/code: r\.code[^)]*note\(/.test(read('householdhelp.js')));
+  // The three pictures are DRAWN, not photographed: no customer's email on them, ~3 KB each, and crisp at any size.
+  section('the pictures the customer taps');
+  {
+    const src = read('householdpics.js');
+    const sandbox = { window: {}, encodeURIComponent };
+    require('vm').runInNewContext(src, sandbox);
+    const pics = sandbox.window.FF_HH_PICS || {};
+    ok('one for each choice', ['household', 'travel', 'signin'].every((k) => !!pics[k]), Object.keys(pics));
+    ok('...each a self-contained SVG data URL', Object.values(pics).every((u) => /^data:image\/svg\+xml;charset=utf-8,%3Csvg/.test(u)));
+    ok('...and small enough to be free', Object.values(pics).every((u) => u.length < 8192), Object.values(pics).map((u) => Math.round(u.length / 102.4) / 10 + ' KB'));
+    const svgs = Object.values(pics).map((u) => decodeURIComponent(u.split(',')[1]));
+    ok('...well-formed: every tag closed', svgs.every((s) => {
+      const open = (s.match(/<(svg|g|text|rect|path|circle|defs|radialGradient|stop)\b/g) || []).length;
+      const shut = (s.match(/<\/(svg|g|text|rect|path|circle|defs|radialGradient|stop)>/g) || []).length + (s.match(/\/>/g) || []).length;
+      return open === shut;
+    }));
+    ok('...nothing loaded from outside, and no script in them', svgs.every((s) => !/<script|href\s*=|xlink:|https?:\/\/(?!www\.w3\.org)/.test(s)));
+    ok('...they show the words a customer is actually looking at', /isn't part of/.test(svgs[0]) && /Enter this code/.test(svgs[1]) && /Verify with this code/.test(svgs[2]));
+  }
+  ok('the shop and the panel both load them, and the shop serves the file', /<script src="\/household-pics\.js" defer><\/script>/.test(read('index.html'))
+    && /<script src="\/household-pics\.js"><\/script>/.test(read('admin.html'))
+    && /app\.get\('\/household-pics\.js'/.test(read('server.js')));
+  ok('an uploaded screenshot wins, the drawing is the fallback', /function hhPic_\(pics, id\)/.test(read('index.html'))
+    && /const own = \(pics \|\| \{\}\)\[id\];/.test(read('index.html'))
+    && /window\.FF_HH_PICS \|\| \{\}\)\[id\]/.test(read('index.html')));
+  ok('the picture is shown again, full width, above the steps', /className: "ff-hh-shot"/.test(read('index.html')) && /\.ff-hh-shot \{/.test(read('index.html')));
+  ok('nothing is cropped any more - a wide photo of a TV stays readable', /\.ff-hh-what img \{ width: 104px; height: 78px; object-fit: contain;/.test(read('index.html')));
+  ok('admin shows the owner the same drawing, and says it is the built-in one', /Built-in drawing/.test(read('admin.html')));
   ok('server.js hands the request through, so the log has an IP', /householdFix: \(a, req\) => hhMod\.fix\(a\[0\], a\[1\], a\[2\], null, req\)/.test(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8')));
   ok('admin.html can filter the change log to 🏠 Household', /\['household', '🏠 Household'\]/.test(fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8')));
 

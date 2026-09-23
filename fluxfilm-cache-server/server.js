@@ -559,6 +559,11 @@ app.get('/olivia.js', (_req, res) => {
   res.set('Cache-Control', 'public, max-age=0');
   res.set('Content-Type', 'application/javascript; charset=utf-8').sendFile(path.join(__dirname, 'oliviawidget.js'));
 });
+// The drawn pictures for 🧰 Tools → 🏠 Netflix Household (householdpics.js), loaded by index.html and the admin panel.
+app.get('/household-pics.js', (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.set('Content-Type', 'application/javascript; charset=utf-8').sendFile(path.join(__dirname, 'householdpics.js'));
+});
 // Olivia's photo for the chat header / Help sheet (AI-generated, 256 px). The widget asks for ?v=N, so it can be cached long.
 app.get('/olivia-avatar.jpg', (_req, res) => {
   res.set('Cache-Control', 'public, max-age=604800');

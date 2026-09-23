@@ -475,8 +475,10 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-hh-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .ff-hh-what, .ff-hh-acc { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border: 1.5px solid #e2e8f0; border-radius: 14px; background: #fff; font: inherit; text-align: left; cursor: pointer; }
 .ff-hh-what:active, .ff-hh-acc:active { transform: scale(.985); border-color: #e50914; }
-.ff-hh-what img { width: 84px; height: 62px; object-fit: cover; border-radius: 10px; background: #f1f5f9; flex: none; }
-.ff-hh-emoji { width: 84px; height: 62px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: #f1f5f9; font-size: 28px; flex: none; }
+.ff-hh-what img { width: 104px; height: 78px; object-fit: contain; border-radius: 10px; background: #0b0b0f; flex: none; }
+.ff-hh-emoji { width: 104px; height: 78px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: #f1f5f9; font-size: 30px; flex: none; }
+/* Once they have picked, the same picture full width above the steps: "yes, this is my screen". */
+.ff-hh-shot { display: block; width: 100%; border-radius: 12px; background: #0b0b0f; margin: 0 0 12px; }
 .ff-hh-what b, .ff-hh-acc b { display: block; font-size: 14px; font-weight: 800; line-height: 1.3; }
 .ff-hh-what small, .ff-hh-acc small { display: block; margin-top: 3px; font-size: 12px; color: #64748b; line-height: 1.35; }
 .ff-hh-acc { flex-direction: column; align-items: flex-start; gap: 2px; }
@@ -3792,6 +3794,20 @@ const HH_WHATS = [{
   sub: '"Verify with this code" when you log in on a new device',
   go: '🔐 Get the verification code'
 }];
+/**
+ * The picture for one choice: the owner's own screenshot if they uploaded one in admin → 📺 Netflix helper,
+ * otherwise the drawing shipped in /household-pics.js. Never nothing, so the customer always has something to
+ * recognise — and an emoji only if that script failed to load.
+ */
+function hhPic_(pics, id) {
+  const own = (pics || {})[id];
+  if (own) return own;
+  try {
+    return (window.FF_HH_PICS || {})[id] || '';
+  } catch (e) {
+    return '';
+  }
+}
 const HH_STEPS = {
   household: ['Press the button below and wait a moment.', 'On the TV, choose "Yes, this is my home" if it asks again.', 'Start playing something — it should work straight away.'],
   travel: ['On the TV or phone, choose "Watch temporarily" / "I\'m travelling" — Netflix will say a code has been sent.', 'Press the button below. We open the code for you — you do not need the email.', 'Type the 4 digits in. Netflix only keeps it alive for about 15 minutes, so do it now.'],
@@ -4020,8 +4036,8 @@ function HouseholdTool({
       type: "button",
       className: "ff-hh-what",
       onClick: () => setWhat(w.id)
-    }, pics[w.id] ? E("img", {
-      src: pics[w.id],
+    }, hhPic_(pics, w.id) ? E("img", {
+      src: hhPic_(pics, w.id),
       alt: "",
       loading: "lazy"
     }) : E("span", {
@@ -4038,9 +4054,15 @@ function HouseholdTool({
 
   // ── step 3: the steps + the one button ──
   const w = HH_WHATS.find(x => x.id === what) || HH_WHATS[0];
+  const shot = hhPic_(pics, w.id);
   return E(ToolsSheet, {
     onClose: onClose
-  }, head(w.title, picked && accounts.length > 1 ? picked.email : ''), E("ol", {
+  }, head(w.title, picked && accounts.length > 1 ? picked.email : ''), shot ? E("img", {
+    className: "ff-hh-shot",
+    src: shot,
+    alt: "",
+    loading: "lazy"
+  }) : null, E("ol", {
     className: "ff-hh-steps"
   }, (HH_STEPS[what] || []).map((line, i) => E("li", {
     key: i
@@ -19646,6 +19668,7 @@ const API = {
   }
 };
 </script>
+<script src="/household-pics.js" defer></script>
 <script src="/olivia.js" defer></script>
 </body>
 </html>
