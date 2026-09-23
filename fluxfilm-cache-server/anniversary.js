@@ -34,12 +34,14 @@ const DEFAULTS = {
   title: '🎉 FluxFilm Anniversary Sale',
   note: 'Our best prices of the year. Be the first to know.',
   startsAt: '2026-09-30 10:00',  // 'YYYY-MM-DD HH:MM', India time. The moment the countdown reaches zero.
-  endsAt: '',                   // optional 'YYYY-MM-DD HH:MM': the bar disappears after this.
+  endsAt: '2026-10-03 23:59',   // the bar disappears after this; the coupon is made to expire the same day.
   liveTitle: '🎉 The Anniversary Sale is ON',
   liveNote: 'Our best prices of the year — see the plans.',
   notifyTitle: '🎉 The FluxFilm Anniversary Sale is live',
   notifyBody: 'Our best prices of the year are on right now. Tap to see them.',
   everyone: false,              // false = only the people who pressed 🔔 Notify me. true = everyone with reminders on.
+  couponCode: 'FLUX4',          // shown on the bar and in the notification — ONLY once the sale is live.
+  couponAuto: true,             // switch that coupon on at the same moment. Its own expiry ends it — no second timer.
   announcedFor: '',             // the startsAt already announced — the guard that stops a second send.
   announcedAt: '',
 };
@@ -92,6 +94,12 @@ function validate(input, current) {
   const out = Object.assign({}, cur);
   if (i.on != null) out.on = !!i.on;
   if (i.everyone != null) out.everyone = !!i.everyone;
+  if (i.couponAuto != null) out.couponAuto = !!i.couponAuto;
+  if (i.couponCode != null) {
+    const c = s(i.couponCode).toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 24);
+    if (s(i.couponCode) && !c) throw Object.assign(new Error('A coupon code is letters and numbers only.'), { status: 400 });
+    out.couponCode = c;
+  }
   for (const k of ['title', 'liveTitle', 'notifyTitle']) if (i[k] != null) out[k] = clip(i[k], 80);
   for (const k of ['note', 'liveNote', 'notifyBody']) if (i[k] != null) out[k] = clip(i[k], 200);
   for (const k of ['startsAt', 'endsAt']) {
@@ -131,6 +139,9 @@ async function publicInfo(now) {
     note: live ? st.liveNote : st.note,
     startsAtMs,
     endsAtMs: endsAtMs || 0,
+    // ⚠️ Only when live. Before the sale the code is not sent to the browser at all, so it cannot be found early
+    // by reading the page — and the coupon itself is switched off until the same moment.
+    coupon: live ? s(st.couponCode) : '',
     // The bar asks for this so it can show "✅ You'll be told" straight away on the next visit; the browser knows
     // its own push state, this only says whether the button is worth showing at all.
     canNotify: !live,
@@ -160,13 +171,50 @@ async function notifyMe(phone) {
 
 async function stats() {
   const [st, list] = await Promise.all([getSettings(), readList()]);
+  const coupon = await couponState(st.couponCode).catch(() => ({ code: s(st.couponCode), exists: false }));
   return {
     ok: true,
     settings: st,
+    coupon,
     waiting: list.length,
     startsAtMs: istMs(st.startsAt),
     announced: !!(st.announcedFor && st.announcedFor === st.startsAt),
     announcedAt: st.announcedAt || '',
+  };
+}
+
+/**
+ * Switch the sale's coupon on (or off) — typed column AND raw_json together, because order.js couponDiscount()
+ * validates a coupon by reading raw_json ONLY. A coupon flipped in one place and not the other looks right in
+ * admin and silently does the wrong thing at checkout.
+ * Coupons have no start date, only an expiry, so "not yet" has to mean Active = FALSE.
+ */
+async function setCouponActive(code, on) {
+  const c = s(code).toUpperCase();
+  if (!c) return { ok: true, skipped: 'no code' };
+  const flag = on ? 'TRUE' : 'FALSE';
+  const r = await db.query(
+    "UPDATE coupons SET active = ?, raw_json = IF(raw_json IS NULL, NULL, JSON_SET(raw_json, '$.Active', ?)) WHERE UPPER(code) = ? LIMIT 1",
+    [flag, flag, c]);
+  const changed = !!(r && r.affectedRows);
+  if (!changed) console.log('[anniversary] no coupon called ' + c + ' to switch ' + (on ? 'on' : 'off'));
+  return { ok: true, code: c, on, found: changed };
+}
+
+/** What the admin screen shows about the coupon: does it exist, is it on, and what does it take off. */
+async function couponState(code) {
+  const c = s(code).toUpperCase();
+  if (!c) return { code: '', exists: false };
+  let rows = [];
+  try { rows = await db.query('SELECT code, type, value, min_amount, max_discount, expiry, per_user_limit, active FROM coupons WHERE UPPER(code) = ? LIMIT 1', [c]); } catch (e) { return { code: c, exists: false, error: e.message }; }
+  const r = rows[0];
+  if (!r) return { code: c, exists: false };
+  return {
+    code: s(r.code) || c, exists: true,
+    active: String(r.active || '').toUpperCase() === 'TRUE',
+    type: s(r.type), value: Number(r.value) || 0,
+    minAmount: Number(r.min_amount) || 0, maxDiscount: Number(r.max_discount) || 0,
+    expiry: s(r.expiry).slice(0, 10), perUserLimit: Number(r.per_user_limit) || 0,
   };
 }
 
@@ -199,7 +247,14 @@ async function runOnce(now, opts) {
   // Written down BEFORE the sending, so a cron and the hourly timer landing together cannot both send.
   await writeSetting(KEY, Object.assign({}, st, { announcedFor: st.startsAt, announcedAt: istText(t) }));
 
-  const message = { title: st.notifyTitle, body: st.notifyBody, url: '/?source=anniversary', tag: 'anniversary' };
+  // The coupon goes live at the same moment the announcement goes out — never before, so the code cannot be used
+  // early by anyone who guesses it. Done BEFORE the sending, so the message can honestly name it.
+  let coupon = null;
+  if (st.couponAuto && s(st.couponCode)) {
+    try { coupon = await setCouponActive(st.couponCode, true); } catch (e) { console.log('[anniversary] could not switch the coupon on:', e.message); coupon = { ok: false, message: e.message }; }
+  }
+  const codeLine = coupon && coupon.found ? ' Use code ' + s(st.couponCode).toUpperCase() + '.' : '';
+  const message = { title: st.notifyTitle, body: s(st.notifyBody) + codeLine, url: '/?source=anniversary', tag: 'anniversary' };
   let sent = 0, failed = 0, told = 0;
   try {
     if (st.everyone) {
@@ -219,7 +274,7 @@ async function runOnce(now, opts) {
     return { ok: false, message: e.message, sent, failed };
   }
   console.log('[anniversary] announced the sale to ' + told + ' customer(s), ' + sent + ' device(s)');
-  return { ok: true, announced: true, told, sent, failed, everyone: !!st.everyone };
+  return { ok: true, announced: true, told, sent, failed, everyone: !!st.everyone, coupon };
 }
 
 let timer = null;
@@ -271,6 +326,6 @@ function mount(app, deps) {
 }
 
 module.exports = {
-  mount, run, startTimer, publicInfo, notifyMe, getSettings, saveSettings, validate, stats,
+  mount, run, startTimer, publicInfo, notifyMe, getSettings, saveSettings, validate, stats, setCouponActive, couponState,
   DEFAULTS, KEY, LIST_KEY, _internal: { istMs, istText, readList },
 };

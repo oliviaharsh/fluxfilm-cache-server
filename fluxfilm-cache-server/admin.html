@@ -6872,6 +6872,7 @@ function renderAnniv() {
     annivInput('an_liveNote', 'Line under it', st.liveNote) +
     annivInput('an_endsAt', 'Hide the bar after (optional)', dt(st.endsAt), 'datetime-local', 'Leave empty to keep it up.') +
     '</div>' +
+    annivCouponCard(r) +
     '<div class="card qsec"><h3>🔔 The notification on the day</h3>' +
     annivInput('an_notifyTitle', 'Title', st.notifyTitle) +
     annivInput('an_notifyBody', 'Message', st.notifyBody) +
@@ -6887,6 +6888,8 @@ function renderAnniv() {
     '<code style="display:block;margin-top:6px;padding:8px;border-radius:8px;background:#0f172a;color:#e2e8f0;font-size:.68rem;word-break:break-all">curl -s -X POST -H "X-Admin-Key: YOUR_ADMIN_KEY" https://shop.fluxfilm.in/cron/anniversary</code>' +
     '</div></div></div>';
   $('#an_save').onclick = annivSave;
+  var mk = $('#an_mkcoupon');
+  if (mk) mk.onclick = annivMakeCoupon;
   $('#an_now').onclick = function () {
     if (!confirm('Send the anniversary notification NOW to ' + (st.everyone ? 'everyone with reminders on' : (r.waiting || 0) + ' customer(s) who asked') + '?\n\nThis reaches real customers straight away.')) return;
     $('#an_now').disabled = true; $('#an_msg').textContent = 'Sending…';
@@ -6896,6 +6899,56 @@ function renderAnniv() {
     });
   };
 }
+/**
+ * 🎟️ The sale's coupon. It is written by the panel's OWN coupon endpoint (/admin/api/coupon), the same one the
+ * 🎟️ Coupons screen uses — so the typed columns and raw_json stay in step, which is what checkout actually reads.
+ * It is created switched OFF: coupons have no start date, only an expiry, so "not yet" has to mean inactive.
+ * The sale switches it on by itself at the moment the countdown reaches zero.
+ */
+function annivCouponCard(r) {
+  var c = r.coupon || {};
+  var st = r.settings || {};
+  var state = !c.code ? '<div class="qnote">No code set — the bar will show no coupon.</div>'
+    : !c.exists ? '<div class="qnote warn">⚠️ <b>' + esc(c.code) + '</b> does not exist yet. Fill the three boxes and press <b>Create it</b>.</div>'
+    : c.active ? '<div class="qnote">✅ <b>' + esc(c.code) + '</b> exists and is <b>ON</b> — customers can use it right now.</div>'
+    : '<div class="qnote">🕓 <b>' + esc(c.code) + '</b> exists and is <b>off until the sale starts</b>' + (c.expiry ? ', expires ' + esc(c.expiry) : '') + '. ' + (c.type ? esc(c.type) + ' ' + c.value + (c.maxDiscount ? ', max ₹' + c.maxDiscount : '') + (c.minAmount ? ', min ₹' + c.minAmount : ', no minimum') + (c.perUserLimit ? ', ' + c.perUserLimit + ' per customer' : '') : '') + '</div>';
+  return '<div class="card qsec"><h3>🎟️ The sale coupon</h3>' + state +
+    annivInput('an_couponCode', 'Code', st.couponCode, 'text', 'Letters and numbers. Shown on the bar and in the notification — only once the sale is on.') +
+    '<div class="fields">' +
+    annivInput('an_cpPercent', '% off', 20, 'number') +
+    annivInput('an_cpMax', 'Most it can take off (₹)', 100, 'number') +
+    annivInput('an_cpMin', 'Minimum order (₹)', 0, 'number') +
+    '</div>' +
+    '<label class="qtoggle"><input type="checkbox" id="an_couponAuto"' + (st.couponAuto ? ' checked' : '') + '/> <span><b>Switch it on by itself when the countdown reaches zero</b><small>Off = you switch it on in 🎟️ Coupons yourself</small></span></label>' +
+    '<button class="btn ghost sm" id="an_mkcoupon" style="margin-top:10px">🎟️ ' + (c.exists ? 'Update it' : 'Create it') + '</button>' +
+    '<p class="muted" style="font-size:.74rem;margin:8px 0 0">One use per customer, new orders and renewals, expires with the sale. It is created <b>switched off</b>, so nobody can use the code early.</p>' +
+    '</div>';
+}
+function annivMakeCoupon() {
+  var v = function (id) { var e = $('#' + id); return e ? e.value : ''; };
+  var code = String(v('an_couponCode') || '').trim().toUpperCase();
+  if (!code) { toast('⚠️ Set a code first'); return; }
+  var st = (AN.data && AN.data.settings) || {};
+  var ends = String(st.endsAt || '').slice(0, 10) || String(st.startsAt || '').slice(0, 10);
+  $('#an_mkcoupon').disabled = true; $('#an_msg').textContent = 'Writing the coupon…';
+  post('/admin/api/coupon', {
+    code: code,
+    description: 'Anniversary sale',
+    scope: 'ANY', type: 'PERCENT',
+    value: Number(v('an_cpPercent')) || 0,
+    maxDiscount: Number(v('an_cpMax')) || 0,
+    minAmount: Number(v('an_cpMin')) || 0,
+    expiry: ends,
+    perUserLimit: 1, globalLimit: 0,
+    active: 'FALSE', showInProfile: 'TRUE',
+    allowedPhones: 'ALL', firstTimeOnly: 'FALSE',
+  }).then(function (x) {
+    if (!x || !x.ok) { $('#an_mkcoupon').disabled = false; $('#an_msg').textContent = '⚠️ ' + ((x && x.message) || 'failed'); return; }
+    AN.msg = '🎟️ ' + code + ' saved — off until the sale starts';
+    // The code may have changed too; save the settings so the bar shows this one.
+    post('/admin/api/anniversary', { couponCode: code, couponAuto: $('#an_couponAuto').checked }).then(function () { annivView(); });
+  });
+}
 function annivSave() {
   $('#an_save').disabled = true; $('#an_msg').textContent = 'Saving…';
   var v = function (id) { var e = $('#' + id); return e ? e.value : ''; };
@@ -6904,6 +6957,7 @@ function annivSave() {
     title: v('an_title'), note: v('an_note'), startsAt: v('an_startsAt'),
     liveTitle: v('an_liveTitle'), liveNote: v('an_liveNote'), endsAt: v('an_endsAt'),
     notifyTitle: v('an_notifyTitle'), notifyBody: v('an_notifyBody'),
+    couponCode: v('an_couponCode'), couponAuto: $('#an_couponAuto').checked,
   }).then(function (r) {
     if (!r || !r.ok) { $('#an_save').disabled = false; $('#an_msg').textContent = '⚠️ ' + ((r && r.message) || 'failed'); return; }
     AN.data = r; AN.msg = 'Saved ✓'; toast('Saved'); renderAnniv();
