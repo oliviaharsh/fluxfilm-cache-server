@@ -283,10 +283,20 @@ const newSubs = () => S.subs.filter((s) => !/^SUB-OTHER|^SUB-ME/.test(s.sub_id))
   section('Netflix sharing: same = 2 seats on one sharing profile; separate = seats on different accounts');
   S = base(); reset();
   nfAccount(S, 'NF-A', 5, 1); nfAccount(S, 'NF-B', 5, 1);
+  // Harsh asked on 23 Sep 2026, about a live order: when one customer buys 2 devices on the SAME login, does the
+  // account lose 2 places or only 1? It must be 2 — one row with device_count 2, and the occupancy sum counts it
+  // as two. If it ever counted 1, that account would be sold one seat too many and someone would be locked out.
+  const sharingSeatsFree = async () => stock.unitsForPlan(await stock.loadSnapshot(), S.plans.find((p) => p.service === 'Netflix' && p.plan === 'Sharing 1M'));
+  const seatsBefore = await sharingSeatsFree();
+  ok('two empty accounts of 5 = 10 sharing places to sell', seatsBefore === 10, seatsBefore);
   r = await buy('Netflix', 'Sharing 2 Devices 1M', { loginMode: 'same' });
   f = await payAndFulfil(r.orderId);
   subs = newSubs();
   ok('same: one row on a sharing profile with 2 seats', subs.length === 1 && /#P1$/.test(subs[0].inventory_ref) && subs[0].device_count === 2, subs);
+  {
+    const after = await sharingSeatsFree();
+    ok('⚠️ the account lost TWO places, not one (10 → 8)', after === 8, { before: seatsBefore, after, wouldBeIfCountedAsOne: 9 });
+  }
   r = await buy('Netflix', 'Sharing 2 Devices 1M', { loginMode: 'separate' });
   f = await payAndFulfil(r.orderId);
   subs = newSubs().filter((s) => s.order_id === r.orderId);
