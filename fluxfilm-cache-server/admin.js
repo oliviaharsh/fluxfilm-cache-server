@@ -191,6 +191,8 @@ function mountAdmin(app, deps) {
   require('./adminn8n').mount(app, Object.assign({ db, auth, audit }, deps.n8n || {}));
   // Plans editor: builder, copy, on/off, safe delete (adminplans.js).
   require('./adminplans').mount(app, Object.assign({ db, auth, audit }, deps.plans || {}));
+  // ✨ Ask: type a sentence, it runs one of the panel's own read-only lookups or opens the right screen (adminask.js).
+  require('./adminask').mount(app, Object.assign({ db, auth, audit }, deps.ask || {}));
 
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};

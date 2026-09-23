@@ -162,6 +162,7 @@ function that draws it; `route()` calls it. Add a screen = add to `MENU` + `view
 | 🕘 Change log | `auditView` | 2679 | `audit.js` |
 | 🔗 Integrations | `integrationsView` | 6410 | `adminn8n.js`, `n8n.js` |
 | 📤 Exports | `exportsView` | 6536 | `adminexports.js`, `xlsx.js` |
+| ✨ Ask (the admin assistant) | `askView` | 6640 | `adminask.js` |
 | (sign in) | `loginView` | 611 | `security.js` |
 
 **Two screens are added to `MENU` at the bottom of the file, not in the list at line 619:** 📈 Reports (after
@@ -267,6 +268,7 @@ the two exceptions are `adminrefundnow.js` (mounted by `adminorderactions.js`) a
 | 🎁 Referrals · 🪙 Coins · 🎮 Games · 📣 Offers · 🚧 Maintenance · 🤖 Olivia | `adminreferrals.js` · `admincoins.js` · `admingames.js` · `adminpromos.js` · `adminstore.js` · `adminolivia.js` | each has a matching engine module |
 | 🧾 Plans editor | `adminplans.js` | |
 | 📤 Exports | `adminexports.js` + `xlsx.js` | |
+| ✨ Ask — a typed sentence → one existing read-only lookup, or the right screen pre-filled | `adminask.js` (rules first, `oliviawords.callModel` only as a fallback) | never writes |
 | 🔗 n8n | `adminn8n.js`, `n8n.js`, `n8nhooks.js`, `n8nbackup.js` | |
 | ✉️ Email sender check | `adminmail.js` | |
 
