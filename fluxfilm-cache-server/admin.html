@@ -7218,13 +7218,15 @@ function renderNetflixOut() {
 </script>
 <script>
 /* ================= ✉️ Email jobs (reminderjobs.js) =================
-   The three reminders the owner asked for on 23 Sep 2026. Every one ships OFF: this screen is where they are
+   The three reminders the owner asked for on 23 Sep 2026, plus 📢 What's new (24 Sep). Every one ships OFF: this
+   screen is where they are
    looked at first (👀 Preview reads and sends nothing, ✉️ Send me one goes to the owner) and only then switched on. */
 var RJ = { data: null, msg: '', pv: {}, open: '' };
 var RJ_JOBS = [
   ['abandoned', '🛒', 'Ordered but never paid', 'One reminder, a couple of hours later. Push if they have notifications on, email if not. Never twice for the same order.'],
   ['expiryMail', '⏳', 'Plan ending — by email', 'The same reminder 🔔 Notifications sends, for the customers it cannot reach. Email fills the gap instead of doubling up.'],
   ['winback', '💚', 'Come back — with a code', 'A customer whose plan ended a while ago and has not returned. One email, then left alone for a good while.'],
+  ['whatsnew', '📢', "What's new — and how the shop works", 'Not a reminder: something worth watching, plus a reminder that the shop is automatic and the login is instant. Goes to people who have bought before, a batch a day.'],
 ];
 function rjView() {
   $('#view').innerHTML = '<div class="ph"><div><h1>✉️ Email jobs</h1><p>Reminders that go out on their own. Each one is off until you switch it on.</p></div></div><div id="rjbody"><p class="muted">Loading…</p></div>';
@@ -7254,6 +7256,17 @@ function renderRj() {
             : '') +
           rjNum(key, 'afterDays', 'Gone for', 'days', 7, 365) + rjNum(key, 'everyDays', 'Leave alone for', 'days after writing', 14, 365) +
           rjNum(key, 'perDay', 'Write to', 'people a day — the rest wait their turn', 1, 500);
+    if (key === 'whatsnew') {
+      fields =
+        '<label style="grid-column:1/-1">What are you announcing? <span class="muted">(the big title on the card)</span><input class="inp" data-rjt="whatsnew.title" value="' + esc(cfg.title || '') + '" placeholder="A film everyone is talking about"/></label>' +
+        '<label>Where it is<input class="inp" data-rjt="whatsnew.service" value="' + esc(cfg.service || '') + '" placeholder="Netflix"/></label>' +
+        '<label>Little badge <span class="muted">(above the title)</span><input class="inp" data-rjt="whatsnew.badge" value="' + esc(cfg.badge || '') + '" placeholder="Worth a watch"/></label>' +
+        '<label style="grid-column:1/-1">One line about it<input class="inp" data-rjt="whatsnew.line" value="' + esc(cfg.line || '') + '" placeholder="Two brides, one train, and the funniest mix-up in years."/></label>' +
+        rjNum(key, 'perDay', 'Write to', 'people a day — the rest wait their turn', 1, 500) +
+        rjNum(key, 'everyDays', 'Leave alone for', 'days between announcements', 7, 365) +
+        '<label class="row" style="gap:8px;align-items:center;cursor:pointer;grid-column:1/-1"><input type="checkbox" data-rjb="whatsnew.onlyActive"' + (cfg.onlyActive ? ' checked' : '') + ' style="width:20px;height:20px"/><span>Only people watching right now <span class="muted">(off: everyone who has ever bought, which is the point of telling them the shop changed)</span></span></label>' +
+        '<p class="muted" style="font-size:.74rem;grid-column:1/-1;margin:2px 0 0">⚠️ Change the title to whatever is <b>actually</b> new before switching this on — the one in the box is only an example, and it goes to real customers.</p>';
+    }
     return '<div class="card qsec"><label class="row" style="gap:10px;align-items:flex-start;cursor:pointer">' +
       '<input type="checkbox" data-rjb="' + key + '.on"' + (cfg.on ? ' checked' : '') + ' style="width:22px;height:22px;flex:none;margin-top:2px"/>' +
       '<span><b>' + j[1] + ' ' + esc(j[2]) + '</b><br><span class="muted" style="font-size:.82rem">' + esc(j[3]) + '</span></span></label>' +
@@ -7299,7 +7312,7 @@ function rjDoTest(job) {
   });
 }
 function rjSave() {
-  var body = { abandoned: {}, expiryMail: {}, winback: {} };
+  var body = { abandoned: {}, expiryMail: {}, winback: {}, whatsnew: {} };
   $('#rjbody [data-rjn]').forEach(function (i) {
     var p = i.getAttribute('data-rjn').split('.');
     if (p.length === 2) body[p[0]][p[1]] = i.value; else body[p[0]] = i.value;
