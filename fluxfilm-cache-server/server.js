@@ -33,6 +33,7 @@ let paymatch = null; try { paymatch = require('./paymatch'); } catch (e) { conso
 let storeMod = null; try { storeMod = require('./store'); } catch (e) { console.log('[store] not loaded:', e.message); }
 let promosMod = null; try { promosMod = require('./promos'); } catch (e) { console.log('[promos] not loaded:', e.message); }
 let pushMod = null; try { pushMod = require('./push'); } catch (e) { console.log('[push] not loaded:', e.message); }
+let annivMod = null; try { annivMod = require('./anniversary'); } catch (e) { console.log('[anniversary] not loaded:', e.message); }
 let feedMod = null; try { feedMod = require('./feed'); } catch (e) { console.log('[feed] not loaded:', e.message); }
 let oliviaMod = null; try { oliviaMod = require('./olivia'); } catch (e) { console.log('[olivia] not loaded:', e.message); }
 let photosMod = null; try { photosMod = require('./photos'); } catch (e) { console.log('[photos] not loaded:', e.message); }
@@ -123,6 +124,12 @@ const DB_STOREFRONT = Object.assign(
     getPushKey: () => pushMod.publicKeyInfo(),
     pushSubscribe: (a, req) => pushMod.subscribe({ phone: a[0], subscription: a[1], userAgent: req && req.headers ? req.headers['user-agent'] : '', app: 'store' }),
     pushUnsubscribe: (a) => pushMod.unsubscribe(a[0], 'store'),
+  } : {},
+  // 🎉 Anniversary sale countdown (admin → 🎉 Anniversary). The bar is public; being told needs a session, because
+  // it writes that customer's number down. a = [phone].
+  annivMod ? {
+    getAnniversary: () => annivMod.publicInfo(),
+    anniversaryNotify: (a) => annivMod.notifyMe(a[0]),
   } : {}
 );
 
@@ -164,6 +171,8 @@ const LIMITS = {
   getClaimStatus: security.rateLimiter(400, TEN_MIN),
   getStoreStatus: security.rateLimiter(200, TEN_MIN),
   getPromos: security.rateLimiter(200, TEN_MIN),
+  getAnniversary: security.rateLimiter(200, TEN_MIN),
+  anniversaryNotify: security.rateLimiter(20, TEN_MIN),
   promoEvent: security.rateLimiter(120, TEN_MIN),
   getPushKey: security.rateLimiter(60, TEN_MIN),
   pushSubscribe: security.rateLimiter(20, TEN_MIN),
@@ -239,7 +248,7 @@ const DB_WRITES = order ? {
   },
 } : {};
 const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
-const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setProfilePhoto', 'removeProfilePhoto', 'setAvatar', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent', 'getPushKey', 'pushSubscribe', 'pushUnsubscribe']);
+const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setProfilePhoto', 'removeProfilePhoto', 'setAvatar', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent', 'getPushKey', 'pushSubscribe', 'pushUnsubscribe', 'getAnniversary', 'anniversaryNotify']);
 // 🔒 Profile email lock (emaillock.js): status, email codes, change email.
 ['emailLockStatus', 'emailSendCode', 'emailVerifyCode', 'changeProfileEmail'].forEach((a) => DB_STOREFRONT_ACTIONS.add(a));
 const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota', 'otpSendCode', 'otpVerifyCode']);
@@ -700,6 +709,9 @@ try { if (feedMod && db.ENABLED) feedMod.startTimer({ audit: require('./audit').
 try { if (db.ENABLED) require('./subexpiry').startTimer(); } catch (e) { console.log('[subexpiry] not started:', e.message); }
 // Push renewal reminders (3 / 1 days before, expiry day, day after; 09:00-21:00 IST): every hour + 60 s after start.
 try { if (pushMod && db.ENABLED) require('./pushreminders').startTimer(); } catch (e) { console.log('[push] reminders not started:', e.message); }
+// 🎉 The sale announcement goes out by itself on the day — an hourly tick, so nothing has to be set up on Hostinger.
+// A cron job hitting POST /cron/anniversary does the same work behind the same "never twice" guard.
+if (annivMod && db.ENABLED) annivMod.startTimer();
 // 📊 Owner business summaries: daily 23:30 / weekly Sunday 23:45 / monthly last day 23:50 IST (times in admin), checked
 // every minute; a DB guard row per period stops double sends; missed by a restart → sent within 6 h, else skipped.
 try { if (db.ENABLED) require('./reports').startTimer(); } catch (e) { console.log('[reports] scheduler not started:', e.message); }

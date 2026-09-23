@@ -233,7 +233,7 @@ const SOFT = (at, extra) => Object.assign({ kind: 'soft', at }, extra || {});
 const POLICY = {
   // catalog, stock, offers, feed read, SEO, store status: public
   getBootstrap: P, getStockLevels: P, getTrendingItems: P, getStoreStatus: P, getPromos: P, promoEvent: P,
-  getPushKey: P, pushUnsubscribe: P, getFeed: P, feedEvent: P, getFeedComments: P, getFeedCommentPreviews: P,
+  getPushKey: P, pushUnsubscribe: P, getAnniversary: P, getFeed: P, feedEvent: P, getFeedComments: P, getFeedCommentPreviews: P,
   getGamesStatus: P, checkReferral: P,
   getNetflixHouseholdLink: P, // needs the shared account's login email, not a customer's data
   submitRestockRequest: P, // "tell me when it's back" — writes a request, reveals nothing
@@ -248,7 +248,7 @@ const POLICY = {
   updateCustomerProfilePic: S(0), setProfilePhoto: S(0), removeProfilePhoto: S(0), setAvatar: S(0),
   emailLockStatus: S(0), emailSendCode: S(0), emailVerifyCode: S(0),
   getResumePaymentByPhone: S(0), getReferralInfo: S(0), getCoinQuote: S(0), getCoinHistory: S(0),
-  pushSubscribe: S(0), addFeedComment: S(0),
+  pushSubscribe: S(0), addFeedComment: S(0), anniversaryNotify: S(0),
   // checkout + payment (buying needs login: phone → email code → pay)
   createOrder: S({ i: 0, key: 'phone' }), createRenewOrder: S(null, { sub: 0 }),
   validateCoupon: SOFT({ i: 1, key: 'phone' }),

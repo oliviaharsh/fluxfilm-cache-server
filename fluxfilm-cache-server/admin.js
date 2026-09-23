@@ -193,6 +193,8 @@ function mountAdmin(app, deps) {
   require('./adminplans').mount(app, Object.assign({ db, auth, audit }, deps.plans || {}));
   // ✨ Ask: type a sentence, it runs one of the panel's own read-only lookups or opens the right screen (adminask.js).
   require('./adminask').mount(app, Object.assign({ db, auth, audit }, deps.ask || {}));
+  // 🎉 Anniversary sale: the countdown bar's settings, who pressed 🔔 Notify me, and the cron route (anniversary.js).
+  require('./anniversary').mount(app, Object.assign({ db, auth, audit }, deps.anniversary || {}));
 
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};
