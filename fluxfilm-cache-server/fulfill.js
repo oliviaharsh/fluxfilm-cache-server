@@ -39,7 +39,13 @@ function rawOf(v) { if (!v) return {}; if (typeof v === 'object') return v; try 
 // release date (expiry + cooldown) is the later one, but legacy renewals made in
 // the Sheet extended ExpiryDate without moving ReleaseEligibleAt — such a paying
 // customer must still count, or their slot gets sold a second time.
-const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR release_eligible_at > NOW())";
+// A seat is held while the plan is RUNNING, and for the grace days after it ends so a returning customer lands
+// back on the same account and profile. Ticking 🚪 removed cancels that GRACE HOLD — by then the owner has logged
+// the device out of the real account, so the seat is physically free and holding it just loses a sale. It does not
+// touch a plan that is still running: a customer removed mid-plan is still owed their seat, and selling it out from
+// under them would be worse than the seat sitting idle. Owner asked for this on 24 Sep 2026, after 8 seats across
+// the shop (including a Netflix group seat) turned out to be held this way going into the 30 Sep sale.
+const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR (release_eligible_at > NOW() AND COALESCE(removed, 0) = 0))";
 
 // Live DEVICE occupancy per inventory_ref, derived ONLY from node subscriptions
 // (never from the inventory tables, which the 5-min sync truncates). Each sub uses

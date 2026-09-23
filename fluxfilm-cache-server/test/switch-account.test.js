@@ -23,7 +23,8 @@ function fresh() { S = { subs: [], accounts: [], caps: [], profiles: [], plans: 
 fresh();
 const sub = (id) => S.subs.find((x) => x.sub_id === id);
 const rawSub = (id) => JSON.parse(sub(id).raw_json || '{}');
-const occupying = (x) => up(x.status) === 'ACTIVE' && (ms(x.expiry_date) > Date.now() || ms(x.release_eligible_at) > Date.now());
+const occupying = (x) => up(x.status) === 'ACTIVE'
+  && (ms(x.expiry_date) > Date.now() || (ms(x.release_eligible_at) > Date.now() && Number(x.removed || 0) === 0));
 const likeOf = (p) => String(p || '').replace(/%/g, '').toLowerCase();
 
 // Live lessons: MariaDB refuses to compare refund_* / feed_* (utf8mb4_unicode_ci) with the old tables; and a JOIN across
@@ -33,7 +34,7 @@ const OLD_T = /\b(orders|customers|subscriptions|inventory_\w+)\b/;
 function guard(sql) {
   if (/\bJOIN\b/i.test(sql) || (NEW_T.test(sql) && OLD_T.test(sql))) { const e = new Error('Illegal mix of collations (utf8mb4_unicode_ci,IMPLICIT) and (utf8mb4_general_ci,IMPLICIT) for operation \'=\': ' + sql); e.code = 'ER_CANT_AGGREGATE_2COLLATIONS'; throw e; }
 }
-const OCC = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR release_eligible_at > NOW())";
+const OCC = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR (release_eligible_at > NOW() AND COALESCE(removed, 0) = 0))";
 
 function run(sql, p) {
   sql = sql.replace(/\s+/g, ' ').trim(); p = p || [];
@@ -171,6 +172,11 @@ function seed() {
     other('SUB-501', 'NFLX-D5#P2', { plan: 'Private 2 Devices 1M', device_count: 2 }), // private on 2 devices: 1 extra device
     other('SUB-502', 'NFLX-D5#P1', { status: 'REFUNDED' }),                        // refunded: not counted
     other('SUB-1001', 'NFLX-D10#P1', { expiry_date: dt(days(-3)), release_eligible_at: dt(days(7)) }), // 10-day grace: counted
+    // Same grace window, but the device was logged out — the seat is physically free, so it is not counted (24 Sep 2026).
+    other('SUB-1002', 'NFLX-D10#P2', { expiry_date: dt(days(-3)), release_eligible_at: dt(days(7)), removed: 1 }),
+    // A plan that is STILL RUNNING keeps its seat even when the tick goes on — ticked in error, or on purpose, the
+    // customer has paid for it and nobody else may be sold it.
+    other('SUB-1003', 'NFLX-D10#P1', { removed: 1 }),
     liveSub('SUB-P1', { plan: 'Private 1M', inventory_ref: 'NFLX-D1#P3', profile_number: '3', profile_name: 'Green', profile_pin: '2222', email: '' }),
     liveSub('SUB-R1', { status: 'REFUNDED', fulfillment_status: 'REFUNDED' }),
     liveSub('SUB-X1', { expiry_date: dt(days(-2)), release_eligible_at: dt(days(8)) }),
@@ -206,10 +212,15 @@ function seed() {
   ok('allowed; current account D1 with its use (4 seats: this customer, 2 others, 1 in grace), masked login', r.body.ok && r.body.allowed && r.body.current.accountId === 'NFLX-D1' && r.body.current.ref === 'NFLX-D1#P1' && r.body.current.label === 'NFLX-D1 · Sharing 4/5 · Private 1/3' && r.body.current.login === 'd1***@nf.com', r.body.current);
   ok('current account is not offered', !r.body.accounts.some((a) => a.accountId === 'NFLX-D1'), r.body.accounts.map((a) => a.accountId));
   ok('Netflix labels show sharing and private separately (grace plan counted, long-expired + refunded not)',
-    acc('NFLX-D2').label === 'NFLX-D2 · Sharing 2/5 · Private 1/3' && acc('NFLX-D5').label === 'NFLX-D5 · Sharing 1/5 · Private 1/3' && acc('NFLX-D10').label === 'NFLX-D10 · Sharing 1/5 · Private 0/3', r.body.accounts.map((a) => a.label));
+    acc('NFLX-D2').label === 'NFLX-D2 · Sharing 2/5 · Private 1/3' && acc('NFLX-D5').label === 'NFLX-D5 · Sharing 1/5 · Private 1/3' && acc('NFLX-D10').label === 'NFLX-D10 · Sharing 2/5 · Private 0/3', r.body.accounts.map((a) => a.label));
+  // D10 holds three subs: one in grace (counted), one in grace and removed (freed), one running and removed
+  // (still counted). 2/5 is only right if removal frees the grace hold and nothing else.
+  ok('🚪 removed frees the seat of a plan that has ENDED', acc('NFLX-D10').sharing.used === 2, acc('NFLX-D10').label);
+  ok('…but a plan that is still RUNNING keeps its seat even when ticked removed by mistake',
+    acc('NFLX-D10').sharing.used === 2 && S.subs.some((x) => x.sub_id === 'SUB-1003' && Number(x.removed) === 1), acc('NFLX-D10').label);
   ok('sharing numbers as data too (used / cap)', acc('NFLX-D2').sharing.used === 2 && acc('NFLX-D2').sharing.cap === 5 && acc('NFLX-D2').private.used === 1 && acc('NFLX-D2').private.cap === 3);
-  ok('least used first (most free sharing seats), ties by id D5 before D10, then full / disabled',
-    r.body.accounts.map((a) => a.accountId).join() === 'NFLX-D5,NFLX-D10,NFLX-D2,NFLX-D3,NFLX-D4', r.body.accounts.map((a) => a.accountId + ':' + a.free + ':' + a.fits));
+  ok('least used first (most free sharing seats), ties by id D2 before D10, then full / disabled',
+    r.body.accounts.map((a) => a.accountId).join() === 'NFLX-D5,NFLX-D2,NFLX-D10,NFLX-D3,NFLX-D4', r.body.accounts.map((a) => a.accountId + ':' + a.free + ':' + a.fits));
   ok('full account disabled with "sharing full"; inactive account disabled', acc('NFLX-D4').fits === false && acc('NFLX-D4').reason === 'sharing full' && acc('NFLX-D4').status === 'FULL' && acc('NFLX-D3').fits === false && acc('NFLX-D3').status === 'DISABLED', [acc('NFLX-D4'), acc('NFLX-D3')]);
   ok('no passwords in the options answer', !JSON.stringify(r.body).includes('pw-'), r.body);
   ok('customer email masked, default note', r.body.sub.hasEmail && r.body.sub.email === 'bu***@x.com' && r.body.defaultNote === 'Account not working');

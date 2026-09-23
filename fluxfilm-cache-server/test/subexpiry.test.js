@@ -12,6 +12,10 @@ const subs = [
   { id: 'ended long ago, released', status: 'ACTIVE', expiry_date: '2026-08-01 00:00:00', release_eligible_at: '2026-08-11 00:00:00' },
   { id: 'ended, no release date (old import)', status: 'active', expiry_date: '2026-09-01 00:00:00', release_eligible_at: null },
   { id: 'ended but still in cooldown (holds the slot)', status: 'ACTIVE', expiry_date: '2026-09-10 00:00:00', release_eligible_at: '2026-09-20 00:00:00' },
+  // 24 Sep 2026: ticking 🚪 removed after the plan ends gives the seat back at once, so the row is expired at once.
+  { id: 'ended, in cooldown, but REMOVED', status: 'ACTIVE', expiry_date: '2026-09-10 00:00:00', release_eligible_at: '2026-09-20 00:00:00', removed: 1 },
+  // …while a plan that is still RUNNING keeps its seat even when the device was removed: they are still owed it.
+  { id: 'still running, but REMOVED', status: 'ACTIVE', expiry_date: '2026-10-14 00:00:00', release_eligible_at: '2026-10-24 00:00:00', removed: 1 },
   { id: 'still running', status: 'ACTIVE', expiry_date: '2026-10-14 00:00:00', release_eligible_at: '2026-10-24 00:00:00' },
   { id: 'no expiry (manual)', status: 'ACTIVE', expiry_date: null, release_eligible_at: null },
   { id: 'already expired', status: 'EXPIRED', expiry_date: '2026-01-01 00:00:00', release_eligible_at: null },
@@ -23,11 +27,12 @@ const mockDb = {
     lastSql = sql;
     if (!/^UPDATE subscriptions SET status = 'EXPIRED'/.test(sql)) throw new Error('unexpected ' + sql);
     const where = sql.split(' WHERE ')[1];
-    const expected = "UPPER(status) = 'ACTIVE' AND expiry_date IS NOT NULL AND expiry_date < NOW() AND (release_eligible_at IS NULL OR release_eligible_at < NOW())";
+    const expected = "UPPER(status) = 'ACTIVE' AND expiry_date IS NOT NULL AND expiry_date < NOW() AND (release_eligible_at IS NULL OR release_eligible_at < NOW() OR COALESCE(removed, 0) = 1)";
     if (where !== expected) throw new Error('WHERE changed — update this test deliberately: ' + where);
     let n = 0;
     for (const x of subs) {
-      if (String(x.status).toUpperCase() === 'ACTIVE' && x.expiry_date != null && x.expiry_date < NOW && (x.release_eligible_at == null || x.release_eligible_at < NOW)) { x.status = 'EXPIRED'; n++; }
+      if (String(x.status).toUpperCase() === 'ACTIVE' && x.expiry_date != null && x.expiry_date < NOW
+        && (x.release_eligible_at == null || x.release_eligible_at < NOW || Number(x.removed || 0) === 1)) { x.status = 'EXPIRED'; n++; }
     }
     return { affectedRows: n };
   },
@@ -38,11 +43,18 @@ const subexpiry = require('../subexpiry');
 (async () => {
   const r = await subexpiry.run();
   const st = (id) => subs.find((x) => x.id === id).status;
-  ok('ended + released plans marked EXPIRED', st('ended long ago, released') === 'EXPIRED' && st('ended, no release date (old import)') === 'EXPIRED' && r.expired === 2, r);
+  ok('ended + released plans marked EXPIRED', st('ended long ago, released') === 'EXPIRED' && st('ended, no release date (old import)') === 'EXPIRED' && r.expired === 3, r);
+  ok('a removed device is expired as soon as its plan has ended, without waiting out the cooldown',
+    st('ended, in cooldown, but REMOVED') === 'EXPIRED', st('ended, in cooldown, but REMOVED'));
+  ok('…but removing the device does NOT end a plan that is still running — they are still owed that seat',
+    st('still running, but REMOVED') === 'ACTIVE', st('still running, but REMOVED'));
   ok('a plan still in its cooldown keeps ACTIVE (its slot is not freed early)', st('ended but still in cooldown (holds the slot)') === 'ACTIVE');
   ok('running and no-expiry plans untouched', st('still running') === 'ACTIVE' && st('no expiry (manual)') === 'ACTIVE');
   ok('raw_json status kept in sync', /JSON_SET\(raw_json, '\$\.Status', 'EXPIRED'\)/.test(lastSql));
-  ok('same rule as slot occupancy (fulfill.js OCC_ACTIVE is the exact opposite)', /const OCC_ACTIVE = "UPPER\(status\)='ACTIVE' AND \(expiry_date > NOW\(\) OR release_eligible_at > NOW\(\)\)"/.test(fs.readFileSync(path.join(__dirname, '..', 'fulfill.js'), 'utf8')));
+  ok('same rule as slot occupancy (fulfill.js OCC_ACTIVE is the exact opposite)', /const OCC_ACTIVE = "UPPER\(status\)='ACTIVE' AND \(expiry_date > NOW\(\) OR \(release_eligible_at > NOW\(\) AND COALESCE\(removed, 0\) = 0\)\)"/.test(fs.readFileSync(path.join(__dirname, '..', 'fulfill.js'), 'utf8')));
+  // Marked EXPIRED at the same moment the seat is released, so the two can never disagree.
+  ok('…and a removed device is expired as soon as its plan has ended, not after the cooldown',
+    /COALESCE\(removed, 0\) = 1/.test(subexpiry.ENDED), subexpiry.ENDED);
   ok('second run changes nothing', (await subexpiry.run()).expired === 0);
   const srv = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   ok('server starts the hourly job', /require\('\.\/subexpiry'\)\.startTimer\(\)/.test(srv));

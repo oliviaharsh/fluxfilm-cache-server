@@ -342,7 +342,13 @@ function snapOf(fx) {
 
   section('occupancy rule');
   ok('fulfill.js and stock.js share one occupancy rule', fulfill._internal.OCC_ACTIVE === stock.OCC_ACTIVE, [fulfill._internal.OCC_ACTIVE, stock.OCC_ACTIVE]);
-  ok('paid-up sub with a stale release date still occupies', /expiry_date > NOW\(\) OR release_eligible_at > NOW\(\)/.test(stock.OCC_ACTIVE), stock.OCC_ACTIVE);
+  ok('paid-up sub with a stale release date still occupies', /expiry_date > NOW\(\)/.test(stock.OCC_ACTIVE), stock.OCC_ACTIVE);
+  // Changed 24 Sep 2026: ticking 🚪 removed gives the seat back at once instead of sitting on it for the grace days.
+  ok('…the grace hold after it ends still occupies, while the device is not removed',
+    /release_eligible_at > NOW\(\) AND COALESCE\(removed, 0\) = 0/.test(stock.OCC_ACTIVE), stock.OCC_ACTIVE);
+  ok('…but a REMOVED device gives its seat back, and only its grace hold is cancelled — not a running plan',
+    stock.OCC_ACTIVE.indexOf('COALESCE(removed, 0) = 0') > stock.OCC_ACTIVE.indexOf('release_eligible_at')
+    && stock.OCC_ACTIVE.indexOf('COALESCE(removed, 0) = 0') > stock.OCC_ACTIVE.indexOf('expiry_date > NOW()'), stock.OCC_ACTIVE);
 
   // ============ 2. coupon rules ============
   section('coupon rules');
