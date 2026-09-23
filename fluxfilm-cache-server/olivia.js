@@ -986,6 +986,10 @@ async function turn(c, input, ctx) {
       else if ((it === 'no' || /ek.?ek karke|alag alag time|one at a time|not together/i.test(text)) && st.step === 'devices_sametime') action = 'dsame:no';
       else if (st.step === 'login_mode' && /alag|separate|different|har device/i.test(text)) action = 'lmode:separate';
       else if (st.step === 'login_mode' && (it === 'yes' || /same|ek hi|ekhi|one login|single/i.test(text))) action = 'lmode:same';
+      // "Netflix profiles" is a how-to ("can I edit profiles in Netflix?"), not a buy. Only when a Netflix service is named
+      // does the word "netflix" otherwise start the buy flow — so intercept just that case; service-less profile questions
+      // still go to the free knowledge answer as before.
+      else if (ents.service && famKey(ents.service) === 'netflix' && (/\bprofiles?\b/i.test(text) || /प्रोफ़ाइल|प्रोफाइल/.test(text))) action = 'profiles';
       else if (it === 'diff' && st.devices && DEVICE_STEPS.has(st.step) && !ents.service) action = 'ddiff';
       else if (it === 'diff' && (st.step === 'variant' || (st.service && needsVariant(ctx.cat.plans, st.service)) || ents.service)) action = 'diff';
       // While choosing an N-device plan, a typed service / "sharing" / "3 months" stays in the N-device plans.
@@ -1192,6 +1196,13 @@ async function turn(c, input, ctx) {
     const again = (st.lastButtons || []).length ? st.lastButtons : menuReply({}, lang).buttons;
     const years = Math.max(1, Math.round((deps.now().getTime() - Date.UTC(2022, 8, 30)) / (365.25 * 86400000)));
     return [{ intent: 'TRUST_ANSWER', facts: { years }, buttons: again.some((b) => b.id === 'whatsapp') ? again : again.concat([btn('whatsapp', lang)]), input: st.lastInput || undefined }];
+  }
+  if (action === 'profiles') {
+    // How-to about Netflix profiles — answered, never sold. Rule (Harsh, 23 Sep 2026): Private = full control,
+    // Sharing = your own profile only. Keep the current buttons so anything in progress continues.
+    const again = (st.lastButtons || []).length ? st.lastButtons : menuReply({}, lang).buttons;
+    const b = again.some((x) => x.id === 'whatsapp') ? again : again.concat([btn('whatsapp', lang)]);
+    return [{ intent: 'PROFILE_ANSWER', buttons: b, input: st.lastInput || undefined }];
   }
   if (action === 'tv' || action === 'whenlogin' || action === 'paymethod' || action === 'validity' || action === 'quality' || action === 'devicecount') {
     // Answered from the catalogue (benefits, device rule, fulfilment); the step's own buttons stay, so buying continues.
