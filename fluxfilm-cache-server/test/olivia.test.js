@@ -978,6 +978,16 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('widget: Open Buy page closes the chat and opens that service; shop exposes ffGoBuy', widget.includes("kind === 'buysite'") && html.includes("window.ffGoBuy = service => service ? nav('buy2'"));
   ok('widget: still pure ASCII', !/[^\x00-\x7F]/.test(widget));
   ok('widget: 2 choices — Chat with Olivia / WhatsApp our team', /Chat with Olivia/.test(widget) && /WhatsApp our team/.test(widget));
+  // 💬 Help opened WhatsApp instead of the two choices (owner, 23 Sep 2026). The blocking cause was a setting —
+  // Olivia was left in "test only" mode — but the widget had two real gaps underneath it, both pinned here.
+  ok('widget: the last answer for this phone is remembered, so the FIRST Help tap after a reload already knows',
+    /var ON_KEY = 'ff_olivia_on';/.test(widget) && /if \(p !== st\.checkedFor\) st\.enabled = rememberedOn\(p\);/.test(widget) && /remember\(p, st\.enabled\);/.test(widget));
+  ok('widget: …and a wrong "on" cannot stick — every refresh re-asks the server and overwrites it',
+    widget.indexOf('st.enabled = rememberedOn(p)') < widget.indexOf("call('oliviaStatus', [p])") && /st\.enabled = !!\(r && r\.ok && r\.enabled\); st\.wa = /.test(widget));
+  ok('widget: logging in is noticed in THIS tab too ("storage" only fires in other tabs)',
+    /window\.addEventListener\('ff-session-changed', function \(\) \{ st\.checkedFor = ''; refresh\(\); \}\);/.test(widget) && /window\.dispatchEvent\(new Event\('ff-session-changed'\)\)/.test(html));
+  ok('shop: that event is fired only when the number actually changes, not on every session save',
+    /if \(ph !== normPhone_\(prev\?\.phone \|\| ''\)\) window\.dispatchEvent\(new Event\('ff-session-changed'\)\);/.test(html));
   const schemaSql = fs.readFileSync(path.join(root, 'db', 'schema-v21.sql'), 'utf8');
   ok('schema-v21: both tables, IF NOT EXISTS', /CREATE TABLE IF NOT EXISTS olivia_conversations/.test(schemaSql) && /CREATE TABLE IF NOT EXISTS olivia_messages/.test(schemaSql));
 

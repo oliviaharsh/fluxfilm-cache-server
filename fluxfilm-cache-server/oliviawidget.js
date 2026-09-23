@@ -17,6 +17,7 @@
   var MIN_TYPING_MS = 500;
   var THEMES = { store: 'FluxFilm', whatsapp: 'WhatsApp' };
   function themeNow() { try { var v = localStorage.getItem('ff_olivia_theme'); return THEMES[v] ? v : 'store'; } catch (e) { return 'store'; } }
+  var ON_KEY = 'ff_olivia_on';   // the phone Olivia was last known to be on for: a hint, re-checked every time
   var st = { theme: themeNow(), phone: '', enabled: false, checkedFor: '', wa: WA, convId: '', lang: '', messages: [], busy: false, typing: false, pollTimer: null, open: false };
 
   function phoneNow() {
@@ -49,15 +50,22 @@
       if (st.lang) localStorage.setItem('ff_olivia_lang', st.lang);
     } catch (e) {}
   }
+  function rememberedOn(p) { try { return localStorage.getItem(ON_KEY) === p; } catch (e) { return false; } }
+  function remember(p, on) { try { if (on) localStorage.setItem(ON_KEY, p); else if (localStorage.getItem(ON_KEY) === p) localStorage.removeItem(ON_KEY); } catch (e) {} }
+
   function refresh() {
     var p = phoneNow();
     if (!p) { st.enabled = false; st.checkedFor = ''; return; }
     // Same phone: re-ask the server at most every 5 minutes (admin may switch Olivia on or off).
     if (p === st.checkedFor && Date.now() - (st.checkedAt || 0) < 5 * 60e3) return;
+    // Until the answer lands, go with what this phone was told last time. A customer who tapped Help a second
+    // after opening the shop used to get WhatsApp straight away, because the check had not come back yet.
+    if (p !== st.checkedFor) st.enabled = rememberedOn(p);
     st.checkedFor = p; st.checkedAt = Date.now();
     call('oliviaStatus', [p]).then(function (r) {
       if (phoneNow() !== p) return;
       st.enabled = !!(r && r.ok && r.enabled); st.wa = (r && r.whatsappLink) || WA;
+      remember(p, st.enabled);
     }).catch(function () { st.checkedFor = ''; });
   }
 
@@ -659,5 +667,7 @@
   };
   refresh();
   window.addEventListener('storage', function () { refresh(); });
+  // Logged in / logged out in THIS tab: 'storage' does not fire for the tab that wrote it, so index.html tells us.
+  window.addEventListener('ff-session-changed', function () { st.checkedFor = ''; refresh(); });
   setInterval(refresh, 15000); // no request unless the phone changed or 5 minutes passed
 })();

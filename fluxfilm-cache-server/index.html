@@ -1354,6 +1354,9 @@ function saveFFSession(obj) {
     };
     if (ph) localStorage.setItem('ff_phone', ph);
     localStorage.setItem(FF_SESSION_KEY, JSON.stringify(data));
+    // Someone logged in (or switched number) in THIS tab. The browser's own 'storage' event never fires for the
+    // tab that wrote it, so anything watching the session — Olivia, and therefore what 💬 Help opens — is told here.
+    if (ph !== normPhone_(prev?.phone || '')) window.dispatchEvent(new Event('ff-session-changed'));
   } catch (e) {}
 }
 function getFFSession() {
