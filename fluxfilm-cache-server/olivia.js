@@ -644,7 +644,7 @@ async function supportReplies(c, ctx, kind, service, opts) {
     // One OR more Netflix accounts: offer the auto-fix. Only the account whose TV is asking will have a fresh code, so
     // "Get my code now" tries each of the customer's own Netflix accounts and shows whichever one has it.
     if (usable.length) {
-      st.hhSubs = usable.map((x) => x.subId); st.hhTries = 0; delete st.hhLinkAccs; delete st.hhMode;
+      st.hhSubs = usable.map((x) => x.subId); st.hhTries = 0; delete st.hhLinkAccs; delete st.hhMode; delete st.hhPick; delete st.hhPickAccs; delete st.hhPickMode;
       // Clear choices: fetch the TV code, make this the home account, "explain it", or the new-device verification code.
       // "Do it yourself" is only offered for a partner account — on one of ours Olivia does it, she does not hand out a link.
       const ours = usable.some((x) => x.kind === 'H');
@@ -663,7 +663,7 @@ async function supportReplies(c, ctx, kind, service, opts) {
       ctx.meta.push({ tool: 'netflixAccounts', usable: usable.length, for: 'verify' });
     }
     if (usable.length) {
-      st.hhSubs = usable.map((x) => x.subId); st.hhTries = 0; delete st.hhMode;
+      st.hhSubs = usable.map((x) => x.subId); st.hhTries = 0; delete st.hhMode; delete st.hhPick;
       return reply({ intent: 'VERIFY_OFFER', buttons: [btn('hhverify', lang), wa] });
     }
     delete st.hhSubs; delete st.hhSub;
@@ -1213,52 +1213,71 @@ async function turn(c, input, ctx) {
     // The permanent update is switched off (OLIVIA_HH_UPDATE): give the TV code rather than send them away.
     if (!upOn) { if (await hhLinkAllowed(c)) return hhSelfServe(c, ctx, 'update', -1); action = 'hhcode'; }
   }
-  if (action === 'hhcode' || action === 'hhretry' || action === 'hhupdate' || action === 'hhverify') {
+  if (action === 'hhcode' || action === 'hhretry' || action === 'hhupdate' || action === 'hhverify' || action.indexOf('hhpick:') === 0) {
+    const picking = action.indexOf('hhpick:') === 0;
     // Which action: the permanent update, the new-device verification code, or the temporary TV code.
-    // "I clicked, check again" repeats whichever the customer started (tracked in st.hhMode).
-    const mode = (action === 'hhupdate' || (action === 'hhretry' && st.hhMode === 'update')) ? 'update'
+    // "I clicked, check again" repeats whichever the customer started (tracked in st.hhMode); a pick keeps that mode.
+    const mode = picking ? (st.hhPickMode || 'travel')
+      : (action === 'hhupdate' || (action === 'hhretry' && st.hhMode === 'update')) ? 'update'
       : (action === 'hhverify' || (action === 'hhretry' && st.hhMode === 'verify')) ? 'verify'
       : 'travel';
     const manualKind = mode === 'verify' ? 'verify' : 'household';
-    // The customer's own Netflix accounts we offered. Only the account being logged in / asking has a fresh code, so try each.
     const na = await tools().netflixAccounts(c.phone).catch(() => null);
     let usable = na && na.ok ? (na.accounts || []).filter((x) => x.email && x.kind) : [];
     if (Array.isArray(st.hhSubs) && st.hhSubs.length) { const set = new Set(st.hhSubs); const pref = usable.filter((x) => set.has(x.subId)); if (pref.length) usable = pref; }
-    if (!usable.length) { st.hhTries = 0; delete st.hhMode; return supportReplies(c, ctx, manualKind, '', { noAuto: true }); }
+    if (!usable.length) { st.hhTries = 0; delete st.hhMode; delete st.hhPick; return supportReplies(c, ctx, manualKind, '', { noAuto: true }); }
+    // More than one Netflix on this number: ask WHICH account first (a fresh fetch only, not a retry or an already-picked one),
+    // so Olivia targets the right account and the customer knows which one she is checking.
+    const seen = new Set(); const accs = [];
+    for (const x of usable) { const k = (s(x.email) + '|' + x.kind).toLowerCase(); if (seen.has(k)) continue; seen.add(k); accs.push(x); }
+    if (picking) { const a = (st.hhPickAccs || [])[Number(action.slice(7))]; st.hhPick = a ? a.subId : ''; st.hhTries = 0; }
+    else if (action === 'hhcode' || action === 'hhupdate' || action === 'hhverify') {
+      delete st.hhPick;
+      if (accs.length >= 2) {
+        st.hhPickMode = mode; st.hhTries = 0;
+        st.hhPickAccs = accs.map((x) => ({ subId: x.subId, kind: x.kind, mask: maskEmail(x.email) }));
+        if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
+        const pickBtns = st.hhPickAccs.map((a, i) => btn('hhpick:' + i, lang, a.mask || ('Account ' + (i + 1))));
+        return [{ intent: 'HH_LINK_WHICH', buttons: withBackToPay(st, lang, pickBtns.concat([btn('whatsapp', lang), btn('menu', lang)])) }];
+      }
+    }
+    // The account(s) to try: the chosen one if picked, otherwise all.
+    let tryAccs = usable;
+    if (st.hhPick) { const f = usable.filter((x) => x.subId === st.hhPick); if (f.length) tryAccs = f; }
     st.hhMode = mode;
     let got = null;
     let gotAcc = null;   // which of the customer's accounts actually answered — for the change log
     if (mode === 'update') {
       // Permanent update (state-changing) - only reachable when OLIVIA_HH_UPDATE=on; nothing is pressed until confirmed.
-      for (const acc of usable.slice(0, 4)) { const r = await tools().householdUpdate(acc).catch(() => null); if (r && r.ok && r.updated) { got = r; gotAcc = acc; break; } }
-      ctx.meta.push({ tool: 'householdUpdate', ok: !!got, tried: Math.min(usable.length, 4) });
-      hhLog(c.phone, mode, got, gotAcc, usable.length);
-      if (got) { st.hhTries = 0; delete st.hhMode; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
+      for (const acc of tryAccs.slice(0, 4)) { const r = await tools().householdUpdate(acc).catch(() => null); if (r && r.ok && r.updated) { got = r; gotAcc = acc; break; } }
+      ctx.meta.push({ tool: 'householdUpdate', ok: !!got, tried: Math.min(tryAccs.length, 4) });
+      hhLog(c.phone, mode, got, gotAcc, tryAccs.length);
+      if (got) { st.hhTries = 0; delete st.hhMode; delete st.hhPick; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     } else if (mode === 'verify') {
       // The 6-digit new-device verification code, read from our own account inbox (read-only).
-      for (const acc of usable.slice(0, 4)) { const r = await tools().verificationCode(acc).catch(() => null); if (r && r.ok && /^\d{4,8}$/.test(String(r.code))) { got = r; gotAcc = acc; break; } }
-      ctx.meta.push({ tool: 'verificationCode', ok: !!got, tried: Math.min(usable.length, 4) });
-      hhLog(c.phone, mode, got, gotAcc, usable.length);
-      if (got) { st.hhTries = 0; delete st.hhMode; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'VERIFY_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
+      for (const acc of tryAccs.slice(0, 4)) { const r = await tools().verificationCode(acc).catch(() => null); if (r && r.ok && /^\d{4,8}$/.test(String(r.code))) { got = r; gotAcc = acc; break; } }
+      ctx.meta.push({ tool: 'verificationCode', ok: !!got, tried: Math.min(tryAccs.length, 4) });
+      hhLog(c.phone, mode, got, gotAcc, tryAccs.length);
+      if (got) { st.hhTries = 0; delete st.hhMode; delete st.hhPick; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'VERIFY_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     } else {
       // "Just fix it" (owner, 23 Sep 2026): try the PERMANENT update first — it is the real fix, not a 7-day patch —
       // and fall back to the temporary TV code when there is no household mail to act on. Either way she does it
       // herself; the customer is never handed a link for one of our accounts.
       let upOn = false; try { upOn = !!tools().householdUpdateEnabled(); } catch (_) { upOn = false; }
       if (upOn) {
-        for (const acc of usable.slice(0, 4)) { const r = await tools().householdUpdate(acc).catch(() => null); if (r && r.ok && r.updated) { got = r; gotAcc = acc; break; } }
+        for (const acc of tryAccs.slice(0, 4)) { const r = await tools().householdUpdate(acc).catch(() => null); if (r && r.ok && r.updated) { got = r; gotAcc = acc; break; } }
         if (got) {
-          ctx.meta.push({ tool: 'householdUpdate', ok: true, tried: Math.min(usable.length, 4), via: 'auto' });
-          hhLog(c.phone, 'update', got, gotAcc, usable.length);
-          st.hhTries = 0; delete st.hhMode;
+          ctx.meta.push({ tool: 'householdUpdate', ok: true, tried: Math.min(tryAccs.length, 4), via: 'auto' });
+          hhLog(c.phone, 'update', got, gotAcc, tryAccs.length);
+          st.hhTries = 0; delete st.hhMode; delete st.hhPick;
           if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
           return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }];
         }
       }
-      for (const acc of usable.slice(0, 4)) { const r = await tools().householdCode(acc).catch(() => null); if (r && r.ok && /^\d{4}$/.test(String(r.code))) { got = r; gotAcc = acc; break; } }
-      ctx.meta.push({ tool: 'householdCode', ok: !!got, tried: Math.min(usable.length, 4) });
-      hhLog(c.phone, mode, got, gotAcc, usable.length);
-      if (got) { st.hhTries = 0; delete st.hhMode; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
+      for (const acc of tryAccs.slice(0, 4)) { const r = await tools().householdCode(acc).catch(() => null); if (r && r.ok && /^\d{4}$/.test(String(r.code))) { got = r; gotAcc = acc; break; } }
+      ctx.meta.push({ tool: 'householdCode', ok: !!got, tried: Math.min(tryAccs.length, 4) });
+      hhLog(c.phone, mode, got, gotAcc, tryAccs.length);
+      if (got) { st.hhTries = 0; delete st.hhMode; delete st.hhPick; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     }
     // Nothing yet: the customer probably hasn't triggered it on the device (Watch temporarily / Update household -> Send email,
     // or a fresh login). Guide them, let them tap "I clicked, check again", and try up to 5 times before the manual Helper.
@@ -1268,7 +1287,7 @@ async function turn(c, input, ctx) {
       const retryButtons = mode === 'verify' ? [btn('hhretry', lang), btn('whatsapp', lang), btn('menu', lang)] : [btn('hhretry', lang), btn('hhupdate', lang), btn('whatsapp', lang), btn('menu', lang)];
       return [{ intent: 'HH_CODE_NOT_YET', facts: { attempt: st.hhTries, mode }, buttons: withBackToPay(st, lang, retryButtons) }];
     }
-    st.hhTries = 0; delete st.hhMode;
+    st.hhTries = 0; delete st.hhMode; delete st.hhPick;
     return supportReplies(c, ctx, manualKind, '', { noAuto: true }); // tried 5 times: the manual steps
   }
   if (SUPPORT_KINDS.has(action) || action === 'support') return supportReplies(c, ctx, action === 'support' ? 'login' : action, ents.service || '');
