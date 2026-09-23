@@ -7172,4 +7172,106 @@ function renderNetflixOut() {
     '</div>';
 }
 </script>
+<script>
+/* ================= ✉️ Email jobs (reminderjobs.js) =================
+   The three reminders the owner asked for on 23 Sep 2026. Every one ships OFF: this screen is where they are
+   looked at first (👀 Preview reads and sends nothing, ✉️ Send me one goes to the owner) and only then switched on. */
+var RJ = { data: null, msg: '', pv: {}, open: '' };
+var RJ_JOBS = [
+  ['abandoned', '🛒', 'Ordered but never paid', 'One reminder, a couple of hours later. Push if they have notifications on, email if not. Never twice for the same order.'],
+  ['expiryMail', '⏳', 'Plan ending — by email', 'The same reminder 🔔 Notifications sends, for the customers it cannot reach. Email fills the gap instead of doubling up.'],
+  ['winback', '💚', 'Come back — with a code', 'A customer whose plan ended a while ago and has not returned. One email, then left alone for a good while.'],
+];
+function rjView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>✉️ Email jobs</h1><p>Reminders that go out on their own. Each one is off until you switch it on.</p></div></div><div id="rjbody"><p class="muted">Loading…</p></div>';
+  api('/admin/api/reminder-jobs').then(function (r) { RJ.data = r; renderRj(); });
+}
+function rjNum(job, key, label, hint, min, max) {
+  var v = (RJ.data.settings[job] || {})[key];
+  return '<label>' + esc(label) + (hint ? ' <span class="muted">(' + esc(hint) + ')</span>' : '') +
+    '<input class="inp" type="number" inputmode="numeric" min="' + min + '" max="' + max + '" data-rjn="' + job + '.' + key + '" value="' + esc(v) + '"/></label>';
+}
+function renderRj() {
+  var el = $('#rjbody'); if (!el) return;
+  var r = RJ.data || {};
+  if (!r.ok) { el.innerHTML = '<div class="card"><div class="qnote bad">' + esc(r.message || 'Could not load.') + '</div></div>'; return; }
+  var st = r.settings;
+  el.innerHTML = RJ_JOBS.map(function (j) {
+    var key = j[0], cfg = st[key] || {}, pv = RJ.pv[key];
+    var fields = key === 'abandoned'
+      ? rjNum(key, 'afterHours', 'Wait', 'hours after the order', 1, 48) + rjNum(key, 'withinHours', 'Give up after', 'hours', 2, 240)
+      : key === 'expiryMail'
+        ? '<label>Days before it ends <span class="muted">(e.g. 3, 1)</span><input class="inp" data-rjd="1" value="' + esc((cfg.daysBefore || []).join(', ')) + '"/></label>' +
+          '<label class="row" style="gap:8px;align-items:center;cursor:pointer"><input type="checkbox" data-rjb="expiryMail.onlyWithoutPush"' + (cfg.onlyWithoutPush ? ' checked' : '') + ' style="width:20px;height:20px"/><span>Only customers with no notifications <span class="muted">(so nobody is told twice)</span></span></label>'
+        : '<label>Discount code <span class="muted">(must already exist in 🎟️ Coupons)</span><input class="inp" data-rjt="winback.code" value="' + esc(cfg.code || '') + '" placeholder="COMEBACK"/></label>' +
+          rjNum(key, 'percent', 'Say it is', '% off, 0 to just say "a discount"', 0, 90) +
+          rjNum(key, 'afterDays', 'Gone for', 'days', 7, 365) + rjNum(key, 'everyDays', 'Leave alone for', 'days after writing', 14, 365);
+    return '<div class="card qsec"><label class="row" style="gap:10px;align-items:flex-start;cursor:pointer">' +
+      '<input type="checkbox" data-rjb="' + key + '.on"' + (cfg.on ? ' checked' : '') + ' style="width:22px;height:22px;flex:none;margin-top:2px"/>' +
+      '<span><b>' + j[1] + ' ' + esc(j[2]) + '</b><br><span class="muted" style="font-size:.82rem">' + esc(j[3]) + '</span></span></label>' +
+      '<div class="fields" style="margin-top:10px">' + fields + '</div>' +
+      '<div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap"><button class="btn ghost sm" data-rjpv="' + key + '">👀 Preview — who would get it</button>' +
+      '<button class="btn ghost sm" data-rjtest="' + key + '">✉️ Send me one</button></div>' +
+      (pv ? rjPreview(pv) : '') + '</div>';
+  }).join('') +
+  '<div class="card qsec"><h3 style="margin-top:0">When, and how many</h3><div class="fields">' +
+    '<label>Send between <span class="muted">(hour, India time)</span><input class="inp" type="number" min="0" max="23" data-rjn="quietStart" value="' + esc(st.quietStart) + '"/></label>' +
+    '<label>and<input class="inp" type="number" min="1" max="24" data-rjn="quietEnd" value="' + esc(st.quietEnd) + '"/></label>' +
+    '<label>At most per run <span class="muted">(so a first switch-on cannot mail everybody)</span><input class="inp" type="number" min="1" max="200" data-rjn="maxPerRun" value="' + esc(st.maxPerRun) + '"/></label>' +
+  '</div><div class="rf-save" style="margin-top:10px"><button class="btn green" id="rjsave">💾 Save</button><span class="rf-state" id="rjmsg">' + esc(RJ.msg) + '</span></div>' +
+  '<p class="muted" style="font-size:.74rem;margin:10px 0 0">The app checks every hour by itself. For a Hostinger cron job: <b>POST /cron/reminders</b> with the admin key in the <b>X-Admin-Key</b> header — never in the URL.</p></div>';
+
+  $('#rjsave').onclick = rjSave;
+  el.onclick = function (e) {
+    var p = e.target.closest('[data-rjpv]'); if (p) return rjDoPreview(p.getAttribute('data-rjpv'), p);
+    var s = e.target.closest('[data-rjtest]'); if (s) return rjDoTest(s.getAttribute('data-rjtest'));
+  };
+}
+function rjPreview(pv) {
+  if (!pv.ok) return '<div class="qnote bad" style="margin-top:10px">' + esc(pv.message || 'Could not look.') + '</div>';
+  if (!pv.total) return '<div class="qnote" style="margin-top:10px">Nobody matches right now — nothing would be sent.</div>';
+  return '<div class="qnote warn" style="margin-top:10px"><b>' + pv.total + '</b> would get this' +
+    (pv.total > pv.wouldSend ? ' — <b>' + pv.wouldSend + '</b> in the next run, the rest after' : '') + '.' +
+    (pv.note ? ' ' + esc(pv.note) : '') + '</div>' +
+    '<div class="list" style="margin-top:6px">' + (pv.candidates || []).map(function (c) {
+      return '<div class="li"><span class="grow">' + esc(c.name || c.key) + ' <span class="muted">' + esc(c.email || c.phone || '') + '</span></span><span class="muted">' + esc(c.service || '') + '</span></div>';
+    }).join('') + '</div>' +
+    (pv.sample ? '<details style="margin-top:8px"><summary class="muted" style="font-size:.8rem;cursor:pointer">What it says</summary><div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:6px;background:#fff"><b>' + esc(pv.sample.subject) + '</b><div style="margin-top:8px">' + pv.sample.html + '</div></div></details>' : '');
+}
+function rjDoPreview(job, btn) {
+  btn.disabled = true; btn.textContent = 'Looking…';
+  api('/admin/api/reminder-jobs/preview', { job: job }).then(function (r) { RJ.pv[job] = r; renderRj(); });
+}
+function rjDoTest(job) {
+  var to = prompt('Send a test ' + job + ' email to which address?', '');
+  if (!to) return;
+  post('/admin/api/reminder-jobs/test', { job: job, to: to, key: key }).then(function (r) {
+    toast(r && r.ok ? '✉️ Sent to ' + r.to : '⚠️ ' + ((r && r.message) || 'failed'));
+  });
+}
+function rjSave() {
+  var body = { abandoned: {}, expiryMail: {}, winback: {} };
+  $('#rjbody [data-rjn]').forEach(function (i) {
+    var p = i.getAttribute('data-rjn').split('.');
+    if (p.length === 2) body[p[0]][p[1]] = i.value; else body[p[0]] = i.value;
+  });
+  $('#rjbody [data-rjb]').forEach(function (i) { var p = i.getAttribute('data-rjb').split('.'); body[p[0]][p[1]] = i.checked; });
+  $('#rjbody [data-rjt]').forEach(function (i) { var p = i.getAttribute('data-rjt').split('.'); body[p[0]][p[1]] = i.value; });
+  var d = $('#rjbody [data-rjd]'); if (d) body.expiryMail.daysBefore = d.value;
+  $('#rjsave').disabled = true; $('#rjmsg').textContent = 'Saving…';
+  post('/admin/api/reminder-jobs', body).then(function (r) {
+    $('#rjsave').disabled = false;
+    if (!r || !r.ok) { $('#rjmsg').textContent = '⚠️ ' + ((r && r.message) || 'failed'); return; }
+    RJ.data = r; RJ.msg = 'Saved ✓'; toast('Saved'); renderRj();
+  });
+}
+(function () {
+  if (typeof MENU !== 'undefined' && !MENU.some(function (m) { return m[0] === 'rjobs'; })) {
+    var at = -1; MENU.forEach(function (m, i) { if (m[0] === 'reminders') at = i; });
+    MENU.splice(at >= 0 ? at + 1 : MENU.length, 0, ['rjobs', '✉️', 'Email jobs']);
+  }
+  var baseViewMap = viewMap;
+  viewMap = function () { var m = baseViewMap(); m.rjobs = rjView; return m; };
+})();
+</script>
 </body></html>
