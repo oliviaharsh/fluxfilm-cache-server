@@ -57,6 +57,8 @@ function make(deps) {
     /** Make this TV the permanent Netflix household (state-changing; off unless OLIVIA_HH_UPDATE=on). */
     householdUpdate: (acc) => require('./oliviahousehold').updateHousehold(acc),
     householdUpdateEnabled: () => require('./oliviahousehold').updateEnabled(),
+    /** The 6-digit Netflix SIGN-IN verification code emailed when logging in on a new device (read from our own inbox). */
+    signInCode: (acc) => require('./oliviahousehold').signInCode(acc),
     /** Price, early-renew discount, new expiry and account check for a renewal — creates nothing. */
     renewQuote: (subId, plan) => order().renewQuote(subId, plan),
     async createRenewOrder(subId, planOverride, couponCode) {

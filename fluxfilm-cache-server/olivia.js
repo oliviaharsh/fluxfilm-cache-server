@@ -186,6 +186,12 @@ function entities(text, plans) {
 function globalIntentOf(text) {
   const t = String(text || '').toLowerCase().trim();
   if (/^(in )?(english|hinglish|hindi|हिंदी)( (me|mein|please|pls|main))?( (baat|bolo|batao|karo))*$/.test(t)) return 'lang:' + (/hinglish/.test(t) ? 'hinglish' : /hindi|हिंदी/.test(t) ? 'hi' : 'en');
+  // Netflix sign-in verification code: a 6-digit code emailed when logging in on a new device (no link, unlike the TV/household code).
+  // "TV code" stays household; a plain "login code" without Netflix stays login/OTP — only the clear sign-in phrasing routes here.
+  if (!/coupon|promo|voucher/.test(t) && (
+    /verification code|verify (with )?(this )?code|sign.?in code|signin code|6[- ]?digit code/.test(t)
+    || (/netflix/.test(t) && (/(new device|naye? device|nayi tv|new tv|login|log ?in|sign.?in|device).{0,20}\bcode\b/.test(t) || /\bcode\b.{0,20}(login|log ?in|sign.?in|verif|device|new device)/.test(t)))
+  )) return 'signin';
   // After-sale help (training run 3). A TV / household code and a login OTP are not coupon codes.
   const household = HOUSEHOLD_RE.test(t);
   if (!household && /\b(otp|o\.t\.p)\b|ओटीपी/.test(t)) return 'otp';
@@ -553,7 +559,7 @@ async function discountReplies(c, ctx) {
 // self-service (My plans, Recover, Get OTP, Household Helper) or to the team. The only record she reads is the customer's own
 // plan list (the same read as My plans), for the one owner-approved rule: an expired plan is told it expired and offered renewal
 // (Harsh, 5 Sep 2026, access-recovery owner decision 2).
-const SUPPORT_KINDS = new Set(['login', 'household', 'stopped', 'otp', 'paidnotgot']);
+const SUPPORT_KINDS = new Set(['login', 'household', 'signin', 'stopped', 'otp', 'paidnotgot']);
 const famKey = (service) => familyOf(service).replace(/[^a-z0-9]/g, '');
 /** A service whose login is FluxFilm's phone number + OTP (its plan's own device rule says so, e.g. JioHotstar). */
 const isOtpService = (plans, service) => !!service && (plans || []).some((p) => p && famKey(p.service) === famKey(service) && /\botp\b/i.test(s(p.deviceRuleText)));
@@ -619,13 +625,27 @@ async function supportReplies(c, ctx, kind, service, opts) {
     // One OR more Netflix accounts: offer the auto-fix. Only the account whose TV is asking will have a fresh code, so
     // "Get my code now" tries each of the customer's own Netflix accounts and shows whichever one has it.
     if (usable.length) {
-      st.hhSubs = usable.map((x) => x.subId); st.hhTries = 0; delete st.hhLinkAccs;
-      // Four clear choices: fetch the code, make this the home account, do it yourself with the right link, or "explain it".
-      return reply({ intent: 'HH_OFFER_CODE', facts: { bothHelpers }, buttons: [btn('hhcode', lang), btn('hhupdate', lang), btn('hhlink', lang), btn('hhexplain', lang), wa] });
+      st.hhSubs = usable.map((x) => x.subId); st.hhTries = 0; delete st.hhLinkAccs; delete st.hhMode;
+      // Clear choices: fetch the TV code, make this the home account, do it yourself, "explain it", or the new-device sign-in code.
+      return reply({ intent: 'HH_OFFER_CODE', facts: { bothHelpers }, buttons: [btn('hhcode', lang), btn('hhupdate', lang), btn('hhlink', lang), btn('hhexplain', lang), btn('hhsignin', lang), wa] });
     }
     delete st.hhSubs;
     delete st.hhSub;
     return reply({ intent: 'HOUSEHOLD_HELPER', facts: { bothHelpers }, buttons: helperBtns().concat([wa]) });
+  }
+  if (kind === 'signin') {
+    // Netflix sign-in verification code (new-device login): the 6-digit code emailed to the account. Read from our own inbox.
+    let usable = [];
+    if (!(opts && opts.noAuto)) {
+      try { const na = await tools().netflixAccounts(c.phone); if (na && na.ok) usable = (na.accounts || []).filter((x) => x.email && x.kind); } catch (_) { usable = []; }
+      ctx.meta.push({ tool: 'netflixAccounts', usable: usable.length, for: 'signin' });
+    }
+    if (usable.length) {
+      st.hhSubs = usable.map((x) => x.subId); st.hhTries = 0; delete st.hhMode;
+      return reply({ intent: 'SIGNIN_OFFER', buttons: [btn('hhsignin', lang), wa] });
+    }
+    delete st.hhSubs; delete st.hhSub;
+    return reply({ intent: 'SIGNIN_MANUAL', buttons: [wa] });
   }
   if ((kind === 'otp' && (!svc || otpSvc)) || (kind === 'login' && otpSvc)) return reply({ intent: 'OTP_HELP', facts: { service: otpSvc ? name : '' }, buttons: [btn('getotp', lang), btn('myplans', lang), wa] });
   if (kind === 'stopped') {
@@ -947,7 +967,7 @@ async function turn(c, input, ctx) {
     const g = globalIntentOf(text);
     // 1. Typed answers the current step is waiting for.
     if ((st.step === 'own_email' || st.step === 'extra_email') && EMAIL_RE.test(text)) action = 'email:' + text.toLowerCase();
-    else if (/(coupon|code).{0,15}(nahi|nhi|no|without|skip|chhodo|rehne do)|without (a )?coupon|no coupon/i.test(text)) action = 'nocoupon';
+    else if (!SUPPORT_KINDS.has(g) && (/(coupon|code).{0,15}(nahi|nhi|no|without|skip|chhodo|rehne do)|without (a )?coupon|no coupon/i.test(text))) action = 'nocoupon';
     else if (st.awaitCoupon && (code = couponCodeIn(text, true))) action = 'coupon';
     else if (st.step === 'backup_name' && !g && !intentOf(text) && /^[\p{L} .'-]{2,60}$/u.test(text)) action = 'payer:' + text;
     // 2. Things that can be asked at any moment.
@@ -980,7 +1000,7 @@ async function turn(c, input, ctx) {
       else if (payEnts.service) { st.pendingSwitch = { service: payEnts.service, variant: payEnts.variant || '', days: payEnts.days || 0 }; action = 'switchask'; }
       else if ((st.lastButtons || []).some((b) => b.id === 'hhexplain' || b.id === 'hhcode' || b.id === 'hhlink') && /\b(samjh?ao|samajh(a|ao)?|explain|batao|bata(iye|do)|kya (hai|hota)|what is|kyu|kyun|why)\b/i.test(text)) action = 'hhexplain';
       else if ((st.lastButtons || []).some((b) => b.id === 'hhlink') && /\b(khud|self|myself|main karu?n?ga|main kar lu|link do|link bhej|mujhe link|do it myself)\b/i.test(text)) action = 'hhlink';
-      else if ((st.lastButtons || []).some((b) => b.id === 'hhcode' || b.id === 'hhretry') && /\b(aap|ap|tum|pls|please)?\s*(kar ?do|kardo|kr ?do|krdo|kardijiye|kar dijiye|kar do na|do it|do this|you do it|fix it|karo|kar diya|kardiya|kr diya|ho gaya|hogaya|done|click kiya|click kar diya|clicked|daba diya|check|dekho|dekh lo|dobara|again|try again)\b/i.test(text)) action = (st.lastButtons.some((b) => b.id === 'hhretry') ? 'hhretry' : 'hhcode');
+      else if ((st.lastButtons || []).some((b) => b.id === 'hhcode' || b.id === 'hhretry' || b.id === 'hhsignin') && /\b(aap|ap|tum|pls|please)?\s*(kar ?do|kardo|kr ?do|krdo|kardijiye|kar dijiye|kar do na|do it|do this|you do it|fix it|karo|kar diya|kardiya|kr diya|ho gaya|hogaya|done|click kiya|click kar diya|clicked|daba diya|log ?in kar (diya|liya)|check|dekho|dekh lo|dobara|again|try again)\b/i.test(text)) action = (st.lastButtons.some((b) => b.id === 'hhretry') ? 'hhretry' : st.lastButtons.some((b) => b.id === 'hhcode') ? 'hhcode' : 'hhsignin');
       else if (it === 'cantpay' && st.step === 'paying') action = 'cantpay';
       else if ((it === 'yes' || /ek saath|same time|together|saath mein|dono par ek/i.test(text)) && st.step === 'devices_sametime') action = 'dsame:yes';
       else if ((it === 'no' || /ek.?ek karke|alag alag time|one at a time|not together/i.test(text)) && st.step === 'devices_sametime') action = 'dsame:no';
@@ -1145,14 +1165,18 @@ async function turn(c, input, ctx) {
   // "Give me the link, I'll do it myself" (temporary code page); and "This is my account" when the auto update is off.
   if (action === 'hhlink' || action.indexOf('hhlink:') === 0) return hhSelfServe(c, ctx, 'travel', action.indexOf('hhlink:') === 0 ? Number(action.slice(7)) : -1);
   if (action === 'hhupdate') { let upOn = false; try { upOn = !!tools().householdUpdateEnabled(); } catch (_) { upOn = false; } if (!upOn) return hhSelfServe(c, ctx, 'update', -1); }
-  if (action === 'hhcode' || action === 'hhretry' || action === 'hhupdate') {
-    // The customer's own Netflix accounts we offered. Only the account whose TV is asking has a fresh link, so try each.
+  if (action === 'hhcode' || action === 'hhretry' || action === 'hhupdate' || action === 'hhsignin') {
+    // Which action: the permanent update, the new-device sign-in code, or the temporary TV code.
+    // "I clicked, check again" repeats whichever the customer started (tracked in st.hhMode).
+    const mode = (action === 'hhupdate' || (action === 'hhretry' && st.hhMode === 'update')) ? 'update'
+      : (action === 'hhsignin' || (action === 'hhretry' && st.hhMode === 'signin')) ? 'signin'
+      : 'travel';
+    const manualKind = mode === 'signin' ? 'signin' : 'household';
+    // The customer's own Netflix accounts we offered. Only the account being logged in / asking has a fresh code, so try each.
     const na = await tools().netflixAccounts(c.phone).catch(() => null);
     let usable = na && na.ok ? (na.accounts || []).filter((x) => x.email && x.kind) : [];
     if (Array.isArray(st.hhSubs) && st.hhSubs.length) { const set = new Set(st.hhSubs); const pref = usable.filter((x) => set.has(x.subId)); if (pref.length) usable = pref; }
-    if (!usable.length) { st.hhTries = 0; delete st.hhMode; return supportReplies(c, ctx, 'household', '', { noAuto: true }); }
-    // The permanent update, or the temporary code. "I clicked, check again" repeats whichever the customer started.
-    const mode = (action === 'hhupdate' || (action === 'hhretry' && st.hhMode === 'update')) ? 'update' : 'travel';
+    if (!usable.length) { st.hhTries = 0; delete st.hhMode; return supportReplies(c, ctx, manualKind, '', { noAuto: true }); }
     st.hhMode = mode;
     let got = null;
     if (mode === 'update') {
@@ -1160,20 +1184,26 @@ async function turn(c, input, ctx) {
       for (const acc of usable.slice(0, 4)) { const r = await tools().householdUpdate(acc).catch(() => null); if (r && r.ok && r.updated) { got = r; break; } }
       ctx.meta.push({ tool: 'householdUpdate', ok: !!got, tried: Math.min(usable.length, 4) });
       if (got) { st.hhTries = 0; delete st.hhMode; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
+    } else if (mode === 'signin') {
+      // The 6-digit new-device verification code, read from our own account inbox (read-only).
+      for (const acc of usable.slice(0, 4)) { const r = await tools().signInCode(acc).catch(() => null); if (r && r.ok && /^\d{4,8}$/.test(String(r.code))) { got = r; break; } }
+      ctx.meta.push({ tool: 'signInCode', ok: !!got, tried: Math.min(usable.length, 4) });
+      if (got) { st.hhTries = 0; delete st.hhMode; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'SIGNIN_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     } else {
       for (const acc of usable.slice(0, 4)) { const r = await tools().householdCode(acc).catch(() => null); if (r && r.ok && /^\d{4}$/.test(String(r.code))) { got = r; break; } }
       ctx.meta.push({ tool: 'householdCode', ok: !!got, tried: Math.min(usable.length, 4) });
       if (got) { st.hhTries = 0; delete st.hhMode; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     }
-    // Nothing yet: the customer probably hasn't pressed "Watch temporarily" / "Update household" -> "Send email" on the TV.
-    // Guide them, let them tap "I clicked, check again", and try up to 5 times before giving the manual Helper.
+    // Nothing yet: the customer probably hasn't triggered it on the device (Watch temporarily / Update household -> Send email,
+    // or a fresh login). Guide them, let them tap "I clicked, check again", and try up to 5 times before the manual Helper.
     st.hhTries = (Number(st.hhTries) || 0) + 1;
     if (st.hhTries < 5) {
       if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
-      return [{ intent: 'HH_CODE_NOT_YET', facts: { attempt: st.hhTries, mode }, buttons: withBackToPay(st, lang, [btn('hhretry', lang), btn('hhupdate', lang), btn('whatsapp', lang), btn('menu', lang)]) }];
+      const retryButtons = mode === 'signin' ? [btn('hhretry', lang), btn('whatsapp', lang), btn('menu', lang)] : [btn('hhretry', lang), btn('hhupdate', lang), btn('whatsapp', lang), btn('menu', lang)];
+      return [{ intent: 'HH_CODE_NOT_YET', facts: { attempt: st.hhTries, mode }, buttons: withBackToPay(st, lang, retryButtons) }];
     }
     st.hhTries = 0; delete st.hhMode;
-    return supportReplies(c, ctx, 'household', '', { noAuto: true }); // tried 5 times: the manual Helper steps + link
+    return supportReplies(c, ctx, manualKind, '', { noAuto: true }); // tried 5 times: the manual steps
   }
   if (SUPPORT_KINDS.has(action) || action === 'support') return supportReplies(c, ctx, action === 'support' ? 'login' : action, ents.service || '');
   if (action.startsWith('help:')) {

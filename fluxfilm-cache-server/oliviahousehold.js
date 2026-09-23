@@ -217,6 +217,56 @@ async function inboxLink(acc, re, deps) {
   } finally { lock.release(); try { await client.logout(); } catch (_) {} }
 }
 
+/** The 6-digit Netflix SIGN-IN verification code, read straight from the email body (no link). Not a household travel code. */
+function signinCodeFrom(html) {
+  if (isBlocked(html)) return '';
+  const text = visible(html);
+  if (/temporary access|requesting device|watch temporarily|update household/i.test(text)) return ''; // that is a household email, not a sign-in code
+  const m = text.match(/verify with this code[:\s]*((?:\d\s*){4,8})/i)
+    || text.match(/your (?:netflix )?(?:verification|sign.?in|access) code(?: is)?[:\s]*((?:\d\s*){4,8})/i)
+    || text.match(/((?:\d\s*){6})\s*is your (?:netflix )?(?:verification|sign.?in) code/i)
+    || (/verification code|sign.?in code|access your account/i.test(text) && text.match(/(?:^|[^\d])((?:\d\s*){6})(?:[^\d]|$)/));
+  const d = m ? String(m[1]).replace(/\D/g, '') : '';
+  return (d.length >= 4 && d.length <= 8) ? d : '';
+}
+
+/** FluxFilm's own inbox (NFLX-H): the newest recent sign-in verification code for this account's [FF][<tag>] label. */
+async function inboxCode(acc, deps) {
+  const pass = (process.env.NETFLIX_IMAP_PASS || '').replace(/\s+/g, '');
+  if (!pass) return '';
+  const tag = s(acc.tag);
+  if (!tag) return ''; // no way to tell this account's mail from another account's -> never guess
+  const imap = (deps && deps.imap) || require('imapflow');
+  const { simpleParser } = (deps && deps.mailparser) || require('mailparser');
+  const client = new imap.ImapFlow({ host: HH_HOST(), port: 993, secure: true, auth: { user: IMAP_USER(), pass }, logger: false });
+  await client.connect();
+  const lock = await client.getMailboxLock(HH_FOLDER(), { readOnly: true });
+  try {
+    const since = new Date(Date.now() - LINK_FRESH_MS);
+    const uids = await client.search({ subject: '[' + tag + ']', since }, { uid: true });
+    for (const uid of (uids || []).slice(-15).reverse()) {
+      const msg = await client.fetchOne(uid, { source: true }, { uid: true });
+      if (!msg || !msg.source) continue;
+      const p = await simpleParser(msg.source);
+      if (Date.now() - new Date(p.date || 0).getTime() > LINK_FRESH_MS) continue;
+      if (String(p.subject || '').toUpperCase().indexOf('[' + tag + ']') === -1) continue; // the tag must really be this account's
+      const code = signinCodeFrom(String(p.html || p.textAsHtml || p.text || ''));
+      if (code) return code;
+    }
+    return '';
+  } finally { lock.release(); try { await client.logout(); } catch (_) {} }
+}
+
+/** The Netflix sign-in code for a customer's own active account. From our shared inbox (NFLX-H); darkflix has no such page. */
+async function signInCode(acc, deps) {
+  const a = acc || {};
+  if (!famNetflix(a.service) || !s(a.email) || !a.kind) return { ok: false, manual: true };
+  if (a.kind !== 'H') return { ok: false, manual: true }; // sign-in codes come by email; only our own inbox has them
+  let code = '';
+  try { code = await inboxCode(a, deps); } catch (e) { console.log('[olivia-hh] signin code failed:', e.message); return { ok: false, manual: true }; }
+  return code ? { ok: true, code } : { ok: false, manual: true };
+}
+
 async function run(acc, mode, deps) {
   const a = acc || {};
   if (!famNetflix(a.service) || !s(a.email) || !a.kind) return { ok: false, manual: true };
@@ -231,4 +281,4 @@ const travelCode = (acc, deps) => run(acc, 'travel', deps);
 const updateHousehold = (acc, deps) => run(acc, 'update', deps);
 const updateEnabled = () => UPDATE_ON();
 
-module.exports = { netflixAccounts, travelCode, updateHousehold, updateEnabled, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink } };
+module.exports = { netflixAccounts, travelCode, updateHousehold, signInCode, updateEnabled, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, signinCodeFrom } };
