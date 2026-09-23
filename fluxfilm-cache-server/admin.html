@@ -6964,4 +6964,80 @@ function annivSave() {
   });
 }
 </script>
+<script>
+/* ================= 📺 Netflix helper (adminnetflix.js) ================= */
+// The Apps Script that lived on the ffnetflixhub inbox, moved here. Pick one of our Netflix accounts and read the
+// newest mail Netflix sent it. Self-contained, so the shared MENU / viewMap lines stay untouched.
+// ⚠️ Read-only: it shows the link, it never presses it.
+var NF = { data: null, acc: '', mode: 'household', out: null, busy: false };
+(function () {
+  if (!MENU.some(function (m) { return m[0] === 'netflix'; })) {
+    var at = -1; MENU.forEach(function (m, i) { if (m[0] === 'otpdevices') at = i; });
+    MENU.splice(at >= 0 ? at + 1 : MENU.length, 0, ['netflix', '📺', 'Netflix helper']);
+  }
+  var baseViewMap = viewMap;
+  viewMap = function () { var m = baseViewMap(); m.netflix = netflixView; return m; };
+})();
+var NF_MODES = [['household', '🏠 Household'], ['travel', '✈️ Travel code'], ['code', '🔐 Verification code']];
+function netflixView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>📺 Netflix helper</h1><p>The newest household, travel or verification mail Netflix sent one of our accounts</p></div></div><div id="nfbody"><p class="muted">Loading…</p></div>';
+  if (NF.data) renderNetflix();
+  else api('/admin/api/netflix/accounts').then(function (r) { NF.data = r; renderNetflix(); });
+}
+function renderNetflix() {
+  var el = $('#nfbody'); if (!el) return;
+  var r = NF.data || {};
+  if (!r.ok) { el.innerHTML = '<div class="card"><div class="qnote bad">' + esc(r.message || 'Could not load the accounts.') + '</div></div>'; return; }
+  var list = r.accounts || [];
+  if (!NF.acc && list.length) NF.acc = (list.find(function (a) { return a.isActive && a.tag; }) || list[0]).accountId;
+  var picked = list.find(function (a) { return a.accountId === NF.acc; }) || null;
+  el.innerHTML =
+    (!r.mailReady ? '<div class="card"><div class="qnote bad">⚠️ <b>NETFLIX_IMAP_PASS is not set on the server</b>, so the inbox cannot be read. Add it in Hostinger → Environment variables.</div></div>' : '') +
+    '<div class="card qsec"><h3 style="margin-top:0">1 · Account</h3><div class="row" id="nfaccs" style="gap:6px;flex-wrap:wrap">' +
+    list.map(function (a) {
+      return '<button class="chip' + (a.accountId === NF.acc ? ' on' : '') + '" data-acc="' + esc(a.accountId) + '"' + (a.tag ? '' : ' title="No household tag — its mail cannot be told apart"') + '>' +
+        (a.isActive ? '' : '⏸ ') + esc(a.accountId) + (a.tag ? '' : ' ⚠️') + '</button>';
+    }).join('') + '</div>' +
+    (picked ? '<p class="muted" style="font-size:.78rem;margin:10px 0 0">' + esc(picked.email) + (picked.label ? ' · reads the Gmail label <b>' + esc(picked.label) + '</b>' : '') + (picked.tag ? ' · tag <b>' + esc(picked.tag) + '</b>' : ' · <b>no tag</b>, so its mail cannot be told apart from the others') + '</p>' : '') +
+    '</div>' +
+    '<div class="card qsec"><h3>2 · What are you looking for?</h3><div class="row" id="nfmodes" style="gap:6px">' +
+    NF_MODES.map(function (m) { return '<button class="chip' + (NF.mode === m[0] ? ' on' : '') + '" data-mode="' + m[0] + '">' + m[1] + '</button>'; }).join('') + '</div>' +
+    (NF.mode === 'code' ? '<div class="qnote bad" style="margin-top:10px">🔐 <b>This code signs in to the Netflix account itself.</b> It is for you, not for a customer — never send it on.</div>' : '') +
+    '<button class="btn" id="nfgo" style="margin-top:12px"' + (r.mailReady ? '' : ' disabled') + '>🔎 Find the newest one</button>' +
+    '<div id="nfmsg" class="muted" style="margin-top:8px;font-size:.8rem"></div></div>' +
+    '<div id="nfout"></div>';
+  $('#nfaccs').onclick = function (e) { var b = e.target.closest('[data-acc]'); if (!b) return; NF.acc = b.getAttribute('data-acc'); NF.out = null; renderNetflix(); };
+  $('#nfmodes').onclick = function (e) { var b = e.target.closest('[data-mode]'); if (!b) return; NF.mode = b.getAttribute('data-mode'); NF.out = null; renderNetflix(); };
+  $('#nfgo').onclick = netflixFind;
+  renderNetflixOut();
+}
+function netflixFind() {
+  if (NF.busy) return;
+  NF.busy = true; NF.out = null; $('#nfmsg').textContent = 'Reading the inbox…'; renderNetflixOut();
+  post('/admin/api/netflix/mail', { accountId: NF.acc, mode: NF.mode }).then(function (r) {
+    NF.busy = false;
+    $('#nfmsg').textContent = r && r.ok ? '' : '⚠️ ' + ((r && r.message) || 'failed');
+    NF.out = r && r.ok ? r : null;
+    renderNetflixOut();
+  });
+}
+function renderNetflixOut() {
+  var el = $('#nfout'); if (!el) return;
+  var r = NF.out;
+  if (!r) { el.innerHTML = NF.busy ? '<div class="card muted">Reading…</div>' : ''; return; }
+  if (!r.mail) {
+    el.innerHTML = '<div class="card"><h3 style="margin-top:0">Nothing recent</h3><p class="muted">No ' + esc(r.mode) + ' mail for ' + esc(r.accountId) + ' in the last few days. Ask Netflix for it on the TV first, then look again.</p></div>';
+    return;
+  }
+  var m = r.mail;
+  el.innerHTML = '<div class="card"><h3 style="margin-top:0">' + esc(r.accountId) + ' · ' + esc(r.mode) + '</h3>' +
+    '<div class="muted" style="font-size:.82rem">' + esc(m.subject) + '</div>' +
+    '<div class="muted" style="font-size:.75rem;margin-top:3px">' + esc(prettyDate(m.date, true)) + ' · found by ' + esc(m.foundBy === 'label' ? 'its Gmail label' : 'the subject tag') + '</div>' +
+    (m.code ? '<div class="creds" style="margin:12px 0"><div class="cr"><span>Code</span><code style="font-size:1.3rem;letter-spacing:.2em">' + esc(m.code) + '</code><button class="copy" data-copy="' + esc(m.code) + '">Copy</button></div></div>' +
+      '<div class="qnote bad">Expires about 15 minutes after Netflix sent it. Never send it to a customer.</div>' : '') +
+    (m.actionUrl ? '<div style="margin-top:12px"><a class="btn" href="' + esc(m.actionUrl) + '" target="_blank" rel="noopener noreferrer">Open the Netflix link ›</a></div>' +
+      '<p class="muted" style="font-size:.74rem;margin:8px 0 0">Opens Netflix in a new tab. Nothing is pressed for you.</p>' : '') +
+    '</div>';
+}
+</script>
 </body></html>

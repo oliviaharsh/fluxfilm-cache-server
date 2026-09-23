@@ -164,6 +164,7 @@ function that draws it; `route()` calls it. Add a screen = add to `MENU` + `view
 | 📤 Exports | `exportsView` | 6536 | `adminexports.js`, `xlsx.js` |
 <<<<<<< HEAD
 | ✨ Ask (the admin assistant) | `askView` | 6640 | `adminask.js` |
+| 📺 Netflix helper | `netflixView` | 6900 | `adminnetflix.js`, `oliviahousehold.js` |
 =======
 | 🎉 Anniversary sale | `annivView` | 6640 | `anniversary.js` |
 >>>>>>> aca12dc (🎉 Anniversary sale: a countdown bar, 🔔 Notify me, and the alert on the day)
@@ -274,6 +275,7 @@ the two exceptions are `adminrefundnow.js` (mounted by `adminorderactions.js`) a
 | 📤 Exports | `adminexports.js` + `xlsx.js` | |
 <<<<<<< HEAD
 | ✨ Ask — a typed sentence → one existing read-only lookup, or the right screen pre-filled | `adminask.js` (rules first, `oliviawords.callModel` only as a fallback) | never writes |
+| 📺 Netflix household / travel / verification mail from the ffnetflixhub inbox | `adminnetflix.js` + `oliviahousehold.js` (IMAP, one Gmail label per account) | read-only; the code is admin-only and never logged |
 =======
 | 🎉 Anniversary countdown bar, 🔔 Notify me, the announcement on the day | `anniversary.js` (settings + who asked in `app_settings`; the bar is `AnnivBar` in index.html) | hourly timer, plus POST /cron/anniversary for a Hostinger cron |
 >>>>>>> aca12dc (🎉 Anniversary sale: a countdown bar, 🔔 Notify me, and the alert on the day)

@@ -30,6 +30,22 @@ const OURS_BASE = () => String(process.env.OLIVIA_HH_OURS_BASE || '').replace(/\
 const HH_FOLDER = () => process.env.NETFLIX_HH_INBOX_FOLDER || '[Gmail]/All Mail';
 const HH_HOST = () => process.env.NETFLIX_IMAP_HOST || 'imap.gmail.com';
 const IMAP_USER = () => process.env.NETFLIX_IMAP_USER || 'ffnetflixhub@gmail.com';
+// Each account's Netflix mail is filed under its own Gmail label in the shared inbox (NETFLIX/acc1 … acc4 — what
+// the old Apps Script searched). Gmail shows a label to IMAP as a folder, so we can read it straight.
+// Default: the tag lower-cased under the prefix, so ACC1 → NETFLIX/acc1 with nothing to configure.
+const HH_LABEL_PREFIX = () => String(process.env.NETFLIX_HH_LABEL_PREFIX == null ? 'NETFLIX/' : process.env.NETFLIX_HH_LABEL_PREFIX);
+function labelMap() {
+  try { const m = JSON.parse(process.env.NETFLIX_HH_LABEL_MAP || '{}'); if (!m || typeof m !== 'object') return {}; const o = {}; for (const [k, v] of Object.entries(m)) o[String(k).toUpperCase()] = String(v); return o; } catch (_) { return {}; }
+}
+/** The Gmail label (IMAP folder) that holds this account's Netflix mail, or '' when there is no tag to go on. */
+function labelFor(tag) {
+  const up = s(tag).toUpperCase();
+  if (!up) return '';
+  const m = labelMap();
+  if (m[up]) return m[up];
+  const prefix = HH_LABEL_PREFIX();
+  return prefix ? prefix + up.toLowerCase() : '';
+}
 const UPDATE_ON = () => /^(on|1|true|yes)$/i.test(String(process.env.OLIVIA_HH_UPDATE || ''));
 const LINK_FRESH_MS = Number(process.env.NETFLIX_HH_FRESH_MIN || 14) * 60 * 1000;
 const UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128 Mobile Safari/537.36';
@@ -190,34 +206,62 @@ async function netflixLink(acc, mode, deps) {
   return '';
 }
 
-/** FluxFilm's own inbox (NFLX-H): the newest household mail for this account's [FF][<tag>] label. */
-async function inboxLink(acc, re, deps) {
+/**
+ * FluxFilm's own inbox (NFLX-H). Two ways to tell one account's mail from another's, tried in this order:
+ *   1. its own Gmail LABEL — NETFLIX/acc1 … acc4, exactly what the old Apps Script searched. The folder IS the
+ *      account, so nothing has to be written into the subject line.
+ *   2. a [<tag>] in the subject, in All Mail — how this worked before; kept so nothing that works today stops.
+ * Only mail actually from Netflix counts, in both.
+ */
+async function inboxSearch(acc, pick, deps, opts) {
   const pass = (process.env.NETFLIX_IMAP_PASS || '').replace(/\s+/g, '');
-  if (!pass) return '';
-  const tag = s(acc.tag);
-  if (!tag) return ''; // no way to tell this account's mail apart from other accounts' -> never guess
+  if (!pass) return null;
+  const tag = s(acc.tag).toUpperCase();
+  if (!tag) return null; // no way to tell this account's mail apart from other accounts' -> never guess
+  const freshMs = (opts && opts.freshMs) || LINK_FRESH_MS;
   const imap = (deps && deps.imap) || require('imapflow');
   const { simpleParser } = (deps && deps.mailparser) || require('mailparser');
   const client = new imap.ImapFlow({ host: HH_HOST(), port: 993, secure: true, auth: { user: IMAP_USER(), pass }, logger: false });
   await client.connect();
-  const lock = await client.getMailboxLock(HH_FOLDER(), { readOnly: true });
   try {
-    const since = new Date(Date.now() - LINK_FRESH_MS);
-    const uids = await client.search({ subject: '[' + tag + ']', since }, { uid: true });
-    for (const uid of (uids || []).slice(-15).reverse()) {
-      const msg = await client.fetchOne(uid, { source: true }, { uid: true });
-      if (!msg || !msg.source) continue;
-      const p = await simpleParser(msg.source);
-      if (Date.now() - new Date(p.date || 0).getTime() > LINK_FRESH_MS) continue;
-      if (String(p.subject || '').toUpperCase().indexOf('[' + tag + ']') === -1) continue; // the tag must really be this account's
-      const m = String(p.html || p.textAsHtml || p.text || '').match(re);
-      if (m) return m[0].replace(/&amp;/g, '&');
+    const since = new Date(Date.now() - freshMs);
+    const label = labelFor(tag);
+    const tries = [];
+    if (label) tries.push({ folder: label, by: 'label' });
+    tries.push({ folder: HH_FOLDER(), by: 'subject' });
+    for (const tr of tries) {
+      let lock = null;
+      try { lock = await client.getMailboxLock(tr.folder, { readOnly: true }); } catch (_) { continue; } // no such label
+      try {
+        const q = tr.by === 'label' ? { since } : { subject: '[' + tag + ']', since };
+        const uids = await client.search(q, { uid: true });
+        for (const uid of (uids || []).slice(-15).reverse()) {
+          const msg = await client.fetchOne(uid, { source: true }, { uid: true });
+          if (!msg || !msg.source) continue;
+          const p = await simpleParser(msg.source);
+          if (Date.now() - new Date(p.date || 0).getTime() > freshMs) continue;
+          const from = String((p.from && p.from.text) || '').toLowerCase();
+          if (from.indexOf('netflix.com') === -1) continue; // only Netflix's own mail, like the old script
+          // In All Mail the subject tag is the ONLY thing separating the accounts, so it must really be there.
+          if (tr.by === 'subject' && String(p.subject || '').toUpperCase().indexOf('[' + tag + ']') === -1) continue;
+          const hit = pick(p, tr.by);
+          if (hit) return hit;
+        }
+      } finally { lock.release(); }
     }
-    return '';
-  } finally { lock.release(); try { await client.logout(); } catch (_) {} }
+    return null;
+  } finally { try { await client.logout(); } catch (_) {} }
 }
 
-/** The 6-digit Netflix SIGN-IN verification code, read straight from the email body (no link). Not a household travel code. */
+/** The newest household / travel link for this account. */
+async function inboxLink(acc, re, deps) {
+  const hit = await inboxSearch(acc, (p) => {
+    const m = String(p.html || p.textAsHtml || p.text || '').match(re);
+    return m ? m[0].replace(/&amp;/g, '&') : null;
+  }, deps);
+  return hit || '';
+}
+
 function signinCodeFrom(html) {
   if (isBlocked(html)) return '';
   const text = visible(html);
@@ -230,31 +274,47 @@ function signinCodeFrom(html) {
   return (d.length >= 4 && d.length <= 8) ? d : '';
 }
 
-/** FluxFilm's own inbox (NFLX-H): the newest recent sign-in verification code for this account's [FF][<tag>] label. */
+/** The newest recent sign-in verification code for this account. */
 async function inboxCode(acc, deps) {
-  const pass = (process.env.NETFLIX_IMAP_PASS || '').replace(/\s+/g, '');
-  if (!pass) return '';
-  const tag = s(acc.tag);
-  if (!tag) return ''; // no way to tell this account's mail from another account's -> never guess
-  const imap = (deps && deps.imap) || require('imapflow');
-  const { simpleParser } = (deps && deps.mailparser) || require('mailparser');
-  const client = new imap.ImapFlow({ host: HH_HOST(), port: 993, secure: true, auth: { user: IMAP_USER(), pass }, logger: false });
-  await client.connect();
-  const lock = await client.getMailboxLock(HH_FOLDER(), { readOnly: true });
-  try {
-    const since = new Date(Date.now() - LINK_FRESH_MS);
-    const uids = await client.search({ subject: '[' + tag + ']', since }, { uid: true });
-    for (const uid of (uids || []).slice(-15).reverse()) {
-      const msg = await client.fetchOne(uid, { source: true }, { uid: true });
-      if (!msg || !msg.source) continue;
-      const p = await simpleParser(msg.source);
-      if (Date.now() - new Date(p.date || 0).getTime() > LINK_FRESH_MS) continue;
-      if (String(p.subject || '').toUpperCase().indexOf('[' + tag + ']') === -1) continue; // the tag must really be this account's
-      const code = signinCodeFrom(String(p.html || p.textAsHtml || p.text || ''));
-      if (code) return code;
+  const hit = await inboxSearch(acc, (p) => signinCodeFrom(String(p.html || p.textAsHtml || p.text || '')) || null, deps);
+  return hit || '';
+}
+
+const MAIL_WORDS = {
+  household: ['household', 'update your netflix household', 'reset your household'],
+  travel: ['temporary access code', 'travel', 'device code', 'watch temporarily'],
+  // 🔐 The 6-digit SIGN-IN code. Whoever holds it can sign in to the Netflix account itself.
+  code: ['verify with this code', 'verification code', 'sign-in code', 'sign in code', 'code requested'],
+};
+
+/**
+ * For the owner's own 📺 Netflix helper screen: the newest Netflix mail for this account, and the link to act on.
+ * Read-only — it opens nothing and presses nothing. A wider window than the auto-fix, because the owner is looking
+ * things up by hand rather than answering a customer standing at their TV.
+ */
+async function latestMail(acc, mode, deps) {
+  const re = /https?:\/\/[^"'\s>]*netflix\.com[^"'\s>]*/i;
+  const kind = MAIL_WORDS[String(mode)] ? String(mode) : 'household';
+  const words = MAIL_WORDS[kind];
+  const freshMs = Number(process.env.NETFLIX_HH_LOOKUP_DAYS || 7) * 86400e3;
+  const hit = await inboxSearch(acc, (p, by) => {
+    const subject = String(p.subject || '');
+    const body = String(p.html || p.textAsHtml || p.text || '');
+    // The forwarder puts [FF][ACC1][CODE] in the subject, but the body is matched too: a mail forwarded by hand, or
+    // a subject Netflix words differently, should still be found.
+    const hay = (subject + ' ' + body).toLowerCase();
+    if (!words.some((w) => hay.indexOf(w) > -1)) return null;
+    const m = body.match(re);
+    const out = { subject, date: p.date ? new Date(p.date).toISOString() : '', actionUrl: m ? m[0].replace(/&amp;/g, '&') : '', foundBy: by, mode: kind };
+    if (kind === 'code') {
+      const code = signinCodeFrom(body);   // the same reader Olivia uses — one extractor, not two
+      if (!code) return null;              // a code mail with no code in it is no use — keep looking at older ones
+      out.code = code;
+      out.actionUrl = '';                  // there is nothing to press: the code is the whole point
     }
-    return '';
-  } finally { lock.release(); try { await client.logout(); } catch (_) {} }
+    return out;
+  }, deps, { freshMs });
+  return hit || null;
 }
 
 /** The Netflix sign-in code for a customer's own active account. From our shared inbox (NFLX-H); darkflix has no such page. */
@@ -281,4 +341,4 @@ const travelCode = (acc, deps) => run(acc, 'travel', deps);
 const updateHousehold = (acc, deps) => run(acc, 'update', deps);
 const updateEnabled = () => UPDATE_ON();
 
-module.exports = { netflixAccounts, travelCode, updateHousehold, signInCode, updateEnabled, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, signinCodeFrom } };
+module.exports = { netflixAccounts, travelCode, updateHousehold, signInCode, updateEnabled, latestMail, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, signinCodeFrom, labelFor, inboxSearch, MAIL_WORDS } };
