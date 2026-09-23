@@ -54,7 +54,7 @@ const PLANS = [
 ];
 const STOCK = { 'JioHotstar|||1 Month': { stockLevel: 'OUT' } };
 const calls = [];
-const shop = { subs: [], renewMode: 'SAME', paid: false, paused: false, fulfillment: 'FULFILLED', profile: { ok: true, name: 'Ramesh Kumar', email: 'ramesh@example.com' }, claim: 'WAITING', backupOk: true, nflxAccounts: [], hhCode: '', hhCodeSub: '', hhUpdated: false, hhUpdateOn: false, signinCode: '', signinSub: '' };
+const shop = { subs: [], renewMode: 'SAME', paid: false, paused: false, fulfillment: 'FULFILLED', profile: { ok: true, name: 'Ramesh Kumar', email: 'ramesh@example.com' }, claim: 'WAITING', backupOk: true, nflxAccounts: [], hhCode: '', hhCodeSub: '', hhUpdated: false, hhUpdateOn: false, verifyCode: '', verifySub: '' };
 const tools = {
   catalogFor: async () => ({ plans: PLANS, stock: STOCK }),
   profile: async (ph) => (ph === '9876543210' || ph === '9000000001' ? shop.profile : { ok: false }),
@@ -104,7 +104,7 @@ const tools = {
   householdCode: async (acc) => { calls.push(['householdCode', acc && acc.subId, acc && acc.kind]); const mine = !shop.hhCodeSub || (acc && acc.subId === shop.hhCodeSub); return shop.hhCode && mine ? { ok: true, code: shop.hhCode } : { ok: false, manual: true }; },
   householdUpdate: async (acc) => { calls.push(['householdUpdate', acc && acc.subId, acc && acc.kind]); return shop.hhUpdated ? { ok: true, updated: true } : { ok: false, manual: true }; },
   householdUpdateEnabled: () => shop.hhUpdateOn === true,
-  signInCode: async (acc) => { calls.push(['signInCode', acc && acc.subId, acc && acc.kind]); const mine = !shop.signinSub || (acc && acc.subId === shop.signinSub); return shop.signinCode && mine ? { ok: true, code: shop.signinCode } : { ok: false, manual: true }; },
+  verificationCode: async (acc) => { calls.push(['verificationCode', acc && acc.subId, acc && acc.kind]); const mine = !shop.verifySub || (acc && acc.subId === shop.verifySub); return shop.verifyCode && mine ? { ok: true, code: shop.verifyCode } : { ok: false, manual: true }; },
 };
 olivia._internal.setDeps({ tools });
 
@@ -745,7 +745,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   shop.nflxAccounts = [{ subId: 'S1', service: 'Netflix', ref: 'NFLX-D11', email: 'jess@example.com', kind: 'D' }];
   shop.hhCode = '4162';
   r = await say({ text: 'tv par household code maang raha hai' });
-  ok('household + one active Netflix account → offers the choices: code, my-account, link, explain, sign-in code', last(r).intent === 'HH_OFFER_CODE' && ids(last(r))[0] === 'hhcode' && ids(last(r)).includes('hhupdate') && ids(last(r)).includes('hhlink') && ids(last(r)).includes('hhexplain') && ids(last(r)).includes('hhsignin') && ids(last(r)).includes('whatsapp'), last(r));
+  ok('household + one active Netflix account → offers the choices: code, my-account, link, explain, verification code', last(r).intent === 'HH_OFFER_CODE' && ids(last(r))[0] === 'hhcode' && ids(last(r)).includes('hhupdate') && ids(last(r)).includes('hhlink') && ids(last(r)).includes('hhexplain') && ids(last(r)).includes('hhverify') && ids(last(r)).includes('whatsapp'), last(r));
   r = await say({ choice: 'hhcode' });
   ok('tap Get my code → the code comes back in a card only (never in the words), with a "15 minutes" note', last(r).intent === 'HH_CODE_READY' && last(r).card && last(r).card.type === 'code' && last(r).card.code === '4162' && !/4162/.test(last(r).text) && /15 min/i.test(last(r).text) && calls.some((c) => c[0] === 'householdCode' && c[1] === 'S1' && c[2] === 'D'), last(r));
   ok('the code card is logged only as a marker, never the digits', !msgs.some((m) => /4162/.test(m.body)) && msgs.some((m) => /\[code card\]/.test(m.body)));
@@ -786,33 +786,33 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   await say({ choice: 'menu' });
   r = await say({ text: 'netflix household problem' });
   ok('household with NO resolvable Netflix account → the manual Helper only, no auto-fix button', last(r).intent === 'HOUSEHOLD_HELPER' && !ids(last(r)).includes('hhcode'), last(r));
-  // ── Netflix sign-in verification code (new-device login): the 6-digit code emailed to the account (Harsh, 23 Sep 2026) ──
+  // ── Netflix verification code (new-device login): the 6-digit code emailed to the account (Harsh, 23 Sep 2026) ──
   shop.nflxAccounts = [{ subId: 'S1', service: 'Netflix', ref: 'NFLX-H4', email: 'fluxfilm157@gmail.com', kind: 'H', tag: 'ACC3' }];
-  shop.signinCode = '068097'; shop.signinSub = '';
+  shop.verifyCode = '068097'; shop.verifySub = '';
   await say({ choice: 'menu' });
   r = await say({ text: 'netflix verification code chahiye login ke liye' });
-  ok('"verification code" → the sign-in offer (not household), with a Get-sign-in-code button', last(r).intent === 'SIGNIN_OFFER' && ids(last(r)).includes('hhsignin') && !ids(last(r)).includes('hhcode'), last(r));
+  ok('"verification code" → the verification offer (not household), with a Get-verification-code button', last(r).intent === 'VERIFY_OFFER' && ids(last(r)).includes('hhverify') && !ids(last(r)).includes('hhcode'), last(r));
   calls.length = 0;
-  r = await say({ choice: 'hhsignin' });
-  ok('tap Get sign-in code → the 6-digit code in a card only (never in the words), calls signInCode', last(r).intent === 'SIGNIN_CODE_READY' && last(r).card && last(r).card.type === 'code' && last(r).card.code === '068097' && !/068097/.test(last(r).text) && calls.some((c) => c[0] === 'signInCode' && c[1] === 'S1'), last(r));
-  ok('the sign-in code card is logged only as a marker, never the digits', !msgs.some((m) => /068097/.test(m.body)) && msgs.some((m) => /\[code card\]/.test(m.body)));
-  shop.signinCode = '';
+  r = await say({ choice: 'hhverify' });
+  ok('tap Get verification code → the 6-digit code in a card only (never in the words), calls verificationCode', last(r).intent === 'VERIFY_CODE_READY' && last(r).card && last(r).card.type === 'code' && last(r).card.code === '068097' && !/068097/.test(last(r).text) && calls.some((c) => c[0] === 'verificationCode' && c[1] === 'S1'), last(r));
+  ok('the verification code card is logged only as a marker, never the digits', !msgs.some((m) => /068097/.test(m.body)) && msgs.some((m) => /\[code card\]/.test(m.body)));
+  shop.verifyCode = '';
   await say({ choice: 'menu' });
-  r = await say({ text: 'netflix sign in code aaya nahi' });
-  r = await say({ choice: 'hhsignin' });
-  ok('no sign-in code yet (1st) → guide to log in again + "I clicked, check again", not manual', last(r).intent === 'HH_CODE_NOT_YET' && /6 digit code|6 अंक|6-digit/i.test(last(r).text) && ids(last(r))[0] === 'hhretry' && !ids(last(r)).includes('hhupdate'), last(r));
+  r = await say({ text: 'netflix verification code aaya nahi' });
+  r = await say({ choice: 'hhverify' });
+  ok('no verification code yet (1st) → guide to log in again + "I clicked, check again", not manual', last(r).intent === 'HH_CODE_NOT_YET' && /6 digit code|6 अंक|6-digit/i.test(last(r).text) && ids(last(r))[0] === 'hhretry' && !ids(last(r)).includes('hhupdate'), last(r));
   r = await say({ text: 'login kar liya' });
-  ok('"login kar liya" repeats the sign-in fetch (not the TV code), keeps guiding', last(r).intent === 'HH_CODE_NOT_YET' && calls.some((c) => c[0] === 'signInCode') && !calls.some((c) => c[0] === 'householdCode'), last(r));
-  shop.signinCode = '112233';
+  ok('"login kar liya" repeats the verification fetch (not the TV code), keeps guiding', last(r).intent === 'HH_CODE_NOT_YET' && calls.some((c) => c[0] === 'verificationCode') && !calls.some((c) => c[0] === 'householdCode'), last(r));
+  shop.verifyCode = '112233';
   r = await say({ choice: 'hhretry' });
-  ok('retry succeeds once the sign-in email arrives → the code card', last(r).intent === 'SIGNIN_CODE_READY' && last(r).card.code === '112233', last(r));
-  shop.signinCode = ''; shop.nflxAccounts = [];
+  ok('retry succeeds once the verification email arrives → the code card', last(r).intent === 'VERIFY_CODE_READY' && last(r).card.code === '112233', last(r));
+  shop.verifyCode = ''; shop.nflxAccounts = [];
   await say({ choice: 'menu' });
-  r = await say({ text: 'sign in code chahiye netflix' });
-  ok('sign-in with NO resolvable Netflix account → the manual/team message, no fetch button', last(r).intent === 'SIGNIN_MANUAL' && !ids(last(r)).includes('hhsignin'), last(r));
+  r = await say({ text: 'verification code chahiye netflix' });
+  ok('verification with NO resolvable Netflix account → the manual/team message, no fetch button', last(r).intent === 'VERIFY_MANUAL' && !ids(last(r)).includes('hhverify'), last(r));
   // the parser reads the 6-digit code from the email body, and ignores a household travel email
   const hhi2 = require('../oliviahousehold.js')._internal;
-  ok('sign-in parser: reads "Verify with this code: 0 6 8 0 9 7", ignores a household travel email', hhi2.signinCodeFrom('<h1>Verify with this code:</h1><b>0 6 8 0 9 7</b><p>Someone is trying to access your account</p>') === '068097' && hhi2.signinCodeFrom('<p>Enter this code on the requesting device for temporary access</p><b>4 1 6 2</b>') === '');
+  ok('verification parser: reads "Verify with this code: 0 6 8 0 9 7", ignores a household travel email', hhi2.verificationCodeFrom('<h1>Verify with this code:</h1><b>0 6 8 0 9 7</b><p>Someone is trying to access your account</p>') === '068097' && hhi2.verificationCodeFrom('<p>Enter this code on the requesting device for temporary access</p><b>4 1 6 2</b>') === '');
   // ── "Samjhao" and "do it myself" links (Harsh, 23 Sep 2026) ──
   shop.nflxAccounts = [{ subId: 'S1', service: 'Netflix', ref: 'NFLX-D11', email: 'jess@example.com', kind: 'D', tag: '' }];
   shop.hhUpdateOn = false; shop.hhCode = '';
