@@ -102,6 +102,7 @@ const deps = { household: fakeHh };
   section('the three things');
   r = await hh.fix('9971430096', 'NFLX-H5', 'signin', deps);
   ok('🔐 verification code, for our own account', r.ok && r.code === '068097', r);
+  ok('…and it says which of the two codes it was', r.digits === 6 && r.codeKind === 'verify', r);
   r = await hh.fix('9971430096', 'NFLX-H5', 'household', deps);
   ok('🏠 make this TV the home', r.ok && r.done === true, r);
   {
@@ -154,7 +155,9 @@ const deps = { household: fakeHh };
 
     AUDIT.length = 0;
     out = await hh.fix('9000000002', 'NFLX-H5', 'signin', deps, req);
-    ok('the sign-in code is logged as given', out.ok && last().action === 'household.signin' && /🔐 sign-in code given/.test(last().summary), last());
+    // The change log names WHICH code: a 6-digit verify code means somebody got past the password, which is a
+    // different event from a 4-digit sign-in code.
+    ok('the code is logged as given, and named', out.ok && last().action === 'household.signin' && /🔐 6-digit verification code given/.test(last().summary), last());
     ok('🔐 …and that code is not written down either', out.code === '068097' && JSON.stringify(last()).indexOf('068097') === -1, last());
 
     AUDIT.length = 0;
@@ -258,10 +261,10 @@ const deps = { household: fakeHh };
 
   ok('Olivia logs all three household actions she does in chat', (() => {
     const o = read('olivia.js');
-    return (o.match(/hhLog\(c\.phone, mode, got, gotAcc, usable\.length\);/g) || []).length === 3 && /require\('\.\/customerlog'\)\.record\(/.test(o);
+    return (o.match(/hhLog\(c\.phone, (?:mode|'update'), got, gotAcc, tryAccs\.length\);/g) || []).length === 4 && /require\('\.\/customerlog'\)\.record\(/.test(o);
   })());
   ok('householdhelp and Olivia share one logger', /require\('\.\/customerlog'\)/.test(read('householdhelp.js')));
-  ok('🔐 no code is ever handed to the logger', !/record\([^)]*code/.test(read('customerlog.js')) && !/code: r\.code[^)]*note\(/.test(read('householdhelp.js')));
+  ok('🔐 no code is ever handed to the logger', !/record\([^)]*\bcode\b/.test(read('customerlog.js')) && !/code: r\.code[^)]*note\(/.test(read('householdhelp.js')));
   // The three pictures are DRAWN, not photographed: no customer's email on them, ~3 KB each, and crisp at any size.
   section('the pictures the customer taps');
   {

@@ -32,6 +32,9 @@ const MAIL = {
     { uid: 11, from: 'Netflix <info@account.netflix.com>', subject: '[FF][ACC1][HOUSEHOLD] Update your Netflix Household', html: HH_HTML, ageMin: 2 },
     { uid: 12, from: 'Netflix <info@account.netflix.com>', subject: '[FF][ACC1][CODE] Verification code. Expires in 15 mins.', html: CODE_HTML, ageMin: 1 },
     { uid: 13, from: 'Someone Else <hello@example.com>', subject: 'Update your Netflix Household', html: HH_HTML, ageMin: 1 },
+    { uid: 14, from: 'Netflix <info@account.netflix.com>', subject: '[FF][ACC1][SIGNIN] Your sign-in code',
+      html: '<h1>Your sign-in code</h1><p>Enter this code to sign in.</p><b>4 1 7 3</b>'
+        + '<p>Netflix International B.V. 1998-2026, Amsterdam.</p>', ageMin: 0 },
   ],
   // The real travel mail (owner's screenshot, 23 Sep 2026): the 4 digits are NOT in the mail - it carries a
   // "Get code" link that has to be opened, and Netflix expires that link after 15 minutes.
@@ -161,6 +164,41 @@ deps.mailparser.simpleParser = async () => {
   ok('the phone number in the footer is not mistaken for a code', hh._internal.verificationCodeFrom('Questions? Call 000-800-919-1743') === '');
   ok('a mail with no code in it is not offered as one', hh._internal.verificationCodeFrom('Verify with this code: soon') === '');
   ok('…and a household mail is never mistaken for a verification code', hh._internal.verificationCodeFrom('Update household. Your temporary access code is 1234') === '');
+
+  // 🔐 The owner set out the real Netflix login flow on 24 Sep 2026: the 4-digit SIGN-IN code (you type the account
+  // email at the login screen) and the 6-digit VERIFICATION code (after the password, the first time on that
+  // device) are two different mails. This file only ever tested the 6-digit one.
+  section('🔐 the 4-digit SIGN-IN code is a different code');
+  {
+    const V = hh._internal.verificationCodeFrom;
+    ok('a 4-digit sign-in code is read too', V('Your Netflix sign-in code is: 4 1 7 3') === '4173', V('Your Netflix sign-in code is: 4 1 7 3'));
+    ok('…however Netflix words it', V('<p>Enter this code to sign in</p><b>8261</b>') === '8261', V('<p>Enter this code to sign in</p><b>8261</b>'));
+    ok('…and the length is what names it', hh._internal.codeKindOf('4173') === 'signin' && hh._internal.codeKindOf('068097') === 'verify');
+    ok('the copyright year in the footer is not handed out as a sign-in code',
+      V('Enter your sign-in code on the device. Netflix International B.V. 1998-2026, Amsterdam.') === '',
+      V('Enter your sign-in code on the device. Netflix International B.V. 1998-2026, Amsterdam.'));
+    // The word lists are what the owner's 📺 helper screen filters on. 'code' used to say 'verification code'
+    // three times over and there was no sign-in list at all, so a sign-in mail could never be found by that screen.
+    const W = hh._internal.MAIL_WORDS;
+    ok('the two codes have their own word lists', Array.isArray(W.signin) && W.signin.some((w) => /sign.?in/.test(w)), W.signin);
+    ok('…the verification list no longer holds the same words three times over', new Set(W.code).size === W.code.length, W.code);
+    ok('…and it does not quietly swallow sign-in mail', !W.code.some((w) => /sign.?in/.test(w)), W.code);
+  }
+
+  section('🔑 the 4-digit SIGN-IN code: a different lookup, admin only');
+  {
+    // Both codes are in ACC1's mailbox and the SIGN-IN one is the NEWER of the two, which is exactly the case that
+    // would hand the owner the wrong code if the length were not checked.
+    const sm = await hh.latestMail(acc1, 'signin', deps);
+    ok('the sign-in lookup finds the 4-digit mail', !!sm && sm.code === '4173' && sm.digits === 4, sm);
+    ok('…and names it as the sign-in code', !!sm && sm.codeKind === 'signin', sm);
+    const cm = await hh.latestMail(acc1, 'code', deps);
+    ok('…while the verification lookup still gets the 6-digit one, though it is older', !!cm && cm.code === '068097' && cm.digits === 6, cm);
+    ok('…which is the whole point: newest does not win, the right length does', !!cm && cm.codeKind === 'verify', cm);
+    ok('neither lookup offers a link to press', !!sm && sm.actionUrl === '' && !!cm && cm.actionUrl === '');
+    // The customer's own tool is unchanged: it reads whatever code is newest, and only ever offers the 6-digit one.
+    ok('the customer tool is not given the sign-in lookup', !hh._internal.MAIL_WORDS.code.some((w) => /sign.?in/.test(w)));
+  }
 
   section('an account whose mail is only in All Mail');
   const acc5 = { service: 'Netflix', email: 'ininjathetriggerman@gmail.com', kind: 'H', tag: 'ACC5', ref: 'NFLX-H5' };
@@ -293,21 +331,28 @@ deps.mailparser.simpleParser = async () => {
   ok('admin.js mounts it', /require\('\.\/adminnetflix'\)\.mount\(app,/.test(read('admin.js')));
   const html = read('admin.html');
   ok('📺 Netflix helper is in the menu and registered', /\['netflix', '📺', 'Netflix helper'\]/.test(html) && /m\.netflix = netflixView;/.test(html));
-  ok('all three things to look for', /\['household', '🏠 Household'\], \['travel', '✈️ Travel code'\], \['code', '🔐 Verification code'\]/.test(html));
+  ok('all four things to look for', /\['household', '🏠 Household'\], \['travel', '✈️ Travel code'\], \['code', '🔐 Verification code'\], \['signin', '🔑 Sign-in code'\]/.test(html));
+  ok('…and each of the two codes says what it is and when it arrives', /4-digit sign-in code/.test(html) && /6-digit verify code/.test(html));
+  ok('…with the "Use password" way past the sign-in code', /Use password/.test(html));
   ok('⚠️ the screen warns that the verification code signs in to the account', /This code signs in to the Netflix account itself/.test(html) && /never send it to a customer/i.test(html));
   ok('the Netflix link is opened by the owner, never pressed for them', /Nothing is pressed for you/.test(html) && /target="_blank" rel="noopener noreferrer"/.test(html));
   ok('the account list says where each one is read from', /via: H\._internal\.directAuth\(/.test(read('adminnetflix.js')));
   ok('a tag is only demanded when the shared hub is used', /a\.via !== 'direct' && !a\.tag/.test(read('adminnetflix.js')));
-// \U0001f558 The owner asked to be able to prove only they ever pulled a verification code.
+// 🕘 The owner asked to be able to prove only they ever pulled a code.
   ok('every lookup is written to the change log, and a code lookup is named as one', (() => {
     const src = read('adminnetflix.js');
     return /Looked up the 6-digit VERIFICATION CODE/.test(src)
-      && /action: 'netflix\.' \+ \(mode === 'code' \? 'code' : 'mail'\)/.test(src);
+      && /Looked up the 4-digit SIGN-IN code/.test(src)
+      && /action: 'netflix\.' \+ \(mode === 'code' \|\| mode === 'signin' \? mode : 'mail'\)/.test(src);
   })());
-  ok('\U0001f510 ...but the code itself is still never written down', (() => {
+  ok('…and the line says how many digits it was, so the two codes can be told apart in the log',
+    /mail\.digits \+ ' digits'/.test(read('adminnetflix.js')));
+  // 🔐 The DIGIT COUNT may be logged; the digits themselves never may. "mail.codeKind" is the kind, not the code,
+  // so the word-boundary is what keeps this assertion honest rather than merely passing.
+  ok('🔐 ...but the code itself is still never written down', (() => {
     const src = read('adminnetflix.js');
     const rec = src.match(/audit\.record\(req, \{[\s\S]*?\}\);/g) || [];
-    return rec.length >= 1 && !rec.some((r) => /mail\.code|\bcode:/.test(r));
+    return rec.length >= 1 && !rec.some((r) => /mail\.code\b|\bcode:/.test(r));
   })());
     ok('it never writes: no INSERT / UPDATE / DELETE in the module', !/\b(INSERT INTO|UPDATE \w|DELETE FROM)\b/.test(read('adminnetflix.js')));
 

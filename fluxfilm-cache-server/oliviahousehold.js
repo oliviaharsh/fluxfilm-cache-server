@@ -3,6 +3,8 @@
  *
  *   travelCode(acc)   -> the "Watch temporarily" 4-digit TRAVEL code (read-only; verified live)
  *   updateHousehold(acc) -> makes this TV the permanent household (state-changing; OFF unless OLIVIA_HH_UPDATE=on)
+ *   verificationCode(acc) -> the code Netflix EMAILED. TWO different ones arrive here and they are not the same
+ *                         thing: 4 digits = the SIGN-IN code, 6 digits = the VERIFICATION code (see below).
  *
  * From a customer's own ACTIVE Netflix sub: inventory_ref -> the Netflix login email (inventory_accounts.login_id) and
  * whether it is ours (NFLX-H...) or a darkflix account (NFLX-D...).
@@ -318,17 +320,39 @@ async function inboxLink(acc, re, deps) {
   return hit || '';
 }
 
+/**
+ * The code out of a Netflix code email. There are TWO of these and they are NOT the same code — the owner spelled
+ * out the real login flow on 24 Sep 2026 and this module had them muddled into one:
+ *   · SIGN-IN code, 4 digits. You type the account email at the Netflix login screen and Netflix emails this.
+ *     (The way past it without us: "Get help" under the boxes -> "Use password" -> the password we already sent
+ *     them in their credentials email. Worth offering, because it needs nothing from us at all.)
+ *   · VERIFICATION code, 6 digits. After signing in WITH the password, the first time on that device, Netflix
+ *     emails this to prove the device is yours. Only then are you inside.
+ * One reader for both: they land in the same mailbox and a customer only ever has one of them fresh at a time, so
+ * the length is what says which one they were sent. A household or travel mail is thrown out before any of this.
+ */
 function verificationCodeFrom(html) {
   if (isBlocked(html)) return '';
   const text = visible(html);
-  if (/temporary access|requesting device|watch temporarily|update household/i.test(text)) return ''; // that is a household email, not a verification code
-  const m = text.match(/verify with this code[:\s]*((?:\d\s*){4,8})/i)
-    || text.match(/your (?:netflix )?(?:verification|sign.?in|access) code(?: is)?[:\s]*((?:\d\s*){4,8})/i)
-    || text.match(/((?:\d\s*){6})\s*is your (?:netflix )?(?:verification|sign.?in) code/i)
-    || (/verification code|sign.?in code|access your account/i.test(text) && text.match(/(?:^|[^\d])((?:\d\s*){6})(?:[^\d]|$)/));
+  if (/temporary access|requesting device|watch temporarily|update household/i.test(text)) return ''; // a household / travel email, neither of our two codes
+  let m = text.match(/verify with this code[:\s]*((?:\d\s*){4,8})/i)
+    || text.match(/your (?:netflix )?(?:verification|sign.?in|log.?in|access) code(?: is)?[:\s]*((?:\d\s*){4,8})/i)
+    || text.match(/(?:enter|use) this code[^\d]{0,40}((?:\d\s*){4,8})/i)
+    || text.match(/((?:\d\s*){4,8})\s*is your (?:netflix )?(?:verification|sign.?in|log.?in) code/i)
+    || (/verification code|sign.?in code|log.?in code|access your account/i.test(text) && text.match(/(?:^|[^\d])((?:\d\s*){6})(?:[^\d]|$)/));
+  // Last resort for a 4-digit SIGN-IN code worded some way we have not seen: the digits must sit close behind the
+  // words. Netflix's own footer carries "1998-2026" well inside that window, so a year is never taken as the code —
+  // which costs us one real code in ten thousand and saves us from handing out 1998 as a sign-in code.
+  if (!m) {
+    const mm = text.match(/(?:sign.?in code|log.?in code|to sign in)[\s\S]{0,120}?(?:^|[^\d])((?:\d\s*){4})(?:[^\d]|$)/i);
+    if (mm && !/^(?:19|20)\d\d$/.test(String(mm[1]).replace(/\D/g, ''))) m = mm;
+  }
   const d = m ? String(m[1]).replace(/\D/g, '') : '';
   return (d.length >= 4 && d.length <= 8) ? d : '';
 }
+
+/** Which of the two emailed codes this is, by its length. 4 = the sign-in code, 6 = the verification code. */
+const codeKindOf = (code) => (String(code || '').length === 4 ? 'signin' : 'verify');
 
 /** The newest recent verification code for this account. */
 async function inboxCode(acc, deps) {
@@ -339,8 +363,14 @@ async function inboxCode(acc, deps) {
 const MAIL_WORDS = {
   household: ['household', 'update your netflix household', 'reset your household'],
   travel: ['temporary access code', 'travel', 'device code', 'watch temporarily'],
-  // 🔐 The 6-digit verification code. Whoever holds it can sign in to the Netflix account itself.
-  code: ['verify with this code', 'verification code', 'verification code', 'verification code', 'code requested'],
+  // 🔐 The 6-digit VERIFICATION code — emailed after a password sign-in, the first time on that device. This is
+  // the one customers are stuck on, and the only code the customer's own tool offers.
+  // (The list used to hold 'verification code' three times over, which did nothing at all.)
+  code: ['verify with this code', 'verification code', 'code requested'],
+  // 🔑 The 4-digit SIGN-IN code — emailed when the account email is typed at the Netflix login screen. A different
+  // code at a different moment, and ADMIN-ONLY on purpose: the owner asked for it for themselves (24 Sep 2026,
+  // "sign in code i just need in admin for myself"), not for the customer tool.
+  signin: ['sign-in code', 'sign in code', 'signin code', 'login code', 'log-in code', 'enter this code', 'to sign in'],
 };
 
 /**
@@ -362,10 +392,15 @@ async function latestMail(acc, mode, deps) {
     if (!words.some((w) => hay.indexOf(w) > -1)) return null;
     const m = body.match(re);
     const out = { subject, date: p.date ? new Date(p.date).toISOString() : '', actionUrl: m ? m[0].replace(/&amp;/g, '&') : '', foundBy: by, mode: kind };
-    if (kind === 'code') {
+    if (kind === 'code' || kind === 'signin') {
       const code = verificationCodeFrom(body);   // the same reader Olivia uses — one extractor, not two
       if (!code) return null;              // a code mail with no code in it is no use — keep looking at older ones
+      // Both codes land in the same mailbox, so the DIGIT COUNT is the only reliable way to keep them apart: asking
+      // for a sign-in code must not hand back a verification code that merely happens to be newer, or the reverse.
+      if (kind === 'signin' ? code.length !== 4 : code.length < 5) return null;
       out.code = code;
+      out.digits = code.length;            // 4 = the sign-in code, 6 = the verification code
+      out.codeKind = codeKindOf(code);
       out.actionUrl = '';                  // there is nothing to press: the code is the whole point
     }
     return out;
@@ -373,14 +408,17 @@ async function latestMail(acc, mode, deps) {
   return hit || null;
 }
 
-/** The Netflix verification code for a customer's own active account. From our shared inbox (NFLX-H); darkflix has no such page. */
+/**
+ * The emailed code for a customer's own active account — the 4-digit sign-in code or the 6-digit verification code,
+ * whichever Netflix has just sent. From our own inbox (NFLX-H) only; a partner account's mail goes to their mailbox.
+ */
 async function verificationCode(acc, deps) {
   const a = acc || {};
   if (!famNetflix(a.service) || !s(a.email) || !a.kind) return { ok: false, manual: true };
   if (a.kind !== 'H') return { ok: false, manual: true }; // verification codes come by email; only our own inbox has them
   let code = '';
   try { code = await inboxCode(a, deps); } catch (e) { console.log('[olivia-hh] verification code failed:', e.message); return { ok: false, manual: true }; }
-  return code ? { ok: true, code } : { ok: false, manual: true };
+  return code ? { ok: true, code, digits: code.length, codeKind: codeKindOf(code) } : { ok: false, manual: true };
 }
 
 async function run(acc, mode, deps) {
@@ -397,4 +435,4 @@ const travelCode = (acc, deps) => run(acc, 'travel', deps);
 const updateHousehold = (acc, deps) => run(acc, 'update', deps);
 const updateEnabled = () => UPDATE_ON();
 
-module.exports = { netflixAccounts, travelCode, updateHousehold, verificationCode, updateEnabled, latestMail, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, verificationCodeFrom, labelFor, inboxSearch, MAIL_WORDS, directAuth } };
+module.exports = { netflixAccounts, travelCode, updateHousehold, verificationCode, updateEnabled, latestMail, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, verificationCodeFrom, codeKindOf, labelFor, inboxSearch, MAIL_WORDS, directAuth } };
