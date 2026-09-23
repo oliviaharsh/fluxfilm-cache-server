@@ -27,16 +27,21 @@ const mockDb = {
       { service: 'Prime Video', account_id: 'PRI-02', login_id: 'p2@x', is_active: 'TRUE' },
       { service: 'Prime Video', account_id: 'PRI-03', login_id: 'p3@x', is_active: 'FALSE' },
       { service: 'Netflix', account_id: 'NF-01', login_id: 'n@x', is_active: 'TRUE' },
+      { service: 'Netflix', account_id: 'NF-02', login_id: 'n2@x', is_active: 'TRUE' },
       { service: 'JioHotstar', account_id: 'JH-01', login_id: '98181', is_active: 'TRUE', plan: '3 Months' },
       { service: 'YouTube Premium', account_id: 'YT-01', login_id: 'y@x', is_active: 'TRUE' },
     ];
-    if (/FROM inventory_capacity$/.test(sql)) return [{ service: 'Prime Video', account_id: 'PRI-02', max_total: 3, max_tv: 1, is_active: 'TRUE' }, { service: 'JioHotstar', account_id: 'JH-01', max_total: 2, is_active: 'TRUE' }];
-    if (/FROM inventory_profiles$/.test(sql)) return [1, 2, 3, 4, 5].map((n) => ({ service: 'Netflix', account_id: 'NF-01', profile_number: n }));
+    if (/FROM inventory_capacity$/.test(sql)) return [{ service: 'Prime Video', account_id: 'PRI-02', max_total: 3, max_tv: 1, is_active: 'TRUE' }, { service: 'JioHotstar', account_id: 'JH-01', max_total: 2, is_active: 'TRUE' }, { service: 'Netflix', account_id: 'NF-02', max_total: 7, is_active: 'TRUE' }];
+    if (/FROM inventory_profiles$/.test(sql)) return [1, 2, 3, 4, 5].map((n) => ({ service: 'Netflix', account_id: 'NF-01', profile_number: n }))
+      // NF-01 has no ProfileType at all (older rows); NF-02 is typed the way the live accounts are.
+      .concat([1, 2, 3, 4, 5].map((n) => ({ service: 'Netflix', account_id: 'NF-02', profile_number: n, raw_json: JSON.stringify({ ProfileType: n === 1 ? 'Sharing' : 'PRIVATE_ROTATING' }) })));
     if (/GROUP BY inventory_ref$/.test(sql) && /SUM\(COALESCE\(device_count, 1\)\)/.test(sql)) return [
       { inventory_ref: 'PRI-01', subs: 4, devices: 4, tv: 1 },
       { inventory_ref: 'PRI-02', subs: 1, devices: 1, tv: 1 },
       { inventory_ref: 'NF-01#P2', subs: 1, devices: 1, tv: 0 },
       { inventory_ref: 'NF-01#P3', subs: 1, devices: 1, tv: 0 },
+      // Four customers on the ONE sharing profile, one of them on two devices: 5 seats, not 4 customers.
+      { inventory_ref: 'NF-02#P1', subs: 4, devices: 5, tv: 0 },
       { inventory_ref: 'JH-01', subs: 1, devices: 1, tv: 0 },
     ];
     // expiredusers.js (Sheet rule): NF-01 and PRI-01 still have active customers; PRI-02's only customer is gone.
@@ -135,7 +140,15 @@ const lookupDeps = {
   ok('Prime default capacity 4 devices: 4 used -> FULL', acc('PRI-01').status === 'FULL' && acc('PRI-01').cap === 4 && acc('PRI-01').free === 0, acc('PRI-01'));
   ok('Prime custom capacity 3/1 TV: TV slot used -> TV_FULL with 2 free devices', acc('PRI-02').status === 'TV_FULL' && acc('PRI-02').free === 2 && acc('PRI-02').tvUsed === 1, acc('PRI-02'));
   ok('inactive account marked INACTIVE', acc('PRI-03').status === 'INACTIVE');
-  ok('Netflix counts profiles: 2 of 5 used', acc('NF-01').unit === 'profiles' && acc('NF-01').cap === 5 && acc('NF-01').used === 2 && acc('NF-01').status === 'OK', acc('NF-01'));
+  ok('Netflix without profile types falls back to counting profiles: 2 of 5 used', acc('NF-01').unit === 'profiles' && acc('NF-01').cap === 5 && acc('NF-01').used === 2 && acc('NF-01').status === 'OK', acc('NF-01'));
+  // Harsh, 23 Sep 2026: an account carrying four sharing customers — one on two devices — read "1 of 5 profiles
+  // used, 4 free", because they all sit on the one sharing profile, while the allocator saw 5 of 7 seats. A
+  // sharing account is counted in SEATS now, the same way fulfill.js counts it.
+  ok('a sharing account is counted in seats, not profiles: 5 of 7, 2 free',
+    acc('NF-02').unit === 'seats' && acc('NF-02').cap === 7 && acc('NF-02').used === 5 && acc('NF-02').free === 2, acc('NF-02'));
+  ok('…the 2-device customer is two of those seats (4 customers, 5 seats)', acc('NF-02').sharingSeats === 5 && acc('NF-02').activeSubs === 4, acc('NF-02'));
+  ok('…and its empty private profiles are reported separately, because a 1-device private sale costs no seat',
+    acc('NF-02').privateFree === 4, acc('NF-02'));
   ok('expired-but-not-removed customers counted per account (profiles roll up)', acc('NF-01').expiredOnAccount === 2 && acc('PRI-01').expiredOnAccount === 1, [acc('NF-01'), acc('PRI-01')]);
   ok('account nobody active uses: not "to remove", listed as old users (safe to reset)', acc('PRI-02').expiredOnAccount === 0 && acc('PRI-02').expiredOldUsers === 1, acc('PRI-02'));
   ok('per-account recommendation from the same result: nobody active → change now; few inactive + far expiry → wait', acc('PRI-02').removeAdvice === 'NOW' && acc('NF-01').removeAdvice === 'WAIT_FEW' && acc('PRI-01').removeAdvice === 'WAIT_FEW' && acc('JH-01').removeAdvice === 'NONE' && r.body.removeUsers.changeNow.accounts === 1 && r.body.removeUsers.later.accounts === 2 && r.body.removeUsers.todo === '1 account to change now', [acc('PRI-02'), acc('NF-01'), r.body.removeUsers]);
