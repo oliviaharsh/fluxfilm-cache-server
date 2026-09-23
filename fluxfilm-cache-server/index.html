@@ -8158,6 +8158,13 @@ function renewPlanChoices_(subPlan, planNames) {
   if (byDevices.length) return byDevices;
   return names;
 }
+/**
+ * Does renewing into this plan need a NEW account / profile instead of the one the customer has?
+ * The same rule as the server's renewrules.renewNeedsNewPlace — a test runs both and compares them.
+ */
+function renewNeedsNewPlace_(subPlan, plan) {
+  return renewPlanVariant_(plan) !== renewPlanVariant_(subPlan) || renewPlanDevices_(plan) !== renewPlanDevices_(subPlan);
+}
 function RenewStartScreen({
   nav,
   sub,
@@ -8232,15 +8239,20 @@ function RenewStartScreen({
   const currentPlan = String(sub.plan || '');
   const subId = String(sub.subId || '');
   const dl = Number(sub.daysLeft || 0);
-  // A renewal keeps the same account and devices, so only the duration can change. Same list as the server
-  // (renewrules.js renewPlanChoices): old plan names of unknown kind get same-device plans, else all — never none.
+  // 🔄 A renewal may now change the plan as well as the length — Private ↔ Sharing and 1 ↔ 2 devices (owner,
+  // 23 Sep 2026). Every live plan of this service is offered; the ones that change the kind or the number of
+  // devices need a new profile, so they are listed apart and say so before the customer pays.
   const allServicePlans = (boot?.plans || []).filter(p => p.service === service);
-  const renewAllowed_ = renewPlanChoices_(currentPlan, allServicePlans.map(p => p.plan));
-  const servicePlans = allServicePlans.filter(p => renewAllowed_.includes(p.plan));
-  const defaultPlanObj = servicePlans.find(p => p.plan === currentPlan) || servicePlans[0] || null;
+  const servicePlans = allServicePlans;
+  const sameKindPlans = servicePlans.filter(p => !renewNeedsNewPlace_(currentPlan, p.plan));
+  const changePlans = servicePlans.filter(p => renewNeedsNewPlace_(currentPlan, p.plan));
+  const defaultPlanObj = servicePlans.find(p => p.plan === currentPlan) || sameKindPlans[0] || servicePlans[0] || null;
   const [selectedPlan, setSelectedPlan] = useState(defaultPlanObj?.plan || currentPlan);
+  const [showChange, setShowChange] = useState(false);
   const chosenPlanObj = servicePlans.find(p => p.plan === selectedPlan) || defaultPlanObj;
   const isSamePlan = selectedPlan === currentPlan;
+  // Picked something that changes the kind or the devices: the login changes, and say it plainly.
+  const changesPlace = !!chosenPlanObj && renewNeedsNewPlace_(currentPlan, chosenPlanObj.plan);
   // daysLeft = calendar days (India) from the expiry date: 0 = expires today (still active), below 0 = ended.
   const isExpired = dl < 0;
   // Only the discount the server will really give (reads.js earlyRenewDiscountEligible) — the old fallback to the
@@ -8446,115 +8458,143 @@ function RenewStartScreen({
       fontWeight: 600,
       marginBottom: 12
     }
-  }, "You can switch to a different duration."), React.createElement("div", {
+  }, changePlans.length ? 'Renew for longer, or change your plan — Private, Sharing or more devices.' : 'You can switch to a different duration.'), changesPlace && React.createElement("div", {
+    style: {
+      marginBottom: 12,
+      padding: '10px 12px',
+      borderRadius: 14,
+      background: 'rgba(37,99,235,.06)',
+      border: '1px solid rgba(37,99,235,.20)',
+      fontFamily: PJS,
+      fontSize: 12.5,
+      fontWeight: 650,
+      color: '#1e40af',
+      lineHeight: 1.5
+    }
+  }, "🔑 You're changing your plan, so this comes with a new login. We'll send it as soon as you pay, and your current profile stays yours until then."), React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
       gap: 8
     }
-  }, servicePlans.map(p => {
-    const sel = selectedPlan === p.plan;
-    const perDay = p.durationDays > 0 ? (p.price / p.durationDays).toFixed(1) : null;
-    const cheapestPerDay = Math.min(...servicePlans.filter(x => x.durationDays > 0).map(x => x.price / x.durationDays));
-    const dailyCost = p.durationDays > 0 ? p.price / p.durationDays : null;
-    const isCheapestPerDay = dailyCost !== null && Math.abs(dailyCost - cheapestPerDay) < 0.01;
-    const isMostPopular = !!p.badgeText;
-    const shortestPlan = [...servicePlans].sort((a, b) => a.durationDays - b.durationDays)[0];
-    const shortestPerDay = shortestPlan?.durationDays > 0 ? shortestPlan.price / shortestPlan.durationDays : null;
-    const savingsVsShortest = shortestPerDay && dailyCost && p.durationDays > (shortestPlan?.durationDays || 0) ? Math.round((shortestPerDay - dailyCost) * p.durationDays) : 0;
-    return React.createElement("button", {
-      key: p.plan,
-      onClick: () => {
-        setSelectedPlan(p.plan);
-        setCouponState({
-          applied: false,
-          discount: 0,
-          loading: false,
-          msg: ''
-        });
-        setCouponCode('');
-      },
-      style: {
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '13px 14px',
-        borderRadius: 16,
-        border: `2px solid ${sel ? 'rgba(22,163,74,.45)' : C.border}`,
-        background: sel ? 'rgba(22,163,74,.05)' : '#fafafa',
-        cursor: 'pointer',
-        transition: 'border .12s,background .12s',
-        textAlign: 'left',
-        position: 'relative'
-      }
-    }, (isMostPopular || isCheapestPerDay) && p.durationDays > (shortestPlan?.durationDays || 0) && React.createElement("div", {
-      style: {
-        position: 'absolute',
-        top: -9,
-        right: 10,
-        fontFamily: PJS,
-        fontSize: 10,
-        fontWeight: 800,
-        padding: '2px 8px',
-        borderRadius: 999,
-        background: isMostPopular ? 'rgba(245,158,11,.90)' : 'rgba(22,163,74,.90)',
-        color: '#fff'
-      }
-    }, isMostPopular ? `⭐ ${p.badgeText}` : '💰 Best value'), React.createElement("div", null, React.createElement("div", {
-      style: {
-        fontFamily: PJS,
-        fontSize: 14,
-        fontWeight: 800,
-        color: C.text,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6
-      }
-    }, p.plan, p.plan === currentPlan && React.createElement("span", {
-      style: {
-        fontFamily: PJS,
-        fontSize: 11,
-        fontWeight: 700,
-        padding: '2px 7px',
-        borderRadius: 999,
-        background: 'rgba(37,99,235,.10)',
-        color: '#1e40af'
-      }
-    }, "Current")), React.createElement("div", {
-      style: {
-        fontFamily: PJS,
-        fontSize: 12,
-        color: C.muted,
-        fontWeight: 600,
-        marginTop: 2
-      }
-    }, p.durationDays, " days · ₹", perDay, "/day"), savingsVsShortest > 0 && React.createElement("div", {
-      style: {
-        fontFamily: PJS,
-        fontSize: 11.5,
-        fontWeight: 700,
-        color: '#15803d',
-        marginTop: 3
-      }
-    }, "You save ₹", savingsVsShortest, " vs monthly")), React.createElement("div", {
-      style: {
-        textAlign: 'right',
-        flexShrink: 0
-      }
-    }, React.createElement("div", {
-      style: {
-        fontFamily: PJS,
-        fontSize: 18,
-        fontWeight: 800,
-        color: sel ? C.green : C.text
-      }
-    }, "₹", p.price), sel && React.createElement("div", {
-      style: {
-        fontSize: 14,
-        marginTop: 2
-      }
-    }, "✅")));
-  }))), React.createElement(Card, {
+  }, (() => {
+    // One row, unchanged — used for the length choices and, when opened, for the plan changes below.
+    const planRow = (p) => {
+      const sel = selectedPlan === p.plan;
+      const perDay = p.durationDays > 0 ? (p.price / p.durationDays).toFixed(1) : null;
+      const cheapestPerDay = Math.min(...servicePlans.filter(x => x.durationDays > 0).map(x => x.price / x.durationDays));
+      const dailyCost = p.durationDays > 0 ? p.price / p.durationDays : null;
+      const isCheapestPerDay = dailyCost !== null && Math.abs(dailyCost - cheapestPerDay) < 0.01;
+      const isMostPopular = !!p.badgeText;
+      const shortestPlan = [...servicePlans].sort((a, b) => a.durationDays - b.durationDays)[0];
+      const shortestPerDay = shortestPlan?.durationDays > 0 ? shortestPlan.price / shortestPlan.durationDays : null;
+      const savingsVsShortest = shortestPerDay && dailyCost && p.durationDays > (shortestPlan?.durationDays || 0) ? Math.round((shortestPerDay - dailyCost) * p.durationDays) : 0;
+      return React.createElement("button", {
+        key: p.plan,
+        onClick: () => {
+          setSelectedPlan(p.plan);
+          setCouponState({
+            applied: false,
+            discount: 0,
+            loading: false,
+            msg: ''
+          });
+          setCouponCode('');
+        },
+        style: {
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '13px 14px',
+          borderRadius: 16,
+          border: `2px solid ${sel ? 'rgba(22,163,74,.45)' : C.border}`,
+          background: sel ? 'rgba(22,163,74,.05)' : '#fafafa',
+          cursor: 'pointer',
+          transition: 'border .12s,background .12s',
+          textAlign: 'left',
+          position: 'relative'
+        }
+      }, (isMostPopular || isCheapestPerDay) && p.durationDays > (shortestPlan?.durationDays || 0) && React.createElement("div", {
+        style: {
+          position: 'absolute',
+          top: -9,
+          right: 10,
+          fontFamily: PJS,
+          fontSize: 10,
+          fontWeight: 800,
+          padding: '2px 8px',
+          borderRadius: 999,
+          background: isMostPopular ? 'rgba(245,158,11,.90)' : 'rgba(22,163,74,.90)',
+          color: '#fff'
+        }
+      }, isMostPopular ? `⭐ ${p.badgeText}` : '💰 Best value'), React.createElement("div", null, React.createElement("div", {
+        style: {
+          fontFamily: PJS,
+          fontSize: 14,
+          fontWeight: 800,
+          color: C.text,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6
+        }
+      }, p.plan, p.plan === currentPlan && React.createElement("span", {
+        style: {
+          fontFamily: PJS,
+          fontSize: 11,
+          fontWeight: 700,
+          padding: '2px 7px',
+          borderRadius: 999,
+          background: 'rgba(37,99,235,.10)',
+          color: '#1e40af'
+        }
+      }, "Current")), React.createElement("div", {
+        style: {
+          fontFamily: PJS,
+          fontSize: 12,
+          color: C.muted,
+          fontWeight: 600,
+          marginTop: 2
+        }
+      }, p.durationDays, " days · ₹", perDay, "/day"), savingsVsShortest > 0 && React.createElement("div", {
+        style: {
+          fontFamily: PJS,
+          fontSize: 11.5,
+          fontWeight: 700,
+          color: '#15803d',
+          marginTop: 3
+        }
+      }, "You save ₹", savingsVsShortest, " vs monthly")), React.createElement("div", {
+        style: {
+          textAlign: 'right',
+          flexShrink: 0
+        }
+      }, React.createElement("div", {
+        style: {
+          fontFamily: PJS,
+          fontSize: 18,
+          fontWeight: 800,
+          color: sel ? C.green : C.text
+        }
+      }, "₹", p.price), sel && React.createElement("div", {
+        style: {
+          fontSize: 14,
+          marginTop: 2
+        }
+      }, "✅")));
+    };
+    const group = (label, list) => list.length ? [React.createElement("div", { key: "h" + label, style: { fontFamily: PJS, fontSize: 11.5, fontWeight: 800, color: C.subtle, letterSpacing: .3, textTransform: "uppercase", marginTop: 2 } }, label), ...list.map(planRow)] : [];
+    if (!changePlans.length) return servicePlans.map(planRow);
+    return [
+      ...group("Same plan · choose how long", sameKindPlans),
+      React.createElement("button", {
+        key: "toggle",
+        type: "button",
+        onClick: () => setShowChange(v => !v),
+        style: { marginTop: 2, padding: "11px 14px", borderRadius: 14, border: `1px dashed ${C.borderMd}`, background: "#fff", cursor: "pointer", fontFamily: PJS, fontSize: 13, fontWeight: 800, color: C.muted, textAlign: "left" }
+      }, showChange ? "▴ Hide other plans" : "🔀 Change my plan — Private, Sharing or more devices"),
+      ...(showChange ? group("Change your plan · new login", changePlans) : []),
+    ];
+  })())), React.createElement(Card, {
     style: {
       marginTop: 10
     }

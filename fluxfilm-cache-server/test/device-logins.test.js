@@ -119,9 +119,11 @@ function run(sqlRaw, params) {
     if (s) Object.assign(s, { password: params[0], login_id: params[1] });
     S.writes.push('access-repair:' + params[4]); return { affectedRows: s ? 1 : 0 };
   }
-  if (/^UPDATE subscriptions SET expiry_date/.test(sql)) {
-    const s = S.subs.find((x) => x.sub_id === params[4]);
-    Object.assign(s, { expiry_date: params[0], order_id: params[2], occupying: true, status: 'ACTIVE' });
+  // The renewal write: the row becomes the plan that was bought (name, length, devices) and moves its expiry.
+  //   plan, duration_days, device_count, tv_count, expiry, new_expiry, order_id, release, [raw_json x3], sub_id
+  if (/^UPDATE subscriptions SET plan = \?, duration_days/.test(sql)) {
+    const s = S.subs.find((x) => x.sub_id === params[params.length - 1]);
+    Object.assign(s, { plan: params[0], duration_days: params[1], device_count: params[2], tv_count: params[3], expiry_date: params[4], order_id: params[6], occupying: true, status: 'ACTIVE' });
     if (/removed = 0/.test(sql)) Object.assign(s, { removed: 0, removed_at: null });
     S.writes.push('extend:' + s.sub_id); return { affectedRows: 1 };
   }

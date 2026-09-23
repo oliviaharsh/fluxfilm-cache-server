@@ -46,7 +46,8 @@ const subexpiry = require('../subexpiry');
   ok('second run changes nothing', (await subexpiry.run()).expired === 0);
   const srv = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   ok('server starts the hourly job', /require\('\.\/subexpiry'\)\.startTimer\(\)/.test(srv));
-  ok('renewing an expired plan makes it ACTIVE again (fulfill.js)', /UPDATE subscriptions SET expiry_date = \?, new_expiry = \?, order_id = \?, status = 'ACTIVE'/.test(fs.readFileSync(path.join(__dirname, '..', 'fulfill.js'), 'utf8')));
+  // The renewal write also sets the plan now (a renewal may change it), so the status check follows those columns.
+  ok('renewing an expired plan makes it ACTIVE again (fulfill.js)', /UPDATE subscriptions SET plan = \?, duration_days = \?, device_count = \?, tv_count = \?, expiry_date = \?, new_expiry = \?, order_id = \?, status = 'ACTIVE'/.test(fs.readFileSync(path.join(__dirname, '..', 'fulfill.js'), 'utf8')));
 
   // Remembered UPI payer name on the backup payment screen.
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');

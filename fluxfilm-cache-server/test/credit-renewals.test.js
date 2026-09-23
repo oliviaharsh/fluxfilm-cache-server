@@ -38,7 +38,8 @@ function runF(sqlRaw, params) {
   if (/FROM orders WHERE order_id = \?/.test(sql)) return F.orders.filter((o) => o.order_id === params[0]).map(clone);
   if (/FROM customers/.test(sql)) return [{ name: 'Mohammad Sourab' }];
   if (/^UPDATE subscriptions SET login_id/.test(sql)) return { affectedRows: 1 };
-  if (/^UPDATE subscriptions SET expiry_date/.test(sql)) { const s = F.subs.find((x) => x.sub_id === params[4]); Object.assign(s, { expiry_date: params[0], order_id: params[2] }); F.writes.push('extend'); return { affectedRows: 1 }; }
+  // The renewal write: plan, duration_days, device_count, tv_count, expiry, new_expiry, order_id, release, …, sub_id
+  if (/^UPDATE subscriptions SET plan = \?, duration_days/.test(sql)) { const s = F.subs.find((x) => x.sub_id === params[params.length - 1]); Object.assign(s, { plan: params[0], duration_days: params[1], expiry_date: params[4], order_id: params[6] }); F.writes.push('extend'); return { affectedRows: 1 }; }
   if (/^UPDATE orders SET fulfillment_status = 'FULFILLED'/.test(sql)) { F.orders.find((o) => o.order_id === params[0]).fulfillment_status = 'FULFILLED'; return { affectedRows: 1 }; }
   if (/^UPDATE orders SET fulfillment_status = 'FAILED'/.test(sql)) return { affectedRows: 1 };
   if (/app_settings|push_subscriptions|reminder_log/.test(sql)) return [];
