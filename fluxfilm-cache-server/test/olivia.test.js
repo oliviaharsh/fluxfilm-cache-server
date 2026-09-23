@@ -826,17 +826,47 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   calls.length = 0;
   r = await say({ choice: 'hhlink' });
   ok('one account + "Give me the link" → self-serve steps with the right Helper link (D → Link 2) + "This is my account", no code fetch', last(r).intent === 'HH_LINK_STEPS' && last(r).buttons.some((b) => b.link === 'helper2') && ids(last(r)).includes('hhupdate') && /Get Travel Code/i.test(last(r).text) && !calls.some((c) => c[0] === 'householdCode'), last(r));
-  // more than one Netflix → ask which account first (by a masked email), never the full address in the words
+  // ── the owner's rule (23 Sep 2026): "no link redirect unless its partner acc and she has tried 5 times" ──
+  // One of the accounts is OURS, so Olivia fixes it herself instead of handing out a link.
   shop.nflxAccounts = [
     { subId: 'S1', service: 'Netflix', ref: 'NFLX-H4', email: 'fluxfilm157@gmail.com', kind: 'H', tag: 'ACC3' },
     { subId: 'S2', service: 'Netflix', ref: 'NFLX-D1', email: 'boxxx@gmail.com', kind: 'D', tag: '' },
   ];
+  shop.hhUpdateOn = false;
+  await say({ choice: 'menu' });
+  r = await say({ text: 'household code chahiye' });
+  ok('one of the accounts is ours → "Give me the link" is not offered at all', last(r).intent === 'HH_OFFER_CODE' && !ids(last(r)).includes('hhlink'), last(r));
+  r = await say({ choice: 'hhexplain' });
+  calls.length = 0;
+  r = await say({ choice: 'hhlink' });
+  ok('…and asking for the link anyway makes her fetch it herself instead', last(r).intent !== 'HH_LINK_STEPS' && last(r).intent !== 'HH_LINK_WHICH' && calls.some((c) => c[0] === 'householdCode'), { last: last(r), calls });
+
+  // 🏠 "Just fix it": with the permanent update switched on she presses Update FIRST, and only falls back to the code.
+  shop.hhUpdateOn = true; shop.hhUpdated = true;
+  await say({ choice: 'menu' });
+  r = await say({ text: 'household code chahiye' });
+  calls.length = 0;
+  r = await say({ choice: 'hhcode' });
+  ok('🏠 she updates the household herself rather than handing over a 7-day code', last(r).intent === 'HH_UPDATE_DONE' && (calls.filter((c) => /^household/.test(c[0]))[0] || [])[0] === 'householdUpdate', { last: last(r), calls });
+  shop.hhUpdated = false;
+  await say({ choice: 'menu' });
+  r = await say({ text: 'household code chahiye' });
+  calls.length = 0;
+  r = await say({ choice: 'hhcode' });
+  ok('…and when there is no household mail to act on, she falls back to the TV code', calls.some((c) => c[0] === 'householdUpdate') && calls.some((c) => c[0] === 'householdCode'), calls);
+  shop.hhUpdateOn = false;
+
+  // PARTNER accounts only: the link IS the right answer, and it still asks which one by a masked email.
+  shop.nflxAccounts = [
+    { subId: 'S1', service: 'Netflix', ref: 'NFLX-D1', email: 'boxxx@gmail.com', kind: 'D', tag: '' },
+    { subId: 'S2', service: 'Netflix', ref: 'NFLX-D2', email: 'otherone@gmail.com', kind: 'D', tag: '' },
+  ];
   await say({ choice: 'menu' });
   r = await say({ text: 'household code chahiye' });
   r = await say({ choice: 'hhlink' });
-  ok('two accounts + "Give me the link" → asks which one, by masked email, no full email in the words', last(r).intent === 'HH_LINK_WHICH' && ids(last(r)).some((x) => /^hhlink:\d/.test(x)) && !/fluxfilm157@|boxxx@/.test(last(r).text) && last(r).buttons.some((b) => /…@/.test(b.label)), last(r));
+  ok('two PARTNER accounts + "Give me the link" → asks which one, no full email in the words', last(r).intent === 'HH_LINK_WHICH' && ids(last(r)).some((x) => /^hhlink:\d/.test(x)) && !/boxxx@|otherone@/.test(last(r).text) && last(r).buttons.some((b) => /…@/.test(b.label)), last(r));
   r = await say({ choice: 'hhlink:0' });
-  ok('picking the H account → self-serve steps with Link 1 (ours)', last(r).intent === 'HH_LINK_STEPS' && last(r).buttons.some((b) => b.link === 'helper'), last(r));
+  ok('picking one → self-serve steps with Link 2 (the partner page)', last(r).intent === 'HH_LINK_STEPS' && last(r).buttons.some((b) => b.link === 'helper2'), last(r));
   // ── permanent "Update household": "This is my account" always shown; auto-press only when OLIVIA_HH_UPDATE=on ──
   shop.nflxAccounts = [{ subId: 'S1', service: 'Netflix', ref: 'NFLX-D11', email: 'jess@example.com', kind: 'D', tag: '' }];
   shop.hhUpdateOn = false;
@@ -1017,6 +1047,17 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('server: /olivia-photo.jpg before the catch-all; file is a JPEG under 150 KB', server.indexOf("app.get('/olivia-photo.jpg'") > 0 && server.indexOf("app.get('/olivia-photo.jpg'") < server.indexOf("app.get('*'") && (() => { const f = fs.readFileSync(path.join(root, 'olivia-photo.jpg')); return f[0] === 0xff && f[1] === 0xd8 && f.length < 150000; })());
   ok('widget: Open Buy page closes the chat and opens that service; shop exposes ffGoBuy', widget.includes("kind === 'buysite'") && html.includes("window.ffGoBuy = service => service ? nav('buy2'"));
   ok('widget: still pure ASCII', !/[^\x00-\x7F]/.test(widget));
+  // The Household button now opens OUR OWN Tools screen, where the shop works out which account the customer is
+  // on - instead of the outside page where they had to guess between two links.
+  const oliviaSrc = fs.readFileSync(path.join(root, 'olivia.js'), 'utf8');
+  ok('widget: Household opens the shop\'s own Tools screen, not an outside link',
+    /kind === 'helper' && typeof window\.ffGoHousehold === 'function'/.test(widget) && widget.indexOf('window.ffGoHousehold()') > 0);
+  ok('widget: the old link stays only as a fallback, and Link 2 (partner) is untouched',
+    /NETFLIX_HOUSEHOLD_LINK/.test(widget) && /helper2/.test(widget) && /NETFLIX_HOUSEHOLD_LINK_2/.test(widget));
+  ok('shop: exposes ffGoHousehold, and the Tools grid can be opened by name',
+    /window\.ffGoHousehold = \(\) =>/.test(html) && /window\.ffOpenTool = k => setSheet\(k \|\| ''\)/.test(html) && /window\.ffOpenTool\('household'\)/.test(html));
+  ok('olivia: a link is only allowed for a partner account or after 5 tries',
+    /async function hhLinkAllowed\(c\)/.test(oliviaSrc) && /\(Number\(c\.state\.hhTries\) \|\| 0\) >= 5/.test(oliviaSrc) && /!usable\.some\(\(x\) => x\.kind === 'H'\)/.test(oliviaSrc));
   ok('widget: 2 choices — Chat with Olivia / WhatsApp our team', /Chat with Olivia/.test(widget) && /WhatsApp our team/.test(widget));
   // 💬 Help opened WhatsApp instead of the two choices (owner, 23 Sep 2026). The blocking cause was a setting —
   // Olivia was left in "test only" mode — but the widget had two real gaps underneath it, both pinned here.

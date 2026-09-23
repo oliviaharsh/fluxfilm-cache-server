@@ -4089,6 +4089,18 @@ function ToolsGrid({
   style
 }) {
   const [sheet, setSheet] = useState('');
+  // Olivia's buttons open these tools by name (see window.ffGoHousehold). The grid is on home and on the
+  // dashboard, so whichever one is showing answers.
+  useEffect(() => {
+    window.ffOpenTool = k => setSheet(k || '');
+    return () => {
+      if (window.ffOpenTool) try {
+        delete window.ffOpenTool;
+      } catch (e) {
+        window.ffOpenTool = null;
+      }
+    };
+  }, []);
   // 🎮 Games (/games, its own page): the chip shows only while admin → 🎮 Games is ON (checked once per visit).
   const [gamesOn, setGamesOn] = useState(() => {
     try {
@@ -18897,6 +18909,34 @@ function App() {
   }) : nav('buy1', {});
   // Olivia's "Open Recover" button: same as the Recover tab.
   window.ffGoRecover = () => recoverFromTop();
+  // Olivia's "Netflix Household" button: our own 🧰 Tools → 🏠 Netflix Household, where the shop works out which
+  // account the customer is on — instead of sending them to an outside page to guess between two links.
+  window.ffGoHousehold = () => {
+    const open = () => {
+      if (typeof window.ffOpenTool !== 'function') return false;
+      try {
+        window.ffOpenTool('household');
+        return true;
+      } catch (e) {
+        return false;
+      }
+    };
+    if (open()) return;
+    // No tools grid on this screen: go to the one the customer belongs on, then open it there.
+    const ph = normPhone_(screenData.phone || getFFSession().phone || localStorage.getItem('ff_phone') || '');
+    if (!ph) navReset('home', {});else navReset('dashboard', {
+      ...screenData,
+      phone: ph,
+      manageResp: screenData.manageResp || {
+        actionable: [],
+        history: []
+      }
+    });
+    let tries = 0;
+    const t = setInterval(() => {
+      if (open() || ++tries > 30) clearInterval(t);
+    }, 100);
+  };
   // Olivia's "Open Get OTP" button: same as the Get OTP tile (My plans with the plan picker open).
   window.ffGoOtp = () => {
     if (screen === 'dashboard') {
