@@ -30,10 +30,10 @@ const IST_OFFSET = 5.5 * 3600e3;
 const TOO_LATE_MS = 36 * 3600e3;
 
 const DEFAULTS = {
-  on: false,
+  on: true,
   title: '🎉 FluxFilm Anniversary Sale',
   note: 'Our best prices of the year. Be the first to know.',
-  startsAt: '',                 // 'YYYY-MM-DD HH:MM', India time. The moment the countdown reaches zero.
+  startsAt: '2026-09-30 10:00',  // 'YYYY-MM-DD HH:MM', India time. The moment the countdown reaches zero.
   endsAt: '',                   // optional 'YYYY-MM-DD HH:MM': the bar disappears after this.
   liveTitle: '🎉 The Anniversary Sale is ON',
   liveNote: 'Our best prices of the year — see the plans.',

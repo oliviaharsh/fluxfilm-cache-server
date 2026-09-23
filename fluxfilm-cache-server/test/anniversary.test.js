@@ -70,9 +70,10 @@ const HOUR = 3600e3;
 
   // ── the bar the shop draws ────────────────────────────────────────────────────────────────────────────────
   section('what the shop is told');
+  await anniv.saveSettings({ on: false });
   let r = await anniv.publicInfo(START - 5 * 86400e3);
   ok('switched off → the shop shows nothing', r.on === false, r);
-  await anniv.saveSettings({ on: true });
+  await anniv.saveSettings({ on: true, startsAt: '' });
   r = await anniv.publicInfo(START - 5 * 86400e3);
   ok('on but no date → still nothing (no countdown to nowhere)', r.on === false, r);
   await anniv.saveSettings({ on: true, startsAt: AT, title: '🎉 Anniversary', note: 'Best prices', liveTitle: '🎉 It is ON', liveNote: 'Go look' });
@@ -202,6 +203,11 @@ const HOUR = 3600e3;
   ok('every write in this whole run was one app_settings row', writes.every((q) => /^INSERT INTO app_settings /.test(q)), writes.filter((q) => !/^INSERT INTO app_settings /.test(q)).slice(0, 3));
   ok('and only the two keys it owns', Object.keys(SETTINGS).sort().join(',') === [anniv.KEY, anniv.LIST_KEY].sort().join(','), Object.keys(SETTINGS));
   ok('no schema change is needed', !fs.existsSync(path.join(__dirname, '..', 'db', 'schema-v21.sql')) || true);
+
+  section('what ships');
+  ok('the owner\'s date is in: 30 Sep 2026, 10:00 India time', anniv.DEFAULTS.startsAt === '2026-09-30 10:00' && istMs(anniv.DEFAULTS.startsAt) === Date.parse('2026-09-30T04:30:00.000Z'), anniv.DEFAULTS.startsAt);
+  ok('and it is switched on, so the countdown runs as soon as this is deployed', anniv.DEFAULTS.on === true);
+  ok('not midnight — the announcement rides the hourly tick and nobody wants a push at 00:00', /10:00$/.test(anniv.DEFAULTS.startsAt));
 
   console.log('\n---------------------------------------\nPASS ' + pass + '   FAIL ' + fail);
   process.exit(fail ? 1 : 0);
