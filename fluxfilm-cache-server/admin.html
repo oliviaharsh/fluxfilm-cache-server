@@ -617,7 +617,35 @@ function paidViaPill(key, label) {
   return '<span class="pill ' + (PV_TONE[key] || 'p-grey') + '" title="' + esc(label || '') + '">' + esc(text) + '</span>';
 }
 function svcIcon(s) { var k = String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); for (var n in ICONS) if (k.indexOf(n) > -1) return ICONS[n]; return '🎞️'; }
-function waLink(phone, text) { var p = String(phone || '').replace(/\D/g, ''); if (p.length === 10) p = '91' + p; return 'https://wa.me/' + p + '?text=' + encodeURIComponent(text); }
+/**
+ * Which WhatsApp app a 💬 button opens.
+ *
+ * Both WhatsApp and WhatsApp Business claim wa.me links, so on Android the phone picks one — and once it has been
+ * told "always", it never asks again, which is why every button was opening the wrong app. An intent: URL names the
+ * package outright, so there is nothing left to guess. If that app is not installed the phone follows
+ * S.browser_fallback_url back to wa.me, so a button can never do nothing.
+ *
+ * Kept per device in localStorage, not on the server: which app is installed is a property of the phone, not of
+ * FluxFilm. Set it in ⚙️ Maintenance → "WhatsApp app". Unset = the old behaviour, let the phone decide.
+ */
+var WA_APPS = { business: 'com.whatsapp.w4b', personal: 'com.whatsapp' };
+function waApp() { try { return localStorage.getItem('ff_wa_app') || ''; } catch (e) { return ''; } }
+function setWaApp(v) { try { if (v) localStorage.setItem('ff_wa_app', v); else localStorage.removeItem('ff_wa_app'); } catch (e) {} }
+/** A wa.me link the SERVER built (credit reminders, payment fallback) gets the same app treatment. */
+function waFix(url) {
+  var m = String(url || '').match(/^https:\/\/wa\.me\/(\d+)\?text=([\s\S]*)$/);
+  if (!m) return url;
+  try { return waLink(m[1], decodeURIComponent(m[2])); } catch (e) { return url; }
+}
+function waLink(phone, text) {
+  var p = String(phone || '').replace(/\D/g, ''); if (p.length === 10) p = '91' + p;
+  var web = 'https://wa.me/' + p + '?text=' + encodeURIComponent(text);
+  var pkg = WA_APPS[waApp()];
+  // Only Android understands intent: URLs. Everywhere else wa.me is still the right link.
+  if (!pkg || !/Android/i.test(navigator.userAgent || '')) return web;
+  return 'intent://send/?phone=' + p + '&text=' + encodeURIComponent(text)
+    + '#Intent;scheme=whatsapp;package=' + pkg + ';S.browser_fallback_url=' + encodeURIComponent(web) + ';end';
+}
 /* 💬 Customer messages are written once with WhatsApp's own *bold* markers — the same rules the server uses
    (watext.js). waClean strips markers out of anything the owner typed (a plan name, a customer name) so it
    cannot break the bold around it; waJoin turns lines into a message with no doubled or trailing blank lines. */
@@ -1883,7 +1911,7 @@ function qPayBox(pay, opts) {
     '<div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">' +
     '<button class="btn sm" data-paycopy="' + esc(pay.payLink) + '">📋 Copy link</button>' +
     '<a class="btn ghost sm" href="' + esc(pay.payLink) + '" target="_blank" rel="noopener">👁️ Open it</a>' +
-    (pay.waUrl ? '<a class="btn wa sm" href="' + esc(pay.waUrl) + '" target="_blank" rel="noopener">💬 WhatsApp</a>' : '') +
+    (pay.waUrl ? '<a class="btn wa sm" href="' + esc(waFix(pay.waUrl)) + '" target="_blank" rel="noopener">💬 WhatsApp</a>' : '') +
     '<button class="btn ghost sm" data-paymail="' + esc(pay.orderId) + '"' + (pay.email ? '' : ' disabled title="This order has no email"') + '>✉️ Email it</button>' +
     '</div><div class="muted paymsg" style="font-size:.76rem;margin-top:6px"></div>' +
     '</div></div>' + (o.foot === false ? '' : '<div class="muted" style="font-size:.72rem;margin-top:8px">When it arrives you will get the 💰 new-order alert, and the plan is handed out automatically. If the note gets lost, the payment waits for you in 🏦 Bank payments.</div>') + '</div>';
@@ -4871,6 +4899,27 @@ function plPreview(e) {
 
 /* ================= maintenance: pause / resume new orders ================= */
 var MT = { s: null };
+/** ⚙️ Maintenance → which WhatsApp app the 💬 buttons should open on this phone. */
+function waAppCard() {
+  var cur = waApp();
+  var opts = [['', 'Let my phone decide'], ['business', '💼 WhatsApp Business'], ['personal', '💬 WhatsApp']];
+  return '<div class="card qsec"><h3 style="margin-top:0">💬 WhatsApp app</h3>' +
+    '<p class="muted" style="margin-top:0;font-size:.82rem">Both apps claim the same links, so your phone picks one — and once it has, it stops asking. Choose which app the 💬 buttons should open. Saved on <b>this device only</b>.</p>' +
+    '<div class="row" id="waappchips" style="gap:6px;flex-wrap:wrap">' +
+    opts.map(function (o) { return '<button class="chip' + (cur === o[0] ? ' on' : '') + '" data-waapp="' + o[0] + '">' + o[1] + '</button>'; }).join('') +
+    '</div><div id="waappmsg" class="muted" style="margin-top:8px;font-size:.8rem">' +
+    (/Android/i.test(navigator.userAgent || '') ? '' : 'On a computer this makes no difference — the link opens whichever WhatsApp is set up here.') +
+    '</div></div>';
+}
+function wireWaAppCard() {
+  var el = $('#waappchips'); if (!el) return;
+  el.onclick = function (e) {
+    var b = e.target.closest('[data-waapp]'); if (!b) return;
+    setWaApp(b.getAttribute('data-waapp'));
+    $('#waappchips .chip').forEach(function (c) { c.classList.toggle('on', c === b); });
+    $('#waappmsg').textContent = 'Saved on this device ✓ — the 💬 buttons will open ' + (waApp() === 'business' ? 'WhatsApp Business' : waApp() === 'personal' ? 'WhatsApp' : 'whichever app your phone chooses') + '.';
+  };
+}
 function maintenanceView() {
   $('#view').innerHTML = '<div class="ph"><div><h1>🚧 Maintenance</h1><p>Pause new orders while you fix or move things. Customers can still log in, see plans, their subscriptions and orders, recover access and use Get OTP.</p></div></div><div id="mtbody"><p class="muted">Loading…</p></div>';
   api('/admin/api/store').then(function (r) {
@@ -4902,7 +4951,9 @@ function renderMaintenance() {
     '<label>Days after expiry <span class="muted">(0–5, renew is allowed up to 5)</span><input class="inp" id="mtrrafter" type="number" inputmode="numeric" min="0" max="5" value="' + esc(s.renewPopupAfter != null ? s.renewPopupAfter : 3) + '"/></label></div>' +
     '<div class="rf-save"><button class="btn green" id="mtrrsave">💾 Save days</button><span class="rf-state" id="mtrrstate"></span></div></div>' +
     '<div class="card"><h3>😏 Greeting on My plans</h3><label class="row" style="gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="mtsass"' + (s.sassyGreeting !== false ? ' checked' : '') + ' style="width:22px;height:22px;flex:none;margin-top:2px"/>' +
-    '<span><b>Sassy greeting</b><br><span class="muted">ON: a fun line that changes with the time, the day and the customer\'s plans (e.g. "Missed me?? Here we go again!! 😏", "Your Netflix ends in 2 days — don\'t leave me on read 👀"). OFF: plain "Welcome back, Name 👋". Saves at once.</span></span></label></div>';
+    '<span><b>Sassy greeting</b><br><span class="muted">ON: a fun line that changes with the time, the day and the customer\'s plans (e.g. "Missed me?? Here we go again!! 😏", "Your Netflix ends in 2 days — don\'t leave me on read 👀"). OFF: plain "Welcome back, Name 👋". Saves at once.</span></span></label></div>' +
+    waAppCard();
+  wireWaAppCard();
   $('#mtsass').onchange = function () {
     var box = this, on = box.checked; box.disabled = true;
     post('/admin/api/store', { sassyGreeting: on }).then(function (r) {
@@ -6416,7 +6467,7 @@ function crRemindDialog(subId) {
       (r.lastSentAt ? '<div class="qnote' + (r.rateLimited ? ' warn' : '') + '">✉️ Last reminder emailed ' + prettyDate(r.lastSentAt, true) + (r.rateLimited ? ' — you can send the next one ' + r.everyHours + ' hours after that.' : '') + '</div>' : '') +
       '<div style="border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:10px;background:#fff">' + r.html + '</div>' +
       '<div class="fld" style="margin-top:12px"><label>WhatsApp message</label><textarea class="inp" id="crm_wa" rows="4" style="width:100%;font-family:inherit">' + esc(r.whatsapp) + '</textarea></div>';
-    $('#modal .mft').innerHTML = '<button class="btn green" id="crm_send"' + (!r.to || r.rateLimited ? ' disabled' : '') + '>✉️ Send email</button><a class="btn wa" id="crm_wa_go" target="_blank" href="' + esc(r.waUrl) + '">💬 WhatsApp</a><span id="crm_msg" class="muted"></span>';
+    $('#modal .mft').innerHTML = '<button class="btn green" id="crm_send"' + (!r.to || r.rateLimited ? ' disabled' : '') + '>✉️ Send email</button><a class="btn wa" id="crm_wa_go" target="_blank" href="' + esc(waFix(r.waUrl)) + '">💬 WhatsApp</a><span id="crm_msg" class="muted"></span>';
     $('#crm_wa').addEventListener('input', function () { $('#crm_wa_go').href = waLink((r.credit && r.credit.phone) || (S.cust && S.cust.phone) || '', $('#crm_wa').value); });
     var sb = $('#crm_send'); if (sb) sb.onclick = function () {
       sb.disabled = true; $('#crm_msg').textContent = 'Sending…';
@@ -6440,7 +6491,7 @@ function crListClick(e, list) {
   e.stopPropagation();
   var find = function (id) { return (list || []).filter(function (x) { return x.orderId === id; })[0]; };
   if (t.hasAttribute('data-crpay')) { var x = find(t.getAttribute('data-crpay')); if (x) crPayDialog(x); else crPayById(t.getAttribute('data-crpay')); }
-  else if (t.hasAttribute('data-crwa')) { var w = find(t.getAttribute('data-crwa')); if (w) window.open(w.waUrl, '_blank'); }
+  else if (t.hasAttribute('data-crwa')) { var w = find(t.getAttribute('data-crwa')); if (w) window.open(waFix(w.waUrl), '_blank'); }
   else if (t.hasAttribute('data-crmail')) crRemindDialog(t.getAttribute('data-crmail'));
   else openOrder(t.getAttribute('data-croid'));
   return true;
@@ -6466,7 +6517,7 @@ function crLoadOrder(id) {
     var pays = (c.payments || []).map(function (p) { return money(p.amount) + ' · ' + esc(p.method) + (p.ref ? ' · ' + esc(p.ref) : '') + ' · ' + prettyDate(String(p.at || '').slice(0, 16).replace('T', ' '), true) + (p.note ? ' · ' + esc(p.note) : ''); }).join('<br>');
     box.innerHTML = '<div class="card" style="padding:12px;margin-top:12px;border:2px solid #bfdbfe"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:6px"><b>💳 Renewed on credit</b>' + (c.open ? crDuePill(c) : '<span class="pill p-ok">' + esc(c.creditStatus === 'WRITTEN_OFF' ? 'Credit cancelled' : c.creditStatus === 'WRITTEN_OFF_PART' ? 'Closed · part written off' : 'Credit paid') + '</span>') + '</div>' +
       '<div class="muted" style="font-size:.8rem;margin-top:6px">Amount ' + money(c.amount) + ' · received ' + money(c.paid) + (c.dueDate ? ' · due ' + prettyDate(c.dueDate) : '') + ' · not counted as revenue until paid</div>' + (pays ? '<div style="font-size:.8rem;margin-top:6px">' + pays + '</div>' : '') +
-      (c.open ? '<div class="row" style="gap:6px;margin-top:10px"><button class="btn green sm" id="odc_pay">✅ Mark paid</button><a class="btn wa sm" target="_blank" href="' + esc(c.waUrl) + '">💬 WhatsApp</a>' + (c.subId ? '<button class="btn ghost sm" id="odc_mail">✉️ Email reminder</button>' : '') + '<button class="btn ghost sm" id="odc_cancel">Cancel credit…</button></div>' : '') + '</div>';
+      (c.open ? '<div class="row" style="gap:6px;margin-top:10px"><button class="btn green sm" id="odc_pay">✅ Mark paid</button><a class="btn wa sm" target="_blank" href="' + esc(waFix(c.waUrl)) + '">💬 WhatsApp</a>' + (c.subId ? '<button class="btn ghost sm" id="odc_mail">✉️ Email reminder</button>' : '') + '<button class="btn ghost sm" id="odc_cancel">Cancel credit…</button></div>' : '') + '</div>';
     var p = $('#odc_pay'); if (p) p.onclick = function () { crPayDialog(c); };
     var m = $('#odc_mail'); if (m) m.onclick = function () { crRemindDialog(c.subId); };
     var x = $('#odc_cancel'); if (x) x.onclick = function () { crCancel(c); };

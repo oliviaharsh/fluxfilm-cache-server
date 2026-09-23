@@ -221,6 +221,57 @@ Module._load = function (req) {
   ok('wa.me link: 91 + 10 digits, text fully encoded (spaces, &, ?, ₹, emoji) and decodes back', url.startsWith('https://wa.me/919876543210?text=') && !/[ &?]/.test(url.split('?text=')[1]) && decodeURIComponent(url.split('?text=')[1]) === wt + ' & more?', url);
   ok('credit WhatsApp link encodes ₹', credit.waUrl('9000000002', wc).includes(encodeURIComponent('₹149')));
 
+  // \U0001f4ac Which WhatsApp app the panel opens. Both apps claim wa.me, so once the phone has been told "always"
+  // it stops asking - which is why every button opened the wrong one. An intent: URL names the package.
+  {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8');
+    const grabFn = (name) => {
+      const i = src.indexOf('function ' + name + '(');
+      if (i < 0) throw new Error('no ' + name);
+      let d = 0, j = src.indexOf('{', i);
+      for (let k = j; k < src.length; k++) { if (src[k] === '{') d++; else if (src[k] === '}') { d--; if (!d) return src.slice(i, k + 1); } }
+      throw new Error('unbalanced ' + name);
+    };
+    const mk = (ua, stored) => {
+      const store = { ff_wa_app: stored };
+      const sb = {
+        navigator: { userAgent: ua },
+        localStorage: { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; }, removeItem: (k) => { delete store[k]; } },
+        encodeURIComponent, decodeURIComponent, String, Math,
+      };
+      require('vm').runInNewContext('var WA_APPS = { business: "com.whatsapp.w4b", personal: "com.whatsapp" };'
+        + grabFn('waApp') + grabFn('setWaApp') + grabFn('waFix') + grabFn('waLink') + '; this.waLink = waLink; this.waFix = waFix;', sb);
+      return sb;
+    };
+    const ANDROID = 'Mozilla/5.0 (Linux; Android 14) Chrome/128 Mobile';
+    const PC = 'Mozilla/5.0 (Windows NT 10.0) Chrome/128';
+
+    let s = mk(ANDROID, 'business');
+    let u = s.waLink('98765 43210', 'hi there & ok?');
+    ok('Android + Business chosen -> an intent naming com.whatsapp.w4b', u.startsWith('intent://send/?phone=919876543210') && /package=com\.whatsapp\.w4b;/.test(u), u.slice(0, 90));
+    ok('...with a wa.me fallback, so the button can never do nothing', /S\.browser_fallback_url=https%3A%2F%2Fwa\.me%2F919876543210/.test(u), u.slice(-120));
+    ok('...and the text still survives the trip', decodeURIComponent(u.split('&text=')[1].split('#')[0]) === 'hi there & ok?');
+
+    s = mk(ANDROID, 'personal');
+    ok('Android + WhatsApp chosen -> com.whatsapp', /package=com\.whatsapp;/.test(s.waLink('9876543210', 'x')));
+
+    s = mk(ANDROID, null);
+    ok('nothing chosen -> the old wa.me link, phone decides as before', s.waLink('9876543210', 'x') === 'https://wa.me/919876543210?text=x');
+
+    s = mk(PC, 'business');
+    ok('on a computer it stays wa.me - intent: is Android only', s.waLink('9876543210', 'x') === 'https://wa.me/919876543210?text=x');
+
+    s = mk(ANDROID, 'business');
+    ok('a link the SERVER built is re-routed too', /package=com\.whatsapp\.w4b;/.test(s.waFix('https://wa.me/919876543210?text=' + encodeURIComponent('due \u20b9149'))));
+    ok('...keeping its text', decodeURIComponent(s.waFix('https://wa.me/919876543210?text=' + encodeURIComponent('due \u20b9149')).split('&text=')[1].split('#')[0]) === 'due \u20b9149');
+    ok('...and anything that is not a wa.me link is left alone', s.waFix('https://example.com/x') === 'https://example.com/x' && s.waFix('') === '');
+
+    ok('every 💬 button in the panel goes through one of the two', (() => {
+      const bad = (src.match(/href="' \+ esc\((?:pay|r|c|w)\.waUrl\)/g) || []).length;
+      return bad === 0 && (src.match(/waFix\(/g) || []).length >= 5;
+    })());
+  }
+
   // ==================================================================== 4. admin routes on a JOIN-refusing fake DB
   section('admin routes (quick order credit, receivables, mark paid, cancel, reminders, Today)');
   const D = { orders: [], subs: [], customers: [], reminders: [], audit: [], sql: [] };
