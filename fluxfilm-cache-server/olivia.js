@@ -33,6 +33,24 @@ const DEFAULTS = Object.freeze({ enabled: false, testOnly: true, testPhones: '',
 
 let deps = { tools: null, words, now: () => new Date() };
 function tools() { return deps.tools || (deps.tools = require('./oliviatools').make()); }
+/**
+ * 🕘 One line in the change log when Olivia fixes a household for a customer in chat. The customer's own
+ * 🏠 Tools → Netflix Household writes the same lines from householdhelp.js — a log that covered only one door
+ * would answer "who accessed the household" wrong. 🔐 The code itself is never written down.
+ */
+function hhLog(phone, mode, got, acc, tried) {
+  const action = mode === 'update' ? 'household.update' : mode === 'verify' ? 'household.signin' : 'household.travel';
+  const label = mode === 'update' ? 'make this TV the home' : mode === 'verify' ? 'get the sign-in code' : 'get the TV code';
+  const done = mode === 'update' ? '🏠 this TV made the home' : mode === 'verify' ? '🔐 sign-in code given' : '✅ TV code given';
+  const where = acc ? s(acc.ref) + ' · ' : '';
+  try {
+    require('./householdlog').record(null, null, {
+      action, phone,
+      summary: 'in Olivia chat · ' + where + label + ' · ' + (got ? done : '⚠️ nothing yet — asked to try again'),
+      details: { what: mode, via: 'olivia', accountId: acc ? s(acc.ref) : '', email: acc ? s(acc.email) : '', ok: !!got, tried: Math.min(tried || 0, 4) },
+    });
+  } catch (_) { /* the log must never break the chat */ }
+}
 
 // ── settings (app_settings 'olivia') ──
 function phoneList(v) { return [...new Set(String(v || '').split(/[\s,;]+/).map(norm).filter((x) => x.length === 10))]; }
@@ -1180,19 +1198,23 @@ async function turn(c, input, ctx) {
     if (!usable.length) { st.hhTries = 0; delete st.hhMode; return supportReplies(c, ctx, manualKind, '', { noAuto: true }); }
     st.hhMode = mode;
     let got = null;
+    let gotAcc = null;   // which of the customer's accounts actually answered — for the change log
     if (mode === 'update') {
       // Permanent update (state-changing) - only reachable when OLIVIA_HH_UPDATE=on; nothing is pressed until confirmed.
-      for (const acc of usable.slice(0, 4)) { const r = await tools().householdUpdate(acc).catch(() => null); if (r && r.ok && r.updated) { got = r; break; } }
+      for (const acc of usable.slice(0, 4)) { const r = await tools().householdUpdate(acc).catch(() => null); if (r && r.ok && r.updated) { got = r; gotAcc = acc; break; } }
       ctx.meta.push({ tool: 'householdUpdate', ok: !!got, tried: Math.min(usable.length, 4) });
+      hhLog(c.phone, mode, got, gotAcc, usable.length);
       if (got) { st.hhTries = 0; delete st.hhMode; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     } else if (mode === 'verify') {
       // The 6-digit new-device verification code, read from our own account inbox (read-only).
-      for (const acc of usable.slice(0, 4)) { const r = await tools().verificationCode(acc).catch(() => null); if (r && r.ok && /^\d{4,8}$/.test(String(r.code))) { got = r; break; } }
+      for (const acc of usable.slice(0, 4)) { const r = await tools().verificationCode(acc).catch(() => null); if (r && r.ok && /^\d{4,8}$/.test(String(r.code))) { got = r; gotAcc = acc; break; } }
       ctx.meta.push({ tool: 'verificationCode', ok: !!got, tried: Math.min(usable.length, 4) });
+      hhLog(c.phone, mode, got, gotAcc, usable.length);
       if (got) { st.hhTries = 0; delete st.hhMode; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'VERIFY_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     } else {
-      for (const acc of usable.slice(0, 4)) { const r = await tools().householdCode(acc).catch(() => null); if (r && r.ok && /^\d{4}$/.test(String(r.code))) { got = r; break; } }
+      for (const acc of usable.slice(0, 4)) { const r = await tools().householdCode(acc).catch(() => null); if (r && r.ok && /^\d{4}$/.test(String(r.code))) { got = r; gotAcc = acc; break; } }
       ctx.meta.push({ tool: 'householdCode', ok: !!got, tried: Math.min(usable.length, 4) });
+      hhLog(c.phone, mode, got, gotAcc, usable.length);
       if (got) { st.hhTries = 0; delete st.hhMode; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     }
     // Nothing yet: the customer probably hasn't triggered it on the device (Watch temporarily / Update household -> Send email,
