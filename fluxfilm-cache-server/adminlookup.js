@@ -187,17 +187,31 @@ function mount(app, deps) {
       };
 
       const accOf = (ref) => s(ref).split('#')[0];
-      const use = new Map(); const profUsed = new Map();
+      const use = new Map(); const profUsed = new Map(); const useRef = new Map();
       const expBy = (expired && expired.byAccount) || {};
       for (const r of occ) {
         const a = accOf(r.inventory_ref); if (!a) continue;
         const u = use.get(a) || { subs: 0, devices: 0, tv: 0 };
         u.subs += asNum(r.subs); u.devices += asNum(r.devices); u.tv += asNum(r.tv);
         use.set(a, u);
+        useRef.set(s(r.inventory_ref), { subs: asNum(r.subs), devices: asNum(r.devices) });
         if (s(r.inventory_ref).includes('#P')) { if (!profUsed.has(a)) profUsed.set(a, new Set()); profUsed.get(a).add(s(r.inventory_ref)); }
       }
       const capMap = new Map(); for (const c of caps) capMap.set(s(c.account_id), c);
       const profCount = new Map(); for (const p of profiles) { const a = s(p.account_id); profCount.set(a, (profCount.get(a) || 0) + 1); }
+      // The same view of a profile that fulfill.js allocates by: its number, its type and whether it is reserved.
+      const profList = new Map();
+      for (const p of profiles) {
+        const a = s(p.account_id); if (!a) continue;
+        let raw = {}; try { raw = p.raw_json ? JSON.parse(p.raw_json) : {}; } catch (_) { raw = {}; }
+        if (!profList.has(a)) profList.set(a, []);
+        profList.get(a).push({
+          pno: asNum(p.profile_number) || asNum(raw.ProfileNumber),
+          type: s(raw.ProfileType).toUpperCase(),
+          reserved: s(raw.IsReserved).toUpperCase() === 'TRUE',
+        });
+      }
+      const netflixMax = Number(process.env.NETFLIX_SHARING_MAX_TOTAL || 5);
 
       const primeMax = Number(process.env.PRIME_MAX_TOTAL || 4), primeTv = Number(process.env.PRIME_MAX_TV || 2);
       const out = accounts.map((a) => {
@@ -211,14 +225,38 @@ function mount(app, deps) {
           row.cap = asNum(cap && cap.max_total) || primeMax; row.used = u.devices;
           row.tvCap = asNum(cap && cap.max_tv) || primeTv; row.tvUsed = u.tv; row.unit = 'devices';
         } else if (policy === 'PROFILE') {
-          row.cap = profCount.get(id) || 0; row.used = (profUsed.get(id) || new Set()).size; row.unit = 'profiles';
+          // Counted the way fulfill.js counts it, NOT by how many profile rows exist (Harsh, 23 Sep 2026: an
+          // account carrying four sharing customers — one of them on two devices — read "1 of 5 profiles used,
+          // 4 free", because they all sit on the one sharing profile. The allocator saw 5 of 7 seats and 2 free).
+          //   · the sharing profile holds SEATS: every device of every customer on it
+          //   · a private profile holds one customer, and ITS extra devices eat the same max_total
+          const list = profList.get(id) || [];
+          const sharing = list.find((p) => p.pno && (p.type.indexOf('SHARING') === 0 || p.reserved)) || null;
+          const refUse = (pno) => useRef.get(id + '#P' + pno) || { subs: 0, devices: 0 };
+          const sharingSeats = sharing ? refUse(sharing.pno).devices : 0;
+          let extras = 0, privateFree = 0;
+          for (const p of list) {
+            if (!p.pno || (sharing && p.pno === sharing.pno) || p.type !== 'PRIVATE_ROTATING') continue;
+            const u = refUse(p.pno);
+            if (!u.subs) privateFree++; else extras += Math.max(0, u.devices - u.subs);
+          }
+          if (sharing) {
+            row.cap = asNum(cap && cap.max_total) || netflixMax;
+            row.used = sharingSeats + extras;
+            row.unit = 'seats';
+            row.sharingSeats = sharingSeats; row.extraDevices = extras;
+            row.privateFree = privateFree; row.profiles = list.length;
+          } else {
+            row.cap = profCount.get(id) || 0; row.used = (profUsed.get(id) || new Set()).size; row.unit = 'profiles';
+          }
         } else if (policy === 'ACCOUNT' || policy === 'OTP_ACCOUNT') {
           row.cap = asNum(cap && cap.max_total) || 1; row.used = u.devices; row.unit = policy === 'OTP_ACCOUNT' ? 'customers' : 'devices';
         } else {
           row.cap = null; row.used = u.subs; row.unit = 'customers';
         }
         row.free = row.cap == null ? null : Math.max(0, row.cap - row.used);
-        row.status = !active ? 'INACTIVE' : row.cap == null ? 'MANUAL' : row.free <= 0 ? 'FULL' : (row.tvCap != null && row.tvUsed >= row.tvCap) ? 'TV_FULL' : 'OK';
+        const nothingLeft = row.free <= 0 && !row.privateFree;
+        row.status = !active ? 'INACTIVE' : row.cap == null ? 'MANUAL' : nothingLeft ? 'FULL' : (row.tvCap != null && row.tvUsed >= row.tvCap) ? 'TV_FULL' : 'OK';
         return row;
       });
 
