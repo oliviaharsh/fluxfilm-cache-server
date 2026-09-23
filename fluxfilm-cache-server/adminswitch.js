@@ -409,7 +409,83 @@ function create(deps) {
     };
   }
 
-  return { options, switchAccount };
+  /**
+   * 🔁 Move EVERYONE off one account, in one press (owner, 23 Sep 2026: "when an account is marked inactive
+   * should add a button to transfer customers on it to next available account with one button press").
+   *
+   * Every customer is moved by the same switchAccount() the one-at-a-time dialog uses, so nothing is special-cased:
+   * the allocation lock, the capacity re-check inside it, the raw_json + notes history, the "🚪 Remove users" ghost
+   * row on the old login, and the new-login email all behave exactly as they do for a single switch.
+   *
+   * The target is chosen ONE AT A TIME, immediately before each move, because each move fills a place somewhere —
+   * a preview computed up front would hand two customers the same last seat. The preview is a forecast for the
+   * owner to look at; the run works it out again.
+   */
+  const MOVE_OFF_MAX = 25;
+
+  /** The live plans sitting on this account (its own ref, or a profile of it). One table, no JOIN. */
+  async function onAccount(accountId) {
+    const acc = s(accountId);
+    if (!acc) return [];
+    const rows = await db.query(
+      "SELECT sub_id, service, plan, phone_norm, expiry_date, status, inventory_ref, group_id, group_index FROM subscriptions " +
+      "WHERE (inventory_ref = ? OR inventory_ref LIKE ?) AND UPPER(status) = 'ACTIVE' AND expiry_date > NOW() ORDER BY expiry_date",
+      [acc, acc + '#%']);
+    return (rows || []).slice(0, MOVE_OFF_MAX);
+  }
+
+  /** The best account to move this plan to right now: the first that fits and is not the one it is on. */
+  function bestTarget(opt) {
+    if (!opt || !opt.ok || !opt.allowed) return null;
+    return (opt.accounts || []).find((a) => a.fits) || null;
+  }
+
+  async function moveOffPreview(accountId) {
+    const acc = s(accountId);
+    const subs = await onAccount(acc);
+    const out = [];
+    for (const r of subs) {
+      const opt = await options(r.sub_id);
+      const to = bestTarget(opt);
+      out.push({
+        subId: s(r.sub_id), service: s(r.service), plan: s(r.plan), phone: s(r.phone_norm),
+        name: s(opt && opt.sub && opt.sub.name), expiry: s(r.expiry_date), from: s(r.inventory_ref),
+        hasEmail: !!(opt && opt.sub && opt.sub.hasEmail),
+        to: to ? to.accountId : '', toLabel: to ? (to.label || to.accountId) : '',
+        blocked: to ? '' : (opt && !opt.ok ? s(opt.message) : s((opt && opt.reason) || (opt && opt.warning)) || 'No other account has room right now.'),
+      });
+    }
+    return { ok: true, accountId: acc, max: MOVE_OFF_MAX, customers: out, movable: out.filter((x) => x.to).length, blocked: out.filter((x) => !x.to).length };
+  }
+
+  async function moveOffRun(input) {
+    const b = input || {};
+    const acc = s(b.accountId);
+    if (!acc) return { ok: false, status: 400, message: 'Account id required.' };
+    const note = s(b.note).slice(0, 200) || 'Account switched off — everyone moved';
+    const wantEmail = !(b.email === false || s(b.email).toLowerCase() === 'false');
+    const reqId = s(b.requestId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
+    const only = Array.isArray(b.subIds) ? b.subIds.map(s).filter(Boolean) : null;
+    const subs = (await onAccount(acc)).filter((r) => !only || only.includes(s(r.sub_id)));
+    if (!subs.length) return { ok: true, accountId: acc, moved: [], failed: [], message: 'Nobody is on ' + acc + ' right now.' };
+    const moved = [];
+    const failed = [];
+    for (const r of subs) {
+      const sid = s(r.sub_id);
+      // Worked out again for every customer: the previous move has just changed what is free.
+      const to = bestTarget(await options(sid));
+      if (!to) { failed.push({ subId: sid, plan: s(r.plan), message: 'No other account has room right now.' }); continue; }
+      const one = await switchAccount({ subId: sid, accountId: to.accountId, note, email: wantEmail, requestId: reqId ? reqId + '-' + sid : '' });
+      if (one && one.ok) moved.push({ subId: sid, plan: s(r.plan), to: to.accountId, ref: s(one.to && one.to.ref), emailed: !!(one.email && one.email.sent) });
+      else failed.push({ subId: sid, plan: s(r.plan), message: s(one && one.message) || 'Could not switch.' });
+    }
+    const msg = moved.length
+      ? '🔁 Moved ' + moved.length + ' customer' + (moved.length === 1 ? '' : 's') + ' off ' + acc + (failed.length ? ' · ' + failed.length + ' could not be moved' : '')
+      : 'Nobody could be moved off ' + acc + '.';
+    return { ok: true, accountId: acc, moved, failed, message: msg };
+  }
+
+  return { options, switchAccount, moveOffPreview, moveOffRun };
 }
 
 /* ---------------- 🚪 Remove users: the old account after a switch ---------------- */
@@ -507,6 +583,28 @@ function mount(app, deps) {
           action: 'sub.switchAccount', entity: 'subscription', id: r.subId,
           summary: '🔁 Switched account ' + (r.from.ref || r.from.accountId || '?') + ' → ' + r.to.ref + ' (' + r.reason + ')' + (r.email.sent ? ' · new login emailed' : ' · email not sent: ' + (r.email.reason || '')),
           details: { at: r.at, from: { accountId: r.from.accountId, ref: r.from.ref }, to: { accountId: r.to.accountId, ref: r.to.ref }, reason: r.reason, emailSent: r.email.sent },
+        });
+      }
+      res.json(r);
+    } catch (e) { fail(res, e); }
+  });
+
+  // 🔁 Move everyone off one account, in one press. The preview is what the owner is asked to confirm; the run
+  // works the targets out again, one customer at a time, because each move changes what is free.
+  app.get('/admin/api/accounts/move-off/preview', async (req, res) => {
+    if (!auth(req, res)) return;
+    try { res.json(await S.moveOffPreview(s(req.query.accountId))); } catch (e) { fail(res, e); }
+  });
+  app.post('/admin/api/accounts/move-off', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      const r = await S.moveOffRun(req.body || {});
+      if (!r.ok) return res.status(r.status || 400).json(r);
+      if (r.moved.length || r.failed.length) {
+        audit.record(req, {
+          action: 'account.moveOff', entity: 'account', id: r.accountId,
+          summary: '🔁 Moved ' + r.moved.length + ' customer(s) off ' + r.accountId + (r.failed.length ? ' · ' + r.failed.length + ' could not be moved' : '') + (r.moved.some((m) => m.emailed) ? ' · new logins emailed' : ''),
+          details: { moved: r.moved, failed: r.failed },
         });
       }
       res.json(r);

@@ -283,6 +283,7 @@ the two exceptions are `adminrefundnow.js` (mounted by `adminorderactions.js`) a
 | Same login for every device, or one each? | `devicelogins.js` |
 | How was this paid, and who paid it? | `paidvia.js` |
 | One payment, two orders | `banklinks.js` |
+| Move ONE customer / EVERYONE off an account | `adminswitch.js` — `switchAccount` and `moveOffPreview` / `moveOffRun` (🔑 Password change screen) |
 | Who is allowed to call which action? | `customerauth.js` (POLICY) |
 | Is the shop paused? | `store.js` |
 | Is this person really the customer? | `customerauth.js`, `emaillock.js`, `otpaccess.js` |
