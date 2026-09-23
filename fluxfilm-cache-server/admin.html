@@ -7023,7 +7023,7 @@ function renderNetflix() {
  * A picture beats a sentence for customers who do not read English comfortably — which is most of the ones who
  * pressed the wrong link before. Stored in app_settings like the backup payment QR.
  */
-var NF_PICS = [['household', '🏠 "Not part of your household"'], ['travel', '📺 The TV asks for a code'], ['signin', '🔐 "Verify with this code"']];
+var NF_PICS = [['household', '🏠 "Not part of your household"'], ['travel', '📺 The TV or phone asks for a travelling code'], ['signin', '🔐 "Verify with this code" (6 digits)']];
 function nfPicturesCard() {
   var has = (NF.pics && NF.pics.has) || {};
   var pics = (NF.pics && NF.pics.pictures) || {};

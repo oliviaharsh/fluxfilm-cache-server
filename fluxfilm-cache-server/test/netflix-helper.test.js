@@ -33,6 +33,15 @@ const MAIL = {
     { uid: 12, from: 'Netflix <info@account.netflix.com>', subject: '[FF][ACC1][CODE] Verification code. Expires in 15 mins.', html: CODE_HTML, ageMin: 1 },
     { uid: 13, from: 'Someone Else <hello@example.com>', subject: 'Update your Netflix Household', html: HH_HTML, ageMin: 1 },
   ],
+  // The real travel mail (owner's screenshot, 23 Sep 2026): the 4 digits are NOT in the mail - it carries a
+  // "Get code" link that has to be opened, and Netflix expires that link after 15 minutes.
+  'NETFLIX/acc2': [
+    { uid: 41, from: 'Netflix <info@account.netflix.com>', subject: '[FF][ACC2][TRAVEL] Your temporary access code',
+      html: '<h1>Your temporary access code</h1><p>Hi Lucas,</p><p>We received a request for a temporary access code from the device below.</p>'
+        + '<p>This code is for travel or temporary access outside your Netflix Household.</p>'
+        + '<p>Requested by Lucas from a <b>Samsung - Smart TV</b> at 21 September 12:54 am IST</p>'
+        + '<a href="https://www.netflix.com/account/travel/verify?nftoken=tok123">Get code</a><p>* Link expires after 15 minutes.</p>', ageMin: 2 },
+  ],
   'NETFLIX/acc5': [],
   // What a FORWARDED mail really looks like in the hub: Gmail sends it as the account that forwarded it, so the
   // From is that Gmail address and not netflix.com. Our own [FF][TAG] prefix is what vouches for it.
@@ -258,6 +267,24 @@ deps.mailparser.simpleParser = async () => {
     const m7 = await hh.latestMail(acc7, 'household', deps);
     ok('our own [FF][TAG] forward is accepted', !!m7 && m7.subject.indexOf('[FF][ACC7]') > -1, m7);
     ok('…but a stranger\'s mail in the same label is not', !!m7 && m7.subject.indexOf('Stranger') === -1);
+  }
+
+  section('✈️ the travelling code: the mail has a LINK, not the digits');
+  {
+    const acc2 = { service: 'Netflix', email: 'two@gmail.com', kind: 'H', tag: 'ACC2', ref: 'NFLX-H2' };
+    const m2 = await hh.latestMail(acc2, 'travel', deps);
+    ok('the "Get code" link is pulled out of the mail', !!m2 && m2.actionUrl === 'https://www.netflix.com/account/travel/verify?nftoken=tok123', m2);
+    ok('…and it is not mistaken for a verification code', hh._internal.verificationCodeFrom(MAIL['NETFLIX/acc2'][0].html) === '');
+
+    // Then the link is opened server-side and the 4 digits read off the page.
+    const page = '<html><body><h1>Your temporary access code</h1><p>Enter this code on the requesting device</p><div>1 2 3 4</div><p>It expires in 15 minutes</p></body></html>';
+    ok('the 4 digits are read off the page behind the link', hh._internal.readTravelPage(page).code === '1234', hh._internal.readTravelPage(page));
+    ok('a sign-in / expired page is never acted on', hh._internal.readTravelPage('<p>This link has expired</p>').blocked === true
+      && hh._internal.readTravelPage('<input type="password"/>').blocked === true);
+
+    // Netflix kills the link after 15 minutes, which is why the auto-fix only looks at mail newer than that.
+    const fresh = Number(process.env.NETFLIX_HH_FRESH_MIN || 14);
+    ok('the auto-fix window is inside the 15-minute link expiry Netflix sets', fresh < 15, fresh);
   }
 
   // ── wiring ────────────────────────────────────────────────────────────────────────────────────────────────

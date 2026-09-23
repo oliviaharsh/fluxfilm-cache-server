@@ -645,8 +645,11 @@ async function supportReplies(c, ctx, kind, service, opts) {
     // "Get my code now" tries each of the customer's own Netflix accounts and shows whichever one has it.
     if (usable.length) {
       st.hhSubs = usable.map((x) => x.subId); st.hhTries = 0; delete st.hhLinkAccs; delete st.hhMode;
-      // Clear choices: fetch the TV code, make this the home account, do it yourself, "explain it", or the new-device verification code.
-      return reply({ intent: 'HH_OFFER_CODE', facts: { bothHelpers }, buttons: [btn('hhcode', lang), btn('hhupdate', lang), btn('hhlink', lang), btn('hhexplain', lang), btn('hhverify', lang), wa] });
+      // Clear choices: fetch the TV code, make this the home account, "explain it", or the new-device verification code.
+      // "Do it yourself" is only offered for a partner account — on one of ours Olivia does it, she does not hand out a link.
+      const ours = usable.some((x) => x.kind === 'H');
+      const choices = [btn('hhcode', lang), btn('hhupdate', lang)].concat(ours ? [] : [btn('hhlink', lang)], [btn('hhexplain', lang), btn('hhverify', lang), wa]);
+      return reply({ intent: 'HH_OFFER_CODE', facts: { bothHelpers }, buttons: choices });
     }
     delete st.hhSubs;
     delete st.hhSub;
@@ -687,6 +690,23 @@ function hhStepsReply(st, lang, kind, mode) {
   // Both main fixes stay one tap away on every steps screen: Get code AND This-is-my-account / Update household.
   return [{ intent: 'HH_LINK_STEPS', facts: { mode }, buttons: withBackToPay(st, lang, [linkBtn, btn('hhcode', lang), btn('hhupdate', lang), btn('whatsapp', lang), btn('menu', lang)]) }];
 }
+/**
+ * May Olivia hand out a link instead of doing it herself?
+ * Owner's rule, 23 Sep 2026: "no link redirect unless its partner acc and she has tried 5 times". So — only when
+ *   · the account is a PARTNER (darkflix) one, which has its own page, or
+ *   · she has already tried 5 times and it still has not worked, or
+ *   · there is nothing of ours to work on at all.
+ * For one of our own Netflix accounts she updates it or reads the code herself. No link.
+ */
+async function hhLinkAllowed(c) {
+  if ((Number(c.state.hhTries) || 0) >= 5) return true;
+  try {
+    const na = await tools().netflixAccounts(c.phone);
+    const usable = na && na.ok ? (na.accounts || []).filter((x) => x.email && x.kind) : [];
+    return !usable.length || !usable.some((x) => x.kind === 'H');
+  } catch (_) { return true; }   // cannot tell -> the customer is not left with nothing
+}
+
 async function hhSelfServe(c, ctx, mode, idx) {
   const st = c.state; const lang = c.lang;
   if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
@@ -1182,8 +1202,17 @@ async function turn(c, input, ctx) {
     return [{ intent: 'HH_EXPLAIN', buttons: withBackToPay(st, lang, [btn('hhcode', lang), btn('hhupdate', lang), btn('hhlink', lang), btn('whatsapp', lang), btn('menu', lang)]) }];
   }
   // "Give me the link, I'll do it myself" (temporary code page); and "This is my account" when the auto update is off.
-  if (action === 'hhlink' || action.indexOf('hhlink:') === 0) return hhSelfServe(c, ctx, 'travel', action.indexOf('hhlink:') === 0 ? Number(action.slice(7)) : -1);
-  if (action === 'hhupdate') { let upOn = false; try { upOn = !!tools().householdUpdateEnabled(); } catch (_) { upOn = false; } if (!upOn) return hhSelfServe(c, ctx, 'update', -1); }
+  if (action === 'hhlink' || action.indexOf('hhlink:') === 0) {
+    // An account already picked from a "which one?" list keeps its steps; otherwise the rule decides.
+    const pick = action.indexOf('hhlink:') === 0 ? Number(action.slice(7)) : -1;
+    if (pick >= 0 || await hhLinkAllowed(c)) return hhSelfServe(c, ctx, 'travel', pick);
+    action = 'hhcode';   // one of ours: she does it herself instead of handing over a link
+  }
+  if (action === 'hhupdate') {
+    let upOn = false; try { upOn = !!tools().householdUpdateEnabled(); } catch (_) { upOn = false; }
+    // The permanent update is switched off (OLIVIA_HH_UPDATE): give the TV code rather than send them away.
+    if (!upOn) { if (await hhLinkAllowed(c)) return hhSelfServe(c, ctx, 'update', -1); action = 'hhcode'; }
+  }
   if (action === 'hhcode' || action === 'hhretry' || action === 'hhupdate' || action === 'hhverify') {
     // Which action: the permanent update, the new-device verification code, or the temporary TV code.
     // "I clicked, check again" repeats whichever the customer started (tracked in st.hhMode).
@@ -1212,6 +1241,20 @@ async function turn(c, input, ctx) {
       hhLog(c.phone, mode, got, gotAcc, usable.length);
       if (got) { st.hhTries = 0; delete st.hhMode; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'VERIFY_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     } else {
+      // "Just fix it" (owner, 23 Sep 2026): try the PERMANENT update first — it is the real fix, not a 7-day patch —
+      // and fall back to the temporary TV code when there is no household mail to act on. Either way she does it
+      // herself; the customer is never handed a link for one of our accounts.
+      let upOn = false; try { upOn = !!tools().householdUpdateEnabled(); } catch (_) { upOn = false; }
+      if (upOn) {
+        for (const acc of usable.slice(0, 4)) { const r = await tools().householdUpdate(acc).catch(() => null); if (r && r.ok && r.updated) { got = r; gotAcc = acc; break; } }
+        if (got) {
+          ctx.meta.push({ tool: 'householdUpdate', ok: true, tried: Math.min(usable.length, 4), via: 'auto' });
+          hhLog(c.phone, 'update', got, gotAcc, usable.length);
+          st.hhTries = 0; delete st.hhMode;
+          if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
+          return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }];
+        }
+      }
       for (const acc of usable.slice(0, 4)) { const r = await tools().householdCode(acc).catch(() => null); if (r && r.ok && /^\d{4}$/.test(String(r.code))) { got = r; gotAcc = acc; break; } }
       ctx.meta.push({ tool: 'householdCode', ok: !!got, tried: Math.min(usable.length, 4) });
       hhLog(c.phone, mode, got, gotAcc, usable.length);
