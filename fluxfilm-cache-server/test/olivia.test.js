@@ -761,7 +761,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   await say({ choice: 'menu' });
   r = await say({ text: 'household error phir aa gaya' });
   r = await say({ choice: 'hhcode' });
-  ok('no code yet (1st try) → guide to press "Watch temporarily" on the TV + "I clicked, check again", not manual', last(r).intent === 'HH_CODE_NOT_YET' && /Watch temporarily/.test(last(r).text) && ids(last(r))[0] === 'hhretry', last(r));
+  ok('no code yet (1st try) → guide to press "Watch temporarily" + "I clicked, check again", and offer This-is-my-account', last(r).intent === 'HH_CODE_NOT_YET' && /Watch temporarily/.test(last(r).text) && ids(last(r))[0] === 'hhretry' && ids(last(r)).includes('hhupdate'), last(r));
   r = await say({ text: 'kar diya' });
   ok('typed "kar diya" retries (2nd try) and hints to check it is the right account', last(r).intent === 'HH_CODE_NOT_YET' && /account/i.test(last(r).text) && ids(last(r))[0] === 'hhretry', last(r));
   r = await say({ choice: 'hhretry' });
@@ -784,12 +784,12 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   r = await say({ text: 'tv par household code maang raha hai' });
   calls.length = 0;
   r = await say({ choice: 'hhexplain' });
-  ok('tap "Samjhao" → a plain explanation, no code fetch, still offers to do it', last(r).intent === 'HH_EXPLAIN' && ids(last(r)).includes('hhcode') && ids(last(r)).includes('hhlink') && !calls.some((c) => c[0] === 'householdCode'), last(r));
+  ok('tap "Samjhao" → a plain explanation, no code fetch, offers both Get code and This-is-my-account', last(r).intent === 'HH_EXPLAIN' && ids(last(r)).includes('hhcode') && ids(last(r)).includes('hhupdate') && ids(last(r)).includes('hhlink') && !calls.some((c) => c[0] === 'householdCode'), last(r));
   await say({ choice: 'menu' });
   r = await say({ text: 'netflix household problem' });
   calls.length = 0;
   r = await say({ choice: 'hhlink' });
-  ok('one account + "Give me the link" → self-serve steps with the right Helper link (D → Link 2), no code fetch', last(r).intent === 'HH_LINK_STEPS' && last(r).buttons.some((b) => b.link === 'helper2') && /Get Travel Code/i.test(last(r).text) && !calls.some((c) => c[0] === 'householdCode'), last(r));
+  ok('one account + "Give me the link" → self-serve steps with the right Helper link (D → Link 2) + "This is my account", no code fetch', last(r).intent === 'HH_LINK_STEPS' && last(r).buttons.some((b) => b.link === 'helper2') && ids(last(r)).includes('hhupdate') && /Get Travel Code/i.test(last(r).text) && !calls.some((c) => c[0] === 'householdCode'), last(r));
   // more than one Netflix → ask which account first (by a masked email), never the full address in the words
   shop.nflxAccounts = [
     { subId: 'S1', service: 'Netflix', ref: 'NFLX-H4', email: 'fluxfilm157@gmail.com', kind: 'H', tag: 'ACC3' },
@@ -809,7 +809,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('"This is my account" is always offered now', ids(last(r))[0] === 'hhcode' && ids(last(r)).includes('hhupdate'), last(r));
   calls.length = 0;
   r = await say({ choice: 'hhupdate' });
-  ok('update OFF → "This is my account" gives self-serve UPDATE steps, never auto-presses anything', last(r).intent === 'HH_LINK_STEPS' && /Update household/i.test(last(r).text) && !calls.some((c) => c[0] === 'householdUpdate'), last(r));
+  ok('update OFF → "This is my account" gives self-serve UPDATE steps + a Get-code shortcut, never auto-presses anything', last(r).intent === 'HH_LINK_STEPS' && /Update household/i.test(last(r).text) && ids(last(r)).includes('hhcode') && !calls.some((c) => c[0] === 'householdUpdate'), last(r));
   shop.hhUpdateOn = true; shop.hhUpdated = true;
   await say({ choice: 'menu' });
   r = await say({ text: 'household problem aa raha hai tv par' });
