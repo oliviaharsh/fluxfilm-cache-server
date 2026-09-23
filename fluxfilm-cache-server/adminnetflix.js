@@ -26,6 +26,13 @@ function mount(app, deps) {
   const q = (sql, p) => ((deps && deps.query) || db.query)(sql, p || []);
   const fail = (res, e) => res.status((e && e.status) || 500).json({ ok: false, message: String((e && e.message) || e) });
 
+  // What each lookup is called in the 🕘 Change log.
+  const NF_LOOKED = {
+    household: '🏠 Looked up the household mail',
+    travel: '✈️ Looked up the travelling code',
+    code: '🔐 Looked up the 6-digit VERIFICATION CODE',
+  };
+
   /** Every Netflix account we own, with the tag and the Gmail label its mail is filed under. */
   async function accounts() {
     const rows = await q("SELECT account_id, service, login_id, is_active, raw_json FROM inventory_accounts WHERE LOWER(service) LIKE '%netflix%' ORDER BY account_id");
@@ -82,8 +89,13 @@ function mount(app, deps) {
       // directly from its own inbox needs nothing: the mailbox is the account.
       if (a.via !== 'direct' && !a.tag) return res.status(409).json({ ok: false, message: a.accountId + ' has no household tag, so its mail cannot be told apart from the other accounts in the shared inbox. Give it its own app password in NETFLIX_ACC_PASS, or set HouseholdTag on the account / add it to OLIVIA_HH_ACC_MAP.' });
       const mail = await hh().latestMail({ service: a.service, email: a.email, kind: a.kind, tag: a.tag, ref: a.accountId }, mode, deps && deps.hhDeps);
-      // The account and what was looked for are worth having in the log; the link is not written down.
-      audit.record(req, { action: 'netflix.mail', entity: 'inventory_account', id: a.accountId, summary: mode + ' mail looked up — ' + (mail ? 'found' : 'nothing recent') });
+      // 🕘 Who looked, when, at which account — so the owner can prove only they ever did.
+      // 🔐 The code is NOT written down: the line says one was shown, not what it was.
+      audit.record(req, {
+        action: 'netflix.' + (mode === 'code' ? 'code' : 'mail'), entity: 'inventory_account', id: a.accountId,
+        summary: NF_LOOKED[mode === 'code' ? 'code' : mode] + ' · ' + a.accountId + ' · ' + (mail ? 'found, ' + (mail.date || '').slice(0, 16) : 'nothing in the inbox'),
+        details: { accountId: a.accountId, email: a.email, mode, found: !!mail, subject: mail ? mail.subject : '', via: a.via },
+      });
       res.json({ ok: true, accountId: a.accountId, email: a.email, label: a.label, mode, mail: mail || null });
     } catch (e) { fail(res, e); }
   });

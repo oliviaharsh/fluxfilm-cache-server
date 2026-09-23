@@ -298,7 +298,18 @@ deps.mailparser.simpleParser = async () => {
   ok('the Netflix link is opened by the owner, never pressed for them', /Nothing is pressed for you/.test(html) && /target="_blank" rel="noopener noreferrer"/.test(html));
   ok('the account list says where each one is read from', /via: H\._internal\.directAuth\(/.test(read('adminnetflix.js')));
   ok('a tag is only demanded when the shared hub is used', /a\.via !== 'direct' && !a\.tag/.test(read('adminnetflix.js')));
-  ok('it never writes: no INSERT / UPDATE / DELETE in the module', !/\b(INSERT INTO|UPDATE \w|DELETE FROM)\b/.test(read('adminnetflix.js')));
+// \U0001f558 The owner asked to be able to prove only they ever pulled a verification code.
+  ok('every lookup is written to the change log, and a code lookup is named as one', (() => {
+    const src = read('adminnetflix.js');
+    return /Looked up the 6-digit VERIFICATION CODE/.test(src)
+      && /action: 'netflix\.' \+ \(mode === 'code' \? 'code' : 'mail'\)/.test(src);
+  })());
+  ok('\U0001f510 ...but the code itself is still never written down', (() => {
+    const src = read('adminnetflix.js');
+    const rec = src.match(/audit\.record\(req, \{[\s\S]*?\}\);/g) || [];
+    return rec.length >= 1 && !rec.some((r) => /mail\.code|\bcode:/.test(r));
+  })());
+    ok('it never writes: no INSERT / UPDATE / DELETE in the module', !/\b(INSERT INTO|UPDATE \w|DELETE FROM)\b/.test(read('adminnetflix.js')));
 
   console.log('\n---------------------------------------\nPASS ' + pass + '   FAIL ' + fail);
   process.exit(fail ? 1 : 0);
