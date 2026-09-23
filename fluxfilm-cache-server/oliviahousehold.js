@@ -262,10 +262,10 @@ async function inboxLink(acc, re, deps) {
   return hit || '';
 }
 
-function signinCodeFrom(html) {
+function verificationCodeFrom(html) {
   if (isBlocked(html)) return '';
   const text = visible(html);
-  if (/temporary access|requesting device|watch temporarily|update household/i.test(text)) return ''; // that is a household email, not a sign-in code
+  if (/temporary access|requesting device|watch temporarily|update household/i.test(text)) return ''; // that is a household email, not a verification code
   const m = text.match(/verify with this code[:\s]*((?:\d\s*){4,8})/i)
     || text.match(/your (?:netflix )?(?:verification|sign.?in|access) code(?: is)?[:\s]*((?:\d\s*){4,8})/i)
     || text.match(/((?:\d\s*){6})\s*is your (?:netflix )?(?:verification|sign.?in) code/i)
@@ -274,17 +274,17 @@ function signinCodeFrom(html) {
   return (d.length >= 4 && d.length <= 8) ? d : '';
 }
 
-/** The newest recent sign-in verification code for this account. */
+/** The newest recent verification code for this account. */
 async function inboxCode(acc, deps) {
-  const hit = await inboxSearch(acc, (p) => signinCodeFrom(String(p.html || p.textAsHtml || p.text || '')) || null, deps);
+  const hit = await inboxSearch(acc, (p) => verificationCodeFrom(String(p.html || p.textAsHtml || p.text || '')) || null, deps);
   return hit || '';
 }
 
 const MAIL_WORDS = {
   household: ['household', 'update your netflix household', 'reset your household'],
   travel: ['temporary access code', 'travel', 'device code', 'watch temporarily'],
-  // 🔐 The 6-digit SIGN-IN code. Whoever holds it can sign in to the Netflix account itself.
-  code: ['verify with this code', 'verification code', 'sign-in code', 'sign in code', 'code requested'],
+  // 🔐 The 6-digit verification code. Whoever holds it can sign in to the Netflix account itself.
+  code: ['verify with this code', 'verification code', 'verification code', 'verification code', 'code requested'],
 };
 
 /**
@@ -307,7 +307,7 @@ async function latestMail(acc, mode, deps) {
     const m = body.match(re);
     const out = { subject, date: p.date ? new Date(p.date).toISOString() : '', actionUrl: m ? m[0].replace(/&amp;/g, '&') : '', foundBy: by, mode: kind };
     if (kind === 'code') {
-      const code = signinCodeFrom(body);   // the same reader Olivia uses — one extractor, not two
+      const code = verificationCodeFrom(body);   // the same reader Olivia uses — one extractor, not two
       if (!code) return null;              // a code mail with no code in it is no use — keep looking at older ones
       out.code = code;
       out.actionUrl = '';                  // there is nothing to press: the code is the whole point
@@ -317,13 +317,13 @@ async function latestMail(acc, mode, deps) {
   return hit || null;
 }
 
-/** The Netflix sign-in code for a customer's own active account. From our shared inbox (NFLX-H); darkflix has no such page. */
-async function signInCode(acc, deps) {
+/** The Netflix verification code for a customer's own active account. From our shared inbox (NFLX-H); darkflix has no such page. */
+async function verificationCode(acc, deps) {
   const a = acc || {};
   if (!famNetflix(a.service) || !s(a.email) || !a.kind) return { ok: false, manual: true };
-  if (a.kind !== 'H') return { ok: false, manual: true }; // sign-in codes come by email; only our own inbox has them
+  if (a.kind !== 'H') return { ok: false, manual: true }; // verification codes come by email; only our own inbox has them
   let code = '';
-  try { code = await inboxCode(a, deps); } catch (e) { console.log('[olivia-hh] signin code failed:', e.message); return { ok: false, manual: true }; }
+  try { code = await inboxCode(a, deps); } catch (e) { console.log('[olivia-hh] verification code failed:', e.message); return { ok: false, manual: true }; }
   return code ? { ok: true, code } : { ok: false, manual: true };
 }
 
@@ -341,4 +341,4 @@ const travelCode = (acc, deps) => run(acc, 'travel', deps);
 const updateHousehold = (acc, deps) => run(acc, 'update', deps);
 const updateEnabled = () => UPDATE_ON();
 
-module.exports = { netflixAccounts, travelCode, updateHousehold, signInCode, updateEnabled, latestMail, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, signinCodeFrom, labelFor, inboxSearch, MAIL_WORDS } };
+module.exports = { netflixAccounts, travelCode, updateHousehold, verificationCode, updateEnabled, latestMail, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, verificationCodeFrom, labelFor, inboxSearch, MAIL_WORDS } };

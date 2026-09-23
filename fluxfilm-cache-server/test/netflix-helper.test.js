@@ -99,9 +99,9 @@ deps.mailparser.simpleParser = async () => {
   m = await hh.latestMail(acc1, 'code', deps);
   ok('the code is read out of the mail, spaced-out digits and all', !!m && m.code === '068097', m);
   ok('…and there is no link to press — the code is the whole point', !!m && m.actionUrl === '', m && m.actionUrl);
-  ok('the phone number in the footer is not mistaken for a code', hh._internal.signinCodeFrom('Questions? Call 000-800-919-1743') === '');
-  ok('a mail with no code in it is not offered as one', hh._internal.signinCodeFrom('Verify with this code: soon') === '');
-  ok('…and a household mail is never mistaken for a sign-in code', hh._internal.signinCodeFrom('Update household. Your temporary access code is 1234') === '');
+  ok('the phone number in the footer is not mistaken for a code', hh._internal.verificationCodeFrom('Questions? Call 000-800-919-1743') === '');
+  ok('a mail with no code in it is not offered as one', hh._internal.verificationCodeFrom('Verify with this code: soon') === '');
+  ok('…and a household mail is never mistaken for a verification code', hh._internal.verificationCodeFrom('Update household. Your temporary access code is 1234') === '');
 
   section('an account whose mail is only in All Mail');
   const acc5 = { service: 'Netflix', email: 'ininjathetriggerman@gmail.com', kind: 'H', tag: 'ACC5', ref: 'NFLX-H5' };

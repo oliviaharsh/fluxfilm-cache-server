@@ -188,9 +188,9 @@ const T = {
       : 'यह लीजिए जी 🙏 खुद करने के 3 आसान step:\n1. नीचे "Household Helper खोलो" दबाइए।\n2. उस page पर वही ईमेल डालिए जिससे आप इस Netflix में login करते हैं, फिर "Get Travel Code" दबाइए।\n3. Netflix 4 अंक का कोड दिखाएगा — उसे अपने TV पर डालिए (लगभग 15 मिनट चलता है)।\nअटक गए? "Get my code now" दबाइए, मैं कर देती हूँ।',
   },
   HH_CODE_NOT_YET: {
-    en: (f) => (f.attempt >= 2 ? 'Still nothing 🙏 Two things to check:\n' : 'Nothing came up yet 🙏\n') + (f.mode === 'signin' ? 'On the device where you are logging in, try again — Netflix will send a fresh 6-digit code.' : 'On the TV, ' + (f.mode === 'update' ? 'tap "Update household", then "Send email".' : 'tap "Watch temporarily" to get the code.')) + (f.attempt >= 2 ? '\nAlso make sure it is this Netflix, on this account.' : '') + '\nDone it? Tap "I clicked, check again".',
-    hinglish: (f) => (f.attempt >= 2 ? 'Abhi bhi kuch nahi mila 🙏 Do baat check kijiye:\n' : 'Abhi tak kuch nahi aaya 🙏\n') + (f.mode === 'signin' ? 'Jis device par login kar rahe hain wahan dobara try kijiye — Netflix naya 6 digit code bhejega.' : 'TV par ' + (f.mode === 'update' ? '"Update household" dabaiye, phir "Send email".' : '"Watch temporarily" dabaiye code ke liye.')) + (f.attempt >= 2 ? '\nYe bhi dekh lijiye ki yahi Netflix hai, isi account ka.' : '') + '\nHo gaya? "I clicked, check again" dabaiye.',
-    hi: (f) => (f.attempt >= 2 ? 'अभी भी कुछ नहीं मिला 🙏 दो बातें देखिए:\n' : 'अभी तक कुछ नहीं आया 🙏\n') + (f.mode === 'signin' ? 'जिस device पर login कर रहे हैं वहाँ दोबारा try कीजिए — Netflix नया 6 अंक का कोड भेजेगा।' : 'TV पर ' + (f.mode === 'update' ? '"Update household" दबाइए, फिर "Send email"।' : '"Watch temporarily" दबाइए कोड के लिए।')) + (f.attempt >= 2 ? '\nयह भी देख लीजिए कि यही Netflix है, इसी अकाउंट का।' : '') + '\nहो गया? "I clicked, check again" दबाइए।',
+    en: (f) => (f.attempt >= 2 ? 'Still nothing 🙏 Two things to check:\n' : 'Nothing came up yet 🙏\n') + (f.mode === 'verify' ? 'On the device where you are logging in, try again — Netflix will send a fresh 6-digit code.' : 'On the TV, ' + (f.mode === 'update' ? 'tap "Update household", then "Send email".' : 'tap "Watch temporarily" to get the code.')) + (f.attempt >= 2 ? '\nAlso make sure it is this Netflix, on this account.' : '') + '\nDone it? Tap "I clicked, check again".',
+    hinglish: (f) => (f.attempt >= 2 ? 'Abhi bhi kuch nahi mila 🙏 Do baat check kijiye:\n' : 'Abhi tak kuch nahi aaya 🙏\n') + (f.mode === 'verify' ? 'Jis device par login kar rahe hain wahan dobara try kijiye — Netflix naya 6 digit code bhejega.' : 'TV par ' + (f.mode === 'update' ? '"Update household" dabaiye, phir "Send email".' : '"Watch temporarily" dabaiye code ke liye.')) + (f.attempt >= 2 ? '\nYe bhi dekh lijiye ki yahi Netflix hai, isi account ka.' : '') + '\nHo gaya? "I clicked, check again" dabaiye.',
+    hi: (f) => (f.attempt >= 2 ? 'अभी भी कुछ नहीं मिला 🙏 दो बातें देखिए:\n' : 'अभी तक कुछ नहीं आया 🙏\n') + (f.mode === 'verify' ? 'जिस device पर login कर रहे हैं वहाँ दोबारा try कीजिए — Netflix नया 6 अंक का कोड भेजेगा।' : 'TV पर ' + (f.mode === 'update' ? '"Update household" दबाइए, फिर "Send email"।' : '"Watch temporarily" दबाइए कोड के लिए।')) + (f.attempt >= 2 ? '\nयह भी देख लीजिए कि यही Netflix है, इसी अकाउंट का।' : '') + '\nहो गया? "I clicked, check again" दबाइए।',
   },
   HH_UPDATE_DONE: {
     en: () => 'Done ✅ This TV is now set as your Netflix home.\nPlease try playing again — it should work now.\nIf it still asks, tap "Get my code now" for a temporary code.',
@@ -202,20 +202,20 @@ const T = {
     hinglish: () => 'Yeh raha aapka code 🔑\n1. Apne TV par "Watch temporarily" / "Enter code" dabaiye.\n2. Ye 4 digit daaliye aur confirm kijiye — chal jayega.\nYeh lagbhag 15 minute chalta hai. Kisi ko share mat kijiye.',
     hi: () => 'यह रहा आपका कोड 🔑\n1. अपने TV पर "Watch temporarily" / "Enter code" दबाइए।\n2. ये 4 अंक डालिए और confirm कीजिए — चल जाएगा।\nयह लगभग 15 मिनट चलता है। किसी को शेयर मत कीजिए।',
   },
-  SIGNIN_OFFER: {
-    en: () => 'Logging in to Netflix on a new device? 🔓 It sends a 6-digit verification code to the account email.\nTap "Get my sign-in code" and I will fetch it for you.',
-    hinglish: () => 'Naye device par Netflix login kar rahe hain? 🔓 Ye account email par 6 digit ka verification code bhejta hai.\n"Get my sign-in code" dabaiye, main aapke liye la deti hoon.',
-    hi: () => 'नए device पर Netflix login कर रहे हैं? 🔓 यह account email पर 6 अंक का verification code भेजता है।\n"Get my sign-in code" दबाइए, मैं आपके लिए ला देती हूँ।',
+  VERIFY_OFFER: {
+    en: () => 'Logging in to Netflix on a new device? 🔓 It sends a 6-digit verification code to the account email.\nTap "Get my verification code" and I will fetch it for you.',
+    hinglish: () => 'Naye device par Netflix login kar rahe hain? 🔓 Ye account email par 6 digit ka verification code bhejta hai.\n"Get my verification code" dabaiye, main aapke liye la deti hoon.',
+    hi: () => 'नए device पर Netflix login कर रहे हैं? 🔓 यह account email पर 6 अंक का verification code भेजता है।\n"Get my verification code" दबाइए, मैं आपके लिए ला देती हूँ।',
   },
-  SIGNIN_CODE_READY: {
-    en: () => 'Here is your Netflix sign-in code 🔓\nEnter it on the device where you are logging in.\nIt works for about 15 minutes. Please do not share it with anyone.',
-    hinglish: () => 'Yeh raha aapka Netflix sign-in code 🔓\nJis device par login kar rahe hain wahan yeh daaliye.\nYeh lagbhag 15 minute chalta hai. Kisi ko share mat kijiye.',
-    hi: () => 'यह रहा आपका Netflix sign-in कोड 🔓\nजिस device पर login कर रहे हैं वहाँ यह डालिए।\nयह लगभग 15 मिनट चलता है। किसी को शेयर मत कीजिए।',
+  VERIFY_CODE_READY: {
+    en: () => 'Here is your Netflix verification code 🔓\nEnter it on the device where you are logging in.\nIt works for about 15 minutes. Please do not share it with anyone.',
+    hinglish: () => 'Yeh raha aapka Netflix verification code 🔓\nJis device par login kar rahe hain wahan yeh daaliye.\nYeh lagbhag 15 minute chalta hai. Kisi ko share mat kijiye.',
+    hi: () => 'यह रहा आपका Netflix verification कोड 🔓\nजिस device पर login कर रहे हैं वहाँ यह डालिए।\nयह लगभग 15 मिनट चलता है। किसी को शेयर मत कीजिए।',
   },
-  SIGNIN_MANUAL: {
-    en: () => 'I could not get the sign-in code this time 🙏\nLog in again on your device so Netflix sends a fresh code, then message our team on WhatsApp — they will read it for you right away.',
-    hinglish: () => 'Is baar sign-in code nahi mil paaya 🙏\nApne device par dobara login kijiye taaki Netflix naya code bheje, phir WhatsApp par team ko bataiye — woh turant nikaal denge.',
-    hi: () => 'इस बार sign-in कोड नहीं मिल पाया 🙏\nअपने device पर दोबारा login कीजिए ताकि Netflix नया कोड भेजे, फिर WhatsApp पर team को बताइए — वे तुरंत निकाल देंगे।',
+  VERIFY_MANUAL: {
+    en: () => 'I could not get the verification code this time 🙏\nLog in again on your device so Netflix sends a fresh code, then message our team on WhatsApp — they will read it for you right away.',
+    hinglish: () => 'Is baar verification code nahi mil paaya 🙏\nApne device par dobara login kijiye taaki Netflix naya code bheje, phir WhatsApp par team ko bataiye — woh turant nikaal denge.',
+    hi: () => 'इस बार verification कोड नहीं मिल पाया 🙏\nअपने device पर दोबारा login कीजिए ताकि Netflix नया कोड भेजे, फिर WhatsApp पर team को बताइए — वे तुरंत निकाल देंगे।',
   },
   HOUSEHOLD_HELPER: {
     en: (f) => 'No problem 🙏 This is Netflix\'s household check. Please do it in this order:\n1. On the TV or phone, first tap "Update household" (or "I\'m travelling / Watch temporarily"), then "Send email".\n2. Then open the Household Helper, get the code and type it on the TV or phone.\nIf you open the Helper first, it will not find the code.' + (f.bothHelpers ? '\n(There are 2 Helper links: each one says which Netflix email it is for.)' : '') + '\nNetflix asks for this at random. Your account is fine, and I can help you every time it happens 😊',
@@ -628,7 +628,7 @@ const B = {
   hhupdate: { en: '🏠 This is my account / Update household', hinglish: '🏠 Ye mera account hai / Update household', hi: '🏠 यह मेरा account है / Update household' },
   hhlink: { en: '🔗 Give me the link', hinglish: '🔗 Link do, khud karunga', hi: '🔗 लिंक दो, खुद करूँगा' },
   hhexplain: { en: '💬 Please explain', hinglish: '💬 Samjhao', hi: '💬 समझाओ' },
-  hhsignin: { en: '🔓 Get my sign-in code', hinglish: '🔓 Sign-in code lao', hi: '🔓 Sign-in कोड लाओ' },
+  hhverify: { en: '🔓 Get my verification code', hinglish: '🔓 Verification code lao', hi: '🔓 Verification कोड लाओ' },
   hhretry: { en: '🔄 I clicked, check again', hinglish: '🔄 Click kar diya, check karo', hi: '🔄 दबा दिया, फिर देखो' },
   helper: { en: '🏠 Open Household Helper', hinglish: '🏠 Household Helper kholo', hi: '🏠 Household Helper खोलो' },
   support: { en: '🔐 Login / account problem', hinglish: '🔐 Login / account problem', hi: '🔐 लॉगिन / अकाउंट समस्या' },
@@ -694,7 +694,7 @@ const LEAD_EMOJI = {
   CONFIRM_PLAN: '🧾', CONFIRM_PLAN_COUPON: '🧾', SEND_PAYMENT: '💳', PAYMENT_REMINDER: '💳', PAYMENT_NOT_YET: '⏳', BACKUP_UNDER_REVIEW: '⏳',
   RENEW_PICK: '🔁', RENEW_DURATION: '🔁', RENEW_CONFIRM: '🔁', RENEW_CONFIRM_COUPON: '🔁', RENEW_NOTHING: '🔁',
   PRICE_HELP: '💰', PRICE_HELP_PLAN: '💰', PRICE_MATCH: '💰', PRICE_FROM: '💰', PAYMENT_METHOD: '💳', WHEN_LOGIN: '🔐', WHEN_LOGIN_MANUAL: '🔐', VALIDITY: '📅', DEVICES_ANSWER: '📱', QUALITY_UNSURE: '💬',
-  ASK_DEVICES_SHARING_OR_PRIVATE: '📱', MULTI_DEVICE_PLANS: '📱', ASK_SAME_TIME: '📺', ASK_LOGIN_MODE: '🔑', EARLY_RENEW_DISCOUNT: '🎁', HH_OFFER_CODE: '🏠', HH_CODE_READY: '🔑', HH_CODE_NOT_YET: '📺', HH_UPDATE_DONE: '✅', HH_EXPLAIN: '💬', HH_LINK_WHICH: '🔗', HH_LINK_STEPS: '🔗', PROFILE_ANSWER: '👤', SIGNIN_OFFER: '🔓', SIGNIN_CODE_READY: '🔓', SIGNIN_MANUAL: '🙏', MULTI_DEVICE_NONE: '📱', SWITCH_CONFIRM: '🔄', QUESTION_TO_TEAM: '💬', ASK_COUPON: '🎟️', COUPON_INVALID: '🎟️',
+  ASK_DEVICES_SHARING_OR_PRIVATE: '📱', MULTI_DEVICE_PLANS: '📱', ASK_SAME_TIME: '📺', ASK_LOGIN_MODE: '🔑', EARLY_RENEW_DISCOUNT: '🎁', HH_OFFER_CODE: '🏠', HH_CODE_READY: '🔑', HH_CODE_NOT_YET: '📺', HH_UPDATE_DONE: '✅', HH_EXPLAIN: '💬', HH_LINK_WHICH: '🔗', HH_LINK_STEPS: '🔗', PROFILE_ANSWER: '👤', VERIFY_OFFER: '🔓', VERIFY_CODE_READY: '🔓', VERIFY_MANUAL: '🙏', MULTI_DEVICE_NONE: '📱', SWITCH_CONFIRM: '🔄', QUESTION_TO_TEAM: '💬', ASK_COUPON: '🎟️', COUPON_INVALID: '🎟️',
 };
 const escRe = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function format(text, facts, intent, opts) {
