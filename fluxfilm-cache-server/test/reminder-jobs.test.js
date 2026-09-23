@@ -195,6 +195,24 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
   await jobs.run(NOW + 100 * DAY, deps);
   ok('…but welcome back again after it', MAILED.some((m) => m.to === 'farah@example.com'), MAILED.map((m) => m.to));
 
+  section('\U0001f49a the discount can be switched off without silencing the email');
+  reset();
+  await on({ winback: { on: true, withCode: false } });
+  await jobs.run(NOW, deps);
+  ok('with no discount offered the email still goes', MAILED.length === 1 && MAILED[0].to === 'farah@example.com', MAILED.map((m) => m.to));
+  ok('...and it says nothing about a code or a discount', !/code/i.test(MAILED[0].html) && !/discount/i.test(MAILED[0].html) && !/% off/.test(MAILED[0].html), MAILED[0].html.slice(0, 200));
+  ok('...nor in the subject', !/off|discount|code/i.test(MAILED[0].subject), MAILED[0].subject);
+  ok('...and it still gives them a way back', /source=winback/.test(MAILED[0].html));
+  {
+    let e = '';
+    try { await on({ winback: { on: true, withCode: false, code: '' } }); } catch (x) { e = x.message; }
+    ok('...switching it on needs no code at all now', e === '', e);
+  }
+  reset();
+  await on({ winback: { on: true, withCode: true, code: 'COMEBACK', percent: 15 } });
+  await jobs.run(NOW, deps);
+  ok('...and with it back on, the code returns', /COMEBACK/.test(MAILED[0].html) && /15% off/.test(MAILED[0].html));
+
   section('💚 a code that does not exist is never offered');
   reset();
   let threw = '';
@@ -249,7 +267,12 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
   ok('the screen is in the panel and registered', /\['rjobs', '✉️', 'Email jobs'\]/.test(read('admin.html')) && /m\.rjobs = rjView;/.test(read('admin.html')));
   ok('the screen says, in words, that nothing goes out until it is switched on', /off until you switch it on/.test(read('admin.html')));
   ok('👀 Preview and ✉️ Send me one are both there, before any switch', /data-rjpv=/.test(read('admin.html')) && /data-rjtest=/.test(read('admin.html')));
-  ok('this test file runs in the suite', / && node test\/reminder-jobs\.test\.js/.test(read('package.json')));
+ok('the panel has the discount switch, and hides the code boxes when it is off', /data-rjb="winback\.withCode"/.test(read('admin.html')) && /cfg\.withCode !== false\n?\s*\? '<label>Discount code/.test(read('admin.html').replace(/\r/g, '')));
+  ok('every day-count on the screen is editable', (() => {
+    const h = read('admin.html');
+    return ['afterHours', 'withinHours', 'afterDays', 'everyDays'].every((k) => h.indexOf("'" + k + "'") > -1) && /data-rjd="1"/.test(h);
+  })());
+    ok('this test file runs in the suite', / && node test\/reminder-jobs\.test\.js/.test(read('package.json')));
 
   console.log('\n---------------------------------------\nPASS ' + pass + '   FAIL ' + fail);
   process.exit(fail ? 1 : 0);
