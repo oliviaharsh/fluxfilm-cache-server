@@ -633,7 +633,9 @@ async function supportReplies(c, ctx, kind, service, opts) {
     return reply({ intent: 'STOPPED_WORKING', facts: { household: hh, otp: otpSvc }, buttons: [btn('myplans', lang), btn('recover', lang)].concat(hh ? helperBtns() : [], otpSvc ? [btn('getotp', lang)] : [], [wa]) });
   }
   // Login / password problems (and "OTP" for a service that logs in with an ID + password, like Netflix).
-  return reply({ intent: 'LOGIN_HELP', facts: { service: name, household: netflix, changed: kind === 'login' && CHANGED_RE.test(ctx.text || '') }, buttons: [btn('myplans', lang), btn('recover', lang)].concat(netflix ? helperBtns() : [], [wa]) });
+  // Known issue = login/password → focus only on Recover. Household has its own menu option, so we do NOT add the
+  // household Helper links here (they confused customers whose problem was clearly the password).
+  return reply({ intent: 'LOGIN_HELP', facts: { service: name, changed: kind === 'login' && CHANGED_RE.test(ctx.text || '') }, buttons: [btn('myplans', lang), btn('recover', lang), wa] });
 }
 
 // "Give me the link, I'll do it myself" / "This is my account" (when the auto permanent-update is off): give the customer

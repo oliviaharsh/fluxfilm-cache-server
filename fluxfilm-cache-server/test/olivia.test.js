@@ -707,7 +707,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   await say({ choice: 'menu' });
   await say({ choice: 'support' });
   r = await say({ choice: 'help:0' });
-  ok('Netflix login → My plans → Recover (code on your own email) + Household Helper + WhatsApp; nothing about the account shown', last(r).intent === 'LOGIN_HELP' && /Netflix ka login kabhi-kabhi badalta hai/.test(last(r).text) && /Recover dabaiye/.test(last(r).text) && ids(last(r)).join() === 'myplans,recover,helper,whatsapp,menu' && last(r).buttons.find((b) => b.id === 'recover').link === 'recover', last(r));
+  ok('Netflix login → focused Recover steps + WhatsApp; no household links mixed in; nothing about the account shown', last(r).intent === 'LOGIN_HELP' && /login shayad badal gaya hai/.test(last(r).text) && /Recover dabaiye/.test(last(r).text) && !/household/i.test(last(r).text) && ids(last(r)).join() === 'myplans,recover,whatsapp,menu' && last(r).buttons.find((b) => b.id === 'recover').link === 'recover', last(r));
   // Owner rule (Harsh, 5 Sep): the plan is checked silently first; an expired one is told it expired and offered renewal.
   shop.subs = [{ subId: 'S1', service: 'Netflix', plan: 'Sharing 1M', daysLeft: -3 }, { subId: 'S2', service: 'JioHotstar', plan: '1 Month', daysLeft: 20 }];
   r = await say({ text: 'netflix login nahi ho raha' });
@@ -722,8 +722,8 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   r = await say({ text: 'hotstar ka otp chahiye' });
   ok('a plan this number does not have → "is number par JioHotstar ka koi plan nahi dikh raha, kisi aur number se liya tha?" (says nothing else)', last(r).intent === 'NO_PLAN_ON_NUMBER' && /is number par JioHotstar ka koi plan nahi dikh raha/.test(last(r).text) && !/Netflix/.test(last(r).text) && ids(last(r)).includes('whatsapp'), last(r));
   r = await say({ text: 'netflix otp chahiye' });
-  ok('Netflix "OTP" → Netflix logs in with ID + password: login help + Household Helper, never an OTP', last(r).intent === 'LOGIN_HELP' && ids(last(r)).includes('helper1') && ids(last(r)).includes('helper2') && !ids(last(r)).includes('getotp'), last(r));
-  ok('plan without an account reference → both Household Helper links (Link 1 / Link 2)', last(r).buttons.find((b) => b.id === 'helper1').link === 'helper' && last(r).buttons.find((b) => b.id === 'helper2').link === 'helper2', last(r).buttons);
+  ok('Netflix "OTP" → Netflix logs in with ID + password: focused login help (Recover), never an OTP', last(r).intent === 'LOGIN_HELP' && ids(last(r)).includes('recover') && !ids(last(r)).includes('getotp'), last(r));
+  ok('login/password help stays FOCUSED on Recover — no household Helper links mixed in (household has its own menu)', !ids(last(r)).includes('helper1') && !ids(last(r)).includes('helper2') && !/household/i.test(last(r).text) && ids(last(r)).join() === 'myplans,recover,whatsapp,menu', last(r));
   shop.subs = [{ subId: 'S2', service: 'JioHotstar', plan: '1 Month', daysLeft: 20 }];
   r = await say({ text: 'otp chahiye' });
   ok('"otp chahiye" with only a JioHotstar plan → Get OTP for JioHotstar', last(r).intent === 'OTP_HELP' && /JioHotstar/.test(last(r).text), last(r));
@@ -884,7 +884,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('Q7 card → UPI + RuPay credit card through the team on WhatsApp (then she keeps selling)', r.messages[0].intent === 'PAYMENT_METHOD' && /RuPay credit card/.test(plain(r.messages[0].text)), r.messages);
   shop.subs = [{ subId: 'S1', service: 'Netflix', plan: 'Sharing 1M', daysLeft: 12, inventoryRef: 'NFLX-H03' }];
   r = await H({ text: 'kisi ne netflix ka password badal diya' });
-  ok('Q22 "kisi ne password badal diya" → maybe we changed it: Recover shows the new login first, then the team', last(r).intent === 'LOGIN_HELP' && /Ho sakta hai humne hi badla ho/.test(last(r).text) && ids(last(r)).slice(0, 2).join() === 'myplans,recover', last(r));
+  ok('Q22 "kisi ne password badal diya" → maybe we changed it: Recover shows the new login first, then the team', last(r).intent === 'LOGIN_HELP' && /Ho sakta hai humne recently badla ho/.test(last(r).text) && ids(last(r)).slice(0, 2).join() === 'myplans,recover', last(r));
   // Q9 ji / bro: asked once, remembered for this phone (also in a new chat), "bro" typed switches by itself
   r = await olivia.handle(PH, { choice: 'start', lang: 'hinglish' });
   const conv2 = r.conversationId;
