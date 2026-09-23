@@ -619,10 +619,9 @@ async function supportReplies(c, ctx, kind, service, opts) {
     // One OR more Netflix accounts: offer the auto-fix. Only the account whose TV is asking will have a fresh code, so
     // "Get my code now" tries each of the customer's own Netflix accounts and shows whichever one has it.
     if (usable.length) {
-      st.hhSubs = usable.map((x) => x.subId); st.hhTries = 0;
-      let canUpdate = false; try { canUpdate = !!tools().householdUpdateEnabled(); } catch (_) { canUpdate = false; }
-      const extra = canUpdate ? [btn('hhupdate', lang)] : [];
-      return reply({ intent: 'HH_OFFER_CODE', facts: { bothHelpers, canUpdate }, buttons: [btn('hhcode', lang)].concat(extra, helperBtns(), [wa]) });
+      st.hhSubs = usable.map((x) => x.subId); st.hhTries = 0; delete st.hhLinkAccs;
+      // Four clear choices: fetch the code, make this the home account, do it yourself with the right link, or "explain it".
+      return reply({ intent: 'HH_OFFER_CODE', facts: { bothHelpers }, buttons: [btn('hhcode', lang), btn('hhupdate', lang), btn('hhlink', lang), btn('hhexplain', lang), wa] });
     }
     delete st.hhSubs;
     delete st.hhSub;
@@ -635,6 +634,37 @@ async function supportReplies(c, ctx, kind, service, opts) {
   }
   // Login / password problems (and "OTP" for a service that logs in with an ID + password, like Netflix).
   return reply({ intent: 'LOGIN_HELP', facts: { service: name, household: netflix, changed: kind === 'login' && CHANGED_RE.test(ctx.text || '') }, buttons: [btn('myplans', lang), btn('recover', lang)].concat(netflix ? helperBtns() : [], [wa]) });
+}
+
+// "Give me the link, I'll do it myself" / "This is my account" (when the auto permanent-update is off): give the customer
+// the RIGHT household link for their own account and clear steps. If they own more than one Netflix, ask which one first.
+// The account's login email is never shown or logged; a masked hint only helps the customer pick, and the steps tell them
+// to type "the email you log in with" on the page.
+const maskEmail = (e) => { const v = s(e); const at = v.indexOf('@'); if (at < 1) return ''; const lp = v.slice(0, at); return lp.slice(0, Math.min(3, lp.length)) + '…' + v.slice(at); };
+function hhStepsReply(st, lang, kind, mode) {
+  const linkBtn = kind === 'D' ? btn('helper2', lang) : btn('helper', lang); // Link 1 for FluxFilm's own (H), Link 2 for the rest (D)
+  return [{ intent: 'HH_LINK_STEPS', facts: { mode }, buttons: withBackToPay(st, lang, [linkBtn, btn('hhcode', lang), btn('whatsapp', lang), btn('menu', lang)]) }];
+}
+async function hhSelfServe(c, ctx, mode, idx) {
+  const st = c.state; const lang = c.lang;
+  if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
+  // An earlier "which account?" pick.
+  if (idx != null && idx >= 0 && Array.isArray(st.hhLinkAccs) && st.hhLinkAccs[idx]) {
+    const a = st.hhLinkAccs[idx];
+    return hhStepsReply(st, lang, a.kind, a.mode || mode);
+  }
+  const na = await tools().netflixAccounts(c.phone).catch(() => null);
+  let usable = na && na.ok ? (na.accounts || []).filter((x) => x.email && x.kind) : [];
+  if (Array.isArray(st.hhSubs) && st.hhSubs.length) { const set = new Set(st.hhSubs); const pref = usable.filter((x) => set.has(x.subId)); if (pref.length) usable = pref; }
+  const seen = new Set(); const accs = [];
+  for (const x of usable) { const k = (s(x.email) + '|' + x.kind).toLowerCase(); if (seen.has(k)) continue; seen.add(k); accs.push(x); }
+  ctx.meta.push({ tool: 'netflixAccounts', usable: accs.length, for: 'hhlink' });
+  if (!accs.length) return supportReplies(c, ctx, 'household', '', { noAuto: true });
+  if (accs.length === 1) { delete st.hhLinkAccs; return hhStepsReply(st, lang, accs[0].kind, mode); }
+  // More than one Netflix on this number: ask which account the TV is asking about (by a masked email hint).
+  st.hhLinkAccs = accs.map((x) => ({ kind: x.kind, mode, mask: maskEmail(x.email) }));
+  const buttons = st.hhLinkAccs.map((a, i) => btn('hhlink:' + i, lang, a.mask || ('Account ' + (i + 1))));
+  return [{ intent: 'HH_LINK_WHICH', buttons: withBackToPay(st, lang, buttons.concat([btn('whatsapp', lang), btn('menu', lang)])) }];
 }
 
 // Buttons that create, change or cancel an order: only an explicit tap or clear words, never an AI guess.
@@ -945,6 +975,8 @@ async function turn(c, input, ctx) {
       const payEnts = inPayment && st.orderId ? entities(text, ctx.cat.plans) : {};
       if (it === 'paid' && PAY_STEPS.has(st.step)) action = st.paused ? 'backpay_paid' : 'paid';
       else if (payEnts.service) { st.pendingSwitch = { service: payEnts.service, variant: payEnts.variant || '', days: payEnts.days || 0 }; action = 'switchask'; }
+      else if ((st.lastButtons || []).some((b) => b.id === 'hhexplain' || b.id === 'hhcode' || b.id === 'hhlink') && /\b(samjh?ao|samajh(a|ao)?|explain|batao|bata(iye|do)|kya (hai|hota)|what is|kyu|kyun|why)\b/i.test(text)) action = 'hhexplain';
+      else if ((st.lastButtons || []).some((b) => b.id === 'hhlink') && /\b(khud|self|myself|main karu?n?ga|main kar lu|link do|link bhej|mujhe link|do it myself)\b/i.test(text)) action = 'hhlink';
       else if ((st.lastButtons || []).some((b) => b.id === 'hhcode' || b.id === 'hhretry') && /\b(aap|ap|tum|pls|please)?\s*(kar ?do|kardo|kr ?do|krdo|kardijiye|kar dijiye|kar do na|do it|do this|you do it|fix it|karo|kar diya|kardiya|kr diya|ho gaya|hogaya|done|click kiya|click kar diya|clicked|daba diya|check|dekho|dekh lo|dobara|again|try again)\b/i.test(text)) action = (st.lastButtons.some((b) => b.id === 'hhretry') ? 'hhretry' : 'hhcode');
       else if (it === 'cantpay' && st.step === 'paying') action = 'cantpay';
       else if ((it === 'yes' || /ek saath|same time|together|saath mein|dono par ek/i.test(text)) && st.step === 'devices_sametime') action = 'dsame:yes';
@@ -1099,6 +1131,13 @@ async function turn(c, input, ctx) {
     return [{ intent: 'HANDOFF_TO_HUMAN', buttons: withBackToPay(st, lang, [btn('whatsapp', lang), btn('menu', lang)]) }];
   }
   // After-sale help: login / password, household / TV code, "band ho gaya", OTP, paid but no login (menu: "Login / account problem").
+  if (action === 'hhexplain') {
+    if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
+    return [{ intent: 'HH_EXPLAIN', buttons: withBackToPay(st, lang, [btn('hhcode', lang), btn('hhlink', lang), btn('whatsapp', lang), btn('menu', lang)]) }];
+  }
+  // "Give me the link, I'll do it myself" (temporary code page); and "This is my account" when the auto update is off.
+  if (action === 'hhlink' || action.indexOf('hhlink:') === 0) return hhSelfServe(c, ctx, 'travel', action.indexOf('hhlink:') === 0 ? Number(action.slice(7)) : -1);
+  if (action === 'hhupdate') { let upOn = false; try { upOn = !!tools().householdUpdateEnabled(); } catch (_) { upOn = false; } if (!upOn) return hhSelfServe(c, ctx, 'update', -1); }
   if (action === 'hhcode' || action === 'hhretry' || action === 'hhupdate') {
     // The customer's own Netflix accounts we offered. Only the account whose TV is asking has a fresh link, so try each.
     const na = await tools().netflixAccounts(c.phone).catch(() => null);

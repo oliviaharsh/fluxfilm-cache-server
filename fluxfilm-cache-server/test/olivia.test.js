@@ -740,7 +740,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   shop.nflxAccounts = [{ subId: 'S1', service: 'Netflix', ref: 'NFLX-D11', email: 'jess@example.com', kind: 'D' }];
   shop.hhCode = '4162';
   r = await say({ text: 'tv par household code maang raha hai' });
-  ok('household + one active Netflix account → offers "Get my code now" (auto-fix) beside the Helper', last(r).intent === 'HH_OFFER_CODE' && ids(last(r))[0] === 'hhcode' && ids(last(r)).includes('helper2') && ids(last(r)).includes('whatsapp'), last(r));
+  ok('household + one active Netflix account → offers the 4 choices: code, my-account, link, explain', last(r).intent === 'HH_OFFER_CODE' && ids(last(r))[0] === 'hhcode' && ids(last(r)).includes('hhupdate') && ids(last(r)).includes('hhlink') && ids(last(r)).includes('hhexplain') && ids(last(r)).includes('whatsapp'), last(r));
   r = await say({ choice: 'hhcode' });
   ok('tap Get my code → the code comes back in a card only (never in the words), with a "15 minutes" note', last(r).intent === 'HH_CODE_READY' && last(r).card && last(r).card.type === 'code' && last(r).card.code === '4162' && !/4162/.test(last(r).text) && /15 min/i.test(last(r).text) && calls.some((c) => c[0] === 'householdCode' && c[1] === 'S1' && c[2] === 'D'), last(r));
   ok('the code card is logged only as a marker, never the digits', !msgs.some((m) => /4162/.test(m.body)) && msgs.some((m) => /\[code card\]/.test(m.body)));
@@ -777,23 +777,50 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   await say({ choice: 'menu' });
   r = await say({ text: 'netflix household problem' });
   ok('household with NO resolvable Netflix account → the manual Helper only, no auto-fix button', last(r).intent === 'HOUSEHOLD_HELPER' && !ids(last(r)).includes('hhcode'), last(r));
-  // ── permanent "Update household" — off by default, shown only when OLIVIA_HH_UPDATE=on ──
+  // ── "Samjhao" and "do it myself" links (Harsh, 23 Sep 2026) ──
+  shop.nflxAccounts = [{ subId: 'S1', service: 'Netflix', ref: 'NFLX-D11', email: 'jess@example.com', kind: 'D', tag: '' }];
+  shop.hhUpdateOn = false; shop.hhCode = '';
+  await say({ choice: 'menu' });
+  r = await say({ text: 'tv par household code maang raha hai' });
+  calls.length = 0;
+  r = await say({ choice: 'hhexplain' });
+  ok('tap "Samjhao" → a plain explanation, no code fetch, still offers to do it', last(r).intent === 'HH_EXPLAIN' && ids(last(r)).includes('hhcode') && ids(last(r)).includes('hhlink') && !calls.some((c) => c[0] === 'householdCode'), last(r));
+  await say({ choice: 'menu' });
+  r = await say({ text: 'netflix household problem' });
+  calls.length = 0;
+  r = await say({ choice: 'hhlink' });
+  ok('one account + "Give me the link" → self-serve steps with the right Helper link (D → Link 2), no code fetch', last(r).intent === 'HH_LINK_STEPS' && last(r).buttons.some((b) => b.link === 'helper2') && /Get Travel Code/i.test(last(r).text) && !calls.some((c) => c[0] === 'householdCode'), last(r));
+  // more than one Netflix → ask which account first (by a masked email), never the full address in the words
+  shop.nflxAccounts = [
+    { subId: 'S1', service: 'Netflix', ref: 'NFLX-H4', email: 'fluxfilm157@gmail.com', kind: 'H', tag: 'ACC3' },
+    { subId: 'S2', service: 'Netflix', ref: 'NFLX-D1', email: 'boxxx@gmail.com', kind: 'D', tag: '' },
+  ];
+  await say({ choice: 'menu' });
+  r = await say({ text: 'household code chahiye' });
+  r = await say({ choice: 'hhlink' });
+  ok('two accounts + "Give me the link" → asks which one, by masked email, no full email in the words', last(r).intent === 'HH_LINK_WHICH' && ids(last(r)).some((x) => /^hhlink:\d/.test(x)) && !/fluxfilm157@|boxxx@/.test(last(r).text) && last(r).buttons.some((b) => /…@/.test(b.label)), last(r));
+  r = await say({ choice: 'hhlink:0' });
+  ok('picking the H account → self-serve steps with Link 1 (ours)', last(r).intent === 'HH_LINK_STEPS' && last(r).buttons.some((b) => b.link === 'helper'), last(r));
+  // ── permanent "Update household": "This is my account" always shown; auto-press only when OLIVIA_HH_UPDATE=on ──
   shop.nflxAccounts = [{ subId: 'S1', service: 'Netflix', ref: 'NFLX-D11', email: 'jess@example.com', kind: 'D', tag: '' }];
   shop.hhUpdateOn = false;
   await say({ choice: 'menu' });
   r = await say({ text: 'tv par household code maang raha hai' });
-  ok('update off by default → only "Get my code now", no permanent-update button', ids(last(r))[0] === 'hhcode' && !ids(last(r)).includes('hhupdate'), last(r));
+  ok('"This is my account" is always offered now', ids(last(r))[0] === 'hhcode' && ids(last(r)).includes('hhupdate'), last(r));
+  calls.length = 0;
+  r = await say({ choice: 'hhupdate' });
+  ok('update OFF → "This is my account" gives self-serve UPDATE steps, never auto-presses anything', last(r).intent === 'HH_LINK_STEPS' && /Update household/i.test(last(r).text) && !calls.some((c) => c[0] === 'householdUpdate'), last(r));
   shop.hhUpdateOn = true; shop.hhUpdated = true;
   await say({ choice: 'menu' });
   r = await say({ text: 'household problem aa raha hai tv par' });
-  ok('update on → both "Get my code now" and "Make this TV my home"', ids(last(r)).includes('hhcode') && ids(last(r)).includes('hhupdate'), last(r));
+  ok('update on → both "Get my code now" and "This is my account"', ids(last(r)).includes('hhcode') && ids(last(r)).includes('hhupdate'), last(r));
   r = await say({ choice: 'hhupdate' });
-  ok('Make this TV my home → HH_UPDATE_DONE when the update confirms, calls householdUpdate', last(r).intent === 'HH_UPDATE_DONE' && /home set ho gaya|home/.test(last(r).text) && calls.some((c) => c[0] === 'householdUpdate' && c[1] === 'S1'), last(r));
+  ok('update ON → "This is my account" auto-confirms → HH_UPDATE_DONE, calls householdUpdate', last(r).intent === 'HH_UPDATE_DONE' && /home set ho gaya|home/.test(last(r).text) && calls.some((c) => c[0] === 'householdUpdate' && c[1] === 'S1'), last(r));
   shop.hhUpdated = false;
   await say({ choice: 'menu' });
   r = await say({ text: 'tv code maang raha hai household' });
   r = await say({ choice: 'hhupdate' });
-  ok('update could not confirm → manual Household Helper, nothing claimed done', last(r).intent === 'HOUSEHOLD_HELPER' && !r.messages.some((m) => m.intent === 'HH_UPDATE_DONE'), r.messages);
+  ok('update on but could not confirm → manual Household Helper, nothing claimed done', last(r).intent === 'HOUSEHOLD_HELPER' && !r.messages.some((m) => m.intent === 'HH_UPDATE_DONE'), r.messages);
   shop.hhUpdateOn = false; shop.hhUpdated = false;
   // oliviahousehold: kind, tag, the travel-code parser (spaced digits), and a blocked sign-in / reCAPTCHA page
   const hhmod = require('../oliviahousehold.js');
