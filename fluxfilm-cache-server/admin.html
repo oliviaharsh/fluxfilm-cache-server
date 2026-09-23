@@ -5327,7 +5327,29 @@ function bankClick(e) {
         form.innerHTML = '<div class="qnote" style="margin-top:8px">🔗 Linked to <b>' + esc(x.orderId) + '</b>. It is still unpaid — deliver it now?</div><div class="row" style="gap:6px;margin-top:8px"><button class="btn green sm" data-bkact="paid" data-oid="' + esc(x.orderId) + '" data-ref="' + esc(x.upiRef) + '">✅ Mark paid + deliver</button><button class="btn ghost sm" data-bkact="refresh">Not now</button></div>';
         return;
       }
+      // 💳 A credit renewal: the money has arrived, but the order stays CREDIT — and so stays in 💳 Receivables —
+      // until it is settled. Linking alone used to look finished and quietly leave the customer owing.
+      var creditsLeft = (x.credits || []).length ? x.credits : (x.isCredit ? [{ orderId: x.orderId, amount: x.paymentAmount }] : []);
+      if (creditsLeft.length) {
+        form.innerHTML = '<div class="qnote warn" style="margin-top:8px">💳 Linked — but ' + (creditsLeft.length === 1 ? 'this is a <b>credit renewal</b>' : 'these are <b>credit renewals</b>') +
+          '. Linking does not settle ' + (creditsLeft.length === 1 ? 'it' : 'them') + ', so ' + (creditsLeft.length === 1 ? 'it stays' : 'they stay') + ' in 💳 Receivables until marked paid.</div>' +
+          '<div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">' +
+          creditsLeft.map(function (p) { return '<button class="btn green sm" data-bkact="creditpaid" data-oid="' + esc(p.orderId) + '" data-ref="' + esc(x.upiRef) + '" data-amt="' + esc(p.amount) + '">💳 Mark ' + esc(p.orderId) + ' paid (' + money(p.amount) + ')</button>'; }).join('') +
+          '<button class="btn ghost sm" data-bkact="refresh">Not now</button></div>';
+        return;
+      }
       loadBank();
+    });
+    return;
+  }
+  if (act === 'creditpaid') {
+    // Settles it through 💳 Receivables' own endpoint, so coins, referral reward and the owner alert all still run.
+    var oid = b.getAttribute('data-oid');
+    b.disabled = true; b.textContent = 'Marking…';
+    post('/admin/api/credit/mark-paid', { orderId: oid, amount: b.getAttribute('data-amt'), method: 'UPI', ref: b.getAttribute('data-ref'), note: 'Linked from 🏦 Bank payments', key: key }).then(function (r) {
+      if (r && r.ok) { toast(r.message || (oid + ' marked paid')); loadBank(); return; }
+      b.disabled = false; b.textContent = '💳 Mark ' + oid + ' paid';
+      toast('⚠️ ' + ((r && r.message) || 'could not mark it paid') + (r && r.mismatch ? ' — settle it in 💳 Receivables' : ''));
     });
     return;
   }
