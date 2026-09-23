@@ -235,6 +235,27 @@ const orderDevices = (name) => Math.max(1, Number((String(name).match(orderDevRe
   grid.saveRow();
   ok('grid editor: saveRow keeps \\n in multi-line fields', posted && posted.u === '/admin/api/row' && posted.b.raw.Benefits === '📅1 Month\n🤫Private' && posted.b.raw.DeviceRuleText === 'up to 2\nwatch 1' && posted.b.raw.Price === '169' && posted.b.keyvals.plan === 'Private 1M', posted);
 
+  // 🗂️ 59 plans across 9 services used to render as one 5,700 px scroll (owner, 23 Sep 2026: "add categories
+  // because have to scroll down to get to so many plans"). Services fold, and inside one the plans sit under
+  // their own category. Nothing here changes the API — it is all in the page.
+  console.log('\n=== plans list: folding, categories, search ===');
+  {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8');
+    const lift = (name) => { const i = html.indexOf('function ' + name + '('); let j = html.indexOf('{', i), d = 0; for (let k = j; k < html.length; k++) { if (html[k] === '{') d++; else if (html[k] === '}') { d--; if (!d) return html.slice(i, k + 1); } } return ''; };
+    const F2 = new Function(lift('plCategory') + '\n' + lift('plMatches') + '\nreturn { plCategory, plMatches };')();
+    ok('a plan\'s category is what it is and for how many devices', F2.plCategory({ type: 'Sharing', devices: 2 }) === 'Sharing · 2 devices' && F2.plCategory({ type: 'Private', devices: 1 }) === 'Private · 1 device');
+    ok('a service with no Private/Sharing split still groups by devices', F2.plCategory({ type: '', devices: 1 }) === '1 device' && F2.plCategory({ type: '', devices: 2 }) === '2 devices');
+    ok('search looks at the name, the type and the badge', F2.plMatches({ plan: 'Sharing 1M', type: 'Sharing', badgeText: '' }, 'sharing') && F2.plMatches({ plan: 'Private 1Y', type: 'Private', badgeText: 'Most Popular' }, 'popular') && !F2.plMatches({ plan: 'Sharing 1M', type: 'Sharing' }, 'zee'));
+    ok('an empty search matches everything', F2.plMatches({ plan: 'x' }, ''));
+
+    ok('services are folded shut unless opened, and the open ones are remembered', /\.pl-svc:not\(\.open\) \.pl-item/.test(html) && /localStorage\.setItem\('ff_pl_open'/.test(html) && /function plOpen\(\)/.test(html));
+    ok('a category heading is only drawn when a service has more than one', /if \(cats\.length > 1\) rows \+= '<div class="pl-cat">'/.test(html));
+    ok('there is a search box and a chip per service, plus Fold all', /id="plq"/.test(html) && /class="pl-jump"/.test(html) && /data-all="1"/.test(html) && /Fold all/.test(html));
+    ok('searching opens what it finds', /var isOpen = q \? true : open\.indexOf\(g\.service\) > -1;/.test(html));
+    // ➕ Add plan sits inside the header that folds the service — the button has to win.
+    ok('the buttons are handled before the fold, so ➕ Add plan still adds', html.indexOf("var b = ev.target.closest('[data-ed],[data-tog],[data-add]');") < html.indexOf("var fold = ev.target.closest('[data-fold]');"));
+  }
+
   console.log('\n---------------------------------------');
   console.log('PASS ' + pass + '   FAIL ' + fail);
   process.exitCode = fail ? 1 : 0;
