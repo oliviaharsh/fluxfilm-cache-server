@@ -9,6 +9,10 @@
  *   3. WINBACK    — a customer whose plan ended `afterDays` ago (30) and who has not come back: one email with a
  *                   discount code, and not again for `everyDays` (90).
  *
+ *   4. WHATSNEW   — the only one that is not a reminder: "here is something worth watching, and by the way the
+ *                   shop is automatic now". Goes to customers who have bought before, a batch a day, and not
+ *                   again for everyDays (30). It cannot send with no title set, so it can never go out empty.
+ *
  * 🔒 These send REAL messages to REAL customers, so:
  *   · every job ships OFF. Nothing goes out until the owner switches that job on.
  *   · there is a preview (what would go, to whom, sending nothing) and a "send one to me" before that.
@@ -39,6 +43,14 @@ const DEFAULTS = {
   // perDay: how many lapsed customers to write to in a DAY. The list is worked through a batch at a time
   // rather than in one burst, so 113 people become six quiet days instead of one loud afternoon.
   winback: { on: false, withCode: true, afterDays: 30, everyDays: 90, code: '', percent: 0, perDay: 20 },
+  // 📢 What is worth watching + how the shop works now. The title is seeded with an EXAMPLE so the preview shows
+  // something real on day one; the owner types whatever is actually new before switching it on. Nothing here is a
+  // claim about a release date, on purpose — 'badge' is free text the owner owns.
+  whatsnew: {
+    on: false, perDay: 40, everyDays: 30, onlyActive: false,
+    title: 'Laapataa Ladies', service: 'Netflix', badge: 'Worth a watch',
+    line: 'Two brides, one train, and the funniest mix-up in years.',
+  },
   quietStart: 9,
   quietEnd: 21,
   maxPerRun: 30,
@@ -73,6 +85,9 @@ async function getSettings(deps) {
     abandoned: Object.assign({}, DEFAULTS.abandoned, o.abandoned || {}),
     expiryMail: Object.assign({}, DEFAULTS.expiryMail, o.expiryMail || {}),
     winback: Object.assign({}, DEFAULTS.winback, o.winback || {}),
+    // The live settings row was written before this job existed, so it has no whatsnew at all — the defaults
+    // fill it in rather than the run finding undefined.
+    whatsnew: Object.assign({}, DEFAULTS.whatsnew, o.whatsnew || {}),
     quietStart: num(o.quietStart, DEFAULTS.quietStart),
     quietEnd: num(o.quietEnd, DEFAULTS.quietEnd),
     maxPerRun: Math.min(200, Math.max(1, num(o.maxPerRun, DEFAULTS.maxPerRun))),
@@ -115,6 +130,19 @@ async function saveSettings(input, deps) {
     if (w.code != null) next.winback.code = s(w.code).toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 24);
     // A code is only demanded when one is actually being offered.
     if (next.winback.on && next.winback.withCode && !next.winback.code) errs.push('Set the discount code, or turn off "offer a discount code".');
+  }
+  if (i.whatsnew) {
+    const w = i.whatsnew;
+    if (w.on != null) next.whatsnew.on = !!w.on;
+    if (w.onlyActive != null) next.whatsnew.onlyActive = !!w.onlyActive;
+    if (w.perDay != null) next.whatsnew.perDay = Math.min(500, Math.max(1, num(w.perDay, 40)));
+    if (w.everyDays != null) next.whatsnew.everyDays = Math.min(365, Math.max(7, num(w.everyDays, 30)));
+    if (w.title != null) next.whatsnew.title = s(w.title).slice(0, 80);
+    if (w.service != null) next.whatsnew.service = s(w.service).slice(0, 40);
+    if (w.badge != null) next.whatsnew.badge = s(w.badge).slice(0, 40);
+    if (w.line != null) next.whatsnew.line = s(w.line).slice(0, 160);
+    // An announcement with nothing to announce is not a thing worth emailing 100 people.
+    if (next.whatsnew.on && !next.whatsnew.title) errs.push('Type what you are announcing before switching this on.');
   }
   if (i.quietStart != null) next.quietStart = num(i.quietStart, cur.quietStart);
   if (i.quietEnd != null) next.quietEnd = num(i.quietEnd, cur.quietEnd);
@@ -199,6 +227,70 @@ function winbackEmail(p) {
           '<div style="color:#15803d;font-size:13px;margin-top:4px">' + esc(off) + '</div></div>'
         : '<p style="color:#475569;font-size:14px">Everything is where you left it — your profile, your watch history, the lot.</p>') +
       button(link, 'Pick a plan')),
+    link,
+  };
+}
+
+/**
+ * 4 · 📢 "here is something worth watching". Built for EMAIL, not for a browser, which rules out the obvious
+ * pretty things: Gmail strips inline <svg> and blocks data: URIs in <img>, and Outlook's Word engine ignores
+ * border-radius. So every "card", icon and avatar below is drawn with table cells, background colours, borders
+ * and real text — it degrades to a plain tidy block in the worst client instead of to an empty white rectangle,
+ * which is what an SVG email actually looks like for most people.
+ */
+function avatarRow() {
+  // Letter avatars: a coloured circle and an initial. No image to load, nothing to block.
+  const people = [['A', '#e11d48'], ['R', '#7c3aed'], ['S', '#0891b2'], ['M', '#ea580c'], ['K', '#16a34a']];
+  return '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto"><tr>' +
+    people.map(([ch, bg]) =>
+      '<td style="padding:0 3px"><div style="width:32px;height:32px;line-height:32px;border-radius:16px;background:' + bg +
+      ';color:#fff;font-size:13px;font-weight:700;text-align:center">' + ch + '</div></td>').join('') +
+    '<td style="padding:0 3px"><div style="width:32px;height:32px;line-height:32px;border-radius:16px;background:#1f2937;color:#e5e7eb;font-size:11px;font-weight:700;text-align:center">+99</div></td>' +
+    '</tr></table>';
+}
+function featureCards() {
+  const cards = [
+    ['⚡', 'Instant', 'Your login lands in your inbox the moment the payment clears.'],
+    ['🤖', 'Automatic', 'No waiting for a reply. The shop does it itself, day or night.'],
+    ['🔐', 'Your own profile', 'Your profile, your PIN, your watch history. Nobody else in it.'],
+  ];
+  return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0"><tr>' +
+    cards.map(([icon, head, body]) =>
+      '<td width="33%" valign="top" style="padding:4px">' +
+      '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 10px;height:100%">' +
+      '<div style="font-size:22px;line-height:26px">' + icon + '</div>' +
+      '<div style="font-size:13px;font-weight:700;color:#0f172a;margin-top:4px">' + head + '</div>' +
+      '<div style="font-size:11.5px;color:#64748b;margin-top:3px;line-height:1.45">' + body + '</div>' +
+      '</div></td>').join('') +
+    '</tr></table>';
+}
+function whatsnewEmail(p) {
+  const link = SITE() + '/?source=whatsnew';
+  const title = s(p.title);
+  const svc = s(p.service) || 'Netflix';
+  const badge = s(p.badge);
+  // The "poster": a deep gradient panel with the title set large. A real poster would be an <img> on an https URL,
+  // which is the one image form every client loads — drop one in and this becomes that.
+  const poster =
+    '<div style="background:#141418;background-image:linear-gradient(135deg,#5c1116 0%,#1d0a0d 55%,#0b0b0f 100%);border-radius:14px;padding:26px 20px;text-align:center">' +
+    (badge ? '<div style="display:inline-block;background:rgba(255,255,255,.14);color:#fecdd3;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:4px 10px;border-radius:999px">' + esc(badge) + '</div>' : '') +
+    '<div style="color:#ffffff;font-size:26px;font-weight:800;line-height:1.2;margin-top:10px">' + esc(title) + '</div>' +
+    '<div style="color:#f8b4bc;font-size:12.5px;font-weight:600;margin-top:6px">🎬 on ' + esc(svc) + '</div>' +
+    '</div>';
+  return {
+    subject: '🍿 ' + title + ' on ' + svc + ' — and your login now arrives instantly',
+    html: shell(
+      '<div style="text-align:center;margin-bottom:6px"><span style="font-size:19px;font-weight:800;color:#e11d48">FluxFilm</span></div>' +
+      '<p style="color:#475569;margin-top:0;font-size:14px">Hi ' + esc(firstName(p.name) || 'there') + ',</p>' +
+      poster +
+      (s(p.line) ? '<p style="color:#475569;font-size:14px;line-height:1.55;margin:14px 0 0">' + esc(p.line) + '</p>' : '') +
+      '<p style="color:#0f172a;font-size:14px;font-weight:700;margin:18px 0 0">One more thing — the shop runs itself now.</p>' +
+      '<p style="color:#475569;font-size:13.5px;line-height:1.55;margin:4px 0 0">No messaging us and waiting. Pick a plan, pay, and the login is in your inbox before you have put your phone down.</p>' +
+      featureCards() +
+      '<div style="text-align:center;margin:18px 0 6px">' + avatarRow() +
+      '<div style="color:#94a3b8;font-size:11.5px;margin-top:7px">watching on FluxFilm right now</div></div>' +
+      button(link, 'See what is on'),
+    ),
     link,
   };
 }
@@ -295,10 +387,38 @@ async function winbackCandidates(settings, now, deps) {
   return out;
 }
 
+// ── job 4 · what is worth watching, and how the shop works now ─────────────────────────────────────────────────
+async function whatsnewCandidates(settings, now, deps) {
+  const cfg = settings.whatsnew;
+  if (!s(cfg.title)) return [];                     // nothing to announce — belt and braces with the validator
+  // Everyone who has actually bought from us and left an address. Not every phone in the table: a stranger who
+  // once opened the site is not someone to send film recommendations to.
+  const rows = await q(deps,
+    'SELECT c.phone_norm, c.name, c.email, MAX(sb.service) AS service, MAX(sb.expiry_date) AS last_expiry ' +
+    'FROM customers c JOIN subscriptions sb ON sb.phone_norm = c.phone_norm ' +
+    "WHERE c.email IS NOT NULL AND TRIM(c.email) <> '' " +
+    'GROUP BY c.phone_norm, c.name, c.email ORDER BY MAX(sb.expiry_date) DESC LIMIT 600', []);
+  const out = [];
+  for (const r of (rows || [])) {
+    const phone = norm(r.phone_norm);
+    if (!phone) continue;
+    // One announcement per person per everyDays, whatever the title is. Changing the film does not buy a second
+    // email inside the window — that window is the promise that we will not become noise.
+    if (await alreadySent(deps, phone, 'WHATSNEW', null, cfg.everyDays * DAY, now)) continue;
+    if (cfg.onlyActive) {
+      const live = await q(deps, "SELECT 1 AS x FROM subscriptions WHERE phone_norm = ? AND UPPER(status) = 'ACTIVE' AND (expiry_date IS NULL OR expiry_date > NOW()) LIMIT 1", [phone]);
+      if (!live || !live.length) continue;
+    }
+    out.push({ key: phone, phone, name: s(r.name), email: s(r.email), service: s(r.service) });
+  }
+  return out;
+}
+
 // ── rendering one candidate, for preview and for sending ──────────────────────────────────────────────────────
 function renderFor(job, cand, settings, now, deps) {
   if (job === 'abandoned') return abandonedEmail(cand);
   if (job === 'winback') return winbackEmail(Object.assign({}, cand, { code: settings.winback.code, percent: settings.winback.percent, withCode: settings.winback.withCode }));
+  if (job === 'whatsnew') return whatsnewEmail(Object.assign({}, cand, settings.whatsnew));
   const credit = dep(deps, 'credit', './credit');
   return credit.reminderEmail({ name: cand.name, service: cand.service, plan: cand.plan, expiry: cand.expiry, subId: cand.subId, now: new Date(now) });
 }
@@ -307,7 +427,11 @@ const JOBS = {
   abandoned: { kind: () => 'ABANDONED', find: abandonedCandidates },
   expiryMail: { kind: (c) => c.kind, find: expiryCandidates },
   winback: { kind: () => 'WINBACK', find: winbackCandidates },
+  whatsnew: { kind: () => 'WHATSNEW', find: whatsnewCandidates },
 };
+
+/** The jobs that go out a BATCH A DAY rather than all at once, and the setting that says how big a batch is. */
+const BATCHED = { winback: 'WINBACK', whatsnew: 'WHATSNEW' };
 
 /** Read-only: who would be written to, and exactly what the first one would say. Sends nothing. */
 async function preview(job, now, deps) {
@@ -320,15 +444,15 @@ async function preview(job, now, deps) {
   catch (e) { if (missingTable(e)) return { ok: true, job, total: 0, candidates: [], note: 'Run db/schema-v14.sql first (reminder_log).' }; throw e; }
   let perBatch = settings.maxPerRun;
   let days = 0;
-  if (job === 'winback') {
-    perBatch = Math.min(perBatch, settings.winback.perDay);
-    days = Math.ceil(list.length / Math.max(1, settings.winback.perDay));
+  if (BATCHED[job]) {
+    perBatch = Math.min(perBatch, settings[job].perDay);
+    days = Math.ceil(list.length / Math.max(1, settings[job].perDay));
   }
   const capped = list.slice(0, perBatch);
   const first = capped[0] || null;
   return {
     ok: true, job, total: list.length, wouldSend: capped.length, maxPerRun: settings.maxPerRun,
-    perDay: job === 'winback' ? settings.winback.perDay : null, days,
+    perDay: BATCHED[job] ? settings[job].perDay : null, days,
     candidates: capped.slice(0, 20).map((c) => ({ key: c.key, name: c.name, phone: c.phone, email: c.email, service: c.service, plan: c.plan })),
     sample: first ? Object.assign({ to: first.email || '(push)', }, renderFor(job, first, settings, at, deps)) : null,
   };
@@ -367,11 +491,11 @@ async function runJob(job, settings, now, deps) {
   // How many may go in this run. Win-back also has a DAILY batch size, so a long list is worked through a bit at
   // a time: today's batch goes, tomorrow's run picks up where it stopped, because everyone written to is logged.
   let room = settings.maxPerRun;
-  if (job === 'winback') {
-    const today = await sentSince(deps, 'WINBACK', DAY, now).catch(() => 0);
+  if (BATCHED[job]) {
+    const today = await sentSince(deps, BATCHED[job], DAY, now).catch(() => 0);
     out.sentToday = today;
-    out.perDay = settings.winback.perDay;
-    room = Math.max(0, Math.min(room, settings.winback.perDay - today));
+    out.perDay = settings[job].perDay;
+    room = Math.max(0, Math.min(room, settings[job].perDay - today));
     if (!room) return Object.assign(out, { skipped: "today's batch is done" });
   }
 
@@ -415,10 +539,12 @@ async function run(now, deps) {
   const h = istHour(at);
   if (h < settings.quietStart || h >= settings.quietEnd) return { ok: true, skipped: 'quiet hours' };
   const jobs = [];
-  for (const name of ['abandoned', 'expiryMail', 'winback']) {
+  for (const name of ['abandoned', 'expiryMail', 'winback', 'whatsnew']) {
     if (!settings[name].on) continue;
     // Never offer a code that does not exist. With the discount switched off there is nothing to check.
     if (name === 'winback' && settings.winback.withCode && !settings.winback.code) continue;
+    // Never announce nothing.
+    if (name === 'whatsnew' && !s(settings.whatsnew.title)) continue;
     jobs.push(await runJob(name, settings, at, deps));
   }
   return { ok: true, ran: jobs.length, jobs };
@@ -448,7 +574,7 @@ function mount(app, deps) {
     if (!auth(req, res)) return;
     try {
       const r = await saveSettings(req.body || {}, deps);
-      const on = ['abandoned', 'expiryMail', 'winback'].filter((k) => r.settings[k].on);
+      const on = ['abandoned', 'expiryMail', 'winback', 'whatsnew'].filter((k) => r.settings[k].on);
       audit.record(req, { action: 'reminders.jobs', entity: 'app_settings', id: KEY, summary: on.length ? 'on: ' + on.join(', ') : 'all off', details: r.settings });
       res.json(r);
     } catch (e) { fail(res, e); }
@@ -480,5 +606,5 @@ function mount(app, deps) {
 module.exports = {
   mount, run, runJob, startTimer, getSettings, saveSettings, preview, sendTest,
   DEFAULTS, KEY, JOBS,
-  _internal: { abandonedEmail, winbackEmail, abandonedCandidates, expiryCandidates, winbackCandidates, istHour, alreadySent, ymd },
+  _internal: { abandonedEmail, winbackEmail, whatsnewEmail, whatsnewCandidates, avatarRow, featureCards, abandonedCandidates, expiryCandidates, winbackCandidates, istHour, alreadySent, ymd },
 };

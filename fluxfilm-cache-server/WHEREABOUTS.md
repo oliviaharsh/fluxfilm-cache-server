@@ -153,6 +153,7 @@ function that draws it; `route()` calls it. Add a screen = add to `MENU` + `view
 | 🔍 Customer 360 | `customerView` | 1029 | `admin.js`, `paidvia.js` |
 | 🔔 Reminders | `remindersView` | 2793 | `accounttools.js` |
 | 🔔 Notifications | `pushView` | 3144 | `adminpush.js`, `push.js`, `pushreminders.js`, `ownernotify.js` |
+| ✉️ Email jobs | `rjView` | 7229 | `reminderjobs.js` — 🛒 abandoned · ⏳ expiry mail · 💚 win-back · 📢 what's new |
 | 🎁 Referrals | `referralsView` | 5912 | `adminreferrals.js`, `referrals.js` |
 | 🪙 Coins | `coinsView` | 5847 | `admincoins.js`, `coins.js` |
 | 🎮 Games | `gamesView` | 5998 | `admingames.js`, `games.js` |
@@ -359,6 +360,7 @@ phpMyAdmin; every module that needs a new table fails soft and says which file t
 | Coins housekeeping | `coins.js` | 10 min |
 | Referral rewards | `referrals.js` | 30 min |
 | Renewal reminder pushes | `pushreminders.js` | 1 h |
+| Email jobs (abandoned · expiry · win-back · what's new) | `reminderjobs.js` | 1 h, sending hours only |
 | Owner summaries (day / week / month) | `reports.js` | 1 min tick, fires on the hour |
 | n8n webhooks | `n8nhooks.js` | 1 min |
 | Sheet → MySQL sync | `server.js` | **off** (`SYNC_INTERVAL_MIN=0`, MySQL is master) |
@@ -469,6 +471,7 @@ own rules, and most list their routes at the top.
 | `promos.js` | 200 | offers, banners and pop-ups (admin → 📣 Offers). No schema change: app_settings 'promos' (list), 'promo_img_<id>'… |
 | `push.js` | 291 | Web Push (phone / desktop notifications) with NO extra npm packages. |
 | `pushreminders.js` | 205 | automatic renewal reminders by push notification (admin → 🔔 Notifications). |
+| `reminderjobs.js` | 620 | the four email jobs (admin → ✉️ Email jobs). All ship OFF; preview + test send before any of them go. |
 | `pwa.js` | 144 | installable app (PWA) for the storefront and the admin panel. |
 | `quickorders.js` | 374 | admin quick orders (sales made on WhatsApp / phone). |
 | `r2.js` | 437 | 🪣 Cloudflare R2 object storage for 🎬 Reel videos (feedvideo.js). |

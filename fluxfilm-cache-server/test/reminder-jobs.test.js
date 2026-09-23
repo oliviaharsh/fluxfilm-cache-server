@@ -73,6 +73,15 @@ const fakeDb = {
       const c = CUSTOMERS.find((x) => x.phone_norm === p[0]);
       return c ? [{ name: c.name, email: c.email }] : [];
     }
+    if (/FROM customers c JOIN subscriptions sb/.test(q)) {
+      // Everyone who has an address AND has actually bought something.
+      return CUSTOMERS.filter((c) => c.email).map((c) => {
+        const mine = SUBS.filter((x) => x.phone_norm === c.phone_norm);
+        if (!mine.length) return null;
+        const last = mine.map((x) => x.expiry_date).sort((a, b) => new Date(b) - new Date(a))[0];
+        return { phone_norm: c.phone_norm, name: c.name, email: c.email, service: mine[0].service, last_expiry: last };
+      }).filter(Boolean);
+    }
     throw new Error('fake db: unhandled SQL: ' + q.slice(0, 120));
   },
 };
@@ -305,7 +314,70 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
   })(), 'routes');
   ok('it never writes to a customer row — only settings and the log', !/UPDATE (customers|orders|subscriptions)|DELETE FROM/.test(read('reminderjobs.js')));
   ok('the screen is in the panel and registered', /\['rjobs', '✉️', 'Email jobs'\]/.test(read('admin.html')) && /m\.rjobs = rjView;/.test(read('admin.html')));
+  // ── 📢 what's new ───────────────────────────────────────────────────────────────────────────────────────────
+  section("📢 what's new — the one that is not a reminder");
+  reset();
+  {
+    const d0 = await jobs.getSettings(deps);
+    ok('it ships OFF like the rest', d0.whatsnew.on === false, d0.whatsnew);
+
+    // An announcement with nothing to announce is the one way this could embarrass us in front of 100 people.
+    let threw2 = '';
+    try { await on({ whatsnew: { on: true, title: '' } }); } catch (e) { threw2 = e.message; }
+    ok('it refuses to switch on with no title', /announcing/i.test(threw2), threw2);
+    ok('…and a run skips it even if the setting somehow got there', (await (async () => {
+      SETTINGS.value = JSON.stringify(Object.assign({}, jobs.DEFAULTS, { whatsnew: Object.assign({}, jobs.DEFAULTS.whatsnew, { on: true, title: '' }) }));
+      const rr = await jobs.run(NOW, deps);
+      return rr.ran === 0 && MAILED.length === 0;
+    })()), MAILED.length);
+
+    reset();
+    await on({ whatsnew: { on: true, title: 'A Film', service: 'Netflix', line: 'Good one.', perDay: 40 } });
+    const p = await jobs.preview('whatsnew', NOW, deps);
+    // Asha, Bilal, Farah and Gita have bought and left an address. Divya has an order but never a plan, and
+    // 9000000005 has a plan but no customer row, so neither is written to.
+    ok('it goes to people who have actually bought, and left an address', p.total === 4, p.candidates);
+    ok('…not to someone who only ever started an order', !p.candidates.some((c) => c.name === 'Divya'), p.candidates);
+    ok('…and nothing was sent by looking', MAILED.length === 0 && LOG.length === 0);
+
+    let rn = await jobs.run(NOW, deps);
+    ok('switched on, it writes to all four', MAILED.length === 4, MAILED.map((m) => m.to));
+    const mail = MAILED[0];
+    ok('the subject carries a real emoji, not an HTML entity', /^🍿 /.test(mail.subject) && !/&#\d+;/.test(mail.subject), mail.subject);
+    ok('…and names the film and where it is', /A Film/.test(mail.subject) && /Netflix/.test(mail.subject), mail.subject);
+    ok('the card, the line and the shop message are all in it',
+      /A Film/.test(mail.html) && /Good one\./.test(mail.html) && /runs itself now/.test(mail.html) && /source=whatsnew/.test(mail.html));
+    // The reason every "graphic" here is a table cell and a background colour: Gmail strips inline <svg> and
+    // blocks data: URIs, so either one would arrive as a blank rectangle.
+    ok('no inline SVG and no data: URI — both are stripped by Gmail', !/<svg/i.test(mail.html) && !/data:image/i.test(mail.html));
+    ok('the avatars are drawn with real characters, so nothing has to load', /border-radius:16px/.test(mail.html) && />A</.test(mail.html));
+
+    ok('nobody is written to twice inside the window', (await jobs.preview('whatsnew', NOW, deps)).total === 0);
+    ok('…but they are again once the window has passed', (await jobs.preview('whatsnew', NOW + 31 * DAY, deps)).total === 4);
+
+    // Batching, the same machinery win-back uses.
+    reset();
+    await on({ whatsnew: { on: true, title: 'A Film', perDay: 2 } });
+    const pb = await jobs.preview('whatsnew', NOW, deps);
+    ok('a daily batch is respected in the preview', pb.total === 4 && pb.wouldSend === 2 && pb.days === 2, pb);
+    await jobs.run(NOW, deps);
+    ok('…and in the run', MAILED.length === 2, MAILED.length);
+    await jobs.run(NOW + HOUR, deps);
+    ok('…a second run the same day adds nobody', MAILED.length === 2, MAILED.length);
+    await jobs.run(NOW + 25 * HOUR, deps);
+    ok('…tomorrow it picks up where it stopped', MAILED.length === 4, MAILED.length);
+
+    reset();
+    await on({ whatsnew: { on: true, title: 'A Film', onlyActive: true } });
+    const pa = await jobs.preview('whatsnew', NOW, deps);
+    ok('"only people watching right now" narrows it to the live plans', pa.total === 2, pa.candidates);
+  }
+
   ok('the screen says, in words, that nothing goes out until it is switched on', /off until you switch it on/.test(read('admin.html')));
+  ok("📢 what's new is on the screen, with its own boxes to type in", /'whatsnew', '📢'/.test(read('admin.html'))
+    && /data-rjt="whatsnew\.title"/.test(read('admin.html')) && /data-rjt="whatsnew\.line"/.test(read('admin.html')));
+  ok('…and the screen warns that the example title is not a real announcement', /actually<\/b> new before switching this on/.test(read('admin.html')));
+  ok('…and saving sends the new job along', /whatsnew: \{\}/.test(read('admin.html')));
   ok('👀 Preview and ✉️ Send me one are both there, before any switch', /data-rjpv=/.test(read('admin.html')) && /data-rjtest=/.test(read('admin.html')));
 ok('the panel has the discount switch, and hides the code boxes when it is off', /data-rjb="winback\.withCode"/.test(read('admin.html')) && /cfg\.withCode !== false\n?\s*\? '<label>Discount code/.test(read('admin.html').replace(/\r/g, '')));
   ok('every day-count on the screen is editable', (() => {
