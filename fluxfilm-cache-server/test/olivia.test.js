@@ -760,7 +760,10 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('TWO Netflix accounts → still offers "Get my code now" (was dropping to manual before)', last(r).intent === 'HH_OFFER_CODE' && ids(last(r))[0] === 'hhcode', last(r));
   calls.length = 0;
   r = await say({ text: 'aap kardo' });
-  ok('typing "aap kardo" (not tapping) triggers the fetch, tries each account, returns the one with a fresh code', last(r).intent === 'HH_CODE_READY' && last(r).card.code === '7788' && calls.filter((c) => c[0] === 'householdCode').length >= 1 && calls.some((c) => c[0] === 'householdCode' && c[1] === 'S2'), last(r));
+  ok('TWO accounts + "aap kardo" → asks WHICH account first (masked email), does not blind-fetch', last(r).intent === 'HH_LINK_WHICH' && ids(last(r)).filter((x) => /^hhpick:\d/.test(x)).length === 2 && !calls.some((c) => c[0] === 'householdCode'), last(r));
+  calls.length = 0;
+  r = await say({ choice: 'hhpick:1' });
+  ok('pick the account whose TV is asking → fetches ONLY that account, returns its fresh code', last(r).intent === 'HH_CODE_READY' && last(r).card.code === '7788' && calls.some((c) => c[0] === 'householdCode' && c[1] === 'S2') && !calls.some((c) => c[0] === 'householdCode' && c[1] === 'S1'), last(r));
   shop.hhCode = ''; shop.hhCodeSub = ''; shop.nflxAccounts = [{ subId: 'S1', service: 'Netflix', ref: 'NFLX-D11', email: 'jess@example.com', kind: 'D', tag: '' }];
   shop.hhCode = ''; // the fetch could not get a fresh code this time
   await say({ choice: 'menu' });
@@ -839,7 +842,10 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   r = await say({ choice: 'hhexplain' });
   calls.length = 0;
   r = await say({ choice: 'hhlink' });
-  ok('…and asking for the link anyway makes her fetch it herself instead', last(r).intent !== 'HH_LINK_STEPS' && last(r).intent !== 'HH_LINK_WHICH' && calls.some((c) => c[0] === 'householdCode'), { last: last(r), calls });
+  ok('…and asking for the link (2 accounts) → she asks WHICH account first, never the self-serve steps', last(r).intent === 'HH_LINK_WHICH', last(r));
+  calls.length = 0;
+  r = await say({ choice: 'hhpick:0' });
+  ok('…then on our account she fetches it herself, not a link', last(r).intent !== 'HH_LINK_STEPS' && calls.some((c) => c[0] === 'householdCode'), { last: last(r), calls });
 
   // 🏠 "Just fix it": with the permanent update switched on she presses Update FIRST, and only falls back to the code.
   shop.hhUpdateOn = true; shop.hhUpdated = true;
@@ -847,12 +853,14 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   r = await say({ text: 'household code chahiye' });
   calls.length = 0;
   r = await say({ choice: 'hhcode' });
+  r = await say({ choice: 'hhpick:0' });
   ok('🏠 she updates the household herself rather than handing over a 7-day code', last(r).intent === 'HH_UPDATE_DONE' && (calls.filter((c) => /^household/.test(c[0]))[0] || [])[0] === 'householdUpdate', { last: last(r), calls });
   shop.hhUpdated = false;
   await say({ choice: 'menu' });
   r = await say({ text: 'household code chahiye' });
-  calls.length = 0;
   r = await say({ choice: 'hhcode' });
+  calls.length = 0;
+  r = await say({ choice: 'hhpick:0' });
   ok('…and when there is no household mail to act on, she falls back to the TV code', calls.some((c) => c[0] === 'householdUpdate') && calls.some((c) => c[0] === 'householdCode'), calls);
   shop.hhUpdateOn = false;
 
