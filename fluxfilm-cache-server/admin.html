@@ -6992,14 +6992,19 @@ function renderNetflix() {
   if (!NF.acc && list.length) NF.acc = (list.find(function (a) { return a.isActive && a.tag; }) || list[0]).accountId;
   var picked = list.find(function (a) { return a.accountId === NF.acc; }) || null;
   el.innerHTML =
-    (!r.mailReady ? '<div class="card"><div class="qnote bad">⚠️ <b>NETFLIX_IMAP_PASS is not set on the server</b>, so the inbox cannot be read. Add it in Hostinger → Environment variables.</div></div>' : '') +
+    (!r.mailReady ? '<div class="card"><div class="qnote bad">⚠️ <b>No mailbox password is set on the server</b>, so no inbox can be read. Add <b>NETFLIX_ACC_PASS</b> (each account\'s own Gmail app password) in Hostinger → Environment variables.</div></div>' : '') +
     nfPicturesCard() +
     '<div class="card qsec"><h3 style="margin-top:0">1 · Account</h3><div class="row" id="nfaccs" style="gap:6px;flex-wrap:wrap">' +
     list.map(function (a) {
-      return '<button class="chip' + (a.accountId === NF.acc ? ' on' : '') + '" data-acc="' + esc(a.accountId) + '"' + (a.tag ? '' : ' title="No household tag — its mail cannot be told apart"') + '>' +
-        (a.isActive ? '' : '⏸ ') + esc(a.accountId) + (a.tag ? '' : ' ⚠️') + '</button>';
+      // An account read straight from its own inbox needs no tag: there is no other account in that mailbox.
+      var needsTag = a.via !== 'direct' && !a.tag;
+      return '<button class="chip' + (a.accountId === NF.acc ? ' on' : '') + '" data-acc="' + esc(a.accountId) + '"' + (needsTag ? ' title="Read through the shared inbox, and it has no household tag — its mail cannot be told apart"' : '') + '>' +
+        (a.isActive ? '' : '⏸ ') + esc(a.accountId) + (a.via === 'direct' ? ' ⚡' : '') + (needsTag ? ' ⚠️' : '') + '</button>';
     }).join('') + '</div>' +
-    (picked ? '<p class="muted" style="font-size:.78rem;margin:10px 0 0">' + esc(picked.email) + (picked.label ? ' · reads the Gmail label <b>' + esc(picked.label) + '</b>' : '') + (picked.tag ? ' · tag <b>' + esc(picked.tag) + '</b>' : ' · <b>no tag</b>, so its mail cannot be told apart from the others') + '</p>' : '') +
+    (picked ? '<p class="muted" style="font-size:.78rem;margin:10px 0 0">' + esc(picked.email) +
+      (picked.via === 'direct'
+        ? ' · ⚡ read <b>straight from its own inbox</b> — nothing is forwarded, so the mail is there the moment Netflix sends it'
+        : ' · read through the shared inbox' + (picked.label ? ', Gmail label <b>' + esc(picked.label) + '</b>' : '') + (picked.tag ? ' · tag <b>' + esc(picked.tag) + '</b>' : ' · <b>no tag</b>, so its mail cannot be told apart from the others')) + '</p>' : '') +
     '</div>' +
     '<div class="card qsec"><h3>2 · What are you looking for?</h3><div class="row" id="nfmodes" style="gap:6px">' +
     NF_MODES.map(function (m) { return '<button class="chip' + (NF.mode === m[0] ? ' on' : '') + '" data-mode="' + m[0] + '">' + m[1] + '</button>'; }).join('') + '</div>' +

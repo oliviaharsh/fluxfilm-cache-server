@@ -37,6 +37,9 @@ function mount(app, deps) {
         isActive: s(r.is_active).toUpperCase() !== 'FALSE',
         kind: H._internal.kindOfRef(s(r.account_id)),
         tag, label: tag ? H._internal.labelFor(tag) : '',
+        // Where this account's mail is read from: its own inbox, or the shared hub. Shown on the screen so a new
+        // app password can be seen to have taken effect without reading any mail.
+        via: H._internal.directAuth({ tag, ref: s(r.account_id), email: s(r.login_id) }) ? 'direct' : 'hub',
       };
     });
   }
@@ -57,8 +60,12 @@ function mount(app, deps) {
       res.json({
         ok: true, accounts: list,
         inbox: process.env.NETFLIX_IMAP_USER || 'ffnetflixhub@gmail.com',
-        mailReady: !!process.env.NETFLIX_IMAP_PASS,
-        untagged: list.filter((a) => !a.tag).map((a) => a.accountId),
+        // Readable if the shared hub has a password, OR any one account can be read from its own inbox.
+        mailReady: !!process.env.NETFLIX_IMAP_PASS || list.some((a) => a.via === 'direct'),
+        hubReady: !!process.env.NETFLIX_IMAP_PASS,
+        direct: list.filter((a) => a.via === 'direct').map((a) => a.accountId),
+        // Only an account still read through the shared hub needs a tag to be told apart.
+        untagged: list.filter((a) => a.via !== 'direct' && !a.tag).map((a) => a.accountId),
       });
     } catch (e) { fail(res, e); }
   });
@@ -71,7 +78,9 @@ function mount(app, deps) {
       const mode = asked === 'travel' || asked === 'code' ? asked : 'household';
       const a = await accountFor(b.accountId);
       if (!process.env.NETFLIX_IMAP_PASS) return res.status(409).json({ ok: false, message: 'NETFLIX_IMAP_PASS is not set on the server, so the inbox cannot be read.' });
-      if (!a.tag) return res.status(409).json({ ok: false, message: a.accountId + ' has no household tag, so its mail cannot be told apart from the other accounts. Set HouseholdTag on the account, or add it to OLIVIA_HH_ACC_MAP.' });
+      // A tag is only needed for the shared hub, where four accounts' mail is mixed together. An account read
+      // directly from its own inbox needs nothing: the mailbox is the account.
+      if (a.via !== 'direct' && !a.tag) return res.status(409).json({ ok: false, message: a.accountId + ' has no household tag, so its mail cannot be told apart from the other accounts in the shared inbox. Give it its own app password in NETFLIX_ACC_PASS, or set HouseholdTag on the account / add it to OLIVIA_HH_ACC_MAP.' });
       const mail = await hh().latestMail({ service: a.service, email: a.email, kind: a.kind, tag: a.tag, ref: a.accountId }, mode, deps && deps.hhDeps);
       // The account and what was looked for are worth having in the log; the link is not written down.
       audit.record(req, { action: 'netflix.mail', entity: 'inventory_account', id: a.accountId, summary: mode + ' mail looked up — ' + (mail ? 'found' : 'nothing recent') });

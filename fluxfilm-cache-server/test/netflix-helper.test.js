@@ -34,12 +34,62 @@ const MAIL = {
     { uid: 13, from: 'Someone Else <hello@example.com>', subject: 'Update your Netflix Household', html: HH_HTML, ageMin: 1 },
   ],
   'NETFLIX/acc5': [],
+  // What a FORWARDED mail really looks like in the hub: Gmail sends it as the account that forwarded it, so the
+  // From is that Gmail address and not netflix.com. Our own [FF][TAG] prefix is what vouches for it.
+  'NETFLIX/acc7': [
+    { uid: 31, from: 'Stranger <hello@example.com>', subject: 'Update your Netflix Household', html: HH_HTML, ageMin: 1 },
+    { uid: 32, from: 'FluxFilm Netflix 7 <ffnetflix7@gmail.com>', subject: '[FF][ACC7][HOUSEHOLD] Update your Netflix Household', html: HH_HTML, ageMin: 1 },
+  ],
   // All Mail, where the only thing separating the accounts is the [TAG] in the subject
   '[Gmail]/All Mail': [
     { uid: 21, from: 'Netflix <info@account.netflix.com>', subject: '[FF][ACC5][HOUSEHOLD] Update your Netflix Household', html: HH_HTML, ageMin: 3 },
     { uid: 22, from: 'Netflix <info@account.netflix.com>', subject: '[FF][ACC1][HOUSEHOLD] Update your Netflix Household', html: HH_HTML, ageMin: 3 },
   ],
 };
+// A second fake Gmail for the DIRECT path: here the mailbox you are signed in to IS the account, so the mail is
+// keyed by the user, not by a label. The mail is the original from Netflix, never a forward.
+const DIRECT_MAIL = {
+  'harshwalia8888@gmail.com': {
+    INBOX: [
+      { uid: 101, from: 'Netflix <info@account.netflix.com>', subject: 'Important: How to update your Netflix Household', html: HH_HTML, ageMin: 1 },
+      { uid: 102, from: 'Netflix <info@account.netflix.com>', subject: 'Your Netflix verification code', html: CODE_HTML, ageMin: 0 },
+      { uid: 103, from: 'Phisher <noreply@netflix-support.example>', subject: 'Update your Netflix Household now', html: HH_HTML, ageMin: 0 },
+    ],
+    '[Gmail]/All Mail': [],
+  },
+  'nobody@example.com': { INBOX: [], '[Gmail]/All Mail': [] },
+};
+const directOpened = [];
+const directAuthUsed = [];
+class FakeDirectImap {
+  constructor(opts) { this.user = opts.auth.user; this.pass = opts.auth.pass; directAuthUsed.push({ user: this.user, pass: this.pass }); }
+  async connect() { this.boxes = DIRECT_MAIL[this.user]; if (!this.boxes) throw new Error('Invalid credentials for ' + this.user); }
+  async getMailboxLock(folder) {
+    if (!this.boxes || !Object.prototype.hasOwnProperty.call(this.boxes, folder)) throw new Error('Mailbox does not exist: ' + folder);
+    directOpened.push(folder); this.box = folder;
+    return { release: () => { this.box = null; } };
+  }
+  async search(q) {
+    const rows = (this.boxes && this.boxes[this.box]) || [];
+    return rows.filter((m) => !q.subject || m.subject.toUpperCase().indexOf(String(q.subject).toUpperCase()) > -1).map((m) => m.uid);
+  }
+  async fetchOne(uid) {
+    const all = [].concat(...Object.values(DIRECT_MAIL).map((b) => [].concat(...Object.values(b))));
+    const m = all.find((x) => x.uid === uid);
+    directLastFetched = m || null;
+    return m ? { source: Buffer.from('x') } : null;
+  }
+  async logout() {}
+}
+let directLastFetched = null;
+const directDeps = {
+  imap: { ImapFlow: FakeDirectImap },
+  mailparser: { simpleParser: async () => {
+    const m = directLastFetched;
+    return m ? { subject: m.subject, from: { text: m.from }, html: m.html, date: new Date(Date.now() - m.ageMin * 60e3) } : {};
+  } },
+};
+
 const opened = [];
 class FakeImap {
   constructor(opts) { this.opts = opts; this.box = null; }
@@ -154,6 +204,62 @@ deps.mailparser.simpleParser = async () => {
     ok('every route is behind the admin sign-in', checked === 1 && answered === false, { checked, answered });
   }
 
+  // ── reading each account's own inbox ──────────────────────────────────────────────────────────────────────
+  section('direct: each account read from its own Gmail, no forwarding at all');
+  {
+    process.env.NETFLIX_ACC_PASS = JSON.stringify({ ACC1: 'abcd efgh ijkl mnop' });
+    directOpened.length = 0; directAuthUsed.length = 0;
+    const d = await hh.latestMail(acc1, 'household', directDeps);
+    ok('read straight from the account\'s own INBOX', !!d && d.foundBy === 'inbox' && directOpened[0] === 'INBOX', { d, directOpened });
+    ok('…signed in as that account, with its own app password (spaces stripped)',
+      directAuthUsed[0] && directAuthUsed[0].user === 'harshwalia8888@gmail.com' && directAuthUsed[0].pass === 'abcdefghijklmnop', directAuthUsed[0]);
+    ok('…and the mail is Netflix\'s own, not a forward', !!d && d.subject.indexOf('[FF]') === -1, d && d.subject);
+    const c = await hh.latestMail(acc1, 'code', directDeps);
+    ok('the verification code is read the same way', !!c && c.code === '068097', c);
+    ok('a look-alike sender is still ignored', !!d && !/netflix-support/.test(JSON.stringify(d)));
+
+    // No tag needed any more: in your own mailbox there is no other account to be confused with. An untagged
+    // account just has to be named in the map by something it does have - its account id or its login email.
+    process.env.NETFLIX_ACC_PASS = JSON.stringify({ 'NFLX-H1': 'abcd efgh ijkl mnop' });
+    const noTag = { service: 'Netflix', email: 'harshwalia8888@gmail.com', kind: 'H', tag: '', ref: 'NFLX-H1' };
+    const n = await hh.latestMail(noTag, 'household', directDeps);
+    ok('an account with NO household tag still works — the mailbox is the account', !!n, n);
+
+    ok('the password can be keyed by account id, email or name', (() => {
+      const by = (k, acc) => { process.env.NETFLIX_ACC_PASS = JSON.stringify({ [k]: 'p' }); return !!hh._internal.directAuth(acc); };
+      const a = { tag: 'ACC1', ref: 'NFLX-H1', email: 'harshwalia8888@gmail.com' };
+      return by('NFLX-H1', a) && by('harshwalia8888@gmail.com', a) && by('harshwalia8888', a) && by('ACC1', a);
+    })());
+    ok('…and an account that is not in the map has none', (() => {
+      process.env.NETFLIX_ACC_PASS = JSON.stringify({ ACC1: 'p' });
+      return hh._internal.directAuth({ tag: 'ACC5', ref: 'NFLX-H5', email: 'ininjathetriggerman@gmail.com' }) === null;
+    })());
+    ok('a blank password is not a password', (() => {
+      process.env.NETFLIX_ACC_PASS = JSON.stringify({ ACC1: '' });
+      return hh._internal.directAuth({ tag: 'ACC1', email: 'a@b.com' }) === null;
+    })());
+    ok('rubbish in NETFLIX_ACC_PASS does not throw', (() => {
+      process.env.NETFLIX_ACC_PASS = 'not json';
+      return hh._internal.directAuth({ tag: 'ACC1', email: 'a@b.com' }) === null;
+    })());
+
+    // The migration must be safe one account at a time.
+    process.env.NETFLIX_ACC_PASS = JSON.stringify({ ACC1: 'abcd efgh ijkl mnop' });
+    opened.length = 0;
+    const hub = await hh.latestMail(acc5, 'household', deps);
+    ok('an account with no app password still reads the shared hub', !!hub && hub.foundBy === 'subject', { hub, opened });
+    delete process.env.NETFLIX_ACC_PASS;
+  }
+
+  section('the hub fallback: a forwarded mail is not "from" Netflix');
+  {
+    // Gmail sends a forward as the account that forwarded it, so From is ffnetflix7@gmail.com, not netflix.com.
+    const acc7 = { service: 'Netflix', email: 'seven@gmail.com', kind: 'H', tag: 'ACC7', ref: 'NFLX-H7' };
+    const m7 = await hh.latestMail(acc7, 'household', deps);
+    ok('our own [FF][TAG] forward is accepted', !!m7 && m7.subject.indexOf('[FF][ACC7]') > -1, m7);
+    ok('…but a stranger\'s mail in the same label is not', !!m7 && m7.subject.indexOf('Stranger') === -1);
+  }
+
   // ── wiring ────────────────────────────────────────────────────────────────────────────────────────────────
   section('wiring');
   const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
@@ -163,6 +269,8 @@ deps.mailparser.simpleParser = async () => {
   ok('all three things to look for', /\['household', '🏠 Household'\], \['travel', '✈️ Travel code'\], \['code', '🔐 Verification code'\]/.test(html));
   ok('⚠️ the screen warns that the verification code signs in to the account', /This code signs in to the Netflix account itself/.test(html) && /never send it to a customer/i.test(html));
   ok('the Netflix link is opened by the owner, never pressed for them', /Nothing is pressed for you/.test(html) && /target="_blank" rel="noopener noreferrer"/.test(html));
+  ok('the account list says where each one is read from', /via: H\._internal\.directAuth\(/.test(read('adminnetflix.js')));
+  ok('a tag is only demanded when the shared hub is used', /a\.via !== 'direct' && !a\.tag/.test(read('adminnetflix.js')));
   ok('it never writes: no INSERT / UPDATE / DELETE in the module', !/\b(INSERT INTO|UPDATE \w|DELETE FROM)\b/.test(read('adminnetflix.js')));
 
   console.log('\n---------------------------------------\nPASS ' + pass + '   FAIL ' + fail);
