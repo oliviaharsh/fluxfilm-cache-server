@@ -42,7 +42,15 @@ const DEFAULTS = {
   // withCode false = still write to lapsed customers, but give nothing away. The owner's switch, 23 Sep 2026.
   // perDay: how many lapsed customers to write to in a DAY. The list is worked through a batch at a time
   // rather than in one burst, so 113 people become six quiet days instead of one loud afternoon.
-  winback: { on: false, withCode: true, afterDays: 30, everyDays: 90, code: '', percent: 0, perDay: 20 },
+  // startOn: nothing goes out before this DAY (India time), so the job can be armed today and start later.
+  // codeUntil + code2: a coupon has an expiry, and a batched job runs for days. Sending 114 people a code over
+  // six days means the last batches can outlive the code. So the first code is used up to and including
+  // codeUntil, and code2 from the next morning. Owner, 24 Sep 2026: "start winback on 30 sep and will give last
+  // batch diff code - 10% off".
+  winback: {
+    on: false, withCode: true, afterDays: 30, everyDays: 90, perDay: 20,
+    startOn: '', code: '', percent: 0, codeUntil: '', code2: '', percent2: 0,
+  },
   // 📢 What is worth watching + how the shop works now. The title is seeded with an EXAMPLE so the preview shows
   // something real on day one; the owner types whatever is actually new before switching it on. Nothing here is a
   // claim about a release date, on purpose — 'badge' is free text the owner owns.
@@ -71,6 +79,27 @@ function istHour(now) {
   const d = new Date(now);
   const ist = new Date(d.getTime() + (330 + d.getTimezoneOffset()) * 60000);
   return ist.getHours();
+}
+
+/** Today in India, as YYYY-MM-DD — the form the date settings are written in. */
+function istDay(now) {
+  const d = new Date(now);
+  const ist = new Date(d.getTime() + (330 + d.getTimezoneOffset()) * 60000);
+  return ist.getFullYear() + '-' + String(ist.getMonth() + 1).padStart(2, '0') + '-' + String(ist.getDate()).padStart(2, '0');
+}
+const isDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+
+/**
+ * Which code win-back is offering TODAY, and whether it is offering one at all.
+ * → { withCode, code, percent, phase } — phase 'first' | 'second' | 'none'
+ */
+function codeForDay(cfg, now) {
+  if (cfg.withCode === false) return { withCode: false, code: '', percent: 0, phase: 'none' };
+  const today = istDay(now);
+  const past = isDay(cfg.codeUntil) && today > cfg.codeUntil;
+  const code = past ? s(cfg.code2) : s(cfg.code);
+  const percent = Number(past ? cfg.percent2 : cfg.percent) || 0;
+  return { withCode: true, code, percent, phase: past ? 'second' : 'first' };
 }
 
 // ── settings ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -127,9 +156,18 @@ async function saveSettings(input, deps) {
     if (w.everyDays != null) next.winback.everyDays = Math.min(365, Math.max(14, num(w.everyDays, 90)));
     if (w.percent != null) next.winback.percent = Math.min(90, Math.max(0, num(w.percent, 0)));
     if (w.perDay != null) next.winback.perDay = Math.min(500, Math.max(1, num(w.perDay, 20)));
-    if (w.code != null) next.winback.code = s(w.code).toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 24);
+    const cleanCode = (v) => s(v).toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 24);
+    const cleanDay = (v) => (isDay(s(v)) ? s(v) : '');
+    if (w.code != null) next.winback.code = cleanCode(w.code);
+    if (w.code2 != null) next.winback.code2 = cleanCode(w.code2);
+    if (w.percent2 != null) next.winback.percent2 = Math.min(90, Math.max(0, num(w.percent2, 0)));
+    if (w.startOn != null) { if (s(w.startOn) && !isDay(s(w.startOn))) errs.push('The start date has to be a day like 2026-09-30.'); next.winback.startOn = cleanDay(w.startOn); }
+    if (w.codeUntil != null) { if (s(w.codeUntil) && !isDay(s(w.codeUntil))) errs.push('The code-changes date has to be a day like 2026-10-02.'); next.winback.codeUntil = cleanDay(w.codeUntil); }
     // A code is only demanded when one is actually being offered.
     if (next.winback.on && next.winback.withCode && !next.winback.code) errs.push('Set the discount code, or turn off "offer a discount code".');
+    // A handover date with nothing to hand over to would quietly start sending an empty code.
+    if (next.winback.withCode && next.winback.codeUntil && !next.winback.code2) errs.push('Set the second code, or clear the date the code changes.');
+    if (next.winback.codeUntil && next.winback.startOn && next.winback.codeUntil < next.winback.startOn) errs.push('The code cannot change before the job has started.');
   }
   if (i.whatsnew) {
     const w = i.whatsnew;
@@ -414,10 +452,31 @@ async function whatsnewCandidates(settings, now, deps) {
   return out;
 }
 
+/**
+ * Is this coupon one a customer could actually use today? A win-back email naming a code that answers "Coupon is
+ * not active" is worse than one with no code in it, and you only get to write to a lapsed customer once.
+ * Checked against the coupons table rather than trusted: the owner stages codes inactive until a sale opens, and
+ * the whole point of a job that runs for days is that nobody is watching it on the day it matters.
+ * → '' when it is fine, otherwise the reason in plain words.
+ */
+async function codeProblem(code, deps, now) {
+  const c = s(code);
+  if (!c) return 'no code is set';
+  let rows;
+  try {
+    rows = await q(deps, 'SELECT code, active, expiry FROM coupons WHERE UPPER(code) = ? LIMIT 1', [c.toUpperCase()]);
+  } catch (e) { if (missingTable(e)) return ''; throw e; }   // no coupons table in a test world: not our business
+  const r = rows && rows[0];
+  if (!r) return c + ' is not in Coupons at all';
+  if (String(r.active).toUpperCase() === 'FALSE') return c + ' is switched OFF in Coupons';
+  if (r.expiry && new Date(r.expiry).getTime() <= (now || Date.now())) return c + ' expired on ' + String(r.expiry).slice(0, 10);
+  return '';
+}
+
 // ── rendering one candidate, for preview and for sending ──────────────────────────────────────────────────────
 function renderFor(job, cand, settings, now, deps) {
   if (job === 'abandoned') return abandonedEmail(cand);
-  if (job === 'winback') return winbackEmail(Object.assign({}, cand, { code: settings.winback.code, percent: settings.winback.percent, withCode: settings.winback.withCode }));
+  if (job === 'winback') return winbackEmail(Object.assign({}, cand, codeForDay(settings.winback, now)));
   if (job === 'whatsnew') return whatsnewEmail(Object.assign({}, cand, settings.whatsnew));
   const credit = dep(deps, 'credit', './credit');
   return credit.reminderEmail({ name: cand.name, service: cand.service, plan: cand.plan, expiry: cand.expiry, subId: cand.subId, now: new Date(now) });
@@ -450,8 +509,27 @@ async function preview(job, now, deps) {
   }
   const capped = list.slice(0, perBatch);
   const first = capped[0] || null;
+  // Why nothing would go today, said out loud on the screen rather than discovered days later in the log.
+  let holding = '';
+  if (job === 'winback') {
+    const cfg = settings.winback;
+    if (cfg.startOn && istDay(at) < cfg.startOn) holding = 'waiting — this one starts on ' + cfg.startOn;
+    else {
+      const today = codeForDay(cfg, at);
+      if (today.withCode) {
+        const bad = await codeProblem(today.code, deps, at).catch(() => '');
+        if (bad) holding = 'nothing can go out: ' + bad;
+      }
+      if (today.withCode && cfg.codeUntil) {
+        const nextBad = cfg.code2 ? await codeProblem(cfg.code2, deps, at).catch(() => '') : 'no second code is set';
+        if (nextBad) holding = (holding ? holding + ' · ' : '') + 'after ' + cfg.codeUntil + ': ' + nextBad;
+      }
+    }
+  }
   return {
     ok: true, job, total: list.length, wouldSend: capped.length, maxPerRun: settings.maxPerRun,
+    holding: holding || undefined,
+    usingCode: job === 'winback' ? codeForDay(settings.winback, at) : undefined,
     perDay: BATCHED[job] ? settings[job].perDay : null, days,
     candidates: capped.slice(0, 20).map((c) => ({ key: c.key, name: c.name, phone: c.phone, email: c.email, service: c.service, plan: c.plan })),
     sample: first ? Object.assign({ to: first.email || '(push)', }, renderFor(job, first, settings, at, deps)) : null,
@@ -541,8 +619,17 @@ async function run(now, deps) {
   const jobs = [];
   for (const name of ['abandoned', 'expiryMail', 'winback', 'whatsnew']) {
     if (!settings[name].on) continue;
-    // Never offer a code that does not exist. With the discount switched off there is nothing to check.
-    if (name === 'winback' && settings.winback.withCode && !settings.winback.code) continue;
+    // Never offer a code that does not exist, is switched off, or has expired. With the discount switched off
+    // there is nothing to check. The same guard covers both codes, because which one is live changes by the day.
+    if (name === 'winback') {
+      const cfg = settings.winback;
+      if (cfg.startOn && istDay(at) < cfg.startOn) continue;      // armed, but not yet
+      const today = codeForDay(cfg, at);
+      if (today.withCode) {
+        const bad = await codeProblem(today.code, deps, at).catch(() => '');
+        if (bad) { console.log('[reminderjobs] win-back held back: ' + bad); continue; }
+      }
+    }
     // Never announce nothing.
     if (name === 'whatsnew' && !s(settings.whatsnew.title)) continue;
     jobs.push(await runJob(name, settings, at, deps));

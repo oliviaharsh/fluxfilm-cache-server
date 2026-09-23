@@ -22,6 +22,7 @@ let ORDERS = [];
 let SUBS = [];
 let CUSTOMERS = [];
 let LOG = [];
+let COUPONS = [];
 
 const fakeDb = {
   ENABLED: true,
@@ -73,6 +74,10 @@ const fakeDb = {
       const c = CUSTOMERS.find((x) => x.phone_norm === p[0]);
       return c ? [{ name: c.name, email: c.email }] : [];
     }
+    if (/FROM coupons WHERE UPPER\(code\)/.test(q)) {
+      const c = COUPONS.find((x) => String(x.code).toUpperCase() === String(p[0]).toUpperCase());
+      return c ? [c] : [];
+    }
     if (/FROM customers c JOIN subscriptions sb/.test(q)) {
       // Everyone who has an address AND has actually bought something.
       return CUSTOMERS.filter((c) => c.email).map((c) => {
@@ -105,6 +110,15 @@ const deps = { mailer: fakeMailer, push: fakePush, credit };
 
 function reset() {
   SETTINGS = {}; LOG = []; MAILED.length = 0; PUSHED.length = 0; PUSH_DEVICES = new Set();
+  // A coupon that works, one switched off, and one that has run out.
+  COUPONS = [
+    { code: 'COMEBACK', active: 'TRUE', expiry: at(400 * DAY) },
+    { code: 'X', active: 'TRUE', expiry: at(400 * DAY) },
+    { code: 'GOOD20', active: 'TRUE', expiry: at(60 * DAY) },
+    { code: 'LATER10', active: 'TRUE', expiry: at(90 * DAY) },
+    { code: 'STAGED', active: 'FALSE', expiry: at(60 * DAY) },
+    { code: 'DEAD', active: 'TRUE', expiry: at(-1 * DAY) },
+  ];
   ORDERS = [
     { order_id: 'FF2000001', phone_norm: '9000000001', name: 'Asha Kumar', service: 'Netflix', plan: 'Sharing 1M', final_amount: 199, status: 'CREATED', created_at_sheet: at(-3 * HOUR) },
     { order_id: 'FF2000002', phone_norm: '9000000002', name: 'Bilal', service: 'Prime Video', plan: '1 Month', final_amount: 149, status: 'CREATED', created_at_sheet: at(-30 * 60000) },   // too fresh
@@ -314,6 +328,78 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
   })(), 'routes');
   ok('it never writes to a customer row — only settings and the log', !/UPDATE (customers|orders|subscriptions)|DELETE FROM/.test(read('reminderjobs.js')));
   ok('the screen is in the panel and registered', /\['rjobs', '✉️', 'Email jobs'\]/.test(read('admin.html')) && /m\.rjobs = rjView;/.test(read('admin.html')));
+  // ── 💚 win-back: starting later, and changing code partway ───────────────────────────────────────────────
+  section('💚 win-back can be armed today and start on a later day');
+  reset();
+  {
+    await on({ winback: { on: true, code: 'GOOD20', percent: 20, startOn: '2026-09-30' } });
+    let p = await jobs.preview('winback', NOW, deps);            // NOW is 24 Sep
+    ok('there are people waiting, but it says it has not started', p.total > 0 && /starts on 2026-09-30/.test(p.holding || ''), p.holding);
+    await jobs.run(NOW, deps);
+    ok('…and a run before the start day sends nobody anything', MAILED.length === 0, MAILED.length);
+    await jobs.run(new Date(2026, 8, 30, 12, 0, 0).getTime(), deps);
+    ok('…then on the day itself it goes', MAILED.length > 0, MAILED.length);
+    ok('…carrying the first code', /GOOD20/.test(MAILED[0].html), MAILED[0].subject);
+  }
+
+  section('💚 the code can hand over partway through a long run');
+  reset();
+  {
+    // Six days of batches outliving a coupon is the actual case: FLUX4 dies 3 Oct, the run reaches 5 Oct.
+    await on({ winback: { on: true, code: 'GOOD20', percent: 20, codeUntil: '2026-10-02', code2: 'LATER10', percent2: 10 } });
+    const oct1 = new Date(2026, 9, 1, 12, 0, 0).getTime();
+    const oct3 = new Date(2026, 9, 3, 12, 0, 0).getTime();
+    let p = await jobs.preview('winback', oct1, deps);
+    ok('before the handover it is the first code', p.usingCode.code === 'GOOD20' && p.usingCode.percent === 20, p.usingCode);
+    ok('…and the email says 20% off', /GOOD20/.test(p.sample.html) && /20% off/.test(p.sample.html));
+    p = await jobs.preview('winback', oct3, deps);
+    ok('the day after it, the second code', p.usingCode.code === 'LATER10' && p.usingCode.percent === 10, p.usingCode);
+    ok('…and the email says 10% off', /LATER10/.test(p.sample.html) && /10% off/.test(p.sample.html));
+    ok('the handover day itself still uses the first code', (await jobs.preview('winback', new Date(2026, 9, 2, 23, 0, 0).getTime(), deps)).usingCode.code === 'GOOD20');
+    let threw = '';
+    try { await on({ winback: { on: true, code: 'GOOD20', codeUntil: '2026-10-02', code2: '' } }); } catch (e) { threw = e.message; }
+    ok('a handover date with no second code is refused', /second code/i.test(threw), threw);
+    threw = '';
+    try { await on({ winback: { on: true, code: 'GOOD20', startOn: 'soon' } }); } catch (e) { threw = e.message; }
+    ok('a date that is not a date is refused', /day like/i.test(threw), threw);
+  }
+
+  section('💚 a code that would not work is never sent');
+  reset();
+  {
+    // The one that would have bitten: FLUX4 is staged inactive until the sale opens, and a job that runs for days
+    // has nobody watching it on the morning it matters.
+    await on({ winback: { on: true, code: 'STAGED', percent: 20 } });
+    let p = await jobs.preview('winback', NOW, deps);
+    ok('a coupon switched OFF in Coupons stops it, and says so', /switched OFF/.test(p.holding || ''), p.holding);
+    await jobs.run(NOW, deps);
+    ok('…and nothing goes out', MAILED.length === 0, MAILED.length);
+
+    reset();
+    await on({ winback: { on: true, code: 'DEAD', percent: 20 } });
+    p = await jobs.preview('winback', NOW, deps);
+    ok('an expired coupon stops it too', /expired/.test(p.holding || ''), p.holding);
+    await jobs.run(NOW, deps);
+    ok('…and still nothing goes out', MAILED.length === 0, MAILED.length);
+
+    reset();
+    await on({ winback: { on: true, code: 'NOSUCH', percent: 20 } });
+    p = await jobs.preview('winback', NOW, deps);
+    ok('a code that is not in Coupons at all stops it', /not in Coupons/.test(p.holding || ''), p.holding);
+
+    reset();
+    await on({ winback: { on: true, code: 'GOOD20', percent: 20, codeUntil: '2026-10-02', code2: 'STAGED', percent2: 10 } });
+    p = await jobs.preview('winback', NOW, deps);
+    ok('…and the SECOND code is checked now, not on the morning it starts being used', /after 2026-10-02/.test(p.holding || ''), p.holding);
+    await jobs.run(NOW, deps);
+    ok('…while today still goes out, because today is fine', MAILED.length > 0, MAILED.length);
+
+    reset();
+    await on({ winback: { on: true, code: 'GOOD20', percent: 20 } });
+    p = await jobs.preview('winback', NOW, deps);
+    ok('a good code holds nothing back', !p.holding && p.usingCode.code === 'GOOD20', p.holding);
+  }
+
   // ── 📢 what's new ───────────────────────────────────────────────────────────────────────────────────────────
   section("📢 what's new — the one that is not a reminder");
   reset();
@@ -374,6 +460,10 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
   }
 
   ok('the screen says, in words, that nothing goes out until it is switched on', /off until you switch it on/.test(read('admin.html')));
+  ok('💚 the start day and the code handover are on the screen', /function rjDay\(/.test(read('admin.html'))
+    && /rjDay\(key, 'startOn'/.test(read('admin.html')) && /rjDay\(key, 'codeUntil'/.test(read('admin.html'))
+    && /data-rjt="winback\.code2"/.test(read('admin.html')));
+  ok('…and the screen says what is holding a job back', /pv\.holding/.test(read('admin.html')) && /usingCode/.test(read('admin.html')));
   ok("📢 what's new is on the screen, with its own boxes to type in", /'whatsnew', '📢'/.test(read('admin.html'))
     && /data-rjt="whatsnew\.title"/.test(read('admin.html')) && /data-rjt="whatsnew\.line"/.test(read('admin.html')));
   ok('…and the screen warns that the example title is not a real announcement', /actually<\/b> new before switching this on/.test(read('admin.html')));
