@@ -643,7 +643,8 @@ async function supportReplies(c, ctx, kind, service, opts) {
 const maskEmail = (e) => { const v = s(e); const at = v.indexOf('@'); if (at < 1) return ''; const lp = v.slice(0, at); return lp.slice(0, Math.min(3, lp.length)) + '…' + v.slice(at); };
 function hhStepsReply(st, lang, kind, mode) {
   const linkBtn = kind === 'D' ? btn('helper2', lang) : btn('helper', lang); // Link 1 for FluxFilm's own (H), Link 2 for the rest (D)
-  return [{ intent: 'HH_LINK_STEPS', facts: { mode }, buttons: withBackToPay(st, lang, [linkBtn, btn('hhcode', lang), btn('whatsapp', lang), btn('menu', lang)]) }];
+  // Both main fixes stay one tap away on every steps screen: Get code AND This-is-my-account / Update household.
+  return [{ intent: 'HH_LINK_STEPS', facts: { mode }, buttons: withBackToPay(st, lang, [linkBtn, btn('hhcode', lang), btn('hhupdate', lang), btn('whatsapp', lang), btn('menu', lang)]) }];
 }
 async function hhSelfServe(c, ctx, mode, idx) {
   const st = c.state; const lang = c.lang;
@@ -1133,7 +1134,7 @@ async function turn(c, input, ctx) {
   // After-sale help: login / password, household / TV code, "band ho gaya", OTP, paid but no login (menu: "Login / account problem").
   if (action === 'hhexplain') {
     if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
-    return [{ intent: 'HH_EXPLAIN', buttons: withBackToPay(st, lang, [btn('hhcode', lang), btn('hhlink', lang), btn('whatsapp', lang), btn('menu', lang)]) }];
+    return [{ intent: 'HH_EXPLAIN', buttons: withBackToPay(st, lang, [btn('hhcode', lang), btn('hhupdate', lang), btn('hhlink', lang), btn('whatsapp', lang), btn('menu', lang)]) }];
   }
   // "Give me the link, I'll do it myself" (temporary code page); and "This is my account" when the auto update is off.
   if (action === 'hhlink' || action.indexOf('hhlink:') === 0) return hhSelfServe(c, ctx, 'travel', action.indexOf('hhlink:') === 0 ? Number(action.slice(7)) : -1);
@@ -1165,7 +1166,7 @@ async function turn(c, input, ctx) {
     st.hhTries = (Number(st.hhTries) || 0) + 1;
     if (st.hhTries < 3) {
       if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
-      return [{ intent: 'HH_CODE_NOT_YET', facts: { attempt: st.hhTries }, buttons: withBackToPay(st, lang, [btn('hhretry', lang), btn('whatsapp', lang), btn('menu', lang)]) }];
+      return [{ intent: 'HH_CODE_NOT_YET', facts: { attempt: st.hhTries }, buttons: withBackToPay(st, lang, [btn('hhretry', lang), btn('hhupdate', lang), btn('whatsapp', lang), btn('menu', lang)]) }];
     }
     st.hhTries = 0;
     return supportReplies(c, ctx, 'household', '', { noAuto: true }); // tried 3 times: the manual Helper steps + link

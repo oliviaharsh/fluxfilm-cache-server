@@ -604,7 +604,7 @@ const B = {
   helper1: { en: '🏠 Household Helper (Link 1)', hinglish: '🏠 Household Helper (Link 1)', hi: '🏠 Household Helper (Link 1)' },
   helper2: { en: '🏠 Household Helper (Link 2)', hinglish: '🏠 Household Helper (Link 2)', hi: '🏠 Household Helper (Link 2)' },
   hhcode: { en: '🔑 Get my code now', hinglish: '🔑 Abhi code lo', hi: '🔑 अभी कोड लो' },
-  hhupdate: { en: '🏠 This is my account', hinglish: '🏠 Ye mera account hai', hi: '🏠 यह मेरा account है' },
+  hhupdate: { en: '🏠 This is my account / Update household', hinglish: '🏠 Ye mera account hai / Update household', hi: '🏠 यह मेरा account है / Update household' },
   hhlink: { en: '🔗 Give me the link', hinglish: '🔗 Link do, khud karunga', hi: '🔗 लिंक दो, खुद करूँगा' },
   hhexplain: { en: '💬 Please explain', hinglish: '💬 Samjhao', hi: '💬 समझाओ' },
   hhretry: { en: '🔄 I clicked, check again', hinglish: '🔄 Click kar diya, check karo', hi: '🔄 दबा दिया, फिर देखो' },
