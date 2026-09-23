@@ -78,6 +78,7 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function () { 
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="/household-pics.js"></script>
 <style>
 /* hidden always wins over display rules (the pause bar rule display:block kept "Shop is PAUSED" visible while open) */
 [hidden]{display:none!important}
@@ -7050,10 +7051,16 @@ function nfPicturesCard() {
   var has = (NF.pics && NF.pics.has) || {};
   var pics = (NF.pics && NF.pics.pictures) || {};
   return '<div class="card qsec"><h3 style="margin-top:0">🖼 What the customer sees</h3>' +
-    '<p class="muted" style="margin-top:0;font-size:.82rem">Upload one screenshot of each. In 🧰 Tools → Netflix Household the customer taps the picture that matches their TV, instead of choosing between links.</p>' +
+    '<p class="muted" style="margin-top:0;font-size:.82rem">Each one already shows a <b>drawing</b> of that screen, so the customer always has something to recognise. Upload a real screenshot only if you have a clearer one — it replaces the drawing for that choice. Nothing on it should show a customer\'s email.</p>' +
     '<div class="fields">' + NF_PICS.map(function (p) {
       return '<div class="fld"><label>' + esc(p[1]) + '</label>' +
-        (pics[p[0]] ? '<img src="' + esc(pics[p[0]]) + '" alt="" style="width:100%;max-height:150px;object-fit:cover;border-radius:10px;border:1px solid var(--line)"/>' : '<div class="muted" style="height:80px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--line);border-radius:10px;font-size:.8rem">No picture yet</div>') +
+        // The owner sees exactly what the customer sees: their upload, or the drawing that is used instead.
+        (function () {
+          var src = pics[p[0]] || ((window.FF_HH_PICS || {})[p[0]] || '');
+          if (!src) return '<div class="muted" style="height:80px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--line);border-radius:10px;font-size:.8rem">No picture yet</div>';
+          return '<img src="' + esc(src) + '" alt="" style="width:100%;max-height:150px;object-fit:contain;background:#0b0b0f;border-radius:10px;border:1px solid var(--line)"/>' +
+            (pics[p[0]] ? '' : '<div class="muted" style="font-size:.72rem;margin-top:4px">Built-in drawing — customers see this now</div>');
+        })() +
         '<div class="row" style="gap:6px;margin-top:6px"><input type="file" accept="image/*" id="nfpic_' + p[0] + '" style="font-size:.75rem"/>' +
         (has[p[0]] ? '<button class="btn ghost sm" data-nfpicdel="' + p[0] + '">Remove</button>' : '') + '</div></div>';
     }).join('') + '</div>' +
