@@ -335,6 +335,17 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
     await on({ winback: { on: true, code: 'GOOD20', percent: 20, startOn: '2026-09-30' } });
     let p = await jobs.preview('winback', NOW, deps);            // NOW is 24 Sep
     ok('there are people waiting, but it says it has not started', p.total > 0 && /starts on 2026-09-30/.test(p.holding || ''), p.holding);
+    // Armed for later AND the code is off: both have to be said, or six days of "waiting" hides a job that will
+    // do nothing when the day comes.
+    await on({ winback: { on: true, code: 'STAGED', percent: 20, startOn: '2026-09-30' } });
+    const both = await jobs.preview('winback', NOW, deps);
+    ok('…and a bad code is reported even while it is still waiting',
+      /starts on 2026-09-30/.test(both.holding || '') && /switched OFF/.test(both.holding || ''), both.holding);
+    await on({ winback: { on: true, code: 'GOOD20', percent: 20, startOn: '2026-09-30', codeUntil: '2026-10-02', code2: 'STAGED', percent2: 10 } });
+    const later = await jobs.preview('winback', NOW, deps);
+    ok('…including the second code, a week before it is ever used',
+      /starts on 2026-09-30/.test(later.holding || '') && /after 2026-10-02: STAGED is switched OFF/.test(later.holding || ''), later.holding);
+    await on({ winback: { on: true, code: 'GOOD20', percent: 20, startOn: '2026-09-30', codeUntil: '', code2: '' } });
     await jobs.run(NOW, deps);
     ok('…and a run before the start day sends nobody anything', MAILED.length === 0, MAILED.length);
     await jobs.run(new Date(2026, 8, 30, 12, 0, 0).getTime(), deps);

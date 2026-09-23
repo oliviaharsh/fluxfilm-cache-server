@@ -513,18 +513,21 @@ async function preview(job, now, deps) {
   let holding = '';
   if (job === 'winback') {
     const cfg = settings.winback;
-    if (cfg.startOn && istDay(at) < cfg.startOn) holding = 'waiting — this one starts on ' + cfg.startOn;
-    else {
-      const today = codeForDay(cfg, at);
-      if (today.withCode) {
-        const bad = await codeProblem(today.code, deps, at).catch(() => '');
-        if (bad) holding = 'nothing can go out: ' + bad;
-      }
-      if (today.withCode && cfg.codeUntil) {
+    const bits = [];
+    // The coupons are checked EVEN WHILE WAITING. A job armed for the 30th that says only "waiting" for six days,
+    // while the code it will send sits switched off, is a reassuring screen hiding a job that will do nothing —
+    // which is the exact shape of the problem this whole guard exists to prevent.
+    if (cfg.startOn && istDay(at) < cfg.startOn) bits.push('waiting — this one starts on ' + cfg.startOn);
+    const today = codeForDay(cfg, at);
+    if (today.withCode) {
+      const bad = await codeProblem(today.code, deps, at).catch(() => '');
+      if (bad) bits.push('the code it would send is not usable: ' + bad);
+      if (cfg.codeUntil) {
         const nextBad = cfg.code2 ? await codeProblem(cfg.code2, deps, at).catch(() => '') : 'no second code is set';
-        if (nextBad) holding = (holding ? holding + ' · ' : '') + 'after ' + cfg.codeUntil + ': ' + nextBad;
+        if (nextBad) bits.push('after ' + cfg.codeUntil + ': ' + nextBad);
       }
     }
+    holding = bits.join(' · ');
   }
   return {
     ok: true, job, total: list.length, wouldSend: capped.length, maxPerRun: settings.maxPerRun,
