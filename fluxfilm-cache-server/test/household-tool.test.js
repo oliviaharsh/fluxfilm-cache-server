@@ -22,10 +22,20 @@ const SUBS = {
   '9000000002': [{ sub_id: 'S-ONE', plan: 'Sharing 3M', expiry_date: '2026-12-01 10:00:00', inventory_ref: 'NFLX-H5#P1' }],
   '9000000009': [],
 };
+// Who the numbers belong to, and every line written to the change log.
+const NAMES = { '9971430096': 'Harsh Walia', '9000000002': 'Priya Sharma' };
+const AUDIT = [];
+let auditBroken = false;
 const fakeDb = {
   ENABLED: true,
   query: async (sql, p) => {
     sql = sql.replace(/\s+/g, ' ').trim(); p = p || [];
+    if (/^INSERT INTO audit_log/.test(sql)) {
+      if (auditBroken) throw new Error('Table \'audit_log\' doesn\'t exist');
+      AUDIT.push({ action: p[0], entity: p[1], entity_id: p[2], summary: p[3], details: p[4], ip: p[5] });
+      return { affectedRows: 1 };
+    }
+    if (/SELECT name FROM customers WHERE phone_norm/.test(sql)) return NAMES[p[0]] ? [{ name: NAMES[p[0]] }] : [];
     if (/SELECT value FROM app_settings/.test(sql)) return SETTINGS[p[0]] === undefined ? [] : [{ value: SETTINGS[p[0]] }];
     if (/^INSERT INTO app_settings/.test(sql)) { SETTINGS[p[0]] = p[1]; return { affectedRows: 1 }; }
     if (/FROM subscriptions WHERE phone_norm = \?/.test(sql)) return (SUBS[p[0]] || []).map((x) => Object.assign({}, x));
@@ -49,6 +59,7 @@ const fakeHh = {
 const origLoad = Module._load;
 Module._load = function (req) { if (req === './db') return fakeDb; if (req === './oliviahousehold') return fakeHh; return origLoad.apply(this, arguments); };
 const hh = require('../householdhelp');
+const hhlog = require('../householdlog');   // the shared logger, loaded while ./db is still the fake
 Module._load = origLoad;
 const deps = { household: fakeHh };
 
@@ -119,6 +130,83 @@ const deps = { household: fakeHh };
   hh._internal.reset();
   ok('one can be removed without touching the others', (await hh.savePicture('household', '', deps)).ok && !(await hh.pictures(deps)).pictures.household);
 
+  // ── the change log ────────────────────────────────────────────────────────────────────────────────────────
+  section('🕘 every use is written down — name, number, account, what happened');
+  {
+    const last = () => AUDIT[AUDIT.length - 1];
+    const req = { ip: '203.0.113.9' };
+
+    AUDIT.length = 0;
+    await hh.start('9971430096', deps, req);
+    ok('opening the tool is logged, with the name and the number', last().action === 'household.open' &&
+      last().summary === 'Harsh Walia · 9971430096 · opened the household tool — 2 account(s)', last());
+    ok('…against the customer, with where they came from', last().entity === 'customer' && last().entity_id === '9971430096' && last().ip === '203.0.113.9', last());
+
+    AUDIT.length = 0;
+    let out = await hh.fix('9000000002', 'NFLX-H5', 'travel', deps, req);
+    ok('the TV code is logged as given', out.ok && AUDIT.length === 1 &&
+      last().summary === 'Priya Sharma · 9000000002 · NFLX-H5 · get the TV code · ✅ TV code given', { out, AUDIT });
+    ok('…and acting does NOT also log an "opened"', AUDIT.filter((a) => a.action === 'household.open').length === 0, AUDIT);
+    ok('🔐 THE CODE ITSELF IS NEVER WRITTEN DOWN', out.code === '1234' && JSON.stringify(last()).indexOf('1234') === -1, last());
+
+    AUDIT.length = 0;
+    out = await hh.fix('9000000002', 'NFLX-H5', 'signin', deps, req);
+    ok('the sign-in code is logged as given', out.ok && last().action === 'household.signin' && /🔐 sign-in code given/.test(last().summary), last());
+    ok('🔐 …and that code is not written down either', out.code === '068097' && JSON.stringify(last()).indexOf('068097') === -1, last());
+
+    AUDIT.length = 0;
+    out = await hh.fix('9971430096', 'NFLX-H5', 'household', deps, req);
+    ok('making the TV the home is logged', out.ok && last().action === 'household.update' && /🏠 this TV made the home/.test(last().summary), last());
+
+    updateOn = false;
+    AUDIT.length = 0;
+    await hh.fix('9971430096', 'NFLX-H5', 'household', deps, req);
+    ok('…and so is it being switched off', last().action === 'household.update' && /turned off/.test(last().summary), last());
+    updateOn = true;
+
+    AUDIT.length = 0;
+    out = await hh.fix('9971430096', 'NFLX-D3', 'household', deps, req);
+    ok('a darkflix account is logged as sent to their page', out.ok && out.notOurs && last().action === 'household.link', last());
+
+    // The lines that matter most: somebody asking for an account that is not theirs.
+    AUDIT.length = 0;
+    out = await hh.fix('9000000002', 'NFLX-H9', 'signin', deps, req);
+    ok('🚫 asking for an account that is not yours is REFUSED and logged', !out.ok && last().action === 'household.refused' &&
+      /NFLX-H9, which is not theirs/.test(last().summary), { out, last: last() });
+    ok('…with what they do own, for comparison', /NFLX-H5/.test(last().details), last().details);
+
+    AUDIT.length = 0;
+    out = await hh.fix('9000000009', 'NFLX-H5', 'signin', deps, req);
+    ok('🚫 so is asking with no active plan at all', !out.ok && last().action === 'household.refused' && /no active Netflix plan/.test(last().summary), last());
+    ok('…and an unknown number still logs, as Unknown', /^Unknown · 9000000009/.test(last().summary), last().summary);
+
+    AUDIT.length = 0;
+    out = await hh.fix('9971430096', '', 'signin', deps, req);
+    ok('🚫 two accounts and no choice made is logged too', !out.ok && last().action === 'household.refused' && /without saying which account/.test(last().summary), last());
+
+    // The log must never be able to break the thing it is logging.
+    auditBroken = true;
+    AUDIT.length = 0;
+    out = await hh.fix('9000000002', 'NFLX-H5', 'travel', deps, req);
+    ok('a missing audit_log table does NOT stop a customer fixing their TV', out.ok === true && out.code === '1234' && AUDIT.length === 0, out);
+    auditBroken = false;
+  }
+
+  section('🕘 Olivia writes the same lines when SHE does it in chat');
+  {
+    AUDIT.length = 0;
+    await hhlog.record({ query: fakeDb.query }, { ip: '198.51.100.4' }, {
+      action: 'household.signin', phone: '+91 99714 30096',
+      summary: 'in Olivia chat · NFLX-H5 · get the sign-in code · 🔐 sign-in code given',
+      details: { what: 'verify', via: 'olivia', accountId: 'NFLX-H5', ok: true },
+    });
+    const row = AUDIT[0];
+    ok('one shared logger, so both doors are written down the same way', !!row && row.action === 'household.signin', row);
+    ok('…with the name in front of the number', /^Harsh Walia · 9971430096 · in Olivia chat/.test(row.summary), row.summary);
+    ok('…the number normalised to 10 digits', row.entity_id === '9971430096', row.entity_id);
+    ok('…and where it came from', row.ip === '198.51.100.4', row.ip);
+  }
+
   // ── wiring ────────────────────────────────────────────────────────────────────────────────────────────────
   section('wiring');
   const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
@@ -126,7 +214,7 @@ const deps = { household: fakeHh };
   // name would have merged cleanly and then been undefined at runtime. Pin the name to the one the module exports.
   ok('it calls the function oliviahousehold actually exports', /module\.exports = \{[^}]*\bverificationCode\b/.test(read('oliviahousehold.js')) && read('householdhelp.js').indexOf('H.verificationCode(target, deps)') > -1);
   const server = read('server.js');
-  ok('the three actions are wired', /householdPics: \(\) => hhMod\.pictures\(\)/.test(server) && /householdStart: \(a\) => hhMod\.start\(a\[0\]\)/.test(server) && /householdFix: \(a\) => hhMod\.fix\(a\[0\], a\[1\], a\[2\]\)/.test(server));
+  ok('the three actions are wired', /householdPics: \(\) => hhMod\.pictures\(\)/.test(server) && /householdStart: \(a, req\) => hhMod\.start\(a\[0\], null, req\)/.test(server) && /householdFix: \(a, req\) => hhMod\.fix\(a\[0\], a\[1\], a\[2\], null, req\)/.test(server));
   ok('…rate limited per IP, and the powerful one per phone as well', /householdFix: security\.rateLimiter\(20, TEN_MIN\)/.test(server) && /PHONE_LIMITS = \{[\s\S]*?householdFix: security\.rateLimiter\(10, 60 \* 60e3\)/.test(server));
   ok('…and on the MySQL storefront list', /'householdPics', 'householdStart', 'householdFix'/.test(server));
   const auth = read('customerauth.js');
@@ -140,6 +228,15 @@ const deps = { household: fakeHh };
   ok('a partner account is sent to its own page or to Olivia', /!picked\.ours/.test(html) && /Ask Olivia to do it/.test(html));
   const admin = read('admin.html');
   ok('the owner can upload the three examples', /NF_PICS = \[\['household'/.test(admin) && /post\('\/admin\/api\/netflix\/pictures'/.test(admin));
+
+  ok('Olivia logs all three household actions she does in chat', (() => {
+    const o = read('olivia.js');
+    return (o.match(/hhLog\(c\.phone, mode, got, gotAcc, usable\.length\);/g) || []).length === 3 && /require\('\.\/householdlog'\)\.record\(/.test(o);
+  })());
+  ok('householdhelp and Olivia share one logger', /require\('\.\/householdlog'\)/.test(read('householdhelp.js')));
+  ok('🔐 no code is ever handed to the logger', !/record\([^)]*code/.test(read('householdlog.js')) && !/code: r\.code[^)]*note\(/.test(read('householdhelp.js')));
+  ok('server.js hands the request through, so the log has an IP', /householdFix: \(a, req\) => hhMod\.fix\(a\[0\], a\[1\], a\[2\], null, req\)/.test(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8')));
+  ok('admin.html can filter the change log to 🏠 Household', /\['household', '🏠 Household'\]/.test(fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8')));
 
   console.log('\n---------------------------------------\nPASS ' + pass + '   FAIL ' + fail);
   process.exit(fail ? 1 : 0);

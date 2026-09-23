@@ -12,6 +12,10 @@
  * accounts this phone has an ACTIVE subscription on, and refuses anything else. A customer can only ever act on an
  * account they are paying for today.
  *
+ * 🕘 Every use is written to the change log (audit_log, the same table the admin panel uses), with the customer's
+ * NAME and number, which account, what they asked for and how it ended — including the refusals. The 6-digit codes
+ * themselves are never written down: the log says one was given, not what it was. Admin → 🕘 Change log → 🏠 Household.
+ *
  * 🔐 'signin' is the 6-digit code that finishes a Netflix LOGIN. Customers already hold the login and password for
  * their account, so this lets them finish a sign-in they are entitled to — but it is still the most powerful thing
  * here, so: active sub only, our own accounts only, a short freshness window inside oliviahousehold, a per-phone
@@ -20,6 +24,7 @@
  * Settings (app_settings): 'household_pics' — { household, travel, signin } as data: URLs, uploaded in admin.
  */
 const db = require('./db');
+const hhlog = require('./householdlog');
 
 const PIC_KEY = 'household_pics';
 const PIC_KINDS = ['household', 'travel', 'signin'];
@@ -31,10 +36,15 @@ const norm = (v) => { const d = s(v).replace(/\D/g, ''); return d ? d.slice(-10)
 const hh = (deps) => (deps && deps.household) || require('./oliviahousehold');
 const q = (deps, sql, p) => ((deps && deps.query) || db.query)(sql, p || []);
 
-/** The Netflix accounts this phone is actively paying for, with the plan and end date to show on the card. */
-async function start(phone, deps) {
-  const ph = norm(phone);
-  if (ph.length !== 10) return { ok: false, message: 'Please log in first.' };
+// One line per use, in householdlog.js — shared with Olivia, who reaches the same thing from chat.
+// ⚠️ details is built by hand at every call site on purpose: a code must never be passed in.
+const note = (deps, req, e) => hhlog.record(deps, req, e);
+
+/**
+ * The Netflix accounts this phone is actively paying for, with the plan and end date to show on the card.
+ * The plain lookup, with no log line — fix() uses this so that acting on an account does not also record an "opened".
+ */
+async function listAccounts(ph, deps) {
   const r = await hh(deps).netflixAccounts(ph, deps);
   const accounts = (r && r.accounts) || [];
   if (!accounts.length) return { ok: true, needPlan: true, accounts: [] };
@@ -61,6 +71,19 @@ async function start(phone, deps) {
   };
 }
 
+/** What the customer sees when they open 🏠 Netflix Household — and the line that records that they opened it. */
+async function start(phone, deps, req) {
+  const ph = norm(phone);
+  if (ph.length !== 10) return { ok: false, message: 'Please log in first.' };
+  const out = await listAccounts(ph, deps);
+  await note(deps, req, {
+    action: 'household.open', phone: ph,
+    summary: out.needPlan ? 'opened the household tool — no active Netflix plan' : 'opened the household tool — ' + out.accounts.length + ' account(s)',
+    details: { accounts: (out.accounts || []).map((a) => a.accountId), needPlan: !!out.needPlan },
+  });
+  return out;
+}
+
 /** Everything the customer may do, and what each one is. */
 const WHAT = {
   household: { needs: 'update', label: 'make this TV the home' },
@@ -72,21 +95,33 @@ const WHAT = {
  * Do the one thing the customer picked, for one of THEIR accounts.
  * → { ok, code } · { ok, done } · { ok, openLink } (not our account) · { ok:false, manual:true } (do it by hand)
  */
-async function fix(phone, accountId, what, deps) {
+async function fix(phone, accountId, what, deps, req) {
   const ph = norm(phone);
   const kind = WHAT[s(what)] ? s(what) : '';
   if (ph.length !== 10) return { ok: false, message: 'Please log in first.' };
   if (!kind) return { ok: false, message: 'Pick what you are seeing on the TV first.' };
+  const label = WHAT[kind].label;
 
   // 🔒 The account must be one this phone is actively paying for — the id from the browser is only a hint.
-  const mine = await start(ph, deps);
+  const mine = await listAccounts(ph, deps);
   if (!mine.ok) return mine;
-  if (mine.needPlan) return { ok: false, needPlan: true, message: 'You do not have an active Netflix plan right now.' };
+  if (mine.needPlan) {
+    await note(deps, req, { action: 'household.refused', phone: ph, summary: 'asked to ' + label + ' with no active Netflix plan', details: { what: kind, asked: s(accountId) } });
+    return { ok: false, needPlan: true, message: 'You do not have an active Netflix plan right now.' };
+  }
   const want = s(accountId).toUpperCase();
   const acc = want
     ? mine.accounts.find((a) => a.accountId.toUpperCase() === want) || null
     : (mine.accounts.length === 1 ? mine.accounts[0] : null);
-  if (!acc) return { ok: false, message: 'Please choose which Netflix account you need help with.' };
+  if (!acc) {
+    // Either they asked for an account that is not theirs, or they have several and picked none.
+    await note(deps, req, {
+      action: 'household.refused', phone: ph,
+      summary: want ? 'asked to ' + label + ' on ' + want + ', which is not theirs' : 'asked to ' + label + ' without saying which account',
+      details: { what: kind, asked: want, theirs: mine.accounts.map((a) => a.accountId) },
+    });
+    return { ok: false, message: 'Please choose which Netflix account you need help with.' };
+  }
 
   const H = hh(deps);
   const target = { service: acc.service, email: acc.email, kind: acc.kind, tag: '', ref: acc.accountId };
@@ -94,23 +129,40 @@ async function fix(phone, accountId, what, deps) {
   const full = ((await H.netflixAccounts(ph, deps)).accounts || []).find((a) => s(a.ref).toUpperCase() === acc.accountId.toUpperCase());
   if (full) target.tag = s(full.tag);
 
+  // Every exit below writes one line. end() keeps the code out of it: it records THAT a code was given, never which.
+  const end = async (action, outcome, out, extra) => {
+    await note(deps, req, {
+      action, phone: ph,
+      summary: acc.accountId + ' · ' + label + ' · ' + outcome,
+      details: Object.assign({ what: kind, accountId: acc.accountId, email: acc.email, kind: acc.kind }, extra || {}),
+    });
+    return out;
+  };
+
   // Not one of ours (a darkflix account): there is a page for it, and Olivia can walk them through it.
   if (acc.kind !== 'H') {
-    return { ok: true, openLink: DARKFLIX_BASE() + '/household.php', notOurs: true, email: acc.email, accountId: acc.accountId };
+    return end('household.link', 'not our account — sent to the darkflix page',
+      { ok: true, openLink: DARKFLIX_BASE() + '/household.php', notOurs: true, email: acc.email, accountId: acc.accountId });
   }
 
   if (kind === 'travel') {
     const r = await H.travelCode(target, deps);
-    return r && r.ok ? { ok: true, code: r.code, accountId: acc.accountId } : { ok: false, manual: true };
+    return r && r.ok
+      ? end('household.travel', '✅ TV code given', { ok: true, code: r.code, accountId: acc.accountId })
+      : end('household.travel', '⚠️ no code — needs doing by hand', { ok: false, manual: true });
   }
   if (kind === 'signin') {
     const r = await H.verificationCode(target, deps);
-    return r && r.ok ? { ok: true, code: r.code, accountId: acc.accountId } : { ok: false, manual: true };
+    return r && r.ok
+      ? end('household.signin', '🔐 sign-in code given', { ok: true, code: r.code, accountId: acc.accountId })
+      : end('household.signin', '⚠️ no code — needs doing by hand', { ok: false, manual: true });
   }
   // household: make this TV the home. Only when the owner has switched that on (OLIVIA_HH_UPDATE).
-  if (!H.updateEnabled()) return { ok: false, manual: true, updateOff: true };
+  if (!H.updateEnabled()) return end('household.update', '⏸ turned off (OLIVIA_HH_UPDATE)', { ok: false, manual: true, updateOff: true });
   const r = await H.updateHousehold(target, deps);
-  return r && r.ok ? { ok: true, done: true, accountId: acc.accountId } : { ok: false, manual: true };
+  return r && r.ok
+    ? end('household.update', '🏠 this TV made the home', { ok: true, done: true, accountId: acc.accountId })
+    : end('household.update', '⚠️ could not — needs doing by hand', { ok: false, manual: true });
 }
 
 // ── the example pictures the customer points at ───────────────────────────────────────────────────────────────
@@ -147,4 +199,4 @@ async function savePicture(kind, dataUrl, deps) {
   return { ok: true, kind: k, has: !!v, bytes: v.length };
 }
 
-module.exports = { start, fix, pictures, savePicture, PIC_KEY, PIC_KINDS, WHAT, _internal: { reset: () => { picCache = null; } } };
+module.exports = { start, fix, pictures, savePicture, PIC_KEY, PIC_KINDS, WHAT, _internal: { reset: () => { picCache = null; }, listAccounts, note } };

@@ -137,8 +137,9 @@ const DB_STOREFRONT = Object.assign(
   // a = [phone] / [phone, accountId, what].
   hhMod ? {
     householdPics: () => hhMod.pictures(),
-    householdStart: (a) => hhMod.start(a[0]),
-    householdFix: (a) => hhMod.fix(a[0], a[1], a[2]),
+    // req is passed on so the change log can record where the request came from.
+    householdStart: (a, req) => hhMod.start(a[0], null, req),
+    householdFix: (a, req) => hhMod.fix(a[0], a[1], a[2], null, req),
   } : {}
 );
 
