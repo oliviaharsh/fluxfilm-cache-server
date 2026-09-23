@@ -7237,6 +7237,11 @@ function rjNum(job, key, label, hint, min, max) {
   return '<label>' + esc(label) + (hint ? ' <span class="muted">(' + esc(hint) + ')</span>' : '') +
     '<input class="inp" type="number" inputmode="numeric" min="' + min + '" max="' + max + '" data-rjn="' + job + '.' + key + '" value="' + esc(v) + '"/></label>';
 }
+function rjDay(job, key, label, hint) {
+  var v = (RJ.data.settings[job] || {})[key] || '';
+  return '<label>' + esc(label) + (hint ? ' <span class="muted">(' + esc(hint) + ')</span>' : '') +
+    '<input class="inp" type="date" data-rjt="' + job + '.' + key + '" value="' + esc(v) + '"/></label>';
+}
 function renderRj() {
   var el = $('#rjbody'); if (!el) return;
   var r = RJ.data || {};
@@ -7252,8 +7257,16 @@ function renderRj() {
         : '<label class="row" style="gap:8px;align-items:center;cursor:pointer;grid-column:1/-1"><input type="checkbox" data-rjb="winback.withCode"' + (cfg.withCode !== false ? ' checked' : '') + ' style="width:20px;height:20px"/><span>Offer a discount code <span class="muted">(off: they still get the email, just no discount)</span></span></label>' +
           (cfg.withCode !== false
             ? '<label>Discount code <span class="muted">(must already exist in 🎟️ Coupons)</span><input class="inp" data-rjt="winback.code" value="' + esc(cfg.code || '') + '" placeholder="COMEBACK"/></label>' +
-              rjNum(key, 'percent', 'Say it is', '% off, 0 to just say "a discount"', 0, 90)
+              rjNum(key, 'percent', 'Say it is', '% off, 0 to just say "a discount"', 0, 90) +
+              // A coupon expires; a batched job runs for days. These two boxes are what stops the last batches
+              // being sent a code that died halfway through.
+              rjDay(key, 'codeUntil', 'Use that code until', 'its last usable day — leave empty if it does not change') +
+              (cfg.codeUntil
+                ? '<label>Then this code <span class="muted">(must also exist in 🎟️ Coupons)</span><input class="inp" data-rjt="winback.code2" value="' + esc(cfg.code2 || '') + '" placeholder="COMEBACK10"/></label>' +
+                  rjNum(key, 'percent2', 'and say it is', '% off', 0, 90)
+                : '')
             : '') +
+          rjDay(key, 'startOn', 'Start on', 'leave empty to start as soon as it is switched on') +
           rjNum(key, 'afterDays', 'Gone for', 'days', 7, 365) + rjNum(key, 'everyDays', 'Leave alone for', 'days after writing', 14, 365) +
           rjNum(key, 'perDay', 'Write to', 'people a day — the rest wait their turn', 1, 500);
     if (key === 'whatsnew') {
@@ -7290,6 +7303,14 @@ function renderRj() {
 }
 function rjPreview(pv) {
   if (!pv.ok) return '<div class="qnote bad" style="margin-top:10px">' + esc(pv.message || 'Could not look.') + '</div>';
+  var hold = pv.holding ? '<div class="qnote bad" style="margin-top:10px">⏸ ' + esc(pv.holding) + '</div>' : '';
+  var using = (pv.usingCode && pv.usingCode.withCode && pv.usingCode.code)
+    ? '<div class="qnote" style="margin-top:6px">Today it would send <b>' + esc(pv.usingCode.code) + '</b>'
+      + (pv.usingCode.percent ? ' (' + esc(pv.usingCode.percent) + '% off)' : '') + '.</div>' : '';
+  if (hold || using) return hold + using + rjPreviewBody(pv);
+  return rjPreviewBody(pv);
+}
+function rjPreviewBody(pv) {
   if (!pv.total) return '<div class="qnote" style="margin-top:10px">Nobody matches right now — nothing would be sent.</div>';
   return '<div class="qnote warn" style="margin-top:10px"><b>' + pv.total + '</b> would get this' +
     (pv.total > pv.wouldSend ? ' — <b>' + pv.wouldSend + '</b> in the next run, the rest after' : '') + '.' +
