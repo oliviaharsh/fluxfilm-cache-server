@@ -276,6 +276,7 @@ the two exceptions are `adminrefundnow.js` (mounted by `adminorderactions.js`) a
 <<<<<<< HEAD
 | ✨ Ask — a typed sentence → one existing read-only lookup, or the right screen pre-filled | `adminask.js` (rules first, `oliviawords.callModel` only as a fallback) | never writes |
 | 📺 Netflix household / travel / verification mail from the ffnetflixhub inbox | `adminnetflix.js` + `oliviahousehold.js` (IMAP, one Gmail label per account) | read-only; the code is admin-only and never logged |
+| 🏠 Netflix Household in 🧰 Tools — active-sub check, which account, picture chooser, one button | `householdhelp.js` (+ `HouseholdGate` / `HouseholdTool` in index.html; example pictures in app_settings) | only ever acts on an account the phone actively pays for |
 =======
 | 🎉 Anniversary countdown bar, 🔔 Notify me, the announcement on the day | `anniversary.js` (settings + who asked in `app_settings`; the bar is `AnnivBar` in index.html) | hourly timer, plus POST /cron/anniversary for a Hostinger cron |
 >>>>>>> aca12dc (🎉 Anniversary sale: a countdown bar, 🔔 Notify me, and the alert on the day)

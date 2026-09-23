@@ -120,7 +120,7 @@ deps.mailparser.simpleParser = async () => {
   adminNetflix.mount(
     { get: (p, fn) => { routes['GET ' + p] = fn; }, post: (p, fn) => { routes['POST ' + p] = fn; } },
     { auth: () => true, audit: { record: (req, o) => audits.push(o) }, household: hh, hhDeps: deps });
-  ok('three routes', Object.keys(routes).length === 3 && routes['GET /admin/api/netflix/accounts'] && routes['POST /admin/api/netflix/mail'] && routes['POST /admin/api/netflix/code'], Object.keys(routes));
+  ok('five routes — the three lookups plus the example pictures', Object.keys(routes).length === 5 && routes['GET /admin/api/netflix/accounts'] && routes['POST /admin/api/netflix/mail'] && routes['POST /admin/api/netflix/code'] && routes['GET /admin/api/netflix/pictures'] && routes['POST /admin/api/netflix/pictures'], Object.keys(routes));
   const call = async (key, body) => { let out = null; const res = { json: (o) => { out = o; }, status: () => ({ json: (o) => { out = o; } }) }; await routes[key]({ body: body || {} }, res); return out; };
   {
     const r = await call('GET /admin/api/netflix/accounts');

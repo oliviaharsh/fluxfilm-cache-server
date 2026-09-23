@@ -36,6 +36,7 @@ function harness(sheet) {
   const mod = new Function('React', 'useState', 'useEffect', 'useSheetLock_', 'Btn', 'RocketArt', 'window', 'NETFLIX_HOUSEHOLD_LINK', src + '; return { ToolsGrid, ToolsSheet, openExternal_ };')(
     React, useState, useEffect, () => { H.locks++; }, Comp('Btn'), Comp('RocketArt'), win, 'https://script.google.com/macros/s/LINK1/exec');
   H.render = (props) => expand(mod.ToolsGrid(Object.assign({ onOtp: () => H.otp++ }, props || {})));
+  H.sheet = (kids) => expand(mod.ToolsSheet({ onClose: () => H.sets.push(''), children: kids || 'hello' }));
   return H;
 }
 const byTool = (tree, id) => find(tree, (n) => n.p && n.p['data-tool'] === id)[0];
@@ -45,7 +46,7 @@ section('tiles');
 let H = harness('');
 let tree = H.render();
 const tiles = find(tree, (n) => n.p && String(n.p.className || '').split(' ').includes('ff-tool'));
-ok('two big tiles: Get OTP + Netflix Household Helper', tiles.length === 2 && /Get OTP/.test(textOf(tiles[0])) && /Netflix Household Helper/.test(textOf(tiles[1])), tiles.length);
+ok('two big tiles: Get OTP + Netflix Household', tiles.length === 2 && /Get OTP/.test(textOf(tiles[0])) && /Netflix Household/.test(textOf(tiles[1])), tiles.length);
 ok('tiles are real buttons with a clear action word', tiles.every((t) => t.t === 'button' && t.p.type === 'button') && /Get my OTP/.test(textOf(tiles[0])) && /Fix it/.test(textOf(tiles[1])));
 ok('without onFeed: no Movies chip, and no "Soon" chips left (Games removed, owner 2026-09-15)', !byTool(tree, 'movies') && !byTool(tree, 'games') && !/Soon/.test(textOf(tree)));
 ok('no sheet open at start', !find(tree, (n) => n.p && n.p.className === 'ff-sheet').length);
@@ -64,18 +65,18 @@ H = harness(''); tree = expand(harness('').render({ onOtp: undefined }));
 byTool(tree, 'otp').p.onClick();
 ok('missing onOtp does not crash', true);
 
-section('household sheet');
-H = harness('household');
-tree = H.render();
-const sheetT = textOf(find(tree, (n) => n.p && n.p.className === 'ff-sheet')[0]);
-ok('explains when to use it and which link', /not part of your household/.test(sheetT) && /Which link should I use\?/.test(sheetT) && /harsh…, gunjan…, fluxfilm…/.test(sheetT) && /all other Netflix emails/.test(sheetT));
-btn(tree, /Open Link 1/).p.onClick();
-btn(tree, /Open Link 2/).p.onClick();
-ok('Link 1 = NETFLIX_HOUSEHOLD_LINK, Link 2 = darkflix (unchanged URLs)', H.opened[0] === 'https://script.google.com/macros/s/LINK1/exec' && H.opened[1] === 'https://darkflix.shop', H.opened);
-ok('real page keeps the same Link 1 URL constant', /const NETFLIX_HOUSEHOLD_LINK = "https:\/\/script\.google\.com\/macros\/s\/AKfycbwKHq3zwpz_xoSgXLwAUdfYSFa8wty2I3udACsWQO5OWpgmBXmhVHvCK_0e9XykhS7Nmw\/exec";/.test(html));
-H.sets.length = 0;
-btn(tree, /Close/).p.onClick();
-ok('Close button closes', H.sets.includes(''));
+section('household: the shop decides, not the customer');
+// Owner, 23 Sep 2026: "customers do not need to understand which link to click its confusing". The two-link sheet
+// is gone; the tile opens a tool that reads the customer's own plans and takes it from there (householdhelp.js,
+// covered end to end in household-tool.test.js).
+ok('the tile opens the new tool', /React\.createElement\(HouseholdGate, \{/.test(src));
+ok('⚠️ and the old "Link 1 / Link 2" guessing game is really gone', !/Which link should I use\?/.test(src) && !/Open Link 1/.test(src) && !/harsh…, gunjan…, fluxfilm…/.test(src));
+ok('it asks who is asking before it shows anything', /function HouseholdGate\(\{/.test(src) && /ffEnsureLogin_\('', p => \{/.test(src));
+
+section('the sheet itself still behaves');
+// Checked on ToolsSheet directly now: every tools pop-up is built from it, including the household one.
+H = harness('');
+tree = H.sheet();
 H.sets.length = 0;
 find(tree, (n) => n.p && n.p.className === 'ff-sheet-bg')[0].p.onClick();
 ok('tap on the dark background closes', H.sets.includes(''));
