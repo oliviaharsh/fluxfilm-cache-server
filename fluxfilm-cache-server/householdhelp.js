@@ -104,7 +104,7 @@ async function fix(phone, accountId, what, deps) {
     return r && r.ok ? { ok: true, code: r.code, accountId: acc.accountId } : { ok: false, manual: true };
   }
   if (kind === 'signin') {
-    const r = await H.signInCode(target, deps);
+    const r = await H.verificationCode(target, deps);
     return r && r.ok ? { ok: true, code: r.code, accountId: acc.accountId } : { ok: false, manual: true };
   }
   // household: make this TV the home. Only when the owner has switched that on (OLIVIA_HH_UPDATE).

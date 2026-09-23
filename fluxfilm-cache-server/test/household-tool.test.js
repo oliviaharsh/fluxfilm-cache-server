@@ -42,7 +42,7 @@ let updateOn = true;
 const fakeHh = {
   netflixAccounts: async (phone) => ({ ok: true, accounts: (SUBS[phone] || []).map((s) => ACC[String(s.inventory_ref).split('#')[0]]).filter(Boolean) }),
   travelCode: async (a) => { CALLS.push(['travel', a.ref]); return { ok: true, code: '1234' }; },
-  signInCode: async (a) => { CALLS.push(['signin', a.ref]); return { ok: true, code: '068097' }; },
+  verificationCode: async (a) => { CALLS.push(['signin', a.ref]); return { ok: true, code: '068097' }; },
   updateHousehold: async (a) => { CALLS.push(['update', a.ref]); return { ok: true }; },
   updateEnabled: () => updateOn,
 };
@@ -90,7 +90,7 @@ const deps = { household: fakeHh };
   // ── the three things a customer can be seeing ─────────────────────────────────────────────────────────────
   section('the three things');
   r = await hh.fix('9971430096', 'NFLX-H5', 'signin', deps);
-  ok('🔐 sign-in code, for our own account', r.ok && r.code === '068097', r);
+  ok('🔐 verification code, for our own account', r.ok && r.code === '068097', r);
   r = await hh.fix('9971430096', 'NFLX-H5', 'household', deps);
   ok('🏠 make this TV the home', r.ok && r.done === true, r);
   {
@@ -122,6 +122,9 @@ const deps = { household: fakeHh };
   // ── wiring ────────────────────────────────────────────────────────────────────────────────────────────────
   section('wiring');
   const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  // PR 172 renamed signInCode → verificationCode on main while this branch was open, and a call to the old
+  // name would have merged cleanly and then been undefined at runtime. Pin the name to the one the module exports.
+  ok('it calls the function oliviahousehold actually exports', /module\.exports = \{[^}]*\bverificationCode\b/.test(read('oliviahousehold.js')) && read('householdhelp.js').indexOf('H.verificationCode(target, deps)') > -1);
   const server = read('server.js');
   ok('the three actions are wired', /householdPics: \(\) => hhMod\.pictures\(\)/.test(server) && /householdStart: \(a\) => hhMod\.start\(a\[0\]\)/.test(server) && /householdFix: \(a\) => hhMod\.fix\(a\[0\], a\[1\], a\[2\]\)/.test(server));
   ok('…rate limited per IP, and the powerful one per phone as well', /householdFix: security\.rateLimiter\(20, TEN_MIN\)/.test(server) && /PHONE_LIMITS = \{[\s\S]*?householdFix: security\.rateLimiter\(10, 60 \* 60e3\)/.test(server));
