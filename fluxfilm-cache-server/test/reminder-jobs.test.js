@@ -31,6 +31,10 @@ const fakeDb = {
     if (/SELECT value FROM app_settings/.test(q)) return SETTINGS.value === undefined ? [] : [{ value: SETTINGS.value }];
     if (/^INSERT INTO app_settings/.test(q)) { SETTINGS.value = p[1]; return { affectedRows: 1 }; }
     if (/^INSERT INTO reminder_log/.test(q)) { LOG.push({ sub_id: p[0], channel: p[1], kind: p[2], expiry_date: p[3], ok: p[4], note: p[5], ts: new Date() }); return { affectedRows: 1 }; }
+    if (/SELECT COUNT\(\*\) AS n FROM reminder_log/.test(q)) {
+      const since = new Date(p[1]);
+      return [{ n: LOG.filter((l) => l.kind === p[0] && l.ok === 1 && l.ts > since).length }];
+    }
     if (/SELECT 1 AS x FROM reminder_log/.test(q)) {
       const [key, kind] = p;
       let rows = LOG.filter((l) => l.sub_id === key && l.kind === kind);
@@ -155,6 +159,42 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
   ok('…and it is written down as PUSH', LOG.some((l) => l.sub_id === 'FF2000001' && l.channel === 'PUSH' && l.kind === 'ABANDONED'), LOG);
 
   // ── 2 · the expiry email ───────────────────────────────────────────────────────────────────────────────────
+  section('\🛒 one person, one reminder \u2014 not one per order');
+  reset();
+  // The live preview found exactly this: two unpaid orders, both the same customer.
+  ORDERS.push({ order_id: 'FF2000005', phone_norm: '9000000001', name: 'Asha Kumar', service: 'Netflix', plan: 'Private 1M', final_amount: 399, status: 'CREATED', created_at_sheet: at(-4 * HOUR) });
+  await on({ abandoned: { on: true } });
+  await jobs.run(NOW, deps);
+  ok('two unpaid orders from one person send ONE email, not two', MAILED.length === 1 && MAILED[0].to === 'asha@example.com', MAILED.map((m) => m.to));
+  ok('...and it names the newest of them', /FF2000001/.test(MAILED[0].html), MAILED[0].subject);
+  ok('...the other order is marked handled, so it never sends its own', LOG.filter((l) => l.kind === 'ABANDONED').length === 2 && LOG.some((l) => /covered by/.test(l.note || '')), LOG.map((l) => l.sub_id + ':' + (l.note || '')));
+  MAILED.length = 0;
+  await jobs.run(NOW + 2 * HOUR, deps);
+  ok('...and that person is never written to again', !MAILED.some((m) => m.to === 'asha@example.com'), MAILED.map((m) => m.to));
+
+  section('\💚 win-back goes out in batches, a day at a time');
+  reset();
+  for (let i = 0; i < 25; i++) {
+    const ph = '90002000' + String(i).padStart(2, '0');
+    SUBS.push({ sub_id: 'SUB-W' + i, phone_norm: ph, service: 'Netflix', plan: 'S', status: 'EXPIRED', expiry_date: at(-90 * DAY) });
+    CUSTOMERS.push({ phone_norm: ph, name: 'W' + i, email: 'w' + i + '@example.com' });
+  }
+  await on({ winback: { on: true, code: 'COMEBACK', perDay: 10 } });
+  let r2 = await jobs.run(NOW, deps);
+  ok("the first day writes to the day's batch only", MAILED.length === 10, MAILED.length);
+  MAILED.length = 0;
+  r2 = await jobs.run(NOW + 2 * HOUR, deps);
+  const wj = r2.jobs.find((j) => j.job === 'winback');
+  ok('...another run the same day adds nobody', MAILED.length === 0 && /batch is done/.test(wj.skipped || ''), wj);
+  MAILED.length = 0;
+  await jobs.run(NOW + 25 * HOUR, deps);
+  ok('...the next day picks up where it stopped', MAILED.length === 10, MAILED.length);
+  ok('...and never writes to the same person twice', new Set(LOG.filter((l) => l.kind === 'WINBACK').map((l) => l.sub_id)).size === 20, LOG.filter((l) => l.kind === 'WINBACK').length);
+  {
+    const pv2 = await jobs.preview('winback', NOW + 25 * HOUR, deps);
+    ok('...and the preview says how long the whole list will take', pv2.perDay === 10 && pv2.days >= 1, { perDay: pv2.perDay, days: pv2.days, total: pv2.total });
+  }
+
   section('⏳ expiry emails — only where push cannot reach');
   reset();
   PUSH_DEVICES = new Set(['9000000002']);          // Bilal has push; Asha does not
@@ -195,7 +235,7 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
   await jobs.run(NOW + 100 * DAY, deps);
   ok('…but welcome back again after it', MAILED.some((m) => m.to === 'farah@example.com'), MAILED.map((m) => m.to));
 
-  section('\U0001f49a the discount can be switched off without silencing the email');
+  section('\💚 the discount can be switched off without silencing the email');
   reset();
   await on({ winback: { on: true, withCode: false } });
   await jobs.run(NOW, deps);

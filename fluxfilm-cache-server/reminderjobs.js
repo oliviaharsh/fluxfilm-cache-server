@@ -36,7 +36,9 @@ const DEFAULTS = {
   abandoned: { on: false, afterHours: 2, withinHours: 48 },
   expiryMail: { on: false, daysBefore: [3, 1], onExpiryDay: true, afterExpiry: true, onlyWithoutPush: true },
   // withCode false = still write to lapsed customers, but give nothing away. The owner's switch, 23 Sep 2026.
-  winback: { on: false, withCode: true, afterDays: 30, everyDays: 90, code: '', percent: 0 },
+  // perDay: how many lapsed customers to write to in a DAY. The list is worked through a batch at a time
+  // rather than in one burst, so 113 people become six quiet days instead of one loud afternoon.
+  winback: { on: false, withCode: true, afterDays: 30, everyDays: 90, code: '', percent: 0, perDay: 20 },
   quietStart: 9,
   quietEnd: 21,
   maxPerRun: 30,
@@ -109,6 +111,7 @@ async function saveSettings(input, deps) {
     if (w.afterDays != null) next.winback.afterDays = Math.min(365, Math.max(7, num(w.afterDays, 30)));
     if (w.everyDays != null) next.winback.everyDays = Math.min(365, Math.max(14, num(w.everyDays, 90)));
     if (w.percent != null) next.winback.percent = Math.min(90, Math.max(0, num(w.percent, 0)));
+    if (w.perDay != null) next.winback.perDay = Math.min(500, Math.max(1, num(w.perDay, 20)));
     if (w.code != null) next.winback.code = s(w.code).toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 24);
     // A code is only demanded when one is actually being offered.
     if (next.winback.on && next.winback.withCode && !next.winback.code) errs.push('Set the discount code, or turn off "offer a discount code".');
@@ -135,6 +138,12 @@ async function alreadySent(deps, key, kind, expiry, sinceMs, now) {
   if (sinceMs) { sql += ' AND ts > ?'; args.push(new Date((now || Date.now()) - sinceMs)); }
   const r = await q(deps, sql + ' LIMIT 1', args);
   return !!(r && r.length);
+}
+/** How many of this kind actually went out in the last window — what the daily batch size is measured against. */
+async function sentSince(deps, kind, sinceMs, now) {
+  const r = await q(deps, 'SELECT COUNT(*) AS n FROM reminder_log WHERE kind = ? AND ok = 1 AND ts > ?',
+    [kind, new Date((now || Date.now()) - sinceMs)]);
+  return Number(r && r[0] && r[0].n) || 0;
 }
 async function writeLog(deps, key, channel, kind, expiry, ok, note) {
   try {
@@ -204,15 +213,22 @@ async function abandonedCandidates(settings, now, deps) {
     'FROM orders o LEFT JOIN customers c ON c.phone_norm = o.phone_norm ' +
     "WHERE UPPER(o.status) = 'CREATED' AND o.created_at_sheet < ? AND o.created_at_sheet > ? " +
     'ORDER BY o.created_at_sheet DESC LIMIT 200', [olderThan, newerThan]);
-  const out = [];
-  for (const r of (rows || [])) {
+  // One person, one reminder. A customer with three unpaid orders is still one person having one bad evening;
+  // three emails in the same minute reads as a broken shop. The newest order is the one worth naming, and the
+  // others are marked handled when it goes, so they never produce a second email of their own.
+  const byPhone = new Map();
+  for (const r of (rows || [])) {                       // already newest-first from the query
     if (await alreadySent(deps, r.order_id, 'ABANDONED')) continue;
-    out.push({
-      key: s(r.order_id), orderId: s(r.order_id), phone: norm(r.phone_norm), name: s(r.name),
-      service: s(r.service), plan: s(r.plan), amount: Number(r.final_amount) || 0, email: s(r.email),
+    const phone = norm(r.phone_norm);
+    const id = s(r.order_id);
+    const seen = byPhone.get(phone || id);
+    if (seen) { seen.alsoOrders.push(id); continue; }
+    byPhone.set(phone || id, {
+      key: id, orderId: id, phone, name: s(r.name), service: s(r.service), plan: s(r.plan),
+      amount: Number(r.final_amount) || 0, email: s(r.email), alsoOrders: [],
     });
   }
-  return out;
+  return [...byPhone.values()];
 }
 
 // ── job 2 · "your plan is ending", by email, to whoever push cannot reach ──────────────────────────────────────
@@ -302,10 +318,17 @@ async function preview(job, now, deps) {
   let list = [];
   try { list = await j.find(settings, at, deps); }
   catch (e) { if (missingTable(e)) return { ok: true, job, total: 0, candidates: [], note: 'Run db/schema-v14.sql first (reminder_log).' }; throw e; }
-  const capped = list.slice(0, settings.maxPerRun);
+  let perBatch = settings.maxPerRun;
+  let days = 0;
+  if (job === 'winback') {
+    perBatch = Math.min(perBatch, settings.winback.perDay);
+    days = Math.ceil(list.length / Math.max(1, settings.winback.perDay));
+  }
+  const capped = list.slice(0, perBatch);
   const first = capped[0] || null;
   return {
     ok: true, job, total: list.length, wouldSend: capped.length, maxPerRun: settings.maxPerRun,
+    perDay: job === 'winback' ? settings.winback.perDay : null, days,
     candidates: capped.slice(0, 20).map((c) => ({ key: c.key, name: c.name, phone: c.phone, email: c.email, service: c.service, plan: c.plan })),
     sample: first ? Object.assign({ to: first.email || '(push)', }, renderFor(job, first, settings, at, deps)) : null,
   };
@@ -341,7 +364,18 @@ async function runJob(job, settings, now, deps) {
   const mailer = dep(deps, 'mailer', './mailer');
   const push = dep(deps, 'push', './push');
 
-  for (const c of list.slice(0, settings.maxPerRun)) {
+  // How many may go in this run. Win-back also has a DAILY batch size, so a long list is worked through a bit at
+  // a time: today's batch goes, tomorrow's run picks up where it stopped, because everyone written to is logged.
+  let room = settings.maxPerRun;
+  if (job === 'winback') {
+    const today = await sentSince(deps, 'WINBACK', DAY, now).catch(() => 0);
+    out.sentToday = today;
+    out.perDay = settings.winback.perDay;
+    room = Math.max(0, Math.min(room, settings.winback.perDay - today));
+    if (!room) return Object.assign(out, { skipped: "today's batch is done" });
+  }
+
+  for (const c of list.slice(0, room)) {
     const kind = j.kind(c);
     const mail = renderFor(job, c, settings, now, deps);
     // The abandoned nudge prefers a push, because it is small and immediate; everything else is an email.
@@ -368,6 +402,8 @@ async function runJob(job, settings, now, deps) {
       console.log('[reminderjobs] ' + job + ' failed for ' + c.key + ':', e.message);
     }
     await writeLog(deps, c.key, channel, kind, c.expiry || null, ok, job + (ok ? '' : ' failed'));
+    // Their other unpaid orders count as reminded too — the person has been told, once.
+    if (ok && c.alsoOrders) for (const other of c.alsoOrders) await writeLog(deps, other, channel, kind, null, 1, 'covered by ' + c.orderId);
     if (ok) out.sent++; else out.failed++;
   }
   return out;
