@@ -729,6 +729,9 @@ try { if (feedMod && db.ENABLED) feedMod.startTimer({ audit: require('./audit').
 try { if (db.ENABLED) require('./subexpiry').startTimer(); } catch (e) { console.log('[subexpiry] not started:', e.message); }
 // Push renewal reminders (3 / 1 days before, expiry day, day after; 09:00-21:00 IST): every hour + 60 s after start.
 try { if (pushMod && db.ENABLED) require('./pushreminders').startTimer(); } catch (e) { console.log('[push] reminders not started:', e.message); }
+// ✉️ The three email/push reminder jobs (reminderjobs.js). Every one of them ships OFF, so starting the timer
+// sends nothing until the owner switches a job on in admin → 🔔 Notifications.
+try { if (db.ENABLED) require('./reminderjobs').startTimer(); } catch (e) { console.log('[reminderjobs] not started:', e.message); }
 // 🎉 The sale announcement goes out by itself on the day — an hourly tick, so nothing has to be set up on Hostinger.
 // A cron job hitting POST /cron/anniversary does the same work behind the same "never twice" guard.
 if (annivMod && db.ENABLED) annivMod.startTimer();

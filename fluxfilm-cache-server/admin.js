@@ -197,6 +197,8 @@ function mountAdmin(app, deps) {
   require('./anniversary').mount(app, Object.assign({ db, auth, audit }, deps.anniversary || {}));
   // 📺 Netflix helper: the newest household / travel / verification mail for one of our accounts (adminnetflix.js).
   require('./adminnetflix').mount(app, Object.assign({ db, auth, audit }, deps.netflix || {}));
+  // ✉️ The abandoned-order, expiry-email and win-back jobs. Every one ships OFF.
+  require('./reminderjobs').mount(app, Object.assign({ auth, audit }, deps.reminderJobs || {}));
 
   // Real column list per table (cached), so search can look at every column.
   const _colsCache = {};
