@@ -32,7 +32,8 @@ const VIEWS = {
   week: 'created_at_sheet >= CURDATE() - INTERVAL 6 DAY',
 };
 // Same occupancy rule as fulfill.js / stock.js.
-const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR release_eligible_at > NOW())";
+// Same rule as fulfill.js / stock.js, removed-releases-the-grace-hold and all.
+const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR (release_eligible_at > NOW() AND COALESCE(removed, 0) = 0))";
 
 function mount(app, deps) {
   const { db, auth } = deps;

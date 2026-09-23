@@ -34,8 +34,9 @@ const cfg = () => ({
   low: Math.max(1, Number(process.env.STOCK_LOW_THRESHOLD || 3) || 3),
 });
 
-// Same occupancy rule as fulfill.js OCC_ACTIVE (tests assert they are identical).
-const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR release_eligible_at > NOW())";
+// Same occupancy rule as fulfill.js OCC_ACTIVE (tests assert they are identical) — including that a removed
+// device gives its seat back as soon as the plan has ended, rather than sitting on it for the grace days.
+const OCC_ACTIVE = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR (release_eligible_at > NOW() AND COALESCE(removed, 0) = 0))";
 
 /** One round-trip per table; no credentials leave the database. */
 async function loadSnapshot() {

@@ -23,7 +23,8 @@ function fresh() { S = { subs: [], accounts: [], caps: [], profiles: [], plans: 
 fresh();
 const sub = (id) => S.subs.find((x) => x.sub_id === id);
 const rawSub = (id) => JSON.parse(sub(id).raw_json || '{}');
-const occupying = (x) => up(x.status) === 'ACTIVE' && (ms(x.expiry_date) > Date.now() || ms(x.release_eligible_at) > Date.now());
+const occupying = (x) => up(x.status) === 'ACTIVE'
+  && (ms(x.expiry_date) > Date.now() || (ms(x.release_eligible_at) > Date.now() && Number(x.removed || 0) === 0));
 const likeOf = (p) => String(p || '').replace(/%/g, '').toLowerCase();
 
 // Live lessons: MariaDB refuses to compare refund_* / feed_* (utf8mb4_unicode_ci) with the old tables; and a JOIN across
@@ -33,7 +34,7 @@ const OLD_T = /\b(orders|customers|subscriptions|inventory_\w+)\b/;
 function guard(sql) {
   if (/\bJOIN\b/i.test(sql) || (NEW_T.test(sql) && OLD_T.test(sql))) { const e = new Error('Illegal mix of collations (utf8mb4_unicode_ci,IMPLICIT) and (utf8mb4_general_ci,IMPLICIT) for operation \'=\': ' + sql); e.code = 'ER_CANT_AGGREGATE_2COLLATIONS'; throw e; }
 }
-const OCC = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR release_eligible_at > NOW())";
+const OCC = "UPPER(status)='ACTIVE' AND (expiry_date > NOW() OR (release_eligible_at > NOW() AND COALESCE(removed, 0) = 0))";
 
 function run(sql, p) {
   sql = sql.replace(/\s+/g, ' ').trim(); p = p || [];
@@ -171,6 +172,8 @@ function seed() {
     other('SUB-501', 'NFLX-D5#P2', { plan: 'Private 2 Devices 1M', device_count: 2 }), // private on 2 devices: 1 extra device
     other('SUB-502', 'NFLX-D5#P1', { status: 'REFUNDED' }),                        // refunded: not counted
     other('SUB-1001', 'NFLX-D10#P1', { expiry_date: dt(days(-3)), release_eligible_at: dt(days(7)) }), // 10-day grace: counted
+    // Same grace window, but the device was logged out — the seat is physically free, so it is not counted (24 Sep 2026).
+    other('SUB-1002', 'NFLX-D10#P2', { expiry_date: dt(days(-3)), release_eligible_at: dt(days(7)), removed: 1 }),
     liveSub('SUB-P1', { plan: 'Private 1M', inventory_ref: 'NFLX-D1#P3', profile_number: '3', profile_name: 'Green', profile_pin: '2222', email: '' }),
     liveSub('SUB-R1', { status: 'REFUNDED', fulfillment_status: 'REFUNDED' }),
     liveSub('SUB-X1', { expiry_date: dt(days(-2)), release_eligible_at: dt(days(8)) }),
