@@ -24,7 +24,7 @@
  * Settings (app_settings): 'household_pics' — { household, travel, signin } as data: URLs, uploaded in admin.
  */
 const db = require('./db');
-const hhlog = require('./householdlog');
+const hhlog = require('./customerlog');
 
 const PIC_KEY = 'household_pics';
 const PIC_KINDS = ['household', 'travel', 'signin'];
@@ -36,7 +36,7 @@ const norm = (v) => { const d = s(v).replace(/\D/g, ''); return d ? d.slice(-10)
 const hh = (deps) => (deps && deps.household) || require('./oliviahousehold');
 const q = (deps, sql, p) => ((deps && deps.query) || db.query)(sql, p || []);
 
-// One line per use, in householdlog.js — shared with Olivia, who reaches the same thing from chat.
+// One line per use, in customerlog.js — shared with Olivia (chat) and 🔎 Get OTP.
 // ⚠️ details is built by hand at every call site on purpose: a code must never be passed in.
 const note = (deps, req, e) => hhlog.record(deps, req, e);
 

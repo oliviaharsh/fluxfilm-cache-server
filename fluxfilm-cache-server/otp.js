@@ -204,12 +204,28 @@ async function noteFallback(svcKey) {
 // Some forwarders are slow, so the owner can stretch the window without touching Hostinger. 5-30 minutes.
 const SETTINGS_KEY = 'getotp_settings';
 const WINDOW_MIN = 5, WINDOW_MAX = 30;
+const QUOTA_MAX = 2000;
+/** A service key as the quota is stored: JIOHOTSTAR, ZEE5 … (the same shape as the OTP_QUOTA_* env names). */
+const quotaKey = (svc) => String(svc == null ? '' : svc).trim().replace(/\s+/g, '').toUpperCase();
 const WINDOW_DEFAULT = Math.max(WINDOW_MIN, Math.min(WINDOW_MAX, Math.round(OTP_EXPIRY_MS / 60e3) || 10));
 function validateSettings(input) {
-  const n = Math.round(Number((input || {}).windowMin));
+  const i = input || {};
+  const n = Math.round(Number(i.windowMin));
   if (!Number.isFinite(n)) return { ok: false, errors: ['Enter how many minutes a forwarded OTP mail stays usable.'] };
   if (n < WINDOW_MIN || n > WINDOW_MAX) return { ok: false, errors: ['Use between ' + WINDOW_MIN + ' and ' + WINDOW_MAX + ' minutes.'] };
-  return { ok: true, settings: { windowMin: n } };
+  // How many OTPs a customer may pull in a month, per service. Blank / missing = fall back to the env var, so
+  // nothing changes until the owner actually sets one here.
+  const quotas = {};
+  const src = i.quotas && typeof i.quotas === 'object' ? i.quotas : {};
+  for (const [k, v] of Object.entries(src)) {
+    const key = quotaKey(k);
+    if (!key) continue;
+    if (v === '' || v == null) continue;                       // cleared -> back to the env var
+    const q = Math.round(Number(v));
+    if (!Number.isFinite(q) || q < 0 || q > QUOTA_MAX) return { ok: false, errors: ['A monthly limit must be a whole number between 0 and ' + QUOTA_MAX + ' (' + key + ').'] };
+    quotas[key] = q;
+  }
+  return { ok: true, settings: { windowMin: n, quotas } };
 }
 let cfgCache = null, cfgAt = 0;
 async function getSettings(fresh) {
@@ -220,7 +236,7 @@ async function getSettings(fresh) {
     saved = r && r[0] && r[0].value ? JSON.parse(r[0].value) : null;
   } catch (_) { saved = null; }
   const v = validateSettings(saved || {});
-  cfgCache = v.ok ? v.settings : { windowMin: WINDOW_DEFAULT };
+  cfgCache = v.ok ? v.settings : { windowMin: WINDOW_DEFAULT, quotas: (saved && saved.quotas) || {} };
   cfgAt = Date.now();
   return cfgCache;
 }
@@ -269,7 +285,30 @@ const NOT_READY = 'Your login is not ready here yet. Tap Help and our team will 
  * service, phone, token (otp2 from otpaccess.verifyGetOtpCode), subRef (sub_id or order_id of the plan the customer tapped).
  * deps (tests): { access, withImap, parse, now }
  */
-async function getLatestOtp(service, phone, token, subRef, deps) {
+/**
+ * 🕘 One line per Get OTP request in the change log: who asked, when, for which service, and how it ended.
+ * 🔐 The code is NEVER written down — the line says a code was given, not what it was. Same habit, same screen and
+ * the same shared logger as 🏠 Netflix Household (customerlog.js).
+ */
+function noteOtp(deps, req, phone, svc, outcome, extra) {
+  try {
+    const log = (deps && deps.customerlog) || require('./customerlog');
+    log.record(deps, req || null, {
+      action: 'otp.' + outcome, phone,
+      summary: svc + ' · ' + OTP_OUTCOME[outcome],
+      details: Object.assign({ service: svc }, extra || {}),
+    });
+  } catch (_) { /* logging must never stop a customer getting their code */ }
+}
+const OTP_OUTCOME = {
+  given: '✅ code given',
+  none: '⌛ no fresh code in the inbox',
+  noplan: '🚫 refused — no active plan for that email',
+  quota: '🚫 refused — monthly limit used up',
+  locked: '🔒 refused — this device has not confirmed the email',
+};
+
+async function getLatestOtp(service, phone, token, subRef, deps, req) {
   const svc = String(service || '').trim();
   if (!svc) return { ok: false, message: 'Service is required.' };
   const svcKey = svcKeyOf(svc);
@@ -279,16 +318,16 @@ async function getLatestOtp(service, phone, token, subRef, deps) {
   const accessMod = (deps && deps.access) || require('./otpaccess');
   // A phone number is not a secret: this device must have confirmed an email that belongs to the plan (otpaccess.js).
   const access = await accessMod.checkGetOtp(ph, token);
-  if (!access.ok) return Object.assign({ ok: true, found: false }, access);
+  if (!access.ok) { noteOtp(deps, req, ph, svcKey, 'locked'); return Object.assign({ ok: true, found: false }, access); }
   // Only ACTIVE purchases (India date) of this service that the verified email really belongs to.
   const ref = String(subRef == null ? '' : subRef).trim();
   let groups = (await accessMod.unlockedForToken(ph, access.eh)).filter((g) => svcKeyOf(g.lead.service) === svcKey);
   if (ref) groups = groups.filter((g) => g.rows.some((r) => String(r.sub_id || '').trim() === ref || String(r.order_id || '').trim() === ref));
-  if (!groups.length) return { ok: true, found: false, noActive: true, message: accessMod.NO_ACTIVE };
+  if (!groups.length) { noteOtp(deps, req, ph, svcKey, 'noplan', { askedFor: ref || undefined }); return { ok: true, found: false, noActive: true, message: accessMod.NO_ACTIVE }; }
   const allowed = new Set(groups.flatMap((g) => g.rows.map((r) => loginKey(r.login_id))).filter(Boolean));
   if (!allowed.size) return { ok: true, found: false, message: NOT_READY };
   const quota = await getOtpQuota(ph, svcKey);
-  if (quota.remaining <= 0) return { ok: true, found: false, message: 'You have used all your OTP requests for ' + svc + ' this month.' };
+  if (quota.remaining <= 0) { noteOtp(deps, req, ph, svcKey, 'quota', { used: quota.used, limit: quota.limit }); return { ok: true, found: false, message: 'You have used all your OTP requests for ' + svc + ' this month.' }; }
   const known = await knownLoginsFor(svcKey);
   const windowMin = (await getSettings()).windowMin;
   const windowMs = windowMin * 60e3;
@@ -329,27 +368,40 @@ async function getLatestOtp(service, phone, token, subRef, deps) {
       }
       const hit = pickOtpMail(items, { keywords, allowed, known, now, windowMs, diag });
       await saveDiag(svcKey, diag, windowMin);
-      if (!hit) return { ok: true, found: false, message: 'No fresh OTP found for ' + svc + '. Codes expire in ~' + windowMin + ' min — try logging in again.' };
+      if (!hit) { noteOtp(deps, req, ph, svcKey, 'none', { windowMin }); return { ok: true, found: false, message: 'No fresh OTP found for ' + svc + '. Codes expire in ~' + windowMin + ' min — try logging in again.' }; }
       try { await client.messageFlagsAdd({ uid: hit.item.uid }, ['\\Seen'], { uid: true }); } catch (_) {}
       const age = now - hit.item.date.getTime();
       _logOtp(svcKey, hit.otp, ph, hit.body);
+      // 🔐 the code is deliberately not passed in — only that one was given, and how many are left this month.
+      noteOtp(deps, req, ph, svcKey, 'given', { left: Math.max(0, quota.remaining - 1), limit: quota.limit });
       if (hit.matchedBy === 'fallback') await noteFallback(svcKey);
       return { ok: true, found: true, otp: hit.otp, service: svc, receivedAt: new Date(hit.item.date).toISOString(), ageSec: Math.max(0, Math.round(age / 1000)), remainingSec: Math.max(0, Math.round((windowMs - age) / 1000)) };
     } finally { lock.release(); }
   });
 }
 
+/**
+ * How many OTPs this phone may still pull for this service this month.
+ * The panel wins (admin → 📱 OTP devices → monthly limits), then the OTP_QUOTA_<SERVICE> env var, then 60 —
+ * so an untouched service behaves exactly as it did before anything was set here.
+ */
 async function getOtpQuota(phone, service) {
   const svcKey = svcKeyOf(service);
-  const envKey = 'OTP_QUOTA_' + svcKey.replace(/\s+/g, '').toUpperCase();
-  const limit = Number(process.env[envKey] || process.env.OTP_QUOTA_DEFAULT || 60);
+  const key = quotaKey(svcKey);
+  const envKey = 'OTP_QUOTA_' + key;
+  let fromPanel;
+  try { fromPanel = ((await getSettings()).quotas || {})[key]; } catch (_) { fromPanel = undefined; }
+  const limit = Number.isFinite(Number(fromPanel)) && fromPanel !== '' && fromPanel != null
+    ? Number(fromPanel)
+    : Number(process.env[envKey] || process.env.OTP_QUOTA_DEFAULT || 60);
+  const source = (Number.isFinite(Number(fromPanel)) && fromPanel != null) ? 'panel' : (process.env[envKey] || process.env.OTP_QUOTA_DEFAULT ? 'env' : 'default');
   const ph = norm(phone);
   let used = 0;
   try {
     const r = await db.query("SELECT COUNT(*) n FROM sms_otp_log WHERE phone_norm = ? AND service = ? AND ts >= DATE_FORMAT(NOW(),'%Y-%m-01')", [ph, svcKey]);
     used = +(r[0] || {}).n || 0;
   } catch (_) {}
-  return { ok: true, service: svcKey, limit, used, remaining: Math.max(0, limit - used) };
+  return { ok: true, service: svcKey, limit, used, remaining: Math.max(0, limit - used), source };
 }
 
 /* ================= Admin: 🔎 Get OTP check (adminotpdevices.js) ================= */
@@ -412,5 +464,5 @@ async function adminSelfTest(input) {
 
 module.exports = {
   getLatestOtp, getOtpQuota, getSettings, saveSettings, adminDiagnostics, adminSelfTest,
-  _internal: { extractOtp, svcKeyOf, loginKey, loginsIn, pickOtpMail, mobileLast10, blankNumbers, explainMail, serviceOfMail, newDiag, validateSettings, diagKey, WINDOW_MIN, WINDOW_MAX },
+  _internal: { extractOtp, svcKeyOf, loginKey, loginsIn, pickOtpMail, mobileLast10, blankNumbers, explainMail, serviceOfMail, newDiag, validateSettings, diagKey, WINDOW_MIN, WINDOW_MAX, QUOTA_MAX, quotaKey, noteOtp, OTP_OUTCOME },
 };

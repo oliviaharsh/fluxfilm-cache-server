@@ -2765,11 +2765,11 @@ function wireGlobalSearch() {
 
 /* ================= change log ================= */
 var AUD = { q: '', action: '' };
-var AUD_LABELS = { 'login.ok': '🔐 Signed in', 'login.failed': '🚫 Wrong password', 'sub.removed': '🚪 Removed tick', 'sub.unremoved': '↩️ Removed tick cleared', 'sub.removedBulk': '🚪 Order subscriptions ticked removed', 'bank.ignore': '🙈 Bank payment: not a sale', 'bank.unignore': '↩️ Bank payment: not-a-sale undone', 'bank.link': '🔗 Bank payment linked', 'bank.unlink': '✂️ Bank payment unlinked', 'bank.cutoff': '🏦 Go-live time changed','coupon.save': '🎟️ Coupon saved', 'row.edit': '✏️ Row edited', 'row.add': '➕ Row added', 'row.delete': '🗑️ Row deleted', 'quick.new': '⚡ Quick order', 'quick.renew': '🔁 Quick renew', 'order.markPaid': '✅ Marked paid', 'order.retryDelivery': '📦 Delivery retried', 'todo.add': '📝 To-do added', 'todo.done': '☑️ To-do done', 'todo.reopen': '📝 To-do reopened', 'todo.delete': '🗑️ To-do deleted', 'account.passwordChange': '🔑 Password changed', 'reminders.email': '✉️ Reminder emails', 'sub.extend': '⏱ Days added', 'sub.shorten': '⏱ Days taken off', 'cost.save': '💰 Account cost', 'cost.clear': '💰 Account cost cleared', 'push.settings': '🔔 Notification settings', 'push.test': '🧪 Test notification', 'push.send': '📨 Notification sent', 'push.broadcast': '📢 Broadcast', 'push.adminSubscribe': '🔔 Admin device on', 'household.open': '🏠 Opened Household help', 'household.travel': '✈️ TV code (customer)', 'household.signin': '🔐 Sign-in code (customer)', 'household.update': '🏠 Made this TV the home', 'household.link': '🔗 Sent to the darkflix page', 'household.refused': '🚫 Household request refused' };
+var AUD_LABELS = { 'login.ok': '🔐 Signed in', 'login.failed': '🚫 Wrong password', 'sub.removed': '🚪 Removed tick', 'sub.unremoved': '↩️ Removed tick cleared', 'sub.removedBulk': '🚪 Order subscriptions ticked removed', 'bank.ignore': '🙈 Bank payment: not a sale', 'bank.unignore': '↩️ Bank payment: not-a-sale undone', 'bank.link': '🔗 Bank payment linked', 'bank.unlink': '✂️ Bank payment unlinked', 'bank.cutoff': '🏦 Go-live time changed','coupon.save': '🎟️ Coupon saved', 'row.edit': '✏️ Row edited', 'row.add': '➕ Row added', 'row.delete': '🗑️ Row deleted', 'quick.new': '⚡ Quick order', 'quick.renew': '🔁 Quick renew', 'order.markPaid': '✅ Marked paid', 'order.retryDelivery': '📦 Delivery retried', 'todo.add': '📝 To-do added', 'todo.done': '☑️ To-do done', 'todo.reopen': '📝 To-do reopened', 'todo.delete': '🗑️ To-do deleted', 'account.passwordChange': '🔑 Password changed', 'reminders.email': '✉️ Reminder emails', 'sub.extend': '⏱ Days added', 'sub.shorten': '⏱ Days taken off', 'cost.save': '💰 Account cost', 'cost.clear': '💰 Account cost cleared', 'push.settings': '🔔 Notification settings', 'push.test': '🧪 Test notification', 'push.send': '📨 Notification sent', 'push.broadcast': '📢 Broadcast', 'push.adminSubscribe': '🔔 Admin device on', 'household.open': '🏠 Opened Household help', 'household.travel': '✈️ TV code (customer)', 'household.signin': '🔐 Sign-in code (customer)', 'household.update': '🏠 Made this TV the home', 'household.link': '🔗 Sent to the darkflix page', 'household.refused': '🚫 Household request refused', 'otp.given': '🔑 OTP given (customer)', 'otp.none': '⌛ OTP asked for, none in the inbox', 'otp.noplan': '🚫 OTP refused — no active plan', 'otp.quota': '🚫 OTP refused — monthly limit used up', 'otp.locked': '🔒 OTP refused — device not confirmed' };
 function auditView() {
   $('#view').innerHTML = '<div class="ph"><div><h1>🕘 Change log</h1><p>Every change made from the admin panel, and every use of 🏠 Household help by a customer — newest first. Deleted rows are kept here (passwords and codes are never stored).</p></div></div>' +
     '<div class="search"><input class="inp" id="aq" placeholder="Search order ID, subscription, coupon, table…" value="' + esc(AUD.q) + '"/></div>' +
-    '<div class="row" id="achips" style="margin:-4px 0 14px">' + [['', 'All'], ['quick', '⚡ Quick orders'], ['order', '🧾 Orders'], ['sub', '🚪 Subscriptions'], ['row', '📋 Sheets edits'], ['coupon', '🎟️ Coupons'], ['account', '🔑 Passwords'], ['reminders', '✉️ Reminders'], ['sub.extend', '⏱ Extensions'], ['cost', '💰 Costs'], ['todo', '📝 To-dos'], ['login', '🔐 Sign-ins'], ['household', '🏠 Household']].map(function (c) { return '<button class="chip' + (AUD.action === c[0] ? ' on' : '') + '" data-a="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="row" id="achips" style="margin:-4px 0 14px">' + [['', 'All'], ['quick', '⚡ Quick orders'], ['order', '🧾 Orders'], ['sub', '🚪 Subscriptions'], ['row', '📋 Sheets edits'], ['coupon', '🎟️ Coupons'], ['account', '🔑 Passwords'], ['reminders', '✉️ Reminders'], ['sub.extend', '⏱ Extensions'], ['cost', '💰 Costs'], ['todo', '📝 To-dos'], ['login', '🔐 Sign-ins'], ['household', '🏠 Household'], ['otp', '🔑 Get OTP']].map(function (c) { return '<button class="chip' + (AUD.action === c[0] ? ' on' : '') + '" data-a="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div>' +
     '<div class="card list" id="alist" style="padding:6px 16px"><p class="muted">Loading…</p></div>';
   var t; $('#aq').addEventListener('input', function () { AUD.q = $('#aq').value.trim(); clearTimeout(t); t = setTimeout(loadAudit, 300); });
   $('#achips').onclick = function (e) { var b = e.target.closest('[data-a]'); if (!b) return; AUD.action = b.getAttribute('data-a'); $$('#achips .chip').forEach(function (c) { c.classList.toggle('on', c === b); }); loadAudit(); };
@@ -5677,6 +5677,25 @@ function odChkRun(r) {
     (bits.length ? ' · ' + esc(bits.join(' · ')) : '') + ' <span class="muted">(' + esc(odAgo(r.at)) + ')</span>' + mail +
     (lines ? '<ul class="muted" style="font-size:.76rem;margin:4px 0 0 16px">' + lines + '</ul>' : '') + '</div>';
 }
+/**
+ * 📵 How many OTPs a customer may pull in a month, per service — the thing that used to live only in the
+ * OTP_QUOTA_* env vars on Hostinger. Blank means "use the env var / 60", so a service nobody has touched keeps
+ * behaving exactly as before.
+ */
+function odQuotaBox(d) {
+  var q = (d.settings && d.settings.quotas) || {};
+  var svcs = d.services || [];
+  if (!svcs.length) return '';
+  var key = function (s) { return String(s).replace(/\s+/g, '').toUpperCase(); };
+  return '<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">' +
+    '<p class="muted" style="font-size:.78rem;margin:0 0 6px">📵 <b>Monthly OTP limit per customer</b> — how many codes one customer may pull for each service in a month. Leave a box empty to use the server setting (' + esc(60) + ' unless Hostinger says otherwise).</p>' +
+    '<div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">' +
+    svcs.map(function (s) {
+      var v = q[key(s)];
+      return '<label style="font-size:.85rem">' + esc(s) + ' <input class="inp odq" data-svc="' + esc(key(s)) + '" type="number" min="0" max="2000" placeholder="default" value="' + (v == null ? '' : esc(v)) + '" style="width:86px;display:inline-block"/></label>';
+    }).join('') +
+    '<button class="btn sm" data-odquota>Save limits</button></div></div>';
+}
 function odChkRender() {
   var box = $('#odchkbody'); if (!box) return;
   var d = OD.chk;
@@ -5687,6 +5706,7 @@ function odChkRender() {
     '<label style="font-size:.85rem">⏱️ Use a forwarded mail for <input class="inp" id="odwin" type="number" min="' + esc(d.min || 5) + '" max="' + esc(d.max || 30) + '" value="' + esc(win) + '" style="width:72px;display:inline-block"/> minutes</label>' +
     '<button class="btn sm" data-odwin>Save</button>' +
     '<span class="muted" style="font-size:.76rem">Raise it if your SMS forwarder is slow (' + esc(d.min || 5) + '–' + esc(d.max || 30) + ').</span></div>' +
+    odQuotaBox(d) +
     '<p class="muted" style="font-size:.76rem;margin:10px 0 2px">Last time a customer tapped Get OTP:</p>' +
     (d.runs && d.runs.length ? d.runs.map(odChkRun).join('') : '<p class="muted" style="font-size:.8rem">Nothing yet — this fills in the next time someone taps Get OTP.</p>') +
     '<p class="muted" style="font-size:.76rem;margin:12px 0 2px">🧪 Test a forwarded mail — paste the mail text and see what the tool makes of it:</p>' +
@@ -5818,11 +5838,27 @@ function odClick(e) {
   var or = e.target.closest('[data-odorder]'); if (or) { e.preventDefault(); openOrder(or.getAttribute('data-odorder')); return; }
   var pv = e.target.closest('[data-odprev]'); if (pv) { odPreview(pv.getAttribute('data-odprev'), pv); return; }
   var st = e.target.closest('[data-odself]'); if (st) { odSelfTest(st); return; }
+  var qb = e.target.closest('[data-odquota]');
+  if (qb) {
+    var quotas = {};
+    $('#odchkbody .odq').forEach(function (i) { quotas[i.getAttribute('data-svc')] = i.value.trim(); });
+    qb.disabled = true;
+    // The window goes with it: saveSettings validates the whole settings object, not one field.
+    post('/admin/api/otp-settings', { windowMin: ($('#odwin') || {}).value, quotas: quotas }).then(function (x) {
+      qb.disabled = false;
+      if (!x.ok) { toast('⚠️ ' + (x.message || 'could not save')); return; }
+      if (OD.chk) OD.chk.settings = x.settings;
+      toast('✅ Monthly limits saved');
+    });
+    return;
+  }
   var wn = e.target.closest('[data-odwin]');
   if (wn) {
     var inp = $('#odwin'); if (!inp) return;
     wn.disabled = true;
-    post('/admin/api/otp-settings', { windowMin: inp.value }).then(function (x) {
+    var keep = {};
+    $('#odchkbody .odq').forEach(function (i) { keep[i.getAttribute('data-svc')] = i.value.trim(); });
+    post('/admin/api/otp-settings', { windowMin: inp.value, quotas: keep }).then(function (x) {
       wn.disabled = false;
       if (!x.ok) { toast('⚠️ ' + (x.message || 'could not save')); return; }
       if (OD.chk) OD.chk.settings = x.settings;
