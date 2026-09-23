@@ -350,6 +350,22 @@ function seed() {
     fail++; origLog('THREW', e);
   }
 
+  // ⛔️ The outage of 23 Sep 2026 (Sahil Verma, 8514020726): the "Create your FluxFilm account" sheet — the ONE
+  // screen meant for people who have no account — called createOrUpdateCustomerProfile, which needs a session.
+  // So every brand-new customer who reached it through the buy flow got "Please log in again — we will send a
+  // code to your email" and could never get past it. It must log in (or sign up) FIRST.
+  {
+    const page = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+    const start = page.indexOf('function AccountCreateModal(');
+    const end = page.indexOf('\nfunction ', start + 10);
+    const modal = page.slice(start, end);
+    ok('the create-account sheet logs in before it saves the profile',
+      /ffEnsureLogin_\(phone, \(p\) => \{/.test(modal) && modal.indexOf('ffEnsureLogin_') < modal.indexOf('API.createOrUpdateCustomerProfile'), modal.slice(modal.indexOf('function submit'), modal.indexOf('function submit') + 400));
+    ok('…and carries the name and email the customer just typed into the code sheet', /\}, \{ name, email \}\);/.test(modal));
+    // The other half of the pair: the action really does need a session, so nobody "fixes" this by opening it up.
+    ok('createOrUpdateCustomerProfile still needs a session', /createOrUpdateCustomerProfile: S\(\{ i: 0, key: 'phone' \}\)/.test(fs.readFileSync(path.join(__dirname, '..', 'customerauth.js'), 'utf8')));
+  }
+
   console.log = origLog;
   console.log('\n---------------------------------------');
   console.log('PASS ' + pass + '   FAIL ' + fail);

@@ -3108,27 +3108,35 @@ function AccountCreateModal({
     if (!email || !email.includes('@')) return setMsg('Valid email is required.');
     setLoading(true);
     setMsg('');
-    API.createOrUpdateCustomerProfile({
-      name,
-      phone,
-      email,
-      referralCode: getRefCode_()
-    }, r => {
-      setLoading(false);
-      if (!r || r.ok === false) {
-        setMsg(r?.message || 'Could not create account.');
-        return;
-      }
-      onCreated && onCreated({
-        ...(r.profile || {}),
-        name: r.profile?.name || name,
-        phone: normPhone_(r.profile?.phone || phone),
-        email: r.profile?.email || email
+    // 🔐 Log in FIRST. createOrUpdateCustomerProfile needs a session (customerauth.js POLICY), so a brand-new
+    // customer pressing this button used to get "Please log in again — we will send a code to your email" and
+    // could never get past it: the one screen meant for people without an account required an account.
+    // ffEnsureLogin_ runs the code straight away when this browser is already logged in; for a new number it
+    // opens the email-code sheet — carrying the name and email just typed — which creates the account itself.
+    ffEnsureLogin_(phone, (p) => {
+      const ph = normPhone_(p || phone);
+      API.createOrUpdateCustomerProfile({
+        name,
+        phone: ph,
+        email,
+        referralCode: getRefCode_()
+      }, r => {
+        setLoading(false);
+        if (!r || r.ok === false) {
+          setMsg(r?.message || 'Could not create account.');
+          return;
+        }
+        onCreated && onCreated({
+          ...(r.profile || {}),
+          name: r.profile?.name || name,
+          phone: normPhone_(r.profile?.phone || ph),
+          email: r.profile?.email || email
+        });
+      }, err => {
+        setLoading(false);
+        setMsg('Failed: ' + (err?.message || err));
       });
-    }, err => {
-      setLoading(false);
-      setMsg('Failed: ' + (err?.message || err));
-    });
+    }, { name, email });
   }
   return React.createElement("div", {
     style: Object.assign({

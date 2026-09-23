@@ -138,7 +138,8 @@ const quiet = (fn) => async (...a) => { const l = console.log; console.log = () 
 
   section('storefront sends the invite code when creating an account and shows Joined / Bought');
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  ok('create-account sends referralCode', /API\.createOrUpdateCustomerProfile\(\{\s*name,\s*phone,\s*email,\s*referralCode: getRefCode_\(\)\s*\}/.test(html));
+  // The sheet logs in first now (23 Sep 2026 outage fix), so the phone goes in as the number the login settled on.
+  ok('create-account sends referralCode', /API\.createOrUpdateCustomerProfile\(\{\s*name,\s*phone: ph,\s*email,\s*referralCode: getRefCode_\(\)\s*\}/.test(html));
   ok('stats show Joined, Bought, Coins earned', /\[\['Joined', info\.joined\], \['Bought', info\.bought \|\| 0\], \['Coins earned', info\.coinsEarned\]\]/.test(html));
 
   console.log('\n---------------------------------------');
