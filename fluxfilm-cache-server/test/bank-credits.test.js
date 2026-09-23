@@ -25,6 +25,8 @@ const D = {
     { order_id: 'FF1000001', name: 'Matched', service: 'Netflix', plan: 'Private 1M', final_amount: 199, status: 'PAID', source: 'node', created_at_sheet: '2026-09-15 09:58:00' },
     { order_id: 'FF1000002', name: 'Waiting', service: 'Netflix (Group Offer)', plan: 'Sharing 1M', final_amount: 139, status: 'CREATED', source: 'node', created_at_sheet: '2026-09-15 10:55:00' },
     { order_id: 'FF1000003', name: 'Other amount', service: 'Prime Video', plan: '1 Month', final_amount: 79, status: 'PAID', source: 'node', created_at_sheet: '2026-09-15 08:00:00' },
+    // A credit renewal: delivered on trust, money still owed. It sits in 💳 Receivables until it is settled.
+    { order_id: 'FF1000009', name: 'Credit customer', service: 'Netflix', plan: 'Sharing 1M', final_amount: 149, status: 'CREDIT', source: 'node', created_at_sheet: '2026-09-20 10:00:00' },
   ],
 };
 const calls = [];
@@ -276,6 +278,18 @@ const mockDb = {
     ok('link needs admin', (await fetch(base + '/admin/api/bank-credits/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status === 403);
     const html = await (await fetch(base + '/panel')).text();
     ok('panel has the 🏦 Bank payments screen', /function bankView\(/.test(html) && /\['bank', '🏦', 'Bank payments'\]/.test(html) && /\/admin\/api\/quick\/mark-paid/.test(html));
+    ok('panel settles a linked credit renewal in one tap, through the 💳 Receivables endpoint (so coins and referral still run)',
+      /data-bkact="creditpaid"/.test(html) && /post\('\/admin\/api\/credit\/mark-paid', \{ orderId: oid/.test(html), null);
+    // 💳 A credit renewal is money already owed. Linking the payment does NOT settle it - the order stays
+    // CREDIT and the customer keeps showing in 💳 Receivables. That silence is what let one slip through.
+    section('linking a credit renewal says it is still owed');
+    D.credits.push({ id: 99, upi_ref: '600000000099', amount: 149, order_ids: '', raw: alert('CREDIT CUSTOMER', 'UPI'), received_at: '2026-09-20 11:00:00', consumed_order_id: null });
+    const ci = D.credits.length - 1;
+    r = await post('/admin/api/bank-credits/link', { id: 99, orderId: 'FF1000009' });
+    ok('linked', r.body.ok && D.credits[ci].consumed_order_id === 'FF1000009', r.body);
+    ok('...and it says plainly that it is not settled yet', r.body.isCredit === true && /credit renewal/i.test(r.body.message) && /Receivables/.test(r.body.message), r.body.message);
+    ok('...with the order and the amount to settle, so the panel can offer one tap', (r.body.credits || []).length === 1 && r.body.credits[0].orderId === 'FF1000009' && r.body.credits[0].amount === 149, r.body.credits);
+    ok('...and linking never marks it paid by itself', D.orders.find((o) => o.order_id === 'FF1000009').status === 'CREDIT');
   } finally {
     if (server.closeAllConnections) server.closeAllConnections();
     await new Promise((res) => server.close(res));

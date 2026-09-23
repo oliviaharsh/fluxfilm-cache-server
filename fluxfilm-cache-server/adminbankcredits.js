@@ -401,8 +401,11 @@ function mount(app, deps) {
         }
       }
       if (ig && ig.where === 'settings') { const map = await st.fallbackIgnores(); delete map[String(id)]; await st.saveSetting(IGNORE_KEY, JSON.stringify(map)).catch(() => {}); }
-      const parts = list.map((o) => ({ orderId: s(o.order_id), amount: num(o.final_amount), name: s(o.name), service: s(o.service), plan: s(o.plan), status: up(o.status), canMarkPaid: up(o.status) === 'CREATED' && s(o.source) === 'node' }));
+      const parts = list.map((o) => ({ orderId: s(o.order_id), amount: num(o.final_amount), name: s(o.name), service: s(o.service), plan: s(o.plan), status: up(o.status), canMarkPaid: up(o.status) === 'CREATED' && s(o.source) === 'node', isCredit: up(o.status) === 'CREDIT' }));
       const unpaid = parts.filter((p) => p.status === 'CREATED');
+      // 💳 A credit renewal is money already owed: linking the payment does NOT settle it, and until it is settled
+      // the customer keeps showing in 💳 Receivables. So say so, and offer to settle it right here.
+      const credits = parts.filter((p) => p.isCredit);
       const status = up(first.status);
       audit.record(req, {
         action: 'bank.link', entity: 'bank_credit', id,
@@ -412,12 +415,18 @@ function mount(app, deps) {
         details: { orderId: s(first.order_id), orderIds: parts.map((p) => p.orderId), split, parts, upiRef: s(c.upi_ref), paymentAmount: num(c.amount), orderAmount: total, amountMismatch: mismatch, reason, orderStatus: status, wasIgnored: ig || null },
       });
       const canMarkPaid = status === 'CREATED' && s(first.source) === 'node';
+      const isCredit = status === 'CREDIT';
       res.json({
         ok: true, id, orderId: s(first.order_id), orderIds: parts.map((p) => p.orderId), parts, split, upiRef: s(c.upi_ref),
         orderStatus: status, amountMismatch: mismatch, needsPaid: status === 'CREATED', canMarkPaid, unpaid,
+        isCredit, credits, paymentAmount: num(c.amount),
         message: split
-          ? '🔗 Split between ' + parts.length + ' orders: ' + parts.map((p) => p.orderId + ' ₹' + p.amount).join(' + ') + '.' + (unpaid.length ? ' ' + unpaid.length + ' of them ' + (unpaid.length === 1 ? 'is' : 'are') + ' still unpaid — use "Mark paid + deliver".' : '')
-          : '🔗 Linked to ' + s(first.order_id) + '.' + (status === 'CREATED' ? (canMarkPaid ? ' The order is still unpaid — use "Mark paid + deliver" if this payment is for it.' : ' The order is still unpaid (old-site order: it cannot be marked paid here).') : ''),
+          ? '🔗 Split between ' + parts.length + ' orders: ' + parts.map((p) => p.orderId + ' ₹' + p.amount).join(' + ') + '.'
+            + (unpaid.length ? ' ' + unpaid.length + ' of them ' + (unpaid.length === 1 ? 'is' : 'are') + ' still unpaid — use "Mark paid + deliver".' : '')
+            + (credits.length ? ' ' + credits.length + ' ' + (credits.length === 1 ? 'is a credit renewal that is' : 'are credit renewals that are') + ' still owed — settle ' + (credits.length === 1 ? 'it' : 'them') + ' in 💳 Receivables.' : '')
+          : '🔗 Linked to ' + s(first.order_id) + '.'
+            + (status === 'CREATED' ? (canMarkPaid ? ' The order is still unpaid — use "Mark paid + deliver" if this payment is for it.' : ' The order is still unpaid (old-site order: it cannot be marked paid here).') : '')
+            + (isCredit ? ' This is a credit renewal — linking does not settle it, so it stays in 💳 Receivables until you mark it paid.' : ''),
       });
     } catch (e) { fail(res, e); }
   });
