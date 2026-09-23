@@ -329,6 +329,18 @@ table.sheet{border-collapse:separate;border-spacing:0;table-layout:fixed;font-si
 .pl-svc{margin-bottom:14px;padding:14px}.pl-svchd{display:flex;gap:10px;align-items:center;margin-bottom:6px}.pl-ic{font-size:1.5rem}
 .pl-item{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line)}.pl-item.off{opacity:.62}.pl-item [data-ed]{cursor:pointer}
 .pl-meta{font-size:.8rem;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+/* 🗂️ Plans are grouped: a service folds shut, and inside it the plans sit under their own category
+   (Sharing / Private / how many devices). 59 plans used to be one long scroll. */
+.pl-svchd{cursor:pointer;user-select:none}
+.pl-chev{font-size:.85rem;color:var(--muted);width:14px;flex:none;transition:transform .12s}
+.pl-svc.open .pl-chev{transform:rotate(90deg)}
+.pl-svc:not(.open) .pl-item,.pl-svc:not(.open) .pl-cat{display:none}
+.pl-cat{margin:10px 0 0;font-size:.7rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.pl-find{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.pl-find input{flex:1;min-width:190px}
+.pl-jump{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.pl-jump button{padding:6px 11px;border-radius:999px;border:1px solid var(--line);background:#fff;font:inherit;font-size:.78rem;font-weight:700;color:var(--ink);cursor:pointer}
+.pl-jump button.on{background:var(--ink);border-color:var(--ink);color:#fff}
 .pl-form label.rf-tog{display:flex;gap:10px;margin:0}.pl-form label.rf-tog input{flex:none}.pl-form textarea{font-size:.9rem;line-height:1.5}
 .pl-h{margin:10px 0 0;font-size:.95rem;border-top:1px solid var(--line);padding-top:12px}.pl-hint{font-weight:500;font-size:.72rem}
 .pl-chips{display:flex;gap:6px;flex-wrap:wrap}.pl-chip{border:1.5px solid var(--line);background:#fff;border-radius:10px;padding:9px 12px;font:inherit;font-weight:600;font-size:.85rem;cursor:pointer;min-height:40px}.pl-chip.on{border-color:#16a34a;background:#f0fdf4;color:#166534}.pl-chip:disabled{opacity:.55;cursor:not-allowed}
@@ -4560,6 +4572,7 @@ var PL_DRAFT = 'planedit';
 function plDraftKeep() { if (PL.edit) draftLater(PL_DRAFT, function () { return { edit: PL.edit, orig: PL.orig }; }); }
 function plansView() {
   PL.edit = null;
+  PL.q = '';
   $('#view').innerHTML = '<div class="ph"><div><h1>🧾 Plans</h1><p>Prices, durations, devices and what customers see. Changes are live on the website right after saving.</p></div>' +
     '<div class="row"><button class="btn" id="plnew">➕ New plan</button></div></div><div id="plbody"><p class="muted">Loading…</p></div>';
   $('#plnew').onclick = function () { plEdit(plBlank(''), null); };
@@ -4585,28 +4598,82 @@ function plLoad(then) {
     if (then) then(); else if (!PL.edit) plRenderList();
   });
 }
+/* 🗂️ The category a plan belongs to inside its service: what it is, and for how many devices.
+   "Sharing" + 2 devices → "SHARING · 2 DEVICES". A service whose plans are all one category shows no heading. */
+function plCategory(p) {
+  return [String(p.type || '').trim(), (Number(p.devices) || 1) > 1 ? (p.devices + ' devices') : '1 device'].filter(Boolean).join(' · ');
+}
+/** Which service cards are open. Remembered, so coming back from an edit does not fold everything shut again. */
+function plOpen() { try { var x = JSON.parse(localStorage.getItem('ff_pl_open') || '[]'); return Array.isArray(x) ? x : []; } catch (e) { return []; } }
+function plSetOpen(service, on) {
+  var l = plOpen().filter(function (s) { return s !== service; });
+  if (on) l.push(service);
+  try { localStorage.setItem('ff_pl_open', JSON.stringify(l.slice(-20))); } catch (e) {}
+}
+function plMatches(p, q) {
+  if (!q) return true;
+  return (String(p.plan) + ' ' + String(p.type || '') + ' ' + String(p.badgeText || '')).toLowerCase().indexOf(q) > -1;
+}
 function plRenderList() {
   hSubDone('plan');
   if (!PL.list.length) { $('#plbody').innerHTML = '<div class="card" style="text-align:center;padding:28px"><div style="font-size:2.4rem">🧾</div><h3>No plans yet</h3><p class="muted">Tap ➕ New plan.</p></div>'; return; }
+  var q = String(PL.q || '').trim().toLowerCase();
+  var open = plOpen();
+  var total = PL.list.reduce(function (n, g) { return n + g.plans.length; }, 0);
+  var shown = PL.list.map(function (g, gi) { return { g: g, gi: gi, hits: g.plans.filter(function (p) { return plMatches(p, q); }) }; })
+    .filter(function (x) { return !q || x.hits.length; });
+  var body = shown.map(function (x) {
+    var g = x.g, gi = x.gi;
+    var on = g.plans.filter(function (p) { return p.isActive; }).length;
+    // Searching opens what it found; otherwise the owner's own choice, remembered.
+    var isOpen = q ? true : open.indexOf(g.service) > -1;
+    var cats = [];
+    x.hits.forEach(function (p) { var c = plCategory(p); if (cats.indexOf(c) < 0) cats.push(c); });
+    var rows = '';
+    cats.forEach(function (c) {
+      if (cats.length > 1) rows += '<div class="pl-cat">' + esc(c) + '</div>';
+      x.hits.filter(function (p) { return plCategory(p) === c; }).forEach(function (p) {
+        var pi = g.plans.indexOf(p);
+        var used = p.orders + p.subs;
+        rows += '<div class="pl-item' + (p.isActive ? '' : ' off') + '"><div class="grow" style="min-width:0" data-ed="' + gi + ':' + pi + '"><div class="row" style="gap:6px;flex-wrap:wrap"><b>' + esc(p.plan) + '</b>' +
+          '<span class="pill ' + (p.isActive ? 'p-ok' : 'p-grey') + '">' + (p.isActive ? '🟢 On' : '⏸ Off') + '</span>' + (p.badgeText ? '<span class="pill p-blue">' + esc(p.badgeText) + '</span>' : '') + '</div>' +
+          '<div class="pl-meta"><b>' + money(p.price) + '</b> · ' + esc(p.durationDays) + ' days' + (p.devices > 1 ? ' · ' + p.devices + ' devices' : '') + (p.type ? ' · ' + esc(p.type) : '') + ' ' + plStockPill(p) +
+          ' <span class="muted">· 👥 ' + p.activeSubs + ' active' + (used ? ' · ' + p.orders + ' orders' : '') + '</span></div></div>' +
+          '<div class="pr-actions"><button class="btn sm ' + (p.isActive ? 'ghost' : 'green') + '" data-tog="' + gi + ':' + pi + '">' + (p.isActive ? '⏸ Off' : '▶️ On') + '</button><button class="btn sm dark" data-ed="' + gi + ':' + pi + '">✏️ Edit</button></div></div>';
+      });
+    });
+    return '<div class="card pl-svc' + (isOpen ? ' open' : '') + '" data-svc="' + esc(g.service) + '"><div class="pl-svchd" data-fold="' + esc(g.service) + '"><span class="pl-chev">▶</span><span class="pl-ic">' + svcIcon(g.service) + '</span>' +
+      '<div class="grow"><b>' + esc(g.service) + '</b><div class="muted" style="font-size:.75rem">' + (q ? x.hits.length + ' of ' + g.plans.length + ' match · ' : g.plans.length + ' plans · ') + on + ' on · ' + (g.plans.length - on) + ' off</div></div>' +
+      '<button class="btn sm ghost" data-add="' + gi + '">➕ Add plan</button></div>' + rows + '</div>';
+  }).join('');
   $('#plbody').innerHTML = (PL.stockError ? '<div class="qnote warn" style="margin-bottom:12px">⚠️ Live stock could not be counted: ' + esc(PL.stockError) + '</div>' : '') +
-    PL.list.map(function (g, gi) {
-      var on = g.plans.filter(function (p) { return p.isActive; }).length;
-      return '<div class="card pl-svc"><div class="pl-svchd"><span class="pl-ic">' + svcIcon(g.service) + '</span><div class="grow"><b>' + esc(g.service) + '</b><div class="muted" style="font-size:.75rem">' + on + ' on · ' + (g.plans.length - on) + ' off</div></div><button class="btn sm ghost" data-add="' + gi + '">➕ Add plan</button></div>' +
-        g.plans.map(function (p, pi) {
-          var used = p.orders + p.subs;
-          return '<div class="pl-item' + (p.isActive ? '' : ' off') + '"><div class="grow" style="min-width:0" data-ed="' + gi + ':' + pi + '"><div class="row" style="gap:6px;flex-wrap:wrap"><b>' + esc(p.plan) + '</b>' +
-            '<span class="pill ' + (p.isActive ? 'p-ok' : 'p-grey') + '">' + (p.isActive ? '🟢 On' : '⏸ Off') + '</span>' + (p.badgeText ? '<span class="pill p-blue">' + esc(p.badgeText) + '</span>' : '') + '</div>' +
-            '<div class="pl-meta"><b>' + money(p.price) + '</b> · ' + esc(p.durationDays) + ' days' + (p.devices > 1 ? ' · ' + p.devices + ' devices' : '') + (p.type ? ' · ' + esc(p.type) : '') + ' ' + plStockPill(p) +
-            ' <span class="muted">· 👥 ' + p.activeSubs + ' active' + (used ? ' · ' + p.orders + ' orders' : '') + '</span></div></div>' +
-            '<div class="pr-actions"><button class="btn sm ' + (p.isActive ? 'ghost' : 'green') + '" data-tog="' + gi + ':' + pi + '">' + (p.isActive ? '⏸ Off' : '▶️ On') + '</button><button class="btn sm dark" data-ed="' + gi + ':' + pi + '">✏️ Edit</button></div></div>';
-        }).join('') + '</div>';
-    }).join('');
+    '<div class="pl-find"><input class="inp" id="plq" placeholder="🔎 Find a plan — name, Sharing, Private…" value="' + esc(PL.q || '') + '"/>' +
+    '<span class="muted" style="font-size:.78rem">' + total + ' plans in ' + PL.list.length + ' services</span></div>' +
+    '<div class="pl-jump"><button data-all="1"' + (open.length ? '' : ' class="on"') + '>Fold all</button>' +
+    PL.list.map(function (g) { return '<button data-fold="' + esc(g.service) + '"' + (open.indexOf(g.service) > -1 ? ' class="on"' : '') + '>' + svcIcon(g.service) + ' ' + esc(g.service) + ' <span class="muted">' + g.plans.length + '</span></button>'; }).join('') + '</div>' +
+    (body || '<div class="card muted">No plan matches “' + esc(PL.q || '') + '”.</div>');
+  var qi = $('#plq');
+  if (qi) {
+    var tmr;
+    qi.addEventListener('input', function () { PL.q = qi.value; clearTimeout(tmr); tmr = setTimeout(function () { plRenderList(); var n = $('#plq'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 220); });
+  }
   $('#plbody').onclick = function (ev) {
-    var b = ev.target.closest('[data-ed],[data-tog],[data-add]'); if (!b) return;
-    var at = function (v) { var x = v.split(':'); return PL.list[+x[0]].plans[+x[1]]; };
-    if (b.dataset.add != null) return plEdit(plBlank(PL.list[+b.dataset.add].service), null);
-    if (b.dataset.ed) { var p = at(b.dataset.ed); return plEdit(JSON.parse(JSON.stringify(p)), p); }
-    if (b.dataset.tog) plToggle(at(b.dataset.tog), b);
+    // The buttons win over the fold: ➕ Add plan lives inside the service header, which is itself the fold.
+    var b = ev.target.closest('[data-ed],[data-tog],[data-add]');
+    if (b) {
+      var at = function (v) { var x = v.split(':'); return PL.list[+x[0]].plans[+x[1]]; };
+      if (b.dataset.add != null) return plEdit(plBlank(PL.list[+b.dataset.add].service), null);
+      if (b.dataset.ed) { var p = at(b.dataset.ed); return plEdit(JSON.parse(JSON.stringify(p)), p); }
+      if (b.dataset.tog) plToggle(at(b.dataset.tog), b);
+      return;
+    }
+    if (ev.target.closest('[data-all]')) { try { localStorage.setItem('ff_pl_open', '[]'); } catch (e) {} PL.q = ''; plRenderList(); return; }
+    var fold = ev.target.closest('[data-fold]');
+    if (fold) {
+      var svc = fold.getAttribute('data-fold');
+      plSetOpen(svc, plOpen().indexOf(svc) < 0);
+      plRenderList();
+    }
   };
 }
 function plToggle(p, btn) {

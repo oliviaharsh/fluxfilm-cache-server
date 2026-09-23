@@ -183,6 +183,7 @@ The order pop-up is `openOrder()` → used by Orders, Today, Customer 360 and Ba
 | Coins / referral / refund rules | **admin** → 🪙 Coins · 🎁 Referrals · ↩️ Refunds settings |
 | What a customer can ask the server | `server.js` action lists + `customerauth.js` POLICY |
 | An admin screen | `admin.html` `xxxView()` + its `admin*.js` module |
+| The 🧾 Plans list (folding, categories, search) | `admin.html` `plRenderList` / `plCategory` / `plOpen` — browser only, the API is unchanged |
 | The payment page a customer gets by link | `paylink.js` (HTML is inside that file) |
 | An email's wording | `mailer.js` (access / reminders), `refunds.js`, `credit.js`, `quickorders.js` (payment link) |
 | The WhatsApp message admin copies after an order | `admin.html` `qWaText()` (the renewal days line comes from `fulfill.js` `renewMessage`) |
