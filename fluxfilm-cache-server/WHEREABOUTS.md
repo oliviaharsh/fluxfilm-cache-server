@@ -162,7 +162,11 @@ function that draws it; `route()` calls it. Add a screen = add to `MENU` + `view
 | 🕘 Change log | `auditView` | 2679 | `audit.js` |
 | 🔗 Integrations | `integrationsView` | 6410 | `adminn8n.js`, `n8n.js` |
 | 📤 Exports | `exportsView` | 6536 | `adminexports.js`, `xlsx.js` |
+<<<<<<< HEAD
 | ✨ Ask (the admin assistant) | `askView` | 6640 | `adminask.js` |
+=======
+| 🎉 Anniversary sale | `annivView` | 6640 | `anniversary.js` |
+>>>>>>> aca12dc (🎉 Anniversary sale: a countdown bar, 🔔 Notify me, and the alert on the day)
 | (sign in) | `loginView` | 611 | `security.js` |
 
 **Two screens are added to `MENU` at the bottom of the file, not in the list at line 619:** 📈 Reports (after
@@ -268,7 +272,11 @@ the two exceptions are `adminrefundnow.js` (mounted by `adminorderactions.js`) a
 | 🎁 Referrals · 🪙 Coins · 🎮 Games · 📣 Offers · 🚧 Maintenance · 🤖 Olivia | `adminreferrals.js` · `admincoins.js` · `admingames.js` · `adminpromos.js` · `adminstore.js` · `adminolivia.js` | each has a matching engine module |
 | 🧾 Plans editor | `adminplans.js` | |
 | 📤 Exports | `adminexports.js` + `xlsx.js` | |
+<<<<<<< HEAD
 | ✨ Ask — a typed sentence → one existing read-only lookup, or the right screen pre-filled | `adminask.js` (rules first, `oliviawords.callModel` only as a fallback) | never writes |
+=======
+| 🎉 Anniversary countdown bar, 🔔 Notify me, the announcement on the day | `anniversary.js` (settings + who asked in `app_settings`; the bar is `AnnivBar` in index.html) | hourly timer, plus POST /cron/anniversary for a Hostinger cron |
+>>>>>>> aca12dc (🎉 Anniversary sale: a countdown bar, 🔔 Notify me, and the alert on the day)
 | 🔗 n8n | `adminn8n.js`, `n8n.js`, `n8nhooks.js`, `n8nbackup.js` | |
 | ✉️ Email sender check | `adminmail.js` | |
 

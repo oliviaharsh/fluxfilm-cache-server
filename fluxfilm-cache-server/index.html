@@ -463,6 +463,11 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-promo-code { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: 1.5px dashed currentColor; border-radius: 10px; background: rgba(255,255,255,.14); color: inherit; font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
 .ff-promo-code span { font-size: 10px; font-weight: 800; letter-spacing: .08em; opacity: .85; }
 .ff-promo-code b { font-weight: 900; letter-spacing: .06em; }
+/* 🎉 Anniversary countdown: the same shape as an offer bar, its own colours, and no ✕ — it is not dismissible. */
+.ff-anniv { background: linear-gradient(120deg, #7c2d12, #be123c 45%, #f59e0b); color: #fff7ed; padding-right: 14px; }
+.ff-anniv-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 13px; border: 0; border-radius: 999px; background: #fff; color: #9f1239; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.ff-anniv-btn:disabled { opacity: .8; cursor: default; }
+.ff-anniv-note { flex: 1 1 100%; margin: -2px 0 0; font-size: 11.5px; font-weight: 600; opacity: .92; }
 .ff-promo-cta { border: 0; border-radius: 999px; padding: 7px 14px; background: #fff; color: #0f172a; font: inherit; font-size: 13px; font-weight: 900; cursor: pointer; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
 .ff-promo.t-gold .ff-promo-cta { background: #3b2300; color: #fde68a; }
 .ff-promo-cta.big { width: 100%; padding: 14px 18px; font-size: 16px; margin-top: 12px; }
@@ -12250,6 +12255,92 @@ function PromoCountdown({
     className: "ff-promo-timer"
   }, "⏳ ", txt) : null;
 }
+/** "12d 04:33:12" — seconds included, because a countdown that does not move is not a countdown. */
+function annivLeft_(untilMs) {
+  const t = Math.max(0, Number(untilMs || 0) - Date.now());
+  const p = n => String(n).padStart(2, '0');
+  const d = Math.floor(t / 86400000),
+    h = Math.floor(t / 3600000) % 24,
+    m = Math.floor(t / 60000) % 60,
+    s = Math.floor(t / 1000) % 60;
+  return (d > 0 ? d + 'd ' : '') + p(h) + ':' + p(m) + ':' + p(s);
+}
+/**
+ * 🎉 The anniversary sale bar (admin → 🎉 Anniversary). Counts down to the day and, until then, offers 🔔 Notify me:
+ * one press switches notifications on for that account — the same switch as Account → Notifications, not a second
+ * one — and writes the number down so only the people who asked are told on the day.
+ */
+function AnnivBar({
+  info,
+  phone
+}) {
+  const [, tick] = useState(0);
+  const [state, setState] = useState('idle');
+  const [note, setNote] = useState('');
+  const live = !!info.live;
+  useEffect(() => {
+    if (live) return;
+    const iv = setInterval(() => tick(x => x + 1), 1000);
+    return () => clearInterval(iv);
+  }, [live]);
+  // Already asked on this phone, for THIS date: show it as done straight away.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('ff_anniv_notify') === String(info.startsAtMs)) setState('on');
+    } catch (e) {}
+  }, [info.startsAtMs]);
+  function press() {
+    setNote('');
+    // Not logged in? The same login sheet as everywhere else — we cannot tell somebody we cannot name. The button
+    // stays pressable while that sheet is open: closing it without logging in never calls back.
+    ffEnsureLogin_(phone || '', p => {
+      const ph = normPhone_(p || phone || '');
+      if (!ph) {
+        setNote('Log in first so we know who to tell.');
+        return;
+      }
+      setState('busy');
+      // Switch their notifications on, then write them down. If the browser cannot do notifications (an iPhone
+      // that is not installed to the Home Screen), we still write them down and say so honestly.
+      pushEnable_(ph).then(pr => {
+        API.anniversaryNotify(ph, r => {
+          if (r && r.ok) {
+            try {
+              localStorage.setItem('ff_anniv_notify', String(info.startsAtMs));
+            } catch (e) {}
+            setState(pr && pr.ok ? 'on' : 'saved');
+            setNote(pr && pr.ok ? '' : "You're on the list. " + ((pr && pr.message) || 'Switch notifications on for this site to get the alert.'));
+          } else {
+            setState('idle');
+            setNote(r && r.message || 'Could not save that — please try again.');
+          }
+        }, () => {
+          setState('idle');
+          setNote('No internet — please try again.');
+        });
+      });
+    });
+  }
+  return React.createElement("div", {
+    className: "ff-promo ff-promo-bar ff-anniv",
+    role: "region",
+    "aria-label": "Anniversary sale"
+  }, React.createElement("span", {
+    className: "ff-promo-emoji"
+  }, "🎉"), React.createElement("span", {
+    className: "ff-promo-text"
+  }, React.createElement("b", null, info.title), info.note ? ' ' + info.note : ''), !live && info.startsAtMs && React.createElement("span", {
+    className: "ff-promo-timer",
+    "aria-label": "Time left"
+  }, "⏳ ", annivLeft_(info.startsAtMs)), !live && React.createElement("button", {
+    type: "button",
+    className: "ff-anniv-btn",
+    disabled: state === 'busy' || state === 'on',
+    onClick: press
+  }, state === 'on' ? "✅ We'll tell you" : state === 'saved' ? '✅ Saved' : state === 'busy' ? '…' : '🔔 Notify me'), note && React.createElement("p", {
+    className: "ff-anniv-note"
+  }, note));
+}
 function PromoCoupon({
   code
 }) {
@@ -17932,6 +18023,16 @@ function App() {
     const iv = setInterval(load, 5 * 60000);
     return () => clearInterval(iv);
   }, []);
+  // 🎉 Anniversary sale bar: loaded on start and every 5 minutes, so switching it on in admin shows up by itself.
+  const [anniv, setAnniv] = useState(null);
+  useEffect(() => {
+    const load = () => API.getAnniversary(r => {
+      setAnniv(r && r.ok && r.on ? r : null);
+    }, () => {});
+    load();
+    const iv = setInterval(load, 5 * 60000);
+    return () => clearInterval(iv);
+  }, []);
   const hidePromo = id => setHiddenPromos(list => {
     const next = list.concat(id);
     try {
@@ -18634,6 +18735,10 @@ function App() {
     screen: screen
   }), storePaused && !storeBlocked && ['home', 'buy1', 'buy2', 'dashboard'].includes(screen) && React.createElement(PauseBanner, {
     status: storeStatus
+  }), !storeBlocked && anniv && React.createElement(AnnivBar, {
+    key: 'anniv-' + anniv.startsAtMs,
+    info: anniv,
+    phone: sessionPhone
   }), !storeBlocked && (() => {
     const bar = promos.find(p => p.type === 'bar' && !hiddenPromos.includes(p.id) && promoFits_(p, screen, !!sessionPhone));
     return bar ? React.createElement(PromoBar, {
@@ -18937,6 +19042,12 @@ const API = {
   },
   getPromos(onSuccess, onFailure) {
     apiCall_('getPromos', [], onSuccess, onFailure);
+  },
+  getAnniversary(onSuccess, onFailure) {
+    apiCall_('getAnniversary', [], onSuccess, onFailure);
+  },
+  anniversaryNotify(phone, onSuccess, onFailure) {
+    apiCall_('anniversaryNotify', [phone], onSuccess, onFailure);
   },
   promoEvent(id, kind, onSuccess, onFailure) {
     apiCall_('promoEvent', [id, kind], onSuccess, onFailure);

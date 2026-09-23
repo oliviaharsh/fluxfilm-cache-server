@@ -6824,4 +6824,90 @@ function askGo(g) {
   nav(g.view);
 }
 </script>
+<script>
+/* ================= 🎉 Anniversary sale countdown (anniversary.js) ================= */
+// Self-contained: the 🎉 Anniversary menu item + screen live here, so the shared MENU / viewMap lines stay untouched.
+// The bar at the top of the shop counts down to the day; 🔔 Notify me switches that customer's notifications on and
+// writes them down; on the day the app tells exactly the people who asked. Times are India time.
+var AN = { data: null, busy: false, msg: '' };
+(function () {
+  if (!MENU.some(function (m) { return m[0] === 'anniv'; })) {
+    var at = -1; MENU.forEach(function (m, i) { if (m[0] === 'promos') at = i; });
+    MENU.splice(at >= 0 ? at + 1 : MENU.length, 0, ['anniv', '🎉', 'Anniversary']);
+  }
+  var baseViewMap = viewMap;
+  viewMap = function () { var m = baseViewMap(); m.anniv = annivView; return m; };
+})();
+function annivView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🎉 Anniversary sale</h1><p>A countdown bar at the top of the shop, and one press to be told on the day</p></div></div><div id="anbody"><p class="muted">Loading…</p></div>';
+  api('/admin/api/anniversary').then(function (r) { AN.data = r; renderAnniv(); });
+}
+function annivInput(id, label, value, type, hint) {
+  return '<div class="fld" style="margin-bottom:10px"><label for="' + id + '">' + esc(label) + '</label>' +
+    '<input class="inp" id="' + id + '" type="' + (type || 'text') + '" value="' + esc(value == null ? '' : value) + '"/>' +
+    (hint ? '<div class="muted" style="font-size:.72rem;margin-top:3px">' + esc(hint) + '</div>' : '') + '</div>';
+}
+function renderAnniv() {
+  var el = $('#anbody'); if (!el) return;
+  var r = AN.data || {};
+  if (!r.ok) { el.innerHTML = '<div class="card"><div class="qnote bad">' + esc(r.message || 'Could not load it.') + '</div></div>'; return; }
+  var st = r.settings || {};
+  // 'YYYY-MM-DD HH:MM' (India time, what the owner typed) ↔ what <input type="datetime-local"> wants.
+  var dt = function (v) { return String(v || '').replace(' ', 'T'); };
+  var left = r.startsAtMs ? Math.max(0, r.startsAtMs - Date.now()) : 0;
+  var days = Math.floor(left / 86400000), hours = Math.floor(left / 3600000) % 24;
+  var when = !st.startsAt ? '<div class="qnote">Set the date and the countdown starts.</div>'
+    : r.announced ? '<div class="qnote">✅ Already announced' + (r.announcedAt ? ' on ' + esc(r.announcedAt) : '') + ' — it cannot go out twice.</div>'
+    : left > 0 ? '<div class="qnote">⏳ <b>' + days + ' days, ' + hours + ' hours</b> to go. The shop shows the countdown' + (st.on ? ' now.' : ' as soon as you switch this on.') + '</div>'
+    : '<div class="qnote warn">The date has passed. The announcement goes out by itself within the hour (and not at all if it is more than a day and a half late).</div>';
+  el.innerHTML = '<div class="qgrid"><div>' +
+    '<div class="card qsec"><label class="qtoggle" style="margin-top:0"><input type="checkbox" id="an_on"' + (st.on ? ' checked' : '') + '/> <span><b>Show the countdown bar in the shop</b><small>Off = customers see nothing at all</small></span></label>' + when + '</div>' +
+    '<div class="card qsec"><h3>Before the sale</h3>' +
+    annivInput('an_title', 'Bar heading', st.title) +
+    annivInput('an_note', 'Line under it', st.note) +
+    annivInput('an_startsAt', 'Starts at (India time)', dt(st.startsAt), 'datetime-local', 'The moment the countdown reaches zero.') +
+    '</div>' +
+    '<div class="card qsec"><h3>Once it is on</h3>' +
+    annivInput('an_liveTitle', 'Bar heading', st.liveTitle) +
+    annivInput('an_liveNote', 'Line under it', st.liveNote) +
+    annivInput('an_endsAt', 'Hide the bar after (optional)', dt(st.endsAt), 'datetime-local', 'Leave empty to keep it up.') +
+    '</div>' +
+    '<div class="card qsec"><h3>🔔 The notification on the day</h3>' +
+    annivInput('an_notifyTitle', 'Title', st.notifyTitle) +
+    annivInput('an_notifyBody', 'Message', st.notifyBody) +
+    '<label class="qtoggle"><input type="checkbox" id="an_everyone"' + (st.everyone ? ' checked' : '') + '/> <span><b>Send it to everyone with reminders on</b><small>Off (recommended) = only the ' + (r.waiting || 0) + ' who pressed 🔔 Notify me</small></span></label>' +
+    '</div>' +
+    '</div><div><div class="card qsum" style="position:sticky;top:70px">' +
+    '<div class="muted" style="font-size:.72rem;letter-spacing:.5px">WAITING TO BE TOLD</div>' +
+    '<div style="font-size:2rem;font-weight:800;margin:2px 0 10px">' + (r.waiting || 0) + '</div>' +
+    '<button class="btn qgo" id="an_save">💾 Save</button>' +
+    '<button class="btn ghost sm" id="an_now" style="margin-top:8px;width:100%">📣 Send the announcement now</button>' +
+    '<div id="an_msg" class="muted" style="margin-top:8px;font-size:.8rem">' + esc(AN.msg || '') + '</div>' +
+    '<p class="muted" style="font-size:.74rem;margin-top:12px">It goes out by itself on the day — the app checks every hour, so nothing needs setting up. If you want a cron job on Hostinger as well, it is safe: both use the same "already announced" mark, so it can never go twice.</p>' +
+    '<code style="display:block;margin-top:6px;padding:8px;border-radius:8px;background:#0f172a;color:#e2e8f0;font-size:.68rem;word-break:break-all">curl -s -X POST -H "X-Admin-Key: YOUR_ADMIN_KEY" https://shop.fluxfilm.in/cron/anniversary</code>' +
+    '</div></div></div>';
+  $('#an_save').onclick = annivSave;
+  $('#an_now').onclick = function () {
+    if (!confirm('Send the anniversary notification NOW to ' + (st.everyone ? 'everyone with reminders on' : (r.waiting || 0) + ' customer(s) who asked') + '?\n\nThis reaches real customers straight away.')) return;
+    $('#an_now').disabled = true; $('#an_msg').textContent = 'Sending…';
+    post('/admin/api/anniversary/run', { confirm: true }).then(function (x) {
+      AN.msg = x && x.ok ? '✅ Told ' + (x.told || 0) + ' customer(s) · ' + (x.sent || 0) + ' device(s)' + (x.failed ? ' · ' + x.failed + ' could not be reached' : '') : '⚠️ ' + ((x && x.message) || 'failed');
+      annivView();
+    });
+  };
+}
+function annivSave() {
+  $('#an_save').disabled = true; $('#an_msg').textContent = 'Saving…';
+  var v = function (id) { var e = $('#' + id); return e ? e.value : ''; };
+  post('/admin/api/anniversary', {
+    on: $('#an_on').checked, everyone: $('#an_everyone').checked,
+    title: v('an_title'), note: v('an_note'), startsAt: v('an_startsAt'),
+    liveTitle: v('an_liveTitle'), liveNote: v('an_liveNote'), endsAt: v('an_endsAt'),
+    notifyTitle: v('an_notifyTitle'), notifyBody: v('an_notifyBody'),
+  }).then(function (r) {
+    if (!r || !r.ok) { $('#an_save').disabled = false; $('#an_msg').textContent = '⚠️ ' + ((r && r.message) || 'failed'); return; }
+    AN.data = r; AN.msg = 'Saved ✓'; toast('Saved'); renderAnniv();
+  });
+}
+</script>
 </body></html>
