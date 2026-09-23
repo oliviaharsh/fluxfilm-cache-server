@@ -34,6 +34,7 @@ let storeMod = null; try { storeMod = require('./store'); } catch (e) { console.
 let promosMod = null; try { promosMod = require('./promos'); } catch (e) { console.log('[promos] not loaded:', e.message); }
 let pushMod = null; try { pushMod = require('./push'); } catch (e) { console.log('[push] not loaded:', e.message); }
 let annivMod = null; try { annivMod = require('./anniversary'); } catch (e) { console.log('[anniversary] not loaded:', e.message); }
+let hhMod = null; try { hhMod = require('./householdhelp'); } catch (e) { console.log('[household] not loaded:', e.message); }
 let feedMod = null; try { feedMod = require('./feed'); } catch (e) { console.log('[feed] not loaded:', e.message); }
 let oliviaMod = null; try { oliviaMod = require('./olivia'); } catch (e) { console.log('[olivia] not loaded:', e.message); }
 let photosMod = null; try { photosMod = require('./photos'); } catch (e) { console.log('[photos] not loaded:', e.message); }
@@ -130,6 +131,14 @@ const DB_STOREFRONT = Object.assign(
   annivMod ? {
     getAnniversary: () => annivMod.publicInfo(),
     anniversaryNotify: (a) => annivMod.notifyMe(a[0]),
+  } : {},
+  // 🏠 Netflix Household (Tools). The pictures are public — they are only example screenshots. Everything else
+  // needs the customer's session, and householdhelp.js checks the account really is theirs before it acts.
+  // a = [phone] / [phone, accountId, what].
+  hhMod ? {
+    householdPics: () => hhMod.pictures(),
+    householdStart: (a) => hhMod.start(a[0]),
+    householdFix: (a) => hhMod.fix(a[0], a[1], a[2]),
   } : {}
 );
 
@@ -173,6 +182,9 @@ const LIMITS = {
   getPromos: security.rateLimiter(200, TEN_MIN),
   getAnniversary: security.rateLimiter(200, TEN_MIN),
   anniversaryNotify: security.rateLimiter(20, TEN_MIN),
+  householdPics: security.rateLimiter(200, TEN_MIN),
+  householdStart: security.rateLimiter(60, TEN_MIN),
+  householdFix: security.rateLimiter(20, TEN_MIN),
   promoEvent: security.rateLimiter(120, TEN_MIN),
   getPushKey: security.rateLimiter(60, TEN_MIN),
   pushSubscribe: security.rateLimiter(20, TEN_MIN),
@@ -196,6 +208,8 @@ const LIMITS = {
 const PROFILE_WRITES = new Set(['createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setAvatar', 'removeProfilePhoto', 'submitRestockRequest']);
 // Per-phone limits (independent of IP) for actions that email or reveal codes.
 const PHONE_LIMITS = {
+  // 🔐 A code request is the powerful one: at most 10 per number per hour, whichever account.
+  householdFix: security.rateLimiter(10, 60 * 60e3),
   // 6 (was 3): a wrong-email try also counts, and recover.js already waits 30 s between real code emails.
   recoverSendOtp: security.rateLimiter(6, 15 * 60e3),
   getLatestOtp: security.rateLimiter(15, TEN_MIN),
@@ -248,7 +262,7 @@ const DB_WRITES = order ? {
   },
 } : {};
 const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
-const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setProfilePhoto', 'removeProfilePhoto', 'setAvatar', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent', 'getPushKey', 'pushSubscribe', 'pushUnsubscribe', 'getAnniversary', 'anniversaryNotify']);
+const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setProfilePhoto', 'removeProfilePhoto', 'setAvatar', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent', 'getPushKey', 'pushSubscribe', 'pushUnsubscribe', 'getAnniversary', 'anniversaryNotify', 'householdPics', 'householdStart', 'householdFix']);
 // 🔒 Profile email lock (emaillock.js): status, email codes, change email.
 ['emailLockStatus', 'emailSendCode', 'emailVerifyCode', 'changeProfileEmail'].forEach((a) => DB_STOREFRONT_ACTIONS.add(a));
 const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota', 'otpSendCode', 'otpVerifyCode']);

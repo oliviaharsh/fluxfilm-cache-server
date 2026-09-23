@@ -6969,7 +6969,7 @@ function annivSave() {
 // The Apps Script that lived on the ffnetflixhub inbox, moved here. Pick one of our Netflix accounts and read the
 // newest mail Netflix sent it. Self-contained, so the shared MENU / viewMap lines stay untouched.
 // ⚠️ Read-only: it shows the link, it never presses it.
-var NF = { data: null, acc: '', mode: 'household', out: null, busy: false };
+var NF = { data: null, pics: null, acc: '', mode: 'household', out: null, busy: false };
 (function () {
   if (!MENU.some(function (m) { return m[0] === 'netflix'; })) {
     var at = -1; MENU.forEach(function (m, i) { if (m[0] === 'otpdevices') at = i; });
@@ -6981,8 +6981,8 @@ var NF = { data: null, acc: '', mode: 'household', out: null, busy: false };
 var NF_MODES = [['household', '🏠 Household'], ['travel', '✈️ Travel code'], ['code', '🔐 Verification code']];
 function netflixView() {
   $('#view').innerHTML = '<div class="ph"><div><h1>📺 Netflix helper</h1><p>The newest household, travel or verification mail Netflix sent one of our accounts</p></div></div><div id="nfbody"><p class="muted">Loading…</p></div>';
-  if (NF.data) renderNetflix();
-  else api('/admin/api/netflix/accounts').then(function (r) { NF.data = r; renderNetflix(); });
+  if (NF.data && NF.pics) renderNetflix();
+  else Promise.all([api('/admin/api/netflix/accounts'), api('/admin/api/netflix/pictures')]).then(function (rs) { NF.data = rs[0]; NF.pics = rs[1]; renderNetflix(); });
 }
 function renderNetflix() {
   var el = $('#nfbody'); if (!el) return;
@@ -6993,6 +6993,7 @@ function renderNetflix() {
   var picked = list.find(function (a) { return a.accountId === NF.acc; }) || null;
   el.innerHTML =
     (!r.mailReady ? '<div class="card"><div class="qnote bad">⚠️ <b>NETFLIX_IMAP_PASS is not set on the server</b>, so the inbox cannot be read. Add it in Hostinger → Environment variables.</div></div>' : '') +
+    nfPicturesCard() +
     '<div class="card qsec"><h3 style="margin-top:0">1 · Account</h3><div class="row" id="nfaccs" style="gap:6px;flex-wrap:wrap">' +
     list.map(function (a) {
       return '<button class="chip' + (a.accountId === NF.acc ? ' on' : '') + '" data-acc="' + esc(a.accountId) + '"' + (a.tag ? '' : ' title="No household tag — its mail cannot be told apart"') + '>' +
@@ -7009,7 +7010,53 @@ function renderNetflix() {
   $('#nfaccs').onclick = function (e) { var b = e.target.closest('[data-acc]'); if (!b) return; NF.acc = b.getAttribute('data-acc'); NF.out = null; renderNetflix(); };
   $('#nfmodes').onclick = function (e) { var b = e.target.closest('[data-mode]'); if (!b) return; NF.mode = b.getAttribute('data-mode'); NF.out = null; renderNetflix(); };
   $('#nfgo').onclick = netflixFind;
+  nfWirePictures();
   renderNetflixOut();
+}
+/**
+ * The three example screenshots a customer taps in 🧰 Tools → Netflix Household ("this is what I see on my TV").
+ * A picture beats a sentence for customers who do not read English comfortably — which is most of the ones who
+ * pressed the wrong link before. Stored in app_settings like the backup payment QR.
+ */
+var NF_PICS = [['household', '🏠 "Not part of your household"'], ['travel', '📺 The TV asks for a code'], ['signin', '🔐 "Verify with this code"']];
+function nfPicturesCard() {
+  var has = (NF.pics && NF.pics.has) || {};
+  var pics = (NF.pics && NF.pics.pictures) || {};
+  return '<div class="card qsec"><h3 style="margin-top:0">🖼 What the customer sees</h3>' +
+    '<p class="muted" style="margin-top:0;font-size:.82rem">Upload one screenshot of each. In 🧰 Tools → Netflix Household the customer taps the picture that matches their TV, instead of choosing between links.</p>' +
+    '<div class="fields">' + NF_PICS.map(function (p) {
+      return '<div class="fld"><label>' + esc(p[1]) + '</label>' +
+        (pics[p[0]] ? '<img src="' + esc(pics[p[0]]) + '" alt="" style="width:100%;max-height:150px;object-fit:cover;border-radius:10px;border:1px solid var(--line)"/>' : '<div class="muted" style="height:80px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--line);border-radius:10px;font-size:.8rem">No picture yet</div>') +
+        '<div class="row" style="gap:6px;margin-top:6px"><input type="file" accept="image/*" id="nfpic_' + p[0] + '" style="font-size:.75rem"/>' +
+        (has[p[0]] ? '<button class="btn ghost sm" data-nfpicdel="' + p[0] + '">Remove</button>' : '') + '</div></div>';
+    }).join('') + '</div>' +
+    '<div id="nfpicmsg" class="muted" style="margin-top:8px;font-size:.8rem"></div></div>';
+}
+function nfWirePictures() {
+  NF_PICS.forEach(function (p) {
+    var el = $('#nfpic_' + p[0]); if (!el) return;
+    el.onchange = function () {
+      var f = el.files && el.files[0]; if (!f) return;
+      if (f.size > 500 * 1024) { $('#nfpicmsg').textContent = '⚠️ That picture is over 500 KB — please use a smaller one.'; el.value = ''; return; }
+      var rd = new FileReader();
+      rd.onload = function () { nfSavePicture(p[0], String(rd.result || '')); };
+      rd.readAsDataURL(f);
+    };
+  });
+  var body = $('#nfbody');
+  if (body) body.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-nfpicdel]'); if (!b) return;
+    if (!confirm('Remove this example picture?')) return;
+    nfSavePicture(b.getAttribute('data-nfpicdel'), '');
+  });
+}
+function nfSavePicture(kind, dataUrl) {
+  $('#nfpicmsg').textContent = 'Saving…';
+  post('/admin/api/netflix/pictures', { kind: kind, dataUrl: dataUrl }).then(function (r) {
+    if (!r || !r.ok) { $('#nfpicmsg').textContent = '⚠️ ' + ((r && r.message) || 'failed'); return; }
+    toast(r.has ? 'Picture saved' : 'Picture removed');
+    api('/admin/api/netflix/pictures').then(function (p) { NF.pics = p; renderNetflix(); });
+  });
 }
 function netflixFind() {
   if (NF.busy) return;

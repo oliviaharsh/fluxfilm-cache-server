@@ -468,6 +468,22 @@ html.ff-lite .ff-3d-badge::before, html.ff-lite .ff-3d-tumble { animation: none;
 .ff-anniv-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 13px; border: 0; border-radius: 999px; background: #fff; color: #9f1239; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; white-space: nowrap; }
 .ff-anniv-btn:disabled { opacity: .8; cursor: default; }
 .ff-anniv-note { flex: 1 1 100%; margin: -2px 0 0; font-size: 11.5px; font-weight: 600; opacity: .92; }
+/* 🏠 Netflix Household: one question per screen, big tap targets, a picture beside each choice. */
+.ff-hh-head h3 { margin: 0 0 4px; font-size: 18px; font-weight: 800; }
+.ff-hh-head p { margin: 0 0 12px; font-size: 13.5px; line-height: 1.45; color: #475569; }
+.ff-hh-load { display: flex; align-items: center; gap: 10px; padding: 18px 2px; font-size: 14px; font-weight: 600; }
+.ff-hh-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.ff-hh-what, .ff-hh-acc { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border: 1.5px solid #e2e8f0; border-radius: 14px; background: #fff; font: inherit; text-align: left; cursor: pointer; }
+.ff-hh-what:active, .ff-hh-acc:active { transform: scale(.985); border-color: #e50914; }
+.ff-hh-what img { width: 84px; height: 62px; object-fit: cover; border-radius: 10px; background: #f1f5f9; flex: none; }
+.ff-hh-emoji { width: 84px; height: 62px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: #f1f5f9; font-size: 28px; flex: none; }
+.ff-hh-what b, .ff-hh-acc b { display: block; font-size: 14px; font-weight: 800; line-height: 1.3; }
+.ff-hh-what small, .ff-hh-acc small { display: block; margin-top: 3px; font-size: 12px; color: #64748b; line-height: 1.35; }
+.ff-hh-acc { flex-direction: column; align-items: flex-start; gap: 2px; }
+.ff-hh-steps { margin: 0 0 14px; padding-left: 20px; font-size: 13.5px; line-height: 1.6; color: #334155; }
+.ff-hh-steps li { margin-bottom: 4px; }
+.ff-hh-code { margin: 8px 0 14px; padding: 16px; border-radius: 14px; background: #0f172a; color: #fff; font-size: 34px; font-weight: 800; letter-spacing: .18em; text-align: center; font-variant-numeric: tabular-nums; }
+.ff-hh-mail { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: #f1f5f9; font-size: 13.5px; font-weight: 700; word-break: break-all; }
 .ff-promo-cta { border: 0; border-radius: 999px; padding: 7px 14px; background: #fff; color: #0f172a; font: inherit; font-size: 13px; font-weight: 900; cursor: pointer; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
 .ff-promo.t-gold .ff-promo-cta { background: #3b2300; color: #fde68a; }
 .ff-promo-cta.big { width: 100%; padding: 14px 18px; font-size: 16px; margin-top: 12px; }
@@ -3751,6 +3767,321 @@ function ToolsSheet({
     className: "ff-sheet-grip"
   }), children));
 }
+/* ================= 🏠 Netflix Household, the customer's own tool (householdhelp.js) ================= */
+// The old sheet asked "Link 1 or Link 2?" and customers guessed wrong. The shop knows which Netflix account they
+// are on, so it decides. Three steps, and never more than one question on screen:
+//   1. which of your Netflix plans (skipped when there is only one)
+//   2. what do you see on the TV — with a picture of each, for customers who do not read English comfortably
+//   3. the one button for that, and the two or three steps around it
+const HH_WHATS = [{
+  id: 'household',
+  emoji: '🏠',
+  title: 'It says "not part of your household"',
+  sub: 'Netflix is asking you to confirm this TV is at home',
+  go: '🏠 Make this TV the home'
+}, {
+  id: 'travel',
+  emoji: '📺',
+  title: 'The TV is asking for a code',
+  sub: 'A 4-digit code to watch on this TV',
+  go: '📺 Get the TV code'
+}, {
+  id: 'signin',
+  emoji: '🔐',
+  title: 'It wants a code to sign in',
+  sub: '"Verify with this code" when you log in on a new device',
+  go: '🔐 Get the sign-in code'
+}];
+const HH_STEPS = {
+  household: ['Press the button below and wait a moment.', 'On the TV, choose "Yes, this is my home" if it asks again.', 'Start playing something — it should work straight away.'],
+  travel: ['On the TV, choose "Watch temporarily" — Netflix will say a code has been sent.', 'Press the button below to get that code.', 'Type the 4 digits on the TV.'],
+  signin: ['Sign in on the TV or phone with your FluxFilm login and password.', 'When Netflix asks to "verify with this code", press the button below.', 'Type the 6 digits in. The code only lasts about 15 minutes.']
+};
+
+function HouseholdTool({
+  onClose,
+  phone
+}) {
+  const E = React.createElement;
+  const [state, setState] = useState({
+    step: 'load'
+  });
+  const [pics, setPics] = useState({});
+  const [acc, setAcc] = useState('');
+  const [what, setWhat] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [out, setOut] = useState(null);
+  useEffect(() => {
+    API.householdPics(r => setPics((r && r.pictures) || {}), () => {});
+    API.householdStart(phone, r => {
+      if (!r || r.ok === false) return setState({
+        step: 'error',
+        message: (r && r.message) || 'Could not check your plans.'
+      });
+      if (r.needPlan) return setState({
+        step: 'noplan'
+      });
+      const list = r.accounts || [];
+      if (list.length === 1) setAcc(list[0].accountId);
+      setState({
+        step: list.length === 1 ? 'what' : 'account',
+        accounts: list
+      });
+    }, () => setState({
+      step: 'error',
+      message: 'No internet — please try again.'
+    }));
+  }, [phone]);
+  const accounts = state.accounts || [];
+  const picked = accounts.find(a => a.accountId === acc) || null;
+  function run(id) {
+    setBusy(true);
+    setOut(null);
+    API.householdFix(phone, acc, id, r => {
+      setBusy(false);
+      setOut(r || {
+        ok: false
+      });
+    }, () => {
+      setBusy(false);
+      setOut({
+        ok: false,
+        message: 'No internet — please try again.'
+      });
+    });
+  }
+  const head = (t, sub) => E("div", {
+    className: "ff-hh-head"
+  }, E("h3", null, t), sub && E("p", null, sub));
+
+  // ── no Netflix plan ──
+  if (state.step === 'noplan') {
+    return E(ToolsSheet, {
+      onClose: onClose
+    }, E("div", {
+      className: "ff-sheet-ic ff-tool-nf"
+    }, E("span", {
+      className: "ff-tool-ic"
+    }, "🏠")), head('No Netflix plan yet', 'This helper is for customers with a running Netflix plan. Take one and it works straight away.'), E("div", {
+      className: "ff-sheet-btns"
+    }, E(Btn, {
+      variant: "danger",
+      full: true,
+      onClick: () => {
+        onClose();
+        if (window.ffGoBuy) window.ffGoBuy('Netflix');
+      }
+    }, "See Netflix plans"), E(Btn, {
+      variant: "ghost",
+      full: true,
+      onClick: onClose
+    }, "Close")));
+  }
+  if (state.step === 'load') {
+    return E(ToolsSheet, {
+      onClose: onClose
+    }, E("div", {
+      className: "ff-hh-load"
+    }, E(Spinner, null), " Checking your Netflix plan…"));
+  }
+  if (state.step === 'error') {
+    return E(ToolsSheet, {
+      onClose: onClose
+    }, head('Something went wrong', state.message), E("div", {
+      className: "ff-sheet-btns"
+    }, E(Btn, {
+      variant: "ghost",
+      full: true,
+      onClick: onClose
+    }, "Close")));
+  }
+
+  // ── step 1: which plan (only when there is more than one) ──
+  if (state.step === 'account') {
+    return E(ToolsSheet, {
+      onClose: onClose
+    }, head('Which Netflix?', 'You have more than one. Pick the one the TV is complaining about — the email is on your plan card.'), E("div", {
+      className: "ff-hh-list"
+    }, accounts.map(a => E("button", {
+      key: a.accountId,
+      type: "button",
+      className: "ff-hh-acc",
+      onClick: () => {
+        setAcc(a.accountId);
+        setState(Object.assign({}, state, {
+          step: 'what'
+        }));
+      }
+    }, E("b", null, a.email || a.accountId), E("small", null, (a.plan || 'Netflix') + (a.expiry ? ' · till ' + a.expiry : ''))))), E("div", {
+      className: "ff-sheet-btns"
+    }, E(Btn, {
+      variant: "ghost",
+      full: true,
+      onClick: onClose
+    }, "Close")));
+  }
+
+  // ── not one of our own accounts: the other page, or Olivia ──
+  if (picked && !picked.ours) {
+    return E(ToolsSheet, {
+      onClose: onClose
+    }, head('Use the Netflix helper page', 'This plan is on a partner account, so it has its own page. Open it and put in ' + (picked.email || 'your Netflix email') + '.'), E("div", {
+      className: "ff-hh-mail"
+    }, picked.email), E("div", {
+      className: "ff-sheet-btns"
+    }, E(Btn, {
+      variant: "danger",
+      full: true,
+      onClick: () => openExternal_(NETFLIX_HOUSEHOLD_LINK_2)
+    }, "🔧 Open the page"), E(Btn, {
+      variant: "slate",
+      full: true,
+      onClick: () => {
+        onClose();
+        ffOpenHelp_();
+      }
+    }, "💬 Ask Olivia to do it"), E(Btn, {
+      variant: "ghost",
+      full: true,
+      onClick: onClose
+    }, "Close")));
+  }
+
+  // ── step 3: the answer ──
+  if (out) {
+    const again = E(Btn, {
+      variant: "ghost",
+      full: true,
+      onClick: () => {
+        setOut(null);
+        setWhat('');
+        setState(Object.assign({}, state, {
+          step: 'what'
+        }));
+      }
+    }, "← Something else");
+    if (out.ok && out.code) {
+      return E(ToolsSheet, {
+        onClose: onClose
+      }, head('Type this on the TV', what === 'signin' ? 'It lasts about 15 minutes.' : 'Netflix is waiting for these digits.'), E("div", {
+        className: "ff-hh-code"
+      }, out.code), E("div", {
+        className: "ff-sheet-btns"
+      }, E(Btn, {
+        variant: "slate",
+        full: true,
+        onClick: () => copyText_(out.code, () => {})
+      }, "Copy the code"), again));
+    }
+    if (out.ok && out.done) {
+      return E(ToolsSheet, {
+        onClose: onClose
+      }, head('Done ✅', 'This TV is now the home for your Netflix. Try playing something.'), E("div", {
+        className: "ff-sheet-btns"
+      }, again));
+    }
+    if (out.ok && out.openLink) {
+      return E(ToolsSheet, {
+        onClose: onClose
+      }, head('Open the Netflix helper page', 'Put in ' + (out.email || 'your Netflix email') + '.'), E("div", {
+        className: "ff-sheet-btns"
+      }, E(Btn, {
+        variant: "danger",
+        full: true,
+        onClick: () => openExternal_(out.openLink)
+      }, "🔧 Open the page"), again));
+    }
+    return E(ToolsSheet, {
+      onClose: onClose
+    }, head('Not this time 🙏', out.updateOff ? 'This one has to be done by hand today. Olivia will walk you through it.' : 'Netflix has not sent it yet, or it has already run out. Ask on the TV again, wait a moment, then try once more — or let Olivia do it.'), E("div", {
+      className: "ff-sheet-btns"
+    }, E(Btn, {
+      variant: "danger",
+      full: true,
+      onClick: () => run(what)
+    }, "Try once more"), E(Btn, {
+      variant: "slate",
+      full: true,
+      onClick: () => {
+        onClose();
+        ffOpenHelp_();
+      }
+    }, "💬 Ask Olivia"), again));
+  }
+
+  // ── step 2: what do you see ──
+  if (!what) {
+    return E(ToolsSheet, {
+      onClose: onClose
+    }, head('What do you see on the TV?', 'Tap the picture that looks like your screen.'), E("div", {
+      className: "ff-hh-list"
+    }, HH_WHATS.map(w => E("button", {
+      key: w.id,
+      type: "button",
+      className: "ff-hh-what",
+      onClick: () => setWhat(w.id)
+    }, pics[w.id] ? E("img", {
+      src: pics[w.id],
+      alt: "",
+      loading: "lazy"
+    }) : E("span", {
+      className: "ff-hh-emoji",
+      "aria-hidden": "true"
+    }, w.emoji), E("span", null, E("b", null, w.title), E("small", null, w.sub))))), E("div", {
+      className: "ff-sheet-btns"
+    }, E(Btn, {
+      variant: "ghost",
+      full: true,
+      onClick: onClose
+    }, "Close")));
+  }
+
+  // ── step 3: the steps + the one button ──
+  const w = HH_WHATS.find(x => x.id === what) || HH_WHATS[0];
+  return E(ToolsSheet, {
+    onClose: onClose
+  }, head(w.title, picked && accounts.length > 1 ? picked.email : ''), E("ol", {
+    className: "ff-hh-steps"
+  }, (HH_STEPS[what] || []).map((line, i) => E("li", {
+    key: i
+  }, line))), E("div", {
+    className: "ff-sheet-btns"
+  }, E(Btn, {
+    variant: "danger",
+    full: true,
+    disabled: busy,
+    onClick: () => run(what)
+  }, busy ? 'Working…' : w.go), E(Btn, {
+    variant: "ghost",
+    full: true,
+    onClick: () => setWhat('')
+  }, "← Something else")));
+}
+
+/**
+ * 🏠 Netflix Household needs to know who is asking — it reads that customer's own plans. Not logged in? The same
+ * login sheet as everywhere else, then straight on. Nothing about the account is shown before that.
+ */
+function HouseholdGate({
+  onClose
+}) {
+  const [phone, setPhone] = useState(null);
+  useEffect(() => {
+    ffEnsureLogin_('', p => {
+      const ph = normPhone_(p || '');
+      if (ph) setPhone(ph);else onClose();
+    });
+  }, []);
+  if (!phone) return React.createElement(ToolsSheet, {
+    onClose: onClose
+  }, React.createElement("div", {
+    className: "ff-hh-load"
+  }, React.createElement(Spinner, null), " One moment…"));
+  return React.createElement(HouseholdTool, {
+    onClose: onClose,
+    phone: phone
+  });
+}
 function ToolsGrid({
   onOtp,
   onFeed,
@@ -3793,7 +4124,7 @@ function ToolsGrid({
     id: 'household',
     icon: '🏠',
     tone: 'nf',
-    title: 'Netflix Household Helper',
+    title: 'Netflix Household',
     sub: 'Fix “not part of household” / TV code',
     go: 'Fix it',
     fn: () => setSheet('household')
@@ -3846,29 +4177,9 @@ function ToolsGrid({
     type: "button",
     "data-tool": k,
     onClick: () => setSheet(k)
-  }, TOOLS_SOON_[k][0], " ", TOOLS_SOON_[k][3], React.createElement("b", null, "Soon")))), sheet === 'household' && React.createElement(ToolsSheet, {
+  }, TOOLS_SOON_[k][0], " ", TOOLS_SOON_[k][3], React.createElement("b", null, "Soon")))),   sheet === 'household' && React.createElement(HouseholdGate, {
     onClose: close
-  }, React.createElement("div", {
-    className: "ff-sheet-ic ff-tool-nf"
-  }, React.createElement("span", {
-    className: "ff-tool-ic"
-  }, "🏠")), React.createElement("h3", null, "Netflix Household Helper"), React.createElement("p", null, "Netflix says ", React.createElement("b", null, "“not part of your household”"), " or your TV asks for a code? Open the helper and follow the steps."), React.createElement("div", {
-    className: "ff-sheet-which"
-  }, React.createElement("b", null, "Which link should I use?"), React.createElement("div", null, "📌 ", React.createElement("b", null, "Link 1"), " — Netflix email starts with ", React.createElement("span", null, "harsh…, gunjan…, fluxfilm…")), React.createElement("div", null, "📌 ", React.createElement("b", null, "Link 2"), " — all other Netflix emails")), React.createElement("div", {
-    className: "ff-sheet-btns"
-  }, React.createElement(Btn, {
-    variant: "danger",
-    full: true,
-    onClick: () => openExternal_(NETFLIX_HOUSEHOLD_LINK)
-  }, "🔧 Open Link 1"), React.createElement(Btn, {
-    variant: "slate",
-    full: true,
-    onClick: () => openExternal_(NETFLIX_HOUSEHOLD_LINK_2)
-  }, "🔧 Open Link 2"), React.createElement(Btn, {
-    variant: "ghost",
-    full: true,
-    onClick: close
-  }, "Close"))), soon && React.createElement(ToolsSheet, {
+  }), soon && React.createElement(ToolsSheet, {
     onClose: close
   }, React.createElement("div", {
     className: "ff-sheet-emoji"
@@ -19271,6 +19582,15 @@ const API = {
   },
   createRefundRequest(phone, req, onSuccess, onFailure) {
     apiCall_('createRefundRequest', [phone, req], onSuccess, onFailure);
+  },
+  householdPics(onSuccess, onFailure) {
+    apiCall_('householdPics', [], onSuccess, onFailure);
+  },
+  householdStart(phone, onSuccess, onFailure) {
+    apiCall_('householdStart', [phone], onSuccess, onFailure);
+  },
+  householdFix(phone, accountId, what, onSuccess, onFailure) {
+    apiCall_('householdFix', [phone, accountId, what], onSuccess, onFailure);
   },
   getNetflixHouseholdLink(email, onSuccess, onFailure) {
     apiCall_('getNetflixHouseholdLink', [email], onSuccess, onFailure);

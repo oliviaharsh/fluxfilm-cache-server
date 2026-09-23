@@ -79,6 +79,27 @@ function mount(app, deps) {
     } catch (e) { fail(res, e); }
   });
 
+  // The three example screenshots a customer points at in 🧰 Tools → Netflix Household ("this is what I see").
+  app.get('/admin/api/netflix/pictures', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      const r = await require('./householdhelp').pictures();
+      const has = {}; for (const k of Object.keys(r.pictures || {})) has[k] = !!r.pictures[k];
+      res.json({ ok: true, has, pictures: r.pictures });
+    } catch (e) { fail(res, e); }
+  });
+
+  app.post('/admin/api/netflix/pictures', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      const b = req.body || {};
+      const r = await require('./householdhelp').savePicture(b.kind, b.dataUrl);
+      if (!r.ok) return res.status(400).json(r);
+      audit.record(req, { action: r.has ? 'household.picture' : 'household.picture.remove', entity: 'settings', id: 'household_pics', summary: (r.has ? 'Uploaded' : 'Removed') + ' the ' + r.kind + ' example' + (r.has ? ' (' + Math.round(r.bytes / 1024) + ' KB)' : '') });
+      res.json(r);
+    } catch (e) { fail(res, e); }
+  });
+
   app.post('/admin/api/netflix/code', async (req, res) => {
     if (!auth(req, res)) return;
     try {
