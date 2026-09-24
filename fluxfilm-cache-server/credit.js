@@ -1,8 +1,9 @@
 /**
  * FluxFilm - 💳 admin credit renewals, receivables and ✉️/💬 renewal reminders (owner request 16 Sep 2026).
  *
- * Credit renewal (admin only — the storefront can never create one):
- *   Quick order → Renew → Payment "On credit" (quickorders.js) creates the renew order with amountOverride and
+ * Credit order (admin only — the storefront can never create one). New orders as well as renewals since
+ * 24 Sep 2026; a new one allocates a seat and sends the login before any money arrives:
+ *   Quick order → New or Renew → Payment "On credit" (quickorders.js) creates the order with amountOverride and
  *   raw_json { Credit: true, CreditAmount, CreditDueDate, CreditCreatedAt, CreditStatus: 'OPEN' }, then startCredit()
  *   turns it from CREATED into status 'CREDIT' and fulfils it (fulfill.js allowCredit): the plan renews now.
  *   status CREDIT is not PAID, so every revenue / profit / "total spent" figure (they all count PAID) leaves it out,
@@ -15,7 +16,10 @@
  *   amount != due, no mode        → nothing written; "₹X received but ₹Y due" and the owner picks
  *   Every payment carries a key from the dialog: the same tap twice records it once. The UPDATE also checks txn_ref
  *   (changed on every payment), so two devices can't both record against the same balance.
- * Cancel credit: the renewal stays. Nothing paid → status WRITTEN_OFF; partly paid → PAID for the part received.
+ * Cancel credit: what was delivered STAYS — cancelling only writes off the money. Nothing paid → status
+ *   WRITTEN_OFF; partly paid → PAID for the part received. ⚠️ On a RENEW that means the customer keeps the extra
+ *   days; on a NEW order it means they keep a whole plan, seat and all, for nothing. Writing one off does not free
+ *   the seat or end the subscription — remove it by hand if that is what you want.
  *
  * Reminders: preview + send a friendly renewal email (support@ via mailer.send), at most once per 12 hours per
  * subscription (reminder_log kind ADMIN_REMINDER, schema-v14), and a prefilled WhatsApp text. Nothing is sent

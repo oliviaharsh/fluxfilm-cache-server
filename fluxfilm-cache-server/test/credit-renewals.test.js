@@ -323,6 +323,12 @@ Module._load = function (req) {
       D.orders.push({ order_id: id, created_at_sheet: fmt(new Date()), name: 'Mohammad Sourab', phone_norm: '9876543210', email: 's@x', service: 'Prime Video', plan: '1 Month', final_amount: Number(o.amountOverride), status: 'CREATED', order_type: 'RENEW', renew_sub_id: sid, txn_ref: null, raw_json: JSON.stringify(Object.assign({ Status: 'CREATED' }, o.rawExtra)) });
       return { ok: true, orderId: id, amount: Number(o.amountOverride), upiLink: 'upi://x' };
     },
+    createOrder: async (o, opt) => {
+      D.lastNew = { o, opt };
+      const id = 'FF' + (100 + D.orders.length);
+      D.orders.push({ order_id: id, created_at_sheet: fmt(new Date()), name: o.name, phone_norm: '9876543210', email: o.email || 'n@x', service: o.service, plan: o.plan, final_amount: Number(opt.amountOverride), status: 'CREATED', order_type: 'NEW', renew_sub_id: null, txn_ref: null, raw_json: JSON.stringify(Object.assign({ Status: 'CREATED' }, opt.rawExtra)) });
+      return { ok: true, orderId: id, amount: Number(opt.amountOverride), upiLink: 'upi://x' };
+    },
     adminMarkPaid: async () => ({ ok: true }),
   };
   const fulfilCalls = [];
@@ -353,8 +359,8 @@ Module._load = function (req) {
   q = await get('/admin/api/credit/receivables');
   ok('no credit yet → ₹0', q.body.ok && q.body.total === 0 && q.body.count === 0, q.body);
 
-  let rr = await post('/admin/api/quick/order', { mode: 'NEW', phone: '9876543210', name: 'X', service: 'Prime Video', plan: '1 Month', tvCount: 0, amount: 129, payment: 'CREDIT' });
-  ok('credit on a NEW order is refused', rr.status === 400 && /only for renewals/.test(rr.body.message), rr.body);
+  // 💳 A NEW order on credit is exercised at the END of this file: it adds a receivable, and every assertion
+  // between here and there counts them.
   rr = await post('/admin/api/quick/order', { mode: 'RENEW', phone: '9876543210', subId: 'SUB-SOURAB', amount: 0, payment: 'CREDIT' });
   ok('credit of ₹0 refused', rr.status === 400 && rr.body.field === 'amount', rr.body);
   rr = await post('/admin/api/quick/order', { mode: 'RENEW', phone: '9876543210', subId: 'SUB-SOURAB', amount: 129, payment: 'CREDIT', creditDueDate: 'tomorrow' });
@@ -473,6 +479,28 @@ Module._load = function (req) {
   ok('profit view labels money on credit as not counted', /💳 Not counted: /.test(html) && /creditDue/.test(fs.readFileSync(path.join(__dirname, '..', 'profit.js'), 'utf8')));
   const pkg = require('../package.json');
   ok('this test is in npm test', /node test\/credit-renewals\.test\.js/.test(pkg.scripts.test));
+
+  // ── 💳 a NEW order on credit, end to end ────────────────────────────────────────────────────────────────────
+  // Owner, 24 Sep 2026: "only renew has credit - new orders dont have credit pls add that". Until then the route
+  // refused it AND fulfill.js required order_type = RENEW, so both gates had to go.
+  {
+    const before = (await get('/admin/api/credit/receivables')).body.total;
+    const n1 = await post('/admin/api/quick/order', { mode: 'NEW', phone: '9876543210', name: 'Nikhil', service: 'Prime Video', plan: '1 Month', tvCount: 0, amount: 149, payment: 'CREDIT', creditDueDate: '2026-10-05', confirmDuplicate: true });
+    ok('💳 a NEW order can go on credit', n1.body.ok && n1.body.status === 'CREDIT' && n1.body.creditAmount === 149, n1.body);
+    const call = fulfilCalls[fulfilCalls.length - 1];
+    ok('…delivered straight away, with allowCredit — the account goes out before the money', !!call && call.id === n1.body.orderId && call.opts.allowCredit === true, call);
+    const row = D.orders.find((x) => x.order_id === n1.body.orderId) || {};
+    ok('…the row is CREDIT and NEW, so no revenue figure counts it', String(row.status).toUpperCase() === 'CREDIT' && String(row.order_type).toUpperCase() === 'NEW', row.status + '/' + row.order_type);
+    const raw = JSON.parse(row.raw_json || '{}');
+    ok('…with the same raw_json a renewal gets', raw.Credit === true && raw.CreditAmount === 149 && raw.CreditDueDate === '2026-10-05' && raw.CreditStatus === 'OPEN' && raw.PaymentMethod === 'CREDIT', raw);
+    ok('…and it joins the renewals in 💸 Receivables', (await get('/admin/api/credit/receivables')).body.total === before + 149);
+    const noAmt = await post('/admin/api/quick/order', { mode: 'NEW', phone: '9876543210', name: 'Nikhil', service: 'Prime Video', plan: '1 Month', tvCount: 0, amount: 0, payment: 'CREDIT', creditDueDate: '2026-10-05', confirmDuplicate: true });
+    ok('…an amount is still demanded', noAmt.status === 400 && /amount due/i.test(noAmt.body.message), noAmt.body);
+    // An empty due date is NOT refused — credit.parseDueDate falls back to defaultDueDate(). The panel asks for one
+    // so the owner picks deliberately, but the server filling it in is the documented behaviour, not a hole.
+    const noDue = await post('/admin/api/quick/order', { mode: 'NEW', phone: '9876543210', name: 'Nikhil', service: 'Prime Video', plan: '1 Month', tvCount: 0, amount: 149, payment: 'CREDIT', creditDueDate: '', confirmDuplicate: true });
+    ok('…and an empty due date defaults rather than failing', noDue.body.ok === true && /^\d{4}-\d{2}-\d{2}$/.test(noDue.body.creditDueDate), noDue.body.creditDueDate);
+  }
 
   if (server.closeAllConnections) server.closeAllConnections();
   await new Promise((res) => server.close(res));

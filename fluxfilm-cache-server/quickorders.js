@@ -282,7 +282,7 @@ function mount(app, deps) {
     if (amount != null && (!Number.isFinite(amount) || amount < 0)) return res.status(400).json({ ok: false, field: 'amount', message: 'Amount must be a number.' });
     const method = s(b.payMethod).toUpperCase() || 'UPI';
     const rawExtra = { CreatedVia: 'ADMIN', PaymentMethod: method, AdminNote: s(b.notes).slice(0, 300) };
-    // 💳 On credit (renewals only): renews now, paid later (credit.js). Amount = what the customer owes.
+    // 💳 On credit: delivered now, paid later (credit.js). Amount = what the customer owes.
     const onCredit = s(b.payment).toUpperCase() === 'CREDIT';
     let renewBase = '';
     if (mode === 'RENEW') {
@@ -290,7 +290,6 @@ function mount(app, deps) {
       rawExtra.RenewBase = renewBase;
     }
     if (onCredit) {
-      if (mode !== 'RENEW') return res.status(400).json({ ok: false, field: 'payment', message: 'Credit is only for renewals.' });
       if (!(amount > 0)) return res.status(400).json({ ok: false, field: 'amount', message: 'Enter the amount due (more than ₹0).' });
       const due = credit.parseDueDate(b.creditDueDate);
       if (!due) return res.status(400).json({ ok: false, field: 'creditDueDate', message: 'Due date must look like 2026-09-20.' });
@@ -335,7 +334,7 @@ function mount(app, deps) {
       if (!out || !out.ok) return res.status(400).json(out || { ok: false, message: 'Order could not be created.' });
 
       const baseTxt = mode === 'RENEW' ? ' · starts from ' + (renewBase === 'EXPIRY' ? 'old expiry' : renewBase === 'TODAY' ? 'today' : 'shop rule') : '';
-      audit.record(req, { action: 'quick.' + mode.toLowerCase(), entity: 'order', id: out.orderId, summary: (mode === 'RENEW' ? 'Renew ' + s(b.subId) : s(b.service) + ' · ' + s(b.plan)) + ' · ₹' + out.amount + ' · ' + phone + baseTxt + (onCredit ? ' · 💳 on credit, due ' + rawExtra.CreditDueDate : b.markPaid ? ' · marked paid (' + method + ')' : ' · unpaid'), details: mode === 'RENEW' ? { RenewBase: renewBase, credit: onCredit } : undefined });
+      audit.record(req, { action: 'quick.' + mode.toLowerCase(), entity: 'order', id: out.orderId, summary: (mode === 'RENEW' ? 'Renew ' + s(b.subId) : s(b.service) + ' · ' + s(b.plan)) + ' · ₹' + out.amount + ' · ' + phone + baseTxt + (onCredit ? ' · 💳 on credit, due ' + rawExtra.CreditDueDate : b.markPaid ? ' · marked paid (' + method + ')' : ' · unpaid'), details: mode === 'RENEW' ? { RenewBase: renewBase, credit: onCredit } : { credit: onCredit } });
       const result = { ok: true, mode, orderId: out.orderId, amount: out.amount, status: 'CREATED', upiLink: out.upiLink, customerCreated: !!out.customerCreated, renewNotice: out.renewNotice || '', renewPreview: out.renewPreview || null, renewBase: renewBase || undefined };
       // 💳 Everything needed to ask the customer to pay: the link, the QR and a ready WhatsApp message.
       // Read back from the order row, so a RENEW shows its own service and the customer's saved email.

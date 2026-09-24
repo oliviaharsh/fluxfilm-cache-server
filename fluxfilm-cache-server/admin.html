@@ -1730,12 +1730,15 @@ function qBaseHtml(qt) {
 function qPayHtml() {
   var methods = (Q.cat && Q.cat.payMethods) || ['UPI', 'CASH', 'BANK', 'OTHER'];
   var renew = Q.tab === 'renew';
-  var paySeg = renew ? '<div class="fld" style="margin-bottom:12px"><label>Payment</label><div class="seg" id="q_pay"><button data-v="NOW" class="' + (Q.pay !== 'CREDIT' ? 'on' : '') + '">✅ Paid now</button><button data-v="CREDIT" class="' + (Q.pay === 'CREDIT' ? 'on' : '') + '">💳 On credit (pay later)</button></div></div>' : '';
-  if (renew && Q.pay === 'CREDIT') {
+  // 💳 Offered on NEW orders as well as renewals since 24 Sep 2026.
+  var paySeg = '<div class="fld" style="margin-bottom:12px"><label>Payment</label><div class="seg" id="q_pay"><button data-v="NOW" class="' + (Q.pay !== 'CREDIT' ? 'on' : '') + '">✅ Paid now</button><button data-v="CREDIT" class="' + (Q.pay === 'CREDIT' ? 'on' : '') + '">💳 On credit (pay later)</button></div></div>';
+  if (Q.pay === 'CREDIT') {
     return paySeg + '<div class="fields"><div class="fld"><label>Amount due (₹)</label><input class="inp" id="q_amount" inputmode="numeric" value="' + esc(Q.amount) + '"/></div>' +
       '<div class="fld"><label>Due date</label><input class="inp" id="q_cdue" type="date" value="' + esc(Q.cdue) + '"/></div>' +
       '<div class="fld" style="grid-column:1/-1"><label>Note (optional)</label><input class="inp" id="q_notes" value="' + esc(Q.notes) + '" placeholder="e.g. will pay on salary day"/></div></div>' +
-      '<div class="qnote">💳 The plan renews now and the login keeps working. The order stays <b>unpaid</b> (not counted as revenue, no coins) and shows in <b>Today → Receivables</b> until you tap ✅ Mark paid.</div>';
+      '<div class="qnote">💳 ' + (renew ? 'The plan renews now and the login keeps working.' : 'The account is allocated now and the login is emailed straight away.') +
+      ' The order stays <b>unpaid</b> (not counted as revenue, no coins) and shows in <b>Today → Receivables</b> until you tap ✅ Mark paid.</div>' +
+      (renew ? '' : '<div class="qnote warn">⚠️ A new order on credit takes a <b>seat out of stock</b> and sends the login before any money arrives. Writing the credit off later does <b>not</b> take the plan back.</div>');
   }
   return paySeg + '<div class="fields"><div class="fld"><label>Amount received (₹)</label><input class="inp" id="q_amount" inputmode="numeric" value="' + esc(Q.amount) + '"/></div>' +
     '<div class="fld"><label>Paid by</label><div class="seg" id="q_method">' + methods.map(function (m) { return '<button data-v="' + m + '" class="' + (Q.method === m ? 'on' : '') + '">' + (m === 'UPI' ? 'UPI' : m[0] + m.slice(1).toLowerCase()) + '</button>'; }).join('') + '</div></div>' +
@@ -1757,8 +1760,8 @@ function qSummaryHtml(p) {
     '<div class="qline total"><span>Total</span><b>' + (amt != null ? money(amt) : '—') + '</b></div>' +
     (missing ? '<div class="qnote" style="margin-top:10px">👉 ' + esc(missing) + '</div>' : '') +
     (!isNew && qt && qt.ok && qt.bases ? '<div class="qline"><span>New expiry</span><b>' + esc(((Q.rbase === 'AUTO' || !qt.bases[Q.rbase]) ? (qt.preview || {}).newExpiryText : qt.bases[Q.rbase].newExpiryText) || '—') + '</b></div>' : '') +
-    (!isNew && Q.pay === 'CREDIT' ? '<div class="qline"><span>💳 On credit</span><b>due ' + esc(Q.cdue ? prettyDate(Q.cdue) : '—') + '</b></div>' : '') +
-    '<button class="btn qgo" id="q_go"' + (missing || Q.busy ? ' disabled' : '') + '>' + (Q.busy ? 'Working…' : (!isNew && Q.pay === 'CREDIT' ? '💳 Renew on credit' : Q.markPaid ? '✅ Create & mark paid' : '🧾 Create unpaid order')) + '</button>' +
+    (Q.pay === 'CREDIT' ? '<div class="qline"><span>💳 On credit</span><b>due ' + esc(Q.cdue ? prettyDate(Q.cdue) : '—') + '</b></div>' : '') +
+    '<button class="btn qgo" id="q_go"' + (missing || Q.busy ? ' disabled' : '') + '>' + (Q.busy ? 'Working…' : (Q.pay === 'CREDIT' ? (isNew ? '💳 Create on credit' : '💳 Renew on credit') : Q.markPaid ? '✅ Create & mark paid' : '🧾 Create unpaid order')) + '</button>' +
     '<button class="btn ghost sm" style="width:100%;justify-content:center;margin-top:8px" data-act="reset">Clear</button></div>';
   return h;
 }
@@ -1772,8 +1775,9 @@ function qMissing() {
     if (!Q.quote || !Q.quote.ok) return 'Waiting for the renewal check.';
     if (Q.quote.mode === 'NONE') return 'No account is free for this renewal.';
   }
-  if (Q.amount === '' || isNaN(Number(Q.amount))) return Q.tab === 'renew' && Q.pay === 'CREDIT' ? 'Enter the amount due.' : 'Enter the amount received.';
-  if (Q.tab === 'renew' && Q.pay === 'CREDIT' && !(Number(Q.amount) > 0)) return 'The amount due must be more than ₹0.';
+  if (Q.amount === '' || isNaN(Number(Q.amount))) return Q.pay === 'CREDIT' ? 'Enter the amount due.' : 'Enter the amount received.';
+  if (Q.pay === 'CREDIT' && !(Number(Q.amount) > 0)) return 'The amount due must be more than ₹0.';
+  if (Q.pay === 'CREDIT' && !Q.cdue) return 'Pick the date the money is due.';
   return '';
 }
 function qCollect() {
@@ -1850,7 +1854,8 @@ function qSubmit() {
     service: Q.service, plan: Q.tab === 'renew' ? Q.rplan : Q.plan, subId: Q.subId,
     tvCount: Q.tv, extraFieldValue: Q.extra, amount: Q.amount, payMethod: Q.method, txnRef: Q.ref, notes: Q.notes, markPaid: Q.markPaid,
   };
-  if (Q.tab === 'renew') { body.renewBase = Q.rbase || 'AUTO'; if (Q.pay === 'CREDIT') { body.payment = 'CREDIT'; body.creditDueDate = Q.cdue || ''; body.markPaid = false; } }
+  if (Q.tab === 'renew') body.renewBase = Q.rbase || 'AUTO';
+  if (Q.pay === 'CREDIT') { body.payment = 'CREDIT'; body.creditDueDate = Q.cdue || ''; body.markPaid = false; }
   var send = function (confirmDuplicate) {
     Q.busy = true; qRefreshSummary();
     post('/admin/api/quick/order', Object.assign({ confirmDuplicate: !!confirmDuplicate }, body)).then(function (r) {
@@ -1946,7 +1951,7 @@ function qRenderResult() {
   var r = Q.result, f = r.fulfillment || {}, a = f.access || {};
   var credit = r.status === 'CREDIT';
   var good = (r.status === 'PAID' || credit) && (f.fulfillment === 'FULFILLED' || f.fulfillment === 'MANUAL_PENDING');
-  var head = credit ? (good ? '💳 Renewed on credit — ' + money(r.amount) + ' due' + (r.creditDueDate ? ' by ' + prettyDate(r.creditDueDate) : '') : '⚠️ On credit, but the renewal was not applied') : r.status !== 'PAID' ? '🧾 Unpaid order created' : f.fulfillment === 'FULFILLED' ? (r.mode === 'RENEW' ? '✅ Renewed and paid' : '✅ Paid — account ready') : f.fulfillment === 'MANUAL_PENDING' ? '✅ Paid — activate it manually' : '⚠️ Paid, but the account was not handed out';
+  var head = credit ? (good ? '💳 ' + (r.mode === 'RENEW' ? 'Renewed' : 'Account given') + ' on credit — ' + money(r.amount) + ' due' + (r.creditDueDate ? ' by ' + prettyDate(r.creditDueDate) : '') : '⚠️ On credit, but ' + (r.mode === 'RENEW' ? 'the renewal was not applied' : 'the account was not handed out')) : r.status !== 'PAID' ? '🧾 Unpaid order created' : f.fulfillment === 'FULFILLED' ? (r.mode === 'RENEW' ? '✅ Renewed and paid' : '✅ Paid — account ready') : f.fulfillment === 'MANUAL_PENDING' ? '✅ Paid — activate it manually' : '⚠️ Paid, but the account was not handed out';
   var cred = function (label, v) { return v ? '<div class="cr"><span>' + label + '</span><code>' + esc(v) + '</code><button class="copy" data-copy="' + esc(v) + '">Copy</button></div>' : ''; };
   var creds = cred('Login', a.user) + cred('Password', a.pass) + cred('Profile', [a.profileName, a.profileNumber ? '#' + a.profileNumber : ''].filter(Boolean).join(' ')) + cred('PIN', a.profilePin);
   var wa = qWaText(r);
