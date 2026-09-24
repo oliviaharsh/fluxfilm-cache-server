@@ -191,9 +191,12 @@ async function _fulfill(orderId, opts) {
   // allowLegacy: the owner delivering an old-site (imported) order from the admin panel. Old-site renewals are
   // refused by the admin route before this point; the storefront never passes it.
   if (o.source !== 'node' && !(opts && opts.allowLegacy)) return { ok: false, found: false, fulfillment: 'ERROR', message: 'This legacy order cannot be fulfilled on the new checkout. Please contact support.' };
-  // 💳 Admin credit renewal (credit.js): a CREDIT order is delivered before it is paid — only when the admin route asks
-  // (opts.allowCredit) and the server marked the renewal as credit. The storefront never passes allowCredit.
-  const creditOk = !!(opts && opts.allowCredit) && String(o.status || '').toUpperCase() === 'CREDIT' && rawOf(o.raw_json).Credit === true && String(o.order_type || '').toUpperCase() === 'RENEW';
+  // 💳 Admin credit order (credit.js): a CREDIT order is delivered before it is paid — only when the admin route asks
+  // (opts.allowCredit) and the server itself marked the order as credit. The storefront never passes allowCredit.
+  // Was renewals only until 24 Sep 2026 ("only renew has credit - new orders dont have credit pls add that"). A new
+  // order on credit allocates a seat and sends the login, so the three guards that remain are the whole protection:
+  // the admin route asked, the server set status CREDIT, and the server wrote Credit: true into raw_json.
+  const creditOk = !!(opts && opts.allowCredit) && String(o.status || '').toUpperCase() === 'CREDIT' && rawOf(o.raw_json).Credit === true;
   if (String(o.status || '').toUpperCase() !== 'PAID' && !creditOk) return { ok: true, found: false, fulfillment: 'PENDING', retryAfterSec: 3, message: 'Processing your order…' };
 
   if (String(o.fulfillment_status || '').toUpperCase() === 'FULFILLED') {
