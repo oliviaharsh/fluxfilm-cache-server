@@ -385,6 +385,20 @@ async function getLatestOtp(service, phone, token, subRef, deps, req) {
  * The panel wins (admin → 📱 OTP devices → monthly limits), then the OTP_QUOTA_<SERVICE> env var, then 60 —
  * so an untouched service behaves exactly as it did before anything was set here.
  */
+/**
+ * What each service falls back to when its panel box is left empty: OTP_QUOTA_<SERVICE>, then OTP_QUOTA_DEFAULT,
+ * then 60. The screen shows this as the placeholder, so "blank" is never a mystery number.
+ */
+function quotaDefaults(services) {
+  const out = {};
+  for (const svc of (services || [])) {
+    const key = quotaKey(svc);
+    if (!key) continue;
+    out[key] = Number(process.env['OTP_QUOTA_' + key] || process.env.OTP_QUOTA_DEFAULT || 60);
+  }
+  return out;
+}
+
 async function getOtpQuota(phone, service) {
   const svcKey = svcKeyOf(service);
   const key = quotaKey(svcKey);
@@ -463,6 +477,7 @@ async function adminSelfTest(input) {
 }
 
 module.exports = {
+  quotaDefaults,
   getLatestOtp, getOtpQuota, getSettings, saveSettings, adminDiagnostics, adminSelfTest,
   _internal: { extractOtp, svcKeyOf, loginKey, loginsIn, pickOtpMail, mobileLast10, blankNumbers, explainMail, serviceOfMail, newDiag, validateSettings, diagKey, WINDOW_MIN, WINDOW_MAX, QUOTA_MAX, quotaKey, noteOtp, OTP_OUTCOME },
 };

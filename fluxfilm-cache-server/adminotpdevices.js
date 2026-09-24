@@ -33,7 +33,11 @@ function mount(app, deps) {
     if (!auth(req, res)) return;
     try {
       const r = await O().load(q, { service: s(req.query.service).slice(0, 40), q: s(req.query.q).slice(0, 80), showRemoved: truthy(req.query.removed) });
-      res.json(Object.assign({ ok: true }, r));
+      // 📵 The monthly limits come down with the list so the box sits on the main screen rather than inside the
+      // 🔎 diagnostics fold, where the owner could not find it (24 Sep 2026: "i cant see the option").
+      const labels = (r.services || []).map((x) => x.label || x.key);
+      const settings = await OTP().getSettings().catch(() => ({}));
+      res.json(Object.assign({ ok: true }, r, { settings, quotaDefaults: OTP().quotaDefaults(labels) }));
     } catch (e) { fail(res, e); }
   });
 
