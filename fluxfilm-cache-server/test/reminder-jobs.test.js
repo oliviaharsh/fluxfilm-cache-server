@@ -489,6 +489,21 @@ ok('the panel has the discount switch, and hides the code boxes when it is off',
     const h = read('admin.html');
     return ['afterHours', 'withinHours', 'afterDays', 'everyDays'].every((k) => h.indexOf("'" + k + "'") > -1) && /data-rjd="1"/.test(h);
   })());
+  // 24 Sep 2026: the log of every message sent to a customer could not be read from the panel at all — proving
+  // the first real sends had happened meant inferring it from who had DROPPED out of the queue. Two lists have to
+  // agree for a table to be readable, and they are in different files, so both are pinned here.
+  ok('✉️ reminder_log can be read in the panel — the server allows it', (() => {
+    const a = read('admin.js');
+    return /reminder_log: \{ cols: '\*', order: 'ts DESC'/.test(a) && /like: \['sub_id', 'kind', 'channel', 'note'\]/.test(a);
+  })(), 'admin.js TABLES');
+  ok('…and the panel offers it in the grid', /'restock_requests', 'reminder_log'\]/.test(read('admin.html')));
+  ok('…read-only: a log nobody can rewrite from the screen', (() => {
+    const a = read('admin.js');
+    // editable comes from SHEETKEYS / MYSQLKEYS; reminder_log must be in neither.
+    const sheet = (a.match(/const SHEETKEYS = \{[\s\S]*?\};/) || [''])[0];
+    const mysql = (a.match(/const MYSQLKEYS = \{[\s\S]*?\};/) || [''])[0];
+    return !/reminder_log/.test(sheet) && !/reminder_log/.test(mysql);
+  })());
     ok('this test file runs in the suite', / && node test\/reminder-jobs\.test\.js/.test(read('package.json')));
 
   console.log('\n---------------------------------------\nPASS ' + pass + '   FAIL ' + fail);
