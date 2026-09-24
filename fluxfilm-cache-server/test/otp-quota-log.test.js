@@ -114,7 +114,39 @@ const save = (o) => otp.saveSettings(Object.assign({ windowMin: 10 }, o));
     && /require\('\.\/customerlog'\)/.test(read('olivia.js'))
     && /require\('\.\/customerlog'\)/.test(read('otp.js')));
   ok('server.js hands the request through, so the log has an IP', /getLatestOtp: \(a, req\) =>/.test(read('server.js')) && /null, req\)/.test(read('server.js')));
-  ok('the panel has a limit box per service and saves them', /data-odquota/.test(read('admin.html')) && /odQuotaBox/.test(read('admin.html')) && /quotas: quotas/.test(read('admin.html')));
+  ok('the panel has a limit box per service and saves them', /data-odquota/.test(read('admin.html')) && /odQuotaCard/.test(read('admin.html')) && /quotas: quotas/.test(read('admin.html')));
+
+  // 📵 The limits used to render inside the collapsed 🔎 Get OTP check fold, whose summary says nothing about
+  // limits — so the owner could not find them at all (24 Sep 2026: "i cant see the option").
+  ok('…on the MAIN screen, not hidden inside the 🔎 diagnostics fold',
+    /<div id="odquota"><\/div>/.test(read('admin.html')) && /quotaEl.innerHTML = odQuotaCard\(\)/.test(read('admin.html')));
+  ok('…each service shows what it falls back to when the box is left empty',
+    /quotaDefaults/.test(read('admin.html')) && /quotaDefaults/.test(read('adminotpdevices.js')) && /function quotaDefaults/.test(read('otp.js')));
+  ok('…and the list route sends the limits down with the list, so the card needs no second call',
+    /settings, quotaDefaults: OTP\(\)\.quotaDefaults/.test(read('adminotpdevices.js')));
+
+  // 🐛 $ is querySelector (ONE element); $$ is querySelectorAll as an array. Eight save handlers called
+  // $(...).forEach, which throws every time — so those buttons silently did nothing, including 💾 Save on
+  // ✉️ Email jobs and 💾 Save limits here. A whole class of bug, so it gets a guard rather than eight fixes.
+  ok('🖱 no save handler calls .forEach on a single element', (() => {
+    const bad = read('admin.html').split('\n')
+      .map((l, i) => ({ n: i + 1, l }))
+      .filter((x) => /(^|[^$\w.])\$\([^)]*\)\.forEach/.test(x.l));
+    if (bad.length) console.log('    ' + bad.map((x) => x.n + ': ' + x.l.trim().slice(0, 70)).join('\n    '));
+    return bad.length === 0;
+  })());
+  // The ⏱️ window box still lives in the 🔎 fold, so with that fold closed the card has no element to read.
+  // The card now sends the stored window explicitly instead of resting on two behaviours lining up.
+  ok('…and saving limits does not depend on the time-window box being on screen',
+    /var winNow = \(\$\('#odwin'\) && \$\('#odwin'\)\.value\)/.test(read('admin.html'))
+    && /post\('\/admin\/api\/otp-settings', \{ windowMin: winNow, quotas: quotas \}\)/.test(read('admin.html')));
+  ok('…and the window survives a limits-only save either way, because the server merges over what is stored', (async () => {
+    await otp.saveSettings({ windowMin: 14, quotas: {} });
+    const r = await otp.saveSettings({ quotas: { ZEE5: 5 } });          // no windowMin at all, as JSON would send it
+    return r.ok === true && r.settings.windowMin === 14 && r.settings.quotas.ZEE5 === 5;
+  })());
+  ok('…the quota boxes are found wherever they are drawn, not by the card they sit in',
+    /\$\$\('\.odq'\)/.test(read('admin.html')) && !/#odchkbody \.odq/.test(read('admin.html')));
   ok('saving the time window no longer wipes the limits', /post\('\/admin\/api\/otp-settings', \{ windowMin: inp\.value, quotas: keep \}\)/.test(read('admin.html')));
   ok('the change log can read the new lines and filter to them', /'otp\.given': '🔑 OTP given \(customer\)'/.test(read('admin.html')) && /\['otp', '🔑 Get OTP'\]/.test(read('admin.html')));
   ok('the route saves the limits and says so in the change log', /quotas: b\.quotas/.test(read('adminotpdevices.js')) && /monthly limits: /.test(read('adminotpdevices.js')));

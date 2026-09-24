@@ -4916,7 +4916,7 @@ function wireWaAppCard() {
   el.onclick = function (e) {
     var b = e.target.closest('[data-waapp]'); if (!b) return;
     setWaApp(b.getAttribute('data-waapp'));
-    $('#waappchips .chip').forEach(function (c) { c.classList.toggle('on', c === b); });
+    $$('#waappchips .chip').forEach(function (c) { c.classList.toggle('on', c === b); });
     $('#waappmsg').textContent = 'Saved on this device ✓ — the 💬 buttons will open ' + (waApp() === 'business' ? 'WhatsApp Business' : waApp() === 'personal' ? 'WhatsApp' : 'whichever app your phone chooses') + '.';
   };
 }
@@ -5628,7 +5628,7 @@ function otpDevicesView() {
     '<button class="btn ghost sm" data-odprev="paste" style="margin-top:6px">🔍 Preview pasted rows</button><div id="odimpres"></div></details>' +
     '<details class="card" id="odchk" style="padding:10px 14px;margin-bottom:10px"' + (OD.open.odchk ? ' open' : '') + '><summary style="cursor:pointer"><b>🔎 Get OTP check</b> <span class="muted">— why a code was not shown, and test a forwarded mail</span></summary>' +
     '<div id="odchkbody"><p class="muted">Loading…</p></div></details>' +
-    '<div id="odlist"></div></div>';
+    '<div id="odquota"></div><div id="odlist"></div></div>';
   $('#odref').onclick = function () { OD.data = null; odLoad(); };
   var t; $('#odq').addEventListener('input', function () { OD.q = $('#odq').value.trim(); clearTimeout(t); t = setTimeout(odLoad, 300); });
   $('#odrmshow').addEventListener('change', function () { OD.removed = $('#odrmshow').checked; odLoad(); });
@@ -5682,19 +5682,32 @@ function odChkRun(r) {
  * OTP_QUOTA_* env vars on Hostinger. Blank means "use the env var / 60", so a service nobody has touched keeps
  * behaving exactly as before.
  */
-function odQuotaBox(d) {
+/**
+ * 📵 How many OTPs one customer may pull in a month, PER SERVICE. This used to be rendered inside the collapsed
+ * 🔎 Get OTP check fold, whose summary says nothing about limits — so it may as well not have existed (owner,
+ * 24 Sep 2026: "i cant see the option"). It is now a card of its own on the main 📱 OTP devices screen.
+ * Each box shows what that service falls back to when left empty, rather than a vague "default".
+ */
+function odQuotaCard() {
+  var d = OD.data || {};
   var q = (d.settings && d.settings.quotas) || {};
-  var svcs = d.services || [];
+  var defs = d.quotaDefaults || {};
+  var svcs = (d.services || []).map(function (x) { return (x && x.label) || x; }).filter(Boolean);
   if (!svcs.length) return '';
   var key = function (s) { return String(s).replace(/\s+/g, '').toUpperCase(); };
-  return '<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">' +
-    '<p class="muted" style="font-size:.78rem;margin:0 0 6px">📵 <b>Monthly OTP limit per customer</b> — how many codes one customer may pull for each service in a month. Leave a box empty to use the server setting (' + esc(60) + ' unless Hostinger says otherwise).</p>' +
-    '<div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">' +
+  return '<div class="card qsec"><h3 style="margin-top:0">📵 Monthly OTP limit per customer</h3>' +
+    '<p class="muted" style="font-size:.8rem;margin:0 0 10px">How many codes ONE customer may pull for each service in a month. Each service is its own number.</p>' +
+    '<div class="row" style="gap:12px;flex-wrap:wrap;align-items:flex-end">' +
     svcs.map(function (s) {
-      var v = q[key(s)];
-      return '<label style="font-size:.85rem">' + esc(s) + ' <input class="inp odq" data-svc="' + esc(key(s)) + '" type="number" min="0" max="2000" placeholder="default" value="' + (v == null ? '' : esc(v)) + '" style="width:86px;display:inline-block"/></label>';
+      var k = key(s);
+      var v = q[k];
+      var def = defs[k] == null ? 60 : defs[k];
+      return '<label style="font-size:.85rem">' + svcIcon(s) + ' ' + esc(s) +
+        '<input class="inp odq" data-svc="' + esc(k) + '" type="number" min="0" max="2000" placeholder="' + esc(def) + '" value="' + (v == null ? '' : esc(v)) + '" style="width:96px"/>' +
+        '<span class="muted" style="font-size:.72rem;display:block;margin-top:2px">' + (v == null ? 'using ' + esc(def) : 'set to ' + esc(v)) + '</span></label>';
     }).join('') +
-    '<button class="btn sm" data-odquota>Save limits</button></div></div>';
+    '<button class="btn green sm" data-odquota>💾 Save limits</button></div>' +
+    '<p class="muted" style="font-size:.74rem;margin:10px 0 0">Empty = use the server setting (the greyed number). <b>0</b> = nobody gets a code for that service. Changing one service leaves the others alone.</p></div>';
 }
 function odChkRender() {
   var box = $('#odchkbody'); if (!box) return;
@@ -5706,7 +5719,6 @@ function odChkRender() {
     '<label style="font-size:.85rem">⏱️ Use a forwarded mail for <input class="inp" id="odwin" type="number" min="' + esc(d.min || 5) + '" max="' + esc(d.max || 30) + '" value="' + esc(win) + '" style="width:72px;display:inline-block"/> minutes</label>' +
     '<button class="btn sm" data-odwin>Save</button>' +
     '<span class="muted" style="font-size:.76rem">Raise it if your SMS forwarder is slow (' + esc(d.min || 5) + '–' + esc(d.max || 30) + ').</span></div>' +
-    odQuotaBox(d) +
     '<p class="muted" style="font-size:.76rem;margin:10px 0 2px">Last time a customer tapped Get OTP:</p>' +
     (d.runs && d.runs.length ? d.runs.map(odChkRun).join('') : '<p class="muted" style="font-size:.8rem">Nothing yet — this fills in the next time someone taps Get OTP.</p>') +
     '<p class="muted" style="font-size:.76rem;margin:12px 0 2px">🧪 Test a forwarded mail — paste the mail text and see what the tool makes of it:</p>' +
@@ -5746,6 +5758,7 @@ function renderOtpDevices() {
     '<div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">' + [{ key: '', label: 'All', expired: allExp }].concat(svcs).map(function (x) {
       return '<button class="chip' + (OD.svc === x.key ? ' on' : '') + '" data-odsvc="' + esc(x.key) + '">' + svcIcon(x.label || 'x') + ' ' + esc(x.label) + (x.expired ? ' · ⚠️ ' + x.expired : '') + '</button>';
     }).join('') + '</div>';
+  var quotaEl = $('#odquota'); if (quotaEl) quotaEl.innerHTML = odQuotaCard();
   var accs = d.accounts || [];
   list.innerHTML = accs.length ? accs.map(odCard).join('') : '<div class="card muted">' + (OD.q ? 'No match.' : 'No OTP accounts found.') + '</div>';
   odDraftRestore(list);
@@ -5841,13 +5854,18 @@ function odClick(e) {
   var qb = e.target.closest('[data-odquota]');
   if (qb) {
     var quotas = {};
-    $('#odchkbody .odq').forEach(function (i) { quotas[i.getAttribute('data-svc')] = i.value.trim(); });
+    $$('.odq').forEach(function (i) { quotas[i.getAttribute('data-svc')] = i.value.trim(); });
     qb.disabled = true;
     // The window goes with it: saveSettings validates the whole settings object, not one field.
-    post('/admin/api/otp-settings', { windowMin: ($('#odwin') || {}).value, quotas: quotas }).then(function (x) {
+    // Sent explicitly rather than relying on JSON.stringify dropping undefined and the server merging.
+    var winNow = ($('#odwin') && $('#odwin').value)
+      || (OD.data && OD.data.settings && OD.data.settings.windowMin)
+      || (OD.chk && OD.chk.settings && OD.chk.settings.windowMin) || 10;
+    post('/admin/api/otp-settings', { windowMin: winNow, quotas: quotas }).then(function (x) {
       qb.disabled = false;
       if (!x.ok) { toast('⚠️ ' + (x.message || 'could not save')); return; }
       if (OD.chk) OD.chk.settings = x.settings;
+      if (OD.data) { OD.data.settings = x.settings; var qe = $('#odquota'); if (qe) qe.innerHTML = odQuotaCard(); }
       toast('✅ Monthly limits saved');
     });
     return;
@@ -5857,7 +5875,7 @@ function odClick(e) {
     var inp = $('#odwin'); if (!inp) return;
     wn.disabled = true;
     var keep = {};
-    $('#odchkbody .odq').forEach(function (i) { keep[i.getAttribute('data-svc')] = i.value.trim(); });
+    $$('.odq').forEach(function (i) { keep[i.getAttribute('data-svc')] = i.value.trim(); });
     post('/admin/api/otp-settings', { windowMin: inp.value, quotas: keep }).then(function (x) {
       wn.disabled = false;
       if (!x.ok) { toast('⚠️ ' + (x.message || 'could not save')); return; }
@@ -6628,7 +6646,7 @@ function nxRender() {
   };
   var rev = $('#nxkeyrev'); if (rev) rev.onclick = function () { if (!confirm('Revoke the n8n key? Every n8n workflow calling the shop stops until you make a new key.')) return; post('/admin/api/n8n/key', { action: 'revoke' }).then(function (r) { toast(r.ok ? 'Key revoked' : '⚠️ ' + (r.message || 'failed')); nxLoad(); }); };
   $('#nxsave').onclick = function () {
-    var ev = {}; $('[data-nxev]').forEach(function (c) { ev[c.getAttribute('data-nxev')] = c.checked; });
+    var ev = {}; $$('[data-nxev]').forEach(function (c) { ev[c.getAttribute('data-nxev')] = c.checked; });
     $('#nxstate').textContent = 'Saving…';
     post('/admin/api/n8n/settings', { webhookUrl: $('#nxurl').value.trim(), events: ev }).then(function (r) {
       if (!r.ok) { $('#nxstate').textContent = '⚠️ ' + (r.message || 'failed'); return; }
@@ -6659,7 +6677,7 @@ function nxRender() {
   };
   var pc = $('#nxpassclear'); if (pc) pc.onclick = function () { if (!confirm('Remove the backup passphrase? Backups are refused until you set a new one.')) return; post('/admin/api/n8n/passphrase', { clear: true }).then(function (r) { toast(r.ok ? 'Removed' : '⚠️ ' + (r.message || 'failed')); nxLoad(); }); };
   $('#nxwbsave').onclick = function () {
-    var w = {}; $('[data-wb]').forEach(function (el) { var c = el.getAttribute('data-wb'); w[c] = w[c] || {}; w[c][el.getAttribute('data-f')] = el.value; });
+    var w = {}; $$('[data-wb]').forEach(function (el) { var c = el.getAttribute('data-wb'); w[c] = w[c] || {}; w[c][el.getAttribute('data-f')] = el.value; });
     $('#nxwbstate').textContent = 'Saving…';
     post('/admin/api/n8n/settings', { winback: w }).then(function (r) {
       if (!r.ok) { $('#nxwbstate').textContent = '⚠️ ' + (r.message || 'failed'); return; }
@@ -7334,12 +7352,12 @@ function rjDoTest(job) {
 }
 function rjSave() {
   var body = { abandoned: {}, expiryMail: {}, winback: {}, whatsnew: {} };
-  $('#rjbody [data-rjn]').forEach(function (i) {
+  $$('#rjbody [data-rjn]').forEach(function (i) {
     var p = i.getAttribute('data-rjn').split('.');
     if (p.length === 2) body[p[0]][p[1]] = i.value; else body[p[0]] = i.value;
   });
-  $('#rjbody [data-rjb]').forEach(function (i) { var p = i.getAttribute('data-rjb').split('.'); body[p[0]][p[1]] = i.checked; });
-  $('#rjbody [data-rjt]').forEach(function (i) { var p = i.getAttribute('data-rjt').split('.'); body[p[0]][p[1]] = i.value; });
+  $$('#rjbody [data-rjb]').forEach(function (i) { var p = i.getAttribute('data-rjb').split('.'); body[p[0]][p[1]] = i.checked; });
+  $$('#rjbody [data-rjt]').forEach(function (i) { var p = i.getAttribute('data-rjt').split('.'); body[p[0]][p[1]] = i.value; });
   var d = $('#rjbody [data-rjd]'); if (d) body.expiryMail.daysBefore = d.value;
   $('#rjsave').disabled = true; $('#rjmsg').textContent = 'Saving…';
   post('/admin/api/reminder-jobs', body).then(function (r) {
