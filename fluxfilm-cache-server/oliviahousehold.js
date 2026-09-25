@@ -173,6 +173,7 @@ const WHY_TEXT = {
   nodigits: 'the page opened but had no code on it',
   nobutton: 'the Netflix page opened but had no Update Household button on it',
   noconfirm: 'the button was pressed but Netflix did not confirm it',
+  nopress: 'Netflix would not accept the Confirm Update press',
   nomail: 'no Netflix mail with that link in the mailbox yet',
   error: 'the Netflix page could not be reached',
   off: 'the household update switch is off (OLIVIA_HH_UPDATE)',
@@ -284,6 +285,26 @@ async function codeFromNetflixLink(url, fetchImpl) {
 }
 
 /**
+ * The real Netflix confirm page, read 25 Sep 2026. There is NO form on it (0), and the control is
+ *   <button data-uia="set-primary-location-action" type="button">Confirm Update</button>
+ * so pressing it is a JavaScript POST. The page names both halves of that POST in its own inline JSON:
+ *   "setPrimaryHouseholdConfirm":"/account/set-primary-location"   (with \x2F escapes)
+ *   "authURL":"c1.1790350504333.Agi…"
+ * so we can do exactly what the button does. Everything below comes off the page itself — no guessed endpoint,
+ * no guessed field. If any piece is missing we press nothing and hand the customer the link instead.
+ */
+const unescX = (v) => String(v || '').replace(/\\x([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+const CONFIRM_BTN = /data-uia=["']set-primary-location-action["']|>\s*Confirm Update\s*</i;
+function confirmPost(html) {
+  if (!CONFIRM_BTN.test(String(html || ''))) return null;          // no button on this page: nothing to press
+  const authURL = unescX((String(html).match(/"authURL":"([^"]+)"/) || [])[1] || '');
+  if (!authURL) return null;                                       // no token: pressing would only 401
+  const path = unescX((String(html).match(/"setPrimaryHouseholdConfirm":"([^"]+)"/) || [])[1] || '/account/set-primary-location');
+  if (!/^\/account\/[a-z-]+$/i.test(path)) return null;            // only ever an /account/ path off Netflix's own page
+  return { path, authURL };
+}
+
+/**
  * update: the link auto-signs-in and shows a black "Update household" button; follow it once and confirm.
  * Never runs unless OLIVIA_HH_UPDATE=on. Any sign-in / reCAPTCHA / uncertainty -> manual (nothing pressed).
  */
@@ -317,6 +338,33 @@ async function confirmUpdateFromNetflixLink(url, fetchImpl) {
   if (!link && !form) {
     form = html.match(/<form[^>]*action=["']([^"']*update-primary-location[^"']*)["'][^>]*>/i);
     link = html.match(/href=["'](https:\/\/www\.netflix\.com\/account\/update-primary-location[^"']+)["']/i);
+  }
+  // Nothing to click, but Netflix's own button is a POST it has described to us — do exactly that, then RE-READ
+  // the page to see whether it took. Never report "done" from the POST's own reply: the customer is told their TV
+  // is fixed, so that claim has to be checked, not assumed.
+  if (!link && !form) {
+    const post = confirmPost(html);
+    if (!post) return { ok: false, manual: true, why: 'nobutton' };
+    const endpoint = new URL(post.path, page.url).toString();
+    let pressed;
+    try {
+      pressed = await doFetch(endpoint, {
+        method: 'POST', redirect: 'manual',
+        headers: {
+          'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json, text/javascript, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest',
+          Referer: page.url, Origin: 'https://www.netflix.com', Cookie: jar.header(),
+        },
+        body: new URLSearchParams({ authURL: post.authURL }).toString(),
+      });
+    } catch (e) { console.log('[olivia-hh] confirm press failed:', e.message); return { ok: false, manual: true, why: 'error' }; }
+    jar.take(pressed);
+    if (pressed.status >= 400) return { ok: false, manual: true, why: 'nopress' };
+    // The proof: open the same page again. If the Confirm Update button has gone, Netflix accepted it.
+    const after2 = await followNetflix(url, doFetch, jar);
+    const stillAsking = CONFIRM_BTN.test(after2.html || '');
+    if (!stillAsking) return { ok: true, updated: true, pressed: true };
+    return { ok: false, manual: true, why: 'nopress' };
   }
   let after = null;
   if (form) {
@@ -556,4 +604,4 @@ const travelCode = (acc, deps) => run(acc, 'travel', deps);
 const updateHousehold = (acc, deps) => run(acc, 'update', deps);
 const updateEnabled = () => UPDATE_ON();
 
-module.exports = { netflixAccounts, travelCode, updateHousehold, verificationCode, updateEnabled, latestMail, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, verificationCodeFrom, codeKindOf, labelFor, inboxSearch, MAIL_WORDS, directAuth, pageProblem, actionLinkFrom, WHY_TEXT } };
+module.exports = { netflixAccounts, travelCode, updateHousehold, verificationCode, updateEnabled, latestMail, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, verificationCodeFrom, codeKindOf, labelFor, inboxSearch, MAIL_WORDS, directAuth, pageProblem, actionLinkFrom, WHY_TEXT, confirmPost, confirmUpdateFromNetflixLink } };
