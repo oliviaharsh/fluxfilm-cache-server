@@ -200,6 +200,52 @@ deps.mailparser.simpleParser = async () => {
     ok('the customer tool is not given the sign-in lookup', !hh._internal.MAIL_WORDS.code.some((w) => /sign.?in/.test(w)));
   }
 
+  section('🔗 the link we hand over is the one the customer would TAP');
+  {
+    const A = hh._internal.actionLinkFrom;
+    // A real Netflix travel mail, 25 Sep 2026: logo first, Get code in the middle, Help Centre and legal at the end.
+    const REAL = '<a href="https://www.netflix.com/browse?g=4d4dddf4&amp;lkid=URL_LOGO&amp;lnktrk=EVO"><img src="https://assets.nflxext.com/logo.png"></a>'
+      + '<h1>Your temporary access code</h1><p>Requested by Danial from a Samsung Galaxy S24 FE</p>'
+      + '<a href="https://www.netflix.com/account/travel/verify?nftoken=Bgiqv+vcAxLE/9x9IV6c=&amp;messageGuid=4d4dddf4">Get code</a>'
+      + '<p>* Link expires after 15 minutes.</p><a href="https://help.netflix.com/en">Visit the Help Centre</a>';
+    ok('the Get code link is taken, not the logo at the top', A(REAL, 'travel') === 'https://www.netflix.com/account/travel/verify?nftoken=Bgiqv+vcAxLE/9x9IV6c=&messageGuid=4d4dddf4', A(REAL, 'travel'));
+    ok('…the whole token survives, plus signs, slashes and all', A(REAL, 'travel').length === 96, A(REAL, 'travel').length);
+    ok('…and the household link is picked for a household mail', /update-primary-location\?t=1/.test(A('<a href="https://www.netflix.com/browse?lkid=URL_LOGO">x</a><a href="https://www.netflix.com/account/update-primary-location?t=1">Yes</a>', 'household')));
+    ok('…the logo is never the answer', !/lkid=URL_LOGO/.test(A(REAL, 'travel')) && !/lkid=URL_LOGO/.test(A(REAL, 'household')));
+    ok('…and a mail with nothing to press gives nothing', A('<a href="https://help.netflix.com/en">help</a>', 'travel') === '');
+  }
+
+  section('🤖 Netflix\'s own JavaScript is not a robot check');
+  {
+    const B = hh._internal.isBlocked;
+    // The line that broke it, copied from a real Netflix page on 25 Sep 2026. isBlocked grepped raw HTML for
+    // "recaptcha", so EVERY Netflix page came back blocked and travel could never read one.
+    const SHELL = '<html><head><script>window.netflix.nonmemberStaticFramework.data[\'recaptcha\'] = undefined;</script></head>'
+      + '<body><h1>Your temporary access code</h1><p>Enter this code on the requesting device</p><div>4 1 7 3</div></body></html>';
+    ok('a JS key called recaptcha does not block the page', B(SHELL) === false);
+    ok('…and the code is read straight off it', hh._internal.readTravelPage(SHELL).code === '4173', hh._internal.readTravelPage(SHELL));
+    ok('a REAL robot widget still blocks', B('<div class="g-recaptcha" data-sitekey="x"></div>') === true);
+    ok('…and the recaptcha script does too', B('<script src="https://www.google.com/recaptcha/api.js"></script>') === true);
+    ok('a real password box still blocks', B('<form><input name="p" type="password"/></form>') === true);
+    ok('…but the WORD password in a script does not', B('<script>var password = null;</script><h1>Your temporary access code</h1>') === false);
+    ok('an expired notice still blocks', B('<p>This link has expired</p>') === true);
+  }
+
+  section('🚪 why a Netflix page would not play along');
+  {
+    const W = hh._internal.pageProblem;
+    // Checked live on 25 Sep 2026: Netflix sends an anonymous request for a Get-code link to /login?nextpage=…
+    ok('the sign-in redirect is recognised — the reason travel has NEVER worked',
+      W({ url: 'https://www.netflix.com/gb/login?nextpage=https%3A%2F%2Fwww.netflix.com%2Faccount%2Ftravel%2Fverify', html: '' }) === 'signin');
+    ok('…in any country', W({ url: 'https://www.netflix.com/in/login', html: '' }) === 'signin');
+    ok('…and a password box counts too', W({ url: 'https://www.netflix.com/x', html: '<input type="password">' }) === 'signin');
+    ok('the unsupported-browser bounce is its own reason', W({ url: 'https://www.netflix.com/gb/unsupportedbrowser', html: '' }) === 'browser');
+    ok('an expired link says expired, not "signed out"', W({ url: 'https://www.netflix.com/account/travel/verify', html: '<p>This link has expired</p>' }) === 'expired');
+    ok('a robot check is named', W({ url: 'https://www.netflix.com/x', html: '<div class="g-recaptcha"></div>' }) === 'captcha');
+    ok('a good page has no problem', W({ url: 'https://www.netflix.com/account/travel/verify?x=1', html: '<h1>Your temporary access code</h1><div>1 2 3 4</div>' }) === '');
+    ok('every reason has words a person can read', Object.keys(hh._internal.WHY_TEXT).every((k) => hh._internal.WHY_TEXT[k].length > 10));
+  }
+
   section('an account whose mail is only in All Mail');
   const acc5 = { service: 'Netflix', email: 'ininjathetriggerman@gmail.com', kind: 'H', tag: 'ACC5', ref: 'NFLX-H5' };
   opened.length = 0;

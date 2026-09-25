@@ -103,6 +103,18 @@ const deps = { household: fakeHh };
   r = await hh.fix('9971430096', 'NFLX-H5', 'signin', deps);
   ok('🔐 verification code, for our own account', r.ok && r.code === '068097', r);
   ok('…and it says which of the two codes it was', r.digits === 6 && r.codeKind === 'verify', r);
+  // 🔑 When we cannot read the page, the customer gets the Netflix link itself — it signs them in as it opens,
+  // which is exactly what the owner does by hand from Gmail. Owner, 25 Sep 2026.
+  {
+    const GOT = 'https://www.netflix.com/account/travel/verify?nftoken=abc+def/gh=';
+    const withLink = { household: Object.assign({}, fakeHh, { travelCode: async () => ({ ok: false, manual: true, why: 'nodigits', link: GOT }) }) };
+    const f = await hh.fix('9971430096', 'NFLX-H5', 'travel', withLink);
+    ok('a failed read hands the customer the Netflix link', f.openCode === GOT, f);
+    ok('…with words that tell them what will happen', /15 minutes/.test(f.message || ''), f.message);
+    const noLink = { household: Object.assign({}, fakeHh, { travelCode: async () => ({ ok: false, manual: true, why: 'nomail' }) }) };
+    const g = await hh.fix('9971430096', 'NFLX-H5', 'travel', noLink);
+    ok('with no link at all it asks them to try on the TV again', !g.openCode && /Netflix has not sent it yet/.test(g.message || ''), g);
+  }
   r = await hh.fix('9971430096', 'NFLX-H5', 'household', deps);
   ok('🏠 make this TV the home', r.ok && r.done === true, r);
   {
