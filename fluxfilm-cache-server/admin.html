@@ -589,7 +589,7 @@ var $ = function (s, el) { return (el || document).querySelector(s); };
 var $$ = function (s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)); };
 function store(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } }
 var S = { view: store('ff_view') || 'today', tab: store('ff_tab') || 'subscriptions', offset: 0, limit: store('ff_limit') || 100, q: '', sort: '', dir: 'desc', data: null, charts: {} };
-var TBLS = ['subscriptions', 'orders', 'customers', 'plans', 'coupons', 'wallet', 'coupon_usage', 'inventory_accounts', 'inventory_profiles', 'inventory_capacity', 'bank_credits', 'restock_requests'];
+var TBLS = ['subscriptions', 'orders', 'customers', 'plans', 'coupons', 'wallet', 'coupon_usage', 'inventory_accounts', 'inventory_profiles', 'inventory_capacity', 'bank_credits', 'restock_requests', 'reminder_log'];
 var ICONS = { netflix: '🎬', prime: '📦', jiohotstar: '⭐', hotstar: '⭐', youtube: '▶️', zee5: '🟣', sonyliv: '📺', sony: '📺', crunchyroll: '🍥', spotify: '🎵', apple: '🍎', disney: '🏰' };
 
 function esc(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }

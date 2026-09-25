@@ -18,6 +18,11 @@ const TABLES = {
   restock_requests: { cols: '*', order: 'ts DESC', phone: 'phone_norm', like: ['service', 'plan'] },
   referrals: { cols: '*', order: 'created_at DESC', phone: 'friend_phone', like: ['code', 'referrer_phone', 'friend_order_id', 'status'] },
   referral_codes: { cols: '*', order: 'created_at DESC', phone: 'phone_norm', like: ['code'] },
+  // ✉️ Every message the reminder jobs have sent a customer (reminderjobs.js + pushreminders.js). Read-only: it is
+  // in neither SHEETKEYS nor MYSQLKEYS, so the grid will not let a row be edited — a log nobody can rewrite.
+  // There is no phone column: sub_id carries the key and kind says what it means (ABANDONED -> order id,
+  // WINBACK / WHATSNEW -> the phone, the expiry kinds -> a sub id), so searching it is a like on sub_id.
+  reminder_log: { cols: '*', order: 'ts DESC', phone: null, like: ['sub_id', 'kind', 'channel', 'note'] },
 };
 const security = require('./security');
 
