@@ -1247,16 +1247,26 @@ async function turn(c, input, ctx) {
     st.hhMode = mode;
     let got = null;
     let gotAcc = null;   // which of the customer's accounts actually answered — for the change log
+    // Olivia used to throw the failures away and just say "press it on the TV again". Since 25 Sep 2026 a failure
+    // carries WHY it failed and, usually, the Netflix link itself — which is the thing that actually rescues the
+    // customer. Keep the last one.
+    let fail = null;
+    const tryAcc = async (fn, acc, good) => {
+      const r = await fn(acc).catch(() => null);
+      if (r && r.ok && good(r)) return r;
+      if (r && !r.ok) fail = r;
+      return null;
+    };
     if (mode === 'update') {
       // Permanent update (state-changing) - only reachable when OLIVIA_HH_UPDATE=on; nothing is pressed until confirmed.
-      for (const acc of tryAccs.slice(0, 4)) { const r = await tools().householdUpdate(acc).catch(() => null); if (r && r.ok && r.updated) { got = r; gotAcc = acc; break; } }
-      ctx.meta.push({ tool: 'householdUpdate', ok: !!got, tried: Math.min(tryAccs.length, 4) });
+      for (const acc of tryAccs.slice(0, 4)) { const r = await tryAcc(tools().householdUpdate, acc, (x) => x.updated); if (r) { got = r; gotAcc = acc; break; } }
+      ctx.meta.push({ tool: 'householdUpdate', ok: !!got, tried: Math.min(tryAccs.length, 4), why: fail && fail.why });
       hhLog(c.phone, mode, got, gotAcc, tryAccs.length);
       if (got) { st.hhTries = 0; delete st.hhMode; delete st.hhPick; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     } else if (mode === 'verify') {
       // The 6-digit new-device verification code, read from our own account inbox (read-only).
-      for (const acc of tryAccs.slice(0, 4)) { const r = await tools().verificationCode(acc).catch(() => null); if (r && r.ok && /^\d{4,8}$/.test(String(r.code))) { got = r; gotAcc = acc; break; } }
-      ctx.meta.push({ tool: 'verificationCode', ok: !!got, tried: Math.min(tryAccs.length, 4) });
+      for (const acc of tryAccs.slice(0, 4)) { const r = await tryAcc(tools().verificationCode, acc, (x) => /^\d{4,8}$/.test(String(x.code))); if (r) { got = r; gotAcc = acc; break; } }
+      ctx.meta.push({ tool: 'verificationCode', ok: !!got, tried: Math.min(tryAccs.length, 4), why: fail && fail.why });
       hhLog(c.phone, mode, got, gotAcc, tryAccs.length);
       if (got) { st.hhTries = 0; delete st.hhMode; delete st.hhPick; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'VERIFY_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     } else {
@@ -1274,10 +1284,27 @@ async function turn(c, input, ctx) {
           return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }];
         }
       }
-      for (const acc of tryAccs.slice(0, 4)) { const r = await tools().householdCode(acc).catch(() => null); if (r && r.ok && /^\d{4}$/.test(String(r.code))) { got = r; gotAcc = acc; break; } }
-      ctx.meta.push({ tool: 'householdCode', ok: !!got, tried: Math.min(tryAccs.length, 4) });
+      for (const acc of tryAccs.slice(0, 4)) { const r = await tryAcc(tools().householdCode, acc, (x) => /^\d{4}$/.test(String(x.code))); if (r) { got = r; gotAcc = acc; break; } }
+      ctx.meta.push({ tool: 'householdCode', ok: !!got, tried: Math.min(tryAccs.length, 4), why: fail && fail.why });
       hhLog(c.phone, mode, got, gotAcc, tryAccs.length);
       if (got) { st.hhTries = 0; delete st.hhMode; delete st.hhPick; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
+    }
+    // 🔗 We could not read the page, but Netflix's own link still works in the customer's browser — it signs them
+    // in as it opens. One tap beats any explanation, so it is offered before anything else.
+    if (fail && fail.link) {
+      st.hhTries = 0; delete st.hhMode; delete st.hhPick;
+      if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
+      hhLog(c.phone, mode, null, null, tryAccs.length);
+      return [{ intent: 'HH_OPEN_NETFLIX', facts: { mode }, buttons: withBackToPay(st, lang,
+        [{ id: 'hhopen', label: words.buttonLabel(mode === 'update' ? 'hhopenhome' : 'hhopencode', lang), url: fail.link },
+          btn('whatsapp', lang), btn('menu', lang)]) }];
+    }
+    // Only "Netflix has not sent it yet" is worth asking them to try again on the TV. If the mail was there and the
+    // page would not give it up, telling them to press the TV button five more times just wastes their evening.
+    const worthRetrying = !fail || !fail.why || fail.why === 'nomail' || fail.why === 'expired';
+    if (!worthRetrying) {
+      st.hhTries = 0; delete st.hhMode; delete st.hhPick;
+      return supportReplies(c, ctx, manualKind, '', { noAuto: true });
     }
     // Nothing yet: the customer probably hasn't triggered it on the device (Watch temporarily / Update household -> Send email,
     // or a fresh login). Guide them, let them tap "I clicked, check again", and try up to 5 times before the manual Helper.

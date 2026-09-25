@@ -101,8 +101,8 @@ const tools = {
   claimStatus: async (id, phone) => { calls.push(['claimStatus', id, phone]); return shop.claim === 'MATCHED' ? { ok: true, status: 'MATCHED', paid: true } : { ok: true, status: shop.claim }; },
   // Netflix household auto-fix (oliviahousehold.js): the customer's own active Netflix accounts, and the travel code.
   netflixAccounts: async (phone) => { calls.push(['netflixAccounts', phone]); return { ok: true, accounts: (shop.nflxAccounts || []) }; },
-  householdCode: async (acc) => { calls.push(['householdCode', acc && acc.subId, acc && acc.kind]); const mine = !shop.hhCodeSub || (acc && acc.subId === shop.hhCodeSub); return shop.hhCode && mine ? { ok: true, code: shop.hhCode } : { ok: false, manual: true }; },
-  householdUpdate: async (acc) => { calls.push(['householdUpdate', acc && acc.subId, acc && acc.kind]); return shop.hhUpdated ? { ok: true, updated: true } : { ok: false, manual: true }; },
+  householdCode: async (acc) => { calls.push(['householdCode', acc && acc.subId, acc && acc.kind]); const mine = !shop.hhCodeSub || (acc && acc.subId === shop.hhCodeSub); return shop.hhCode && mine ? { ok: true, code: shop.hhCode } : { ok: false, manual: true, why: shop.hhWhy, link: shop.hhLink }; },
+  householdUpdate: async (acc) => { calls.push(['householdUpdate', acc && acc.subId, acc && acc.kind]); return shop.hhUpdated ? { ok: true, updated: true } : { ok: false, manual: true, why: shop.hhWhy, link: shop.hhLink }; },
   householdUpdateEnabled: () => shop.hhUpdateOn === true,
   verificationCode: async (acc) => { calls.push(['verificationCode', acc && acc.subId, acc && acc.kind]); const mine = !shop.verifySub || (acc && acc.subId === shop.verifySub); return shop.verifyCode && mine ? { ok: true, code: shop.verifyCode } : { ok: false, manual: true }; },
 };
@@ -774,10 +774,49 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('typed "kar diya" retries (2nd try) and hints to check it is the right account', last(r).intent === 'HH_CODE_NOT_YET' && /account/i.test(last(r).text) && ids(last(r))[0] === 'hhretry', last(r));
   r = await say({ choice: 'hhretry' });
   ok('3rd empty try → still guiding (5 tries allowed before manual)', last(r).intent === 'HH_CODE_NOT_YET' && ids(last(r))[0] === 'hhretry', last(r));
+
   r = await say({ choice: 'hhretry' });
   ok('4th empty try → still guiding', last(r).intent === 'HH_CODE_NOT_YET', last(r));
   r = await say({ choice: 'hhretry' });
   ok('5th empty try → now the manual Household Helper (Link) + WhatsApp', last(r).intent === 'HOUSEHOLD_HELPER' && !r.messages.some((m) => m.card) && ids(last(r)).includes('helper2'), r.messages);
+  // ── 🔗 when we cannot read the page ourselves, Netflix's own link is the rescue (25 Sep 2026) ──────────────────
+  {
+    const LINK = 'https://www.netflix.com/account/travel/verify?nftoken=abc+de/f=';
+    shop.hhCode = ''; shop.hhWhy = 'nodigits'; shop.hhLink = LINK;
+    await say({ choice: 'menu' });
+    r = await say({ text: 'household error phir aa gaya' });
+    r = await say({ choice: 'hhcode' });
+    const b = (last(r).buttons || [])[0] || {};
+    ok('🔗 a failure carrying the Netflix link hands it over instead of asking them to retry', last(r).intent === 'HH_OPEN_NETFLIX', last(r));
+    ok('…as a real tappable button with the link on it', b.id === 'hhopen' && b.url === LINK, b);
+    ok('…and the words tell them what Netflix will show', /4 digits|code/i.test(last(r).text), last(r).text);
+    ok('…never printing the link in the message itself', !last(r).text.includes('nftoken'), last(r).text);
+
+    // The same failure on the household side has to say something else entirely — there are no digits there.
+    shop.hhUpdateOn = true; shop.hhUpdated = false; shop.hhWhy = 'nobutton';
+    shop.hhLink = 'https://www.netflix.com/account/primarylocation/verify?nftoken=z';
+    await say({ choice: 'menu' });
+    r = await say({ text: 'household error phir aa gaya' });
+    r = await say({ choice: 'hhupdate' });
+    const hb = (last(r).buttons || [])[0] || {};
+    ok('🏠 the household failure offers the home button, not a code button', last(r).intent === 'HH_OPEN_NETFLIX' && hb.id === 'hhopen' && /home/i.test(hb.label), { i: last(r).intent, hb });
+    ok('…and names the two presses Netflix asks for', /Yes, this was me/i.test(last(r).text) && /Update Household/i.test(last(r).text), last(r).text);
+
+    // No link and a reason retrying cannot fix: stop wasting their evening, go to a person.
+    shop.hhUpdateOn = false; shop.hhCode = ''; shop.hhWhy = 'nodigits'; shop.hhLink = '';
+    await say({ choice: 'menu' });
+    r = await say({ text: 'household error phir aa gaya' });
+    r = await say({ choice: 'hhcode' });
+    ok('🛑 "the page had no code on it" does not send them round the retry loop', last(r).intent !== 'HH_CODE_NOT_YET', last(r).intent);
+
+    // …but "Netflix has not sent it yet" is exactly what a retry fixes, so that loop is untouched.
+    shop.hhWhy = 'nomail';
+    await say({ choice: 'menu' });
+    r = await say({ text: 'household error phir aa gaya' });
+    r = await say({ choice: 'hhcode' });
+    ok('…while "not sent yet" still guides them to press it on the TV', last(r).intent === 'HH_CODE_NOT_YET', last(r).intent);
+    shop.hhWhy = undefined; shop.hhLink = undefined;
+  }
   // and once the TV prompt is really there, the retry returns the code
   shop.hhCode = '5150'; shop.hhCodeSub = '';
   await say({ choice: 'menu' });
