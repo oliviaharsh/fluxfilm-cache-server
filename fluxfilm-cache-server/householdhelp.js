@@ -84,6 +84,25 @@ async function start(phone, deps, req) {
   return out;
 }
 
+/**
+ * What the customer is told, and what the change log records, when a Netflix page would not play along.
+ * 'signin' is the one that matters: that link only opens for someone already signed in to the Netflix account, so
+ * no amount of retrying by the customer will ever help and the honest thing is to hand it to a person.
+ */
+function whyOut(r) {
+  const why = (r && r.why) || '';
+  const handOff = why === 'signin' || why === 'browser' || why === 'captcha';
+  return {
+    why,
+    handOff,                       // true = a person has to do this one; do not tell them to try again
+    message: handOff
+      ? 'Netflix will only give this code to us with the account signed in, so we are doing it for you by hand — it will be with you in a few minutes.'
+      : why === 'expired' ? 'That code had already run out. Ask on the TV again and we will fetch the new one.'
+        : why === 'nomail' ? 'Netflix has not sent it yet. Ask on the TV, wait a moment, then try again.'
+          : '',
+  };
+}
+
 /** Everything the customer may do, and what each one is. */
 const WHAT = {
   household: { needs: 'update', label: 'make this TV the home' },
@@ -165,13 +184,14 @@ async function fix(phone, accountId, what, deps, req) {
 
   if (kind === 'travel') {
     const r = await H.travelCode(target, deps);
-    return r && r.ok
-      ? end('household.travel', '✅ TV code given', { ok: true, code: r.code, accountId: acc.accountId })
-      : end('household.travel', '⚠️ no code — needs doing by hand', { ok: false, manual: true });
+    if (r && r.ok) return end('household.travel', '✅ TV code given', { ok: true, code: r.code, accountId: acc.accountId });
+    // WHY, in the change log and on the screen. Until 25 Sep 2026 every one of these read the same
+    // "needs doing by hand" whatever had gone wrong, and 33 failures in a row told nobody anything.
+    return end('household.travel', '⚠️ no code — ' + H.whyText(r), Object.assign({ ok: false, manual: true }, whyOut(r)));
   }
   if (kind === 'signin') {
     const r = await H.verificationCode(target, deps);
-    if (!r || !r.ok) return end('household.signin', '⚠️ no code — needs doing by hand', { ok: false, manual: true });
+    if (!r || !r.ok) return end('household.signin', '⚠️ no code — ' + H.whyText(r), Object.assign({ ok: false, manual: true }, whyOut(r)));
     // The length says which of the two it was, and the change log is worth that detail: a 6-digit verification code
     // means somebody got past the password, which is a different event from a 4-digit sign-in code.
     const digits = r.digits || String(r.code).length;
@@ -184,7 +204,7 @@ async function fix(phone, accountId, what, deps, req) {
   const r = await H.updateHousehold(target, deps);
   return r && r.ok
     ? end('household.update', '🏠 this TV made the home', { ok: true, done: true, accountId: acc.accountId })
-    : end('household.update', '⚠️ could not — needs doing by hand', { ok: false, manual: true });
+    : end('household.update', '⚠️ could not — ' + H.whyText(r), Object.assign({ ok: false, manual: true }, whyOut(r)));
 }
 
 // ── the example pictures the customer points at ───────────────────────────────────────────────────────────────

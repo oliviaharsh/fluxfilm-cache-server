@@ -18,6 +18,7 @@ const at = (ms) => new Date(NOW + ms);
 // wrote it rather than with the wall clock.
 let SIM = NOW;
 const runAt = (ms, d) => { SIM = ms; return jobs.run(ms, d); };
+const previewAt = (job, ms, d) => { SIM = ms; return jobs.preview(job, ms, d); };
 const ymd = (d) => { const x = new Date(d); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
 
 // ---------------------------------------------------------------- the world
@@ -71,7 +72,7 @@ const fakeDb = {
       return [...byPhone.values()].filter((r) => new Date(r.last_expiry) < before);
     }
     if (/FROM subscriptions WHERE phone_norm = \? AND UPPER\(status\) = 'ACTIVE'/.test(q)) {
-      const live = SUBS.some((x) => x.phone_norm === p[0] && String(x.status).toUpperCase() === 'ACTIVE' && (!x.expiry_date || new Date(x.expiry_date) > new Date()));
+      const live = SUBS.some((x) => x.phone_norm === p[0] && String(x.status).toUpperCase() === 'ACTIVE' && (!x.expiry_date || new Date(x.expiry_date) > new Date(SIM)));
       return live ? [{ x: 1 }] : [];
     }
     if (/SELECT name, email FROM customers WHERE phone_norm/.test(q)) {
@@ -156,7 +157,7 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
   ok('a run with nothing on sends nothing at all', r.ran === 0 && MAILED.length === 0 && PUSHED.length === 0, { r, MAILED: MAILED.length });
 
   section('👀 the preview reads, and sends nothing');
-  const pv = await jobs.preview('abandoned', NOW, deps);
+  const pv = await previewAt('abandoned', NOW, deps);
   ok('it finds the unpaid order', pv.ok && pv.total === 1 && pv.candidates[0].key === 'FF2000001', pv.candidates);
   ok('…shows exactly what would go out', !!pv.sample && /still waiting/.test(pv.sample.subject) && /FF2000001/.test(pv.sample.html), pv.sample && pv.sample.subject);
   ok('…and nothing was sent or written down', MAILED.length === 0 && PUSHED.length === 0 && LOG.length === 0);
@@ -218,7 +219,7 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
   ok('...the next day picks up where it stopped', MAILED.length === 10, MAILED.length);
   ok('...and never writes to the same person twice', new Set(LOG.filter((l) => l.kind === 'WINBACK').map((l) => l.sub_id)).size === 20, LOG.filter((l) => l.kind === 'WINBACK').length);
   {
-    const pv2 = await jobs.preview('winback', NOW + 25 * HOUR, deps);
+    const pv2 = await previewAt('winback', NOW + 25 * HOUR, deps);
     ok('...and the preview says how long the whole list will take', pv2.perDay === 10 && pv2.days >= 1, { perDay: pv2.perDay, days: pv2.days, total: pv2.total });
   }
 
@@ -337,16 +338,16 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
   reset();
   {
     await on({ winback: { on: true, code: 'GOOD20', percent: 20, startOn: '2026-09-30' } });
-    let p = await jobs.preview('winback', NOW, deps);            // NOW is 24 Sep
+    let p = await previewAt('winback', NOW, deps);            // NOW is 24 Sep
     ok('there are people waiting, but it says it has not started', p.total > 0 && /starts on 2026-09-30/.test(p.holding || ''), p.holding);
     // Armed for later AND the code is off: both have to be said, or six days of "waiting" hides a job that will
     // do nothing when the day comes.
     await on({ winback: { on: true, code: 'STAGED', percent: 20, startOn: '2026-09-30' } });
-    const both = await jobs.preview('winback', NOW, deps);
+    const both = await previewAt('winback', NOW, deps);
     ok('…and a bad code is reported even while it is still waiting',
       /starts on 2026-09-30/.test(both.holding || '') && /switched OFF/.test(both.holding || ''), both.holding);
     await on({ winback: { on: true, code: 'GOOD20', percent: 20, startOn: '2026-09-30', codeUntil: '2026-10-02', code2: 'STAGED', percent2: 10 } });
-    const later = await jobs.preview('winback', NOW, deps);
+    const later = await previewAt('winback', NOW, deps);
     ok('…including the second code, a week before it is ever used',
       /starts on 2026-09-30/.test(later.holding || '') && /after 2026-10-02: STAGED is switched OFF/.test(later.holding || ''), later.holding);
     await on({ winback: { on: true, code: 'GOOD20', percent: 20, startOn: '2026-09-30', codeUntil: '', code2: '' } });
@@ -364,13 +365,13 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
     await on({ winback: { on: true, code: 'GOOD20', percent: 20, codeUntil: '2026-10-02', code2: 'LATER10', percent2: 10 } });
     const oct1 = new Date(2026, 9, 1, 12, 0, 0).getTime();
     const oct3 = new Date(2026, 9, 3, 12, 0, 0).getTime();
-    let p = await jobs.preview('winback', oct1, deps);
+    let p = await previewAt('winback', oct1, deps);
     ok('before the handover it is the first code', p.usingCode.code === 'GOOD20' && p.usingCode.percent === 20, p.usingCode);
     ok('…and the email says 20% off', /GOOD20/.test(p.sample.html) && /20% off/.test(p.sample.html));
-    p = await jobs.preview('winback', oct3, deps);
+    p = await previewAt('winback', oct3, deps);
     ok('the day after it, the second code', p.usingCode.code === 'LATER10' && p.usingCode.percent === 10, p.usingCode);
     ok('…and the email says 10% off', /LATER10/.test(p.sample.html) && /10% off/.test(p.sample.html));
-    ok('the handover day itself still uses the first code', (await jobs.preview('winback', new Date(2026, 9, 2, 23, 0, 0).getTime(), deps)).usingCode.code === 'GOOD20');
+    ok('the handover day itself still uses the first code', (await previewAt('winback', new Date(2026, 9, 2, 23, 0, 0).getTime(), deps)).usingCode.code === 'GOOD20');
     let threw = '';
     try { await on({ winback: { on: true, code: 'GOOD20', codeUntil: '2026-10-02', code2: '' } }); } catch (e) { threw = e.message; }
     ok('a handover date with no second code is refused', /second code/i.test(threw), threw);
@@ -385,33 +386,33 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
     // The one that would have bitten: FLUX4 is staged inactive until the sale opens, and a job that runs for days
     // has nobody watching it on the morning it matters.
     await on({ winback: { on: true, code: 'STAGED', percent: 20 } });
-    let p = await jobs.preview('winback', NOW, deps);
+    let p = await previewAt('winback', NOW, deps);
     ok('a coupon switched OFF in Coupons stops it, and says so', /switched OFF/.test(p.holding || ''), p.holding);
     await runAt(NOW, deps);
     ok('…and nothing goes out', MAILED.length === 0, MAILED.length);
 
     reset();
     await on({ winback: { on: true, code: 'DEAD', percent: 20 } });
-    p = await jobs.preview('winback', NOW, deps);
+    p = await previewAt('winback', NOW, deps);
     ok('an expired coupon stops it too', /expired/.test(p.holding || ''), p.holding);
     await runAt(NOW, deps);
     ok('…and still nothing goes out', MAILED.length === 0, MAILED.length);
 
     reset();
     await on({ winback: { on: true, code: 'NOSUCH', percent: 20 } });
-    p = await jobs.preview('winback', NOW, deps);
+    p = await previewAt('winback', NOW, deps);
     ok('a code that is not in Coupons at all stops it', /not in Coupons/.test(p.holding || ''), p.holding);
 
     reset();
     await on({ winback: { on: true, code: 'GOOD20', percent: 20, codeUntil: '2026-10-02', code2: 'STAGED', percent2: 10 } });
-    p = await jobs.preview('winback', NOW, deps);
+    p = await previewAt('winback', NOW, deps);
     ok('…and the SECOND code is checked now, not on the morning it starts being used', /after 2026-10-02/.test(p.holding || ''), p.holding);
     await runAt(NOW, deps);
     ok('…while today still goes out, because today is fine', MAILED.length > 0, MAILED.length);
 
     reset();
     await on({ winback: { on: true, code: 'GOOD20', percent: 20 } });
-    p = await jobs.preview('winback', NOW, deps);
+    p = await previewAt('winback', NOW, deps);
     ok('a good code holds nothing back', !p.holding && p.usingCode.code === 'GOOD20', p.holding);
   }
 
@@ -434,7 +435,7 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
 
     reset();
     await on({ whatsnew: { on: true, title: 'A Film', service: 'Netflix', line: 'Good one.', perDay: 40 } });
-    const p = await jobs.preview('whatsnew', NOW, deps);
+    const p = await previewAt('whatsnew', NOW, deps);
     // Asha, Bilal, Farah and Gita have bought and left an address. Divya has an order but never a plan, and
     // 9000000005 has a plan but no customer row, so neither is written to.
     ok('it goes to people who have actually bought, and left an address', p.total === 4, p.candidates);
@@ -453,13 +454,13 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
     ok('no inline SVG and no data: URI — both are stripped by Gmail', !/<svg/i.test(mail.html) && !/data:image/i.test(mail.html));
     ok('the avatars are drawn with real characters, so nothing has to load', /border-radius:16px/.test(mail.html) && />A</.test(mail.html));
 
-    ok('nobody is written to twice inside the window', (await jobs.preview('whatsnew', NOW, deps)).total === 0);
-    ok('…but they are again once the window has passed', (await jobs.preview('whatsnew', NOW + 31 * DAY, deps)).total === 4);
+    ok('nobody is written to twice inside the window', (await previewAt('whatsnew', NOW, deps)).total === 0);
+    ok('…but they are again once the window has passed', (await previewAt('whatsnew', NOW + 31 * DAY, deps)).total === 4);
 
     // Batching, the same machinery win-back uses.
     reset();
     await on({ whatsnew: { on: true, title: 'A Film', perDay: 2 } });
-    const pb = await jobs.preview('whatsnew', NOW, deps);
+    const pb = await previewAt('whatsnew', NOW, deps);
     ok('a daily batch is respected in the preview', pb.total === 4 && pb.wouldSend === 2 && pb.days === 2, pb);
     await runAt(NOW, deps);
     ok('…and in the run', MAILED.length === 2, MAILED.length);
@@ -470,7 +471,7 @@ const on = async (patch) => jobs.saveSettings(patch, deps);
 
     reset();
     await on({ whatsnew: { on: true, title: 'A Film', onlyActive: true } });
-    const pa = await jobs.preview('whatsnew', NOW, deps);
+    const pa = await previewAt('whatsnew', NOW, deps);
     ok('"only people watching right now" narrows it to the live plans', pa.total === 2, pa.candidates);
   }
 
@@ -490,6 +491,18 @@ ok('the panel has the discount switch, and hides the code boxes when it is off',
     return ['afterHours', 'withinHours', 'afterDays', 'everyDays'].every((k) => h.indexOf("'" + k + "'") > -1) && /data-rjd="1"/.test(h);
   })());
     ok('this test file runs in the suite', / && node test\/reminder-jobs\.test\.js/.test(read('package.json')));
+
+  // 🕰 Nothing in the fake may read the real clock: it has to see the same "now" the code under test is given,
+  // or the suite quietly starts passing or failing by the hour of day (24 Sep) and then by the date (25 Sep).
+  ok('🕰 the fake never reads the real clock', (() => {
+    const src = fs.readFileSync(__filename, 'utf8');
+    const body = src.slice(0, src.indexOf('the fake never reads the real clock'));
+    const hits = body.split('\n')
+      .map((l, i) => ({ n: i + 1, l }))
+      .filter((x) => /new Date\(\)|Date\.now\(\)/.test(x.l) && !/^\s*\/\//.test(x.l));
+    if (hits.length) console.log('    ' + hits.map((x) => x.n + ': ' + x.l.trim().slice(0, 70)).join('\n    '));
+    return hits.length === 0;
+  })());
 
   console.log('\n---------------------------------------\nPASS ' + pass + '   FAIL ' + fail);
   process.exit(fail ? 1 : 0);

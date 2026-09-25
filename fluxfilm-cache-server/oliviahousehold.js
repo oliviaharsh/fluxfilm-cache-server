@@ -146,6 +146,56 @@ async function netflixAccounts(phone, deps) {
 function isBlocked(html) {
   return /recaptcha|g-recaptcha|Enter your info to sign in|type=["']password["']|id=["']id_password["']|link (has )?expired|no longer valid/i.test(String(html || ''));
 }
+/**
+ * WHY a Netflix page did not give us the thing. Checked on 25 Sep 2026 against a real travel link: Netflix sends an
+ * anonymous request to /login?nextpage=<the link>, because "Get code" only opens for someone already signed in to
+ * that account. That is the single reason travel and household have never worked from the server -- 0 successes in
+ * 33 attempts, while the code lookups, which only READ the mailbox, worked 7 times out of 10.
+ * Returning the reason instead of a bare manual:true is the difference between a bug we can see and one we cannot.
+ */
+const WHY_TEXT = {
+  signin: 'Netflix wants the account signed in before it will open that link',
+  browser: 'Netflix refused us as an unsupported browser',
+  expired: 'the Netflix link had already expired (they last 15 minutes)',
+  captcha: 'Netflix showed a robot check',
+  nodigits: 'the page opened but had no code on it',
+  nomail: 'no Netflix mail with that link in the mailbox yet',
+  error: 'the Netflix page could not be reached',
+  off: 'the household update switch is off (OLIVIA_HH_UPDATE)',
+};
+function pageProblem(page) {
+  const url = s(page && page.url);
+  const html = String((page && page.html) || '');
+  if (/netflix\.com\/[a-z-]{0,5}\/?login\b/i.test(url) || /[?&]nextpage=/i.test(url)) return 'signin';
+  if (/unsupportedbrowser/i.test(url)) return 'browser';
+  if (/link (has )?expired|no longer valid/i.test(html)) return 'expired';
+  if (/recaptcha|g-recaptcha/i.test(html)) return 'captcha';
+  if (/Enter your info to sign in|type=["']password["']|id=["']id_password["']/i.test(html)) return 'signin';
+  return '';
+}
+
+/**
+ * The link the customer would TAP in that mail, not merely the first netflix.com URL in it. A real Netflix mail
+ * opens with the logo (lkid=URL_LOGO) and closes with Help Centre / Terms / unsubscribe links, so "first match"
+ * handed the owner the logo and the 📺 helper looked broken. The test fixture had no logo, which is why nothing
+ * caught it.
+ */
+const ACTION_PATH = { travel: 'travel/verify', update: 'update-primary-location', household: 'update-primary-location' };
+function actionLinkFrom(body, mode) {
+  const html = String(body || '');
+  const want = ACTION_PATH[String(mode)];
+  if (want) {
+    const exact = html.match(new RegExp('https:\\/\\/www\\.netflix\\.com\\/account\\/' + want.replace('/', '\\/') + '[^"\'\\s<]+', 'i'));
+    if (exact) return exact[0].replace(/&amp;/g, '&');
+  }
+  // Nothing mode-specific: any /account/ link beats the chrome around it.
+  const acct = html.match(/https:\/\/www\.netflix\.com\/account\/[^"'\s<]+/i);
+  if (acct) return acct[0].replace(/&amp;/g, '&');
+  const any = (html.match(/https?:\/\/[^"'\s<>]*netflix\.com[^"'\s<>]*/gi) || [])
+    .filter((u) => !/lkid=URL_LOGO|\/browse\b|help\b|legal\b|unsubscribe|privacy|terms|assets\.nflxext/i.test(u));
+  return any.length ? any[0].replace(/&amp;/g, '&') : '';
+}
+
 const visible = (html) => String(html || '').replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
 
 function readTravelPage(html) {
@@ -183,11 +233,13 @@ async function followNetflix(url, doFetch, jar, hops) {
 /** travel: read the code. */
 async function codeFromNetflixLink(url, fetchImpl) {
   const doFetch = fetchImpl || fetch;
-  if (!/^https:\/\/(www\.)?netflix\.com\//i.test(String(url || ''))) return { ok: false, manual: true };
+  if (!/^https:\/\/(www\.)?netflix\.com\//i.test(String(url || ''))) return { ok: false, manual: true, why: 'nomail' };
   const page = await followNetflix(url, doFetch, cookieJar());
-  if (isBlocked(page.html)) return { ok: false, manual: true };
+  const why = pageProblem(page);
+  if (why) return { ok: false, manual: true, why };
+  if (isBlocked(page.html)) return { ok: false, manual: true, why: 'signin' };
   const r = readTravelPage(page.html);
-  return r.code ? { ok: true, code: r.code } : { ok: false, manual: true };
+  return r.code ? { ok: true, code: r.code } : { ok: false, manual: true, why: 'nodigits' };
 }
 
 /**
@@ -195,12 +247,14 @@ async function codeFromNetflixLink(url, fetchImpl) {
  * Never runs unless OLIVIA_HH_UPDATE=on. Any sign-in / reCAPTCHA / uncertainty -> manual (nothing pressed).
  */
 async function confirmUpdateFromNetflixLink(url, fetchImpl) {
-  if (!UPDATE_ON()) return { ok: false, manual: true, disabled: true };
+  if (!UPDATE_ON()) return { ok: false, manual: true, disabled: true, why: 'off' };
   const doFetch = fetchImpl || fetch;
-  if (!/^https:\/\/(www\.)?netflix\.com\//i.test(String(url || ''))) return { ok: false, manual: true };
+  if (!/^https:\/\/(www\.)?netflix\.com\//i.test(String(url || ''))) return { ok: false, manual: true, why: 'nomail' };
   const jar = cookieJar();
   const page = await followNetflix(url, doFetch, jar);
-  if (isBlocked(page.html)) return { ok: false, manual: true };
+  const whyU = pageProblem(page);
+  if (whyU) return { ok: false, manual: true, why: whyU };
+  if (isBlocked(page.html)) return { ok: false, manual: true, why: 'signin' };
   const html = page.html;
   if (/household (has been )?(updated|confirmed)|now your household/i.test(visible(html))) return { ok: true, updated: true };
   // The confirm control: a form posting to update-primary-location, or a link/button to confirm it.
@@ -379,7 +433,6 @@ const MAIL_WORDS = {
  * things up by hand rather than answering a customer standing at their TV.
  */
 async function latestMail(acc, mode, deps) {
-  const re = /https?:\/\/[^"'\s>]*netflix\.com[^"'\s>]*/i;
   const kind = MAIL_WORDS[String(mode)] ? String(mode) : 'household';
   const words = MAIL_WORDS[kind];
   const freshMs = Number(process.env.NETFLIX_HH_LOOKUP_DAYS || 7) * 86400e3;
@@ -390,8 +443,7 @@ async function latestMail(acc, mode, deps) {
     // a subject Netflix words differently, should still be found.
     const hay = (subject + ' ' + body).toLowerCase();
     if (!words.some((w) => hay.indexOf(w) > -1)) return null;
-    const m = body.match(re);
-    const out = { subject, date: p.date ? new Date(p.date).toISOString() : '', actionUrl: m ? m[0].replace(/&amp;/g, '&') : '', foundBy: by, mode: kind };
+    const out = { subject, date: p.date ? new Date(p.date).toISOString() : '', actionUrl: actionLinkFrom(body, kind), foundBy: by, mode: kind };
     if (kind === 'code' || kind === 'signin') {
       const code = verificationCodeFrom(body);   // the same reader Olivia uses — one extractor, not two
       if (!code) return null;              // a code mail with no code in it is no use — keep looking at older ones
@@ -423,16 +475,23 @@ async function verificationCode(acc, deps) {
 
 async function run(acc, mode, deps) {
   const a = acc || {};
-  if (!famNetflix(a.service) || !s(a.email) || !a.kind) return { ok: false, manual: true };
+  if (!famNetflix(a.service) || !s(a.email) || !a.kind) return { ok: false, manual: true, why: 'nomail' };
   let link = '';
-  try { link = await netflixLink(a, mode, deps); } catch (e) { console.log('[olivia-hh] link fetch failed:', e.message); return { ok: false, manual: true }; }
-  if (!link) return { ok: false, manual: true };
-  try { return mode === 'update' ? await confirmUpdateFromNetflixLink(link, deps && deps.fetch) : await codeFromNetflixLink(link, deps && deps.fetch); }
-  catch (e) { console.log('[olivia-hh] ' + mode + ' failed:', e.message); return { ok: false, manual: true }; }
+  try { link = await netflixLink(a, mode, deps); } catch (e) { console.log('[olivia-hh] link fetch failed:', e.message); return { ok: false, manual: true, why: 'error' }; }
+  if (!link) return { ok: false, manual: true, why: 'nomail' };
+  let out;
+  try { out = mode === 'update' ? await confirmUpdateFromNetflixLink(link, deps && deps.fetch) : await codeFromNetflixLink(link, deps && deps.fetch); }
+  catch (e) { console.log('[olivia-hh] ' + mode + ' failed:', e.message); return { ok: false, manual: true, why: 'error' }; }
+  // Say it in the server log too: 33 silent failures in a row is what let this hide.
+  if (out && !out.ok && out.why) console.log('[olivia-hh] ' + mode + ' held back for ' + s(a.ref) + ': ' + (WHY_TEXT[out.why] || out.why));
+  return out;
 }
+
+/** The reason in plain words, for a log line or a screen. '' when there is nothing to explain. */
+const whyText = (r) => (r && r.why && WHY_TEXT[r.why]) || 'needs doing by hand';
 
 const travelCode = (acc, deps) => run(acc, 'travel', deps);
 const updateHousehold = (acc, deps) => run(acc, 'update', deps);
 const updateEnabled = () => UPDATE_ON();
 
-module.exports = { netflixAccounts, travelCode, updateHousehold, verificationCode, updateEnabled, latestMail, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, verificationCodeFrom, codeKindOf, labelFor, inboxSearch, MAIL_WORDS, directAuth } };
+module.exports = { netflixAccounts, travelCode, updateHousehold, verificationCode, updateEnabled, latestMail, whyText, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, verificationCodeFrom, codeKindOf, labelFor, inboxSearch, MAIL_WORDS, directAuth, pageProblem, actionLinkFrom, WHY_TEXT } };
