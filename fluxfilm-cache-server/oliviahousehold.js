@@ -171,6 +171,8 @@ const WHY_TEXT = {
   expired: 'the Netflix link had already expired (they last 15 minutes)',
   captcha: 'Netflix showed a robot check',
   nodigits: 'the page opened but had no code on it',
+  nobutton: 'the Netflix page opened but had no Update Household button on it',
+  noconfirm: 'the button was pressed but Netflix did not confirm it',
   nomail: 'no Netflix mail with that link in the mailbox yet',
   error: 'the Netflix page could not be reached',
   off: 'the household update switch is off (OLIVIA_HH_UPDATE)',
@@ -196,19 +198,43 @@ function pageProblem(page) {
  * caught it.
  */
 const ACTION_PATH = { travel: 'travel/verify', update: 'update-primary-location', household: 'update-primary-location' };
+/** The words ON the button, per job. Netflix can move a URL; it cannot rename the button without telling the customer. */
+const ACTION_WORDS = {
+  travel: /get\s*code/i,
+  update: /yes,?\s*this\s*was\s*me|update\s*household/i,
+  household: /yes,?\s*this\s*was\s*me|update\s*household/i,
+};
+/**
+ * NEVER hand any of these back. A household mail carries "consider changing your password" right above the button,
+ * and matching by URL shape picked THAT (checked live, 25 Sep 2026: the admin screen was offering a
+ * change-password link for every household mail). Better to return nothing than the wrong thing.
+ */
+const NEVER = /\/password\b|\/accountaccess\b|\/loginhelp\b|\/logout\b|\/signout\b|lkid=URL_ACCOUNT_PASSWORD|lkid=URL_ACCOUNT_ACCESS|lkid=URL_LOGO|\/browse\b|help\.netflix|\/legal\b|unsubscribe|privacy|\/terms\b|assets\.nflxext/i;
+const clean = (u) => String(u || '').replace(/&amp;/g, '&');
+
 function actionLinkFrom(body, mode) {
   const html = String(body || '');
+  const words = ACTION_WORDS[String(mode)];
+  // 1 · the anchor whose VISIBLE TEXT is the button. Survives Netflix moving the URL, which they have already done
+  //     once: the household button is not on /account/update-primary-location at all.
+  if (words) {
+    const re = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]{0,200}?)<\/a>/gi;
+    let m;
+    while ((m = re.exec(html))) {
+      const href = clean(m[1]);
+      const text = m[2].replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
+      if (words.test(text) && /netflix\.com/i.test(href) && !NEVER.test(href)) return href;
+    }
+  }
+  // 2 · the path we expect for this job.
   const want = ACTION_PATH[String(mode)];
   if (want) {
     const exact = html.match(new RegExp('https:\\/\\/www\\.netflix\\.com\\/account\\/' + want.replace('/', '\\/') + '[^"\'\\s<]+', 'i'));
-    if (exact) return exact[0].replace(/&amp;/g, '&');
+    if (exact && !NEVER.test(exact[0])) return clean(exact[0]);
   }
-  // Nothing mode-specific: any /account/ link beats the chrome around it.
-  const acct = html.match(/https:\/\/www\.netflix\.com\/account\/[^"'\s<]+/i);
-  if (acct) return acct[0].replace(/&amp;/g, '&');
-  const any = (html.match(/https?:\/\/[^"'\s<>]*netflix\.com[^"'\s<>]*/gi) || [])
-    .filter((u) => !/lkid=URL_LOGO|\/browse\b|help\b|legal\b|unsubscribe|privacy|terms|assets\.nflxext/i.test(u));
-  return any.length ? any[0].replace(/&amp;/g, '&') : '';
+  // 3 · any other /account/ link, so long as it is not one of the dangerous ones.
+  const acct = (html.match(/https:\/\/www\.netflix\.com\/account\/[^"'\s<]+/gi) || []).map(clean).filter((u) => !NEVER.test(u));
+  return acct.length ? acct[0] : '';
 }
 
 const visible = (html) => String(html || '').replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
@@ -272,10 +298,26 @@ async function confirmUpdateFromNetflixLink(url, fetchImpl) {
   if (isBlocked(page.html)) return { ok: false, manual: true, why: 'signin' };
   const html = page.html;
   if (/household (has been )?(updated|confirmed)|now your household/i.test(visible(html))) return { ok: true, updated: true };
-  // The confirm control: a form posting to update-primary-location, or a link/button to confirm it.
-  const form = html.match(/<form[^>]*action=["']([^"']*update-primary-location[^"']*)["'][^>]*>/i);
-  const link = html.match(/https:\/\/www\.netflix\.com\/account\/update-primary-location[^"'\s<]*confirm[^"'\s<]*/i)
-    || html.match(/href=["'](https:\/\/www\.netflix\.com\/account\/update-primary-location[^"']+)["']/i);
+  // The confirm control. The owner described the real flow on 25 Sep 2026: the mail's "Yes, this was me" opens a
+  // signed-in page carrying an "Update Household" button, and THAT is the press that finishes it. Matched by its
+  // words first — the household URL is not on update-primary-location at all, so the old path match never found it.
+  const CONFIRM = /update\s*household|confirm\s*household|yes,?\s*this\s*was\s*me|set\s*as\s*household/i;
+  let link = null;
+  for (const m of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]{0,200}?)<\/a>/gi)) {
+    const href = String(m[1]).replace(/&amp;/g, '&');
+    const text = m[2].replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
+    if (CONFIRM.test(text) && /netflix\.com/i.test(href) && !NEVER.test(href)) { link = [href, href]; break; }
+  }
+  let form = null;
+  for (const m of html.matchAll(/<form\b[^>]*action=["']([^"']+)["'][^>]*>([\s\S]{0,4000}?)<\/form>/gi)) {
+    const action = String(m[1]).replace(/&amp;/g, '&');
+    if (NEVER.test(action)) continue;
+    if (CONFIRM.test(m[2].replace(/<[^>]+>/g, ' ')) || /update-primary-location/i.test(action)) { form = [m[0], action]; break; }
+  }
+  if (!link && !form) {
+    form = html.match(/<form[^>]*action=["']([^"']*update-primary-location[^"']*)["'][^>]*>/i);
+    link = html.match(/href=["'](https:\/\/www\.netflix\.com\/account\/update-primary-location[^"']+)["']/i);
+  }
   let after = null;
   if (form) {
     const action = new URL(form[1], page.url).toString();
@@ -288,10 +330,10 @@ async function confirmUpdateFromNetflixLink(url, fetchImpl) {
   } else if (link) {
     after = await followNetflix(new URL(link[1] || link[0], page.url).toString(), doFetch, jar);
   } else {
-    return { ok: false, manual: true }; // could not find the button -> leave it to the person
+    return { ok: false, manual: true, why: 'nobutton' }; // page opened, no control on it -> leave it to the person
   }
-  if (after && !isBlocked(after.html) && /household (has been )?(updated|confirmed)|now your household/i.test(visible(after.html))) return { ok: true, updated: true };
-  return { ok: false, manual: true };
+  if (after && !isBlocked(after.html) && /household (has been )?(updated|confirmed)|now your household|this device is now/i.test(visible(after.html))) return { ok: true, updated: true };
+  return { ok: false, manual: true, why: 'noconfirm' };
 }
 
 /** Get the Netflix link for this account + mode, from darkflix / our page / the shared inbox. */
@@ -312,7 +354,7 @@ async function netflixLink(acc, mode, deps) {
     const m = (await r2.text()).match(re);
     return m ? m[0].replace(/&amp;/g, '&') : '';
   }
-  if (acc.kind === 'H') return inboxLink(acc, re, deps);
+  if (acc.kind === 'H') return inboxLink(acc, re, deps, mode);
   return '';
 }
 
@@ -381,9 +423,13 @@ async function inboxSearch(acc, pick, deps, opts) {
 }
 
 /** The newest household / travel link for this account. */
-async function inboxLink(acc, re, deps) {
+async function inboxLink(acc, re, deps, mode) {
   const hit = await inboxSearch(acc, (p) => {
-    const m = String(p.html || p.textAsHtml || p.text || '').match(re);
+    const body = String(p.html || p.textAsHtml || p.text || '');
+    // Ask for the button by its words first; fall back to the path regex the caller built.
+    const byWords = mode ? actionLinkFrom(body, mode) : '';
+    if (byWords) return byWords;
+    const m = body.match(re);
     return m ? m[0].replace(/&amp;/g, '&') : null;
   }, deps);
   return hit || '';

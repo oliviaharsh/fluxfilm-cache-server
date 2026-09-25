@@ -101,6 +101,8 @@ const WHY_WORDS = {
   expired: 'the Netflix link had already expired',
   captcha: 'Netflix showed a robot check',
   nodigits: 'the page opened but had no code on it',
+  nobutton: 'the Netflix page had no Update Household button on it',
+  noconfirm: 'Netflix did not confirm the change',
   nomail: 'no Netflix mail with that link yet',
   error: 'the Netflix page could not be reached',
   off: 'the household update switch is off',

@@ -215,6 +215,30 @@ deps.mailparser.simpleParser = async () => {
     ok('…and a mail with nothing to press gives nothing', A('<a href="https://help.netflix.com/en">help</a>', 'travel') === '');
   }
 
+  section('🔐 the household mail must never hand back the password link');
+  {
+    const A = hh._internal.actionLinkFrom;
+    // A real household mail, 25 Sep 2026. Note what sits immediately ABOVE the button: "consider changing your
+    // password". Matching a link by URL shape picked THAT — the admin screen was offering a change-password link
+    // for every household mail, live, until this was found.
+    const HH = '<a href="https://www.netflix.com/browse?g=1&amp;lkid=URL_LOGO"><img></a>'
+      + '<h1>Did you request to update your Netflix household?</h1>'
+      + '<p>If you did not initiate this request, please consider <a href="https://www.netflix.com/password?g=0213b618&amp;lkid=URL_ACCOUNT_PASSWORD_CHANGE">changing your password.</a></p>'
+      + '<a href="https://www.netflix.com/account/primarylocation/verify?nftoken=xyz+ab/c=" class="btn"><span>Yes, this was me</span></a>'
+      + '<a href="https://www.netflix.com/accountaccess?lkid=URL_ACCOUNT_ACCESS">account access</a>';
+    ok('🚫 the change-password link is NEVER what we hand over', !/password/i.test(A(HH, 'household')), A(HH, 'household'));
+    ok('…the "Yes, this was me" button is', A(HH, 'household') === 'https://www.netflix.com/account/primarylocation/verify?nftoken=xyz+ab/c=', A(HH, 'household'));
+    ok('…found by the words on it, so a moved URL still works', /primarylocation/.test(A(HH, 'household')));
+    ok('…and account-access is not offered either', !/accountaccess/i.test(A(HH, 'household')));
+    ok('nothing safe in the mail means nothing is handed back, not the next best URL',
+      A('<a href="https://www.netflix.com/password?x=1">changing your password</a>', 'household') === '', A('<a href="https://www.netflix.com/password?x=1">changing your password</a>', 'household'));
+    // Travel keeps working the same way.
+    const TR = '<a href="https://www.netflix.com/browse?lkid=URL_LOGO">logo</a>'
+      + '<a href="https://www.netflix.com/account/travel/verify?nftoken=t+o/k=">Get code</a>'
+      + '<a href="https://help.netflix.com/en">Help Centre</a>';
+    ok('✈️ travel still picks Get code', A(TR, 'travel') === 'https://www.netflix.com/account/travel/verify?nftoken=t+o/k=', A(TR, 'travel'));
+  }
+
   section('🤖 Netflix\'s own JavaScript is not a robot check');
   {
     const B = hh._internal.isBlocked;
