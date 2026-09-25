@@ -109,23 +109,31 @@ const WHY_WORDS = {
 };
 const whyWords = (r) => (r && r.why && WHY_WORDS[r.why]) || 'needs doing by hand';
 
-function whyOut(r) {
+function whyOut(r, kind) {
   const why = (r && r.why) || '';
   const link = (r && r.link) || '';
+  // 🏠 and ✈️ end in different places, so the fallback cannot share one sentence: a household link leads to a
+  // button to PRESS, a travel link leads to 4 digits to READ. Saying "Netflix will show you the 4 digits" to
+  // somebody whose TV needs to become the home is worse than saying nothing.
+  const home = kind === 'household';
   if (link) {
     return {
       why,
       openCode: link,
+      openLabel: home ? '🏠 Open Netflix and make this the home' : '🔑 Show me the code',
       message: why === 'expired'
         ? 'That one had already run out — ask on the TV again, then tap the button.'
-        : 'Tap the button and Netflix will show you the 4 digits. It only works for about 15 minutes.',
+        : home
+          ? 'Tap below, then press "Yes, this was me" and then "Update Household" on the Netflix page. Your TV works a few seconds later.'
+          : 'Tap the button and Netflix will show you the 4 digits. It only works for about 15 minutes.',
     };
   }
   return {
     why,
     handOff: why === 'signin' || why === 'browser' || why === 'captcha',
     message: why === 'expired' ? 'That code had already run out. Ask on the TV again and we will fetch the new one.'
-      : why === 'nomail' ? 'Netflix has not sent it yet. Ask on the TV, wait a moment, then try again.'
+      : why === 'nomail' ? (home ? 'Netflix has not sent it yet. Press "Update Household" on the TV, wait a moment, then try again.'
+        : 'Netflix has not sent it yet. Ask on the TV, wait a moment, then try again.')
         : '',
   };
 }
@@ -214,11 +222,11 @@ async function fix(phone, accountId, what, deps, req) {
     if (r && r.ok) return end('household.travel', '✅ TV code given', { ok: true, code: r.code, accountId: acc.accountId });
     // WHY, in the change log and on the screen. Until 25 Sep 2026 every one of these read the same
     // "needs doing by hand" whatever had gone wrong, and 33 failures in a row told nobody anything.
-    return end('household.travel', '⚠️ no code — ' + whyWords(r), Object.assign({ ok: false, manual: true }, whyOut(r)));
+    return end('household.travel', '⚠️ no code — ' + whyWords(r), Object.assign({ ok: false, manual: true }, whyOut(r, 'travel')));
   }
   if (kind === 'signin') {
     const r = await H.verificationCode(target, deps);
-    if (!r || !r.ok) return end('household.signin', '⚠️ no code — ' + whyWords(r), Object.assign({ ok: false, manual: true }, whyOut(r)));
+    if (!r || !r.ok) return end('household.signin', '⚠️ no code — ' + whyWords(r), Object.assign({ ok: false, manual: true }, whyOut(r, 'signin')));
     // The length says which of the two it was, and the change log is worth that detail: a 6-digit verification code
     // means somebody got past the password, which is a different event from a 4-digit sign-in code.
     const digits = r.digits || String(r.code).length;
@@ -231,7 +239,7 @@ async function fix(phone, accountId, what, deps, req) {
   const r = await H.updateHousehold(target, deps);
   return r && r.ok
     ? end('household.update', '🏠 this TV made the home', { ok: true, done: true, accountId: acc.accountId })
-    : end('household.update', '⚠️ could not — ' + whyWords(r), Object.assign({ ok: false, manual: true }, whyOut(r)));
+    : end('household.update', '⚠️ could not — ' + whyWords(r), Object.assign({ ok: false, manual: true }, whyOut(r, 'household')));
 }
 
 // ── the example pictures the customer points at ───────────────────────────────────────────────────────────────

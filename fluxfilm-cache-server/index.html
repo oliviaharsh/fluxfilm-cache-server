@@ -4001,13 +4001,14 @@ function HouseholdTool({
     if (out.openCode) {
       return E(ToolsSheet, {
         onClose: onClose
-      }, head("Here's your code", out.message || 'Tap below and Netflix will show you the 4 digits.'), E("div", {
+      }, head(out.openLabel && out.openLabel.indexOf('home') > -1 ? 'One tap on Netflix' : "Here's your code",
+        out.message || 'Tap below and Netflix will show you the 4 digits.'), E("div", {
         className: "ff-sheet-btns"
       }, E(Btn, {
         variant: "danger",
         full: true,
         onClick: () => openExternal_(out.openCode)
-      }, "🔑 Show me the code"), again));
+      }, out.openLabel || "🔑 Show me the code"), again));
     }
     if (out.ok && out.openLink) {
       return E(ToolsSheet, {
