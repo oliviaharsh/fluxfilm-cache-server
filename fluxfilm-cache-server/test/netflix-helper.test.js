@@ -215,6 +215,60 @@ deps.mailparser.simpleParser = async () => {
     ok('…and a mail with nothing to press gives nothing', A('<a href="https://help.netflix.com/en">help</a>', 'travel') === '');
   }
 
+  section('🏠 pressing "Confirm Update" — the button Netflix draws with no form around it');
+  {
+    // The real page, 25 Sep 2026: no <form> anywhere, and the control is a type="button" whose click is a JS POST.
+    // The page names both halves of that POST itself, so we can do exactly what the button does.
+    const BTN = '<button data-uia="set-primary-location-action" type="button">Confirm Update</button>';
+    const JSON_BITS = '<script>window.netflix={};var x={"authURL":"c1.999.AgiM\\x2BLov\\x3D","setPrimaryHouseholdConfirm":"\\x2Faccount\\x2Fset-primary-location"};</script>';
+    const PAGE = '<html><body><h1>Finish updating the Netflix household for this account</h1>' + BTN + JSON_BITS + '</body></html>';
+    const DONE = '<html><body><h1>Your Netflix household is up to date</h1></body></html>';
+
+    const mk = (afterHtml, postStatus) => {
+      const seen = [];
+      const fake = async (u, opt) => {
+        const method = (opt && opt.method) || 'GET';
+        seen.push({ u: String(u), method, body: opt && opt.body, headers: opt && opt.headers });
+        if (method === 'POST') return { status: postStatus || 200, headers: new Map([['location', null]]), text: async () => '{}' };
+        // first GET is the mail's link, the second is the re-read that proves it
+        const n = seen.filter((x) => x.method === 'GET').length;
+        return { status: 200, headers: new Map([['location', null]]), text: async () => (n === 1 ? PAGE : afterHtml) };
+      };
+      return { fake, seen };
+    };
+
+    process.env.OLIVIA_HH_UPDATE = 'on';
+    const LINK = 'https://www.netflix.com/account/update-primary-location?nftoken=abc';
+
+    let m = mk(DONE);
+    let r = await hh._internal.confirmUpdateFromNetflixLink(LINK, m.fake);
+    ok('it presses the button Netflix describes, and says done', r.ok === true && r.updated === true && r.pressed === true, r);
+    const post = m.seen.find((x) => x.method === 'POST') || {};
+    ok('…posting to the endpoint the PAGE named, not one we invented', post.u === 'https://www.netflix.com/account/set-primary-location', post.u);
+    ok('…with the authURL off that same page, unescaped', /authURL=c1\.999\.AgiM%2BLov%3D/.test(String(post.body)), String(post.body));
+    ok('…as the browser would: XHR header, Referer, cookies', post.headers['X-Requested-With'] === 'XMLHttpRequest' && !!post.headers.Referer);
+    ok('…and it RE-READS the page to check, rather than trusting the reply', m.seen.filter((x) => x.method === 'GET').length === 2, m.seen.map((x) => x.method));
+
+    // The reply said 200 but the button is still there: Netflix did not take it. Never claim it did.
+    m = mk(PAGE);
+    r = await hh._internal.confirmUpdateFromNetflixLink(LINK, m.fake);
+    ok('a 200 with the button STILL on the page is not success', r.ok === false && r.why === 'nopress', r);
+
+    m = mk(DONE, 403);
+    r = await hh._internal.confirmUpdateFromNetflixLink(LINK, m.fake);
+    ok('a refused press is reported, not retried into a lie', r.ok === false && r.why === 'nopress', r);
+
+    // Nothing to press and nothing described: hand it over instead of poking at Netflix.
+    const bare = mk('<html><body>nothing here</body></html>');
+    bare.seen.length = 0;
+    const bareFake = async () => ({ status: 200, headers: new Map(), text: async () => '<html><body>nothing here</body></html>' });
+    r = await hh._internal.confirmUpdateFromNetflixLink(LINK, bareFake);
+    ok('no button and no instructions → nobutton, and nothing was posted', r.ok === false && r.why === 'nobutton', r);
+    delete process.env.OLIVIA_HH_UPDATE;
+    r = await hh._internal.confirmUpdateFromNetflixLink(LINK, m.fake);
+    ok('🔒 and with OLIVIA_HH_UPDATE off it never presses anything at all', r.ok === false && r.why === 'off', r);
+  }
+
   section('🔐 the household mail must never hand back the password link');
   {
     const A = hh._internal.actionLinkFrom;

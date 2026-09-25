@@ -103,6 +103,7 @@ const WHY_WORDS = {
   nodigits: 'the page opened but had no code on it',
   nobutton: 'the Netflix page had no Update Household button on it',
   noconfirm: 'Netflix did not confirm the change',
+  nopress: 'Netflix would not accept the last press',
   nomail: 'no Netflix mail with that link yet',
   error: 'the Netflix page could not be reached',
   off: 'the household update switch is off',
