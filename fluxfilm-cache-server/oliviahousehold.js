@@ -143,8 +143,20 @@ async function netflixAccounts(phone, deps) {
 }
 
 /** A Netflix page is a sign-in / reCAPTCHA / expired page we must never act on. */
+/**
+ * Is this page refusing us? Checked against a real Netflix page on 25 Sep 2026 — and the old version said YES to
+ * every one of them, because it grepped the raw HTML for "recaptcha" and Netflix's ordinary page shell contains
+ *     window.netflix.nonmemberStaticFramework.data['recaptcha'] = undefined;
+ * A variable name set to undefined is not a robot check. Inline script is stripped first, and the remaining tests
+ * look for real things: a password INPUT, a recaptcha WIDGET or its script, sign-in wording, an expiry notice.
+ */
 function isBlocked(html) {
-  return /recaptcha|g-recaptcha|Enter your info to sign in|type=["']password["']|id=["']id_password["']|link (has )?expired|no longer valid/i.test(String(html || ''));
+  const raw = String(html || '');
+  const noScript = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ');
+  if (/<input[^>]+type=["']password["']/i.test(noScript) || /id=["']id_password["']/i.test(noScript)) return true;
+  if (/class=["'][^"']*g-recaptcha|google\.com\/recaptcha\/|recaptcha\/api\.js/i.test(raw)) return true;
+  const text = noScript.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ');
+  return /Enter your info to sign in|link (has )?expired|no longer valid/i.test(text);
 }
 /**
  * WHY a Netflix page did not give us the thing. Checked on 25 Sep 2026 against a real travel link: Netflix sends an
@@ -168,9 +180,12 @@ function pageProblem(page) {
   const html = String((page && page.html) || '');
   if (/netflix\.com\/[a-z-]{0,5}\/?login\b/i.test(url) || /[?&]nextpage=/i.test(url)) return 'signin';
   if (/unsupportedbrowser/i.test(url)) return 'browser';
-  if (/link (has )?expired|no longer valid/i.test(html)) return 'expired';
-  if (/recaptcha|g-recaptcha/i.test(html)) return 'captcha';
-  if (/Enter your info to sign in|type=["']password["']|id=["']id_password["']/i.test(html)) return 'signin';
+  const noScript = html.replace(/<script[\s\S]*?<\/script>/gi, ' ');
+  const text = noScript.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  if (/link (has )?expired|no longer valid/i.test(text)) return 'expired';
+  // A real widget or the recaptcha script — never a JS key called recaptcha, which every Netflix page carries.
+  if (/class=["'][^"']*g-recaptcha|google\.com\/recaptcha\/|recaptcha\/api\.js/i.test(html)) return 'captcha';
+  if (/<input[^>]+type=["']password["']/i.test(noScript) || /Enter your info to sign in/i.test(text)) return 'signin';
   return '';
 }
 
@@ -481,17 +496,18 @@ async function run(acc, mode, deps) {
   if (!link) return { ok: false, manual: true, why: 'nomail' };
   let out;
   try { out = mode === 'update' ? await confirmUpdateFromNetflixLink(link, deps && deps.fetch) : await codeFromNetflixLink(link, deps && deps.fetch); }
-  catch (e) { console.log('[olivia-hh] ' + mode + ' failed:', e.message); return { ok: false, manual: true, why: 'error' }; }
+  catch (e) { console.log('[olivia-hh] ' + mode + ' failed:', e.message); return { ok: false, manual: true, why: 'error', link }; }
+  // The link comes back even when we could not read the page ourselves. Netflix's link signs the visitor in on
+  // open, so handing it to the customer is the fallback that works whatever we failed at — the owner's idea,
+  // 25 Sep 2026: "for fallback give that link to customer with a button heres code".
+  if (out && !out.ok) out.link = link;
   // Say it in the server log too: 33 silent failures in a row is what let this hide.
   if (out && !out.ok && out.why) console.log('[olivia-hh] ' + mode + ' held back for ' + s(a.ref) + ': ' + (WHY_TEXT[out.why] || out.why));
   return out;
 }
 
-/** The reason in plain words, for a log line or a screen. '' when there is nothing to explain. */
-const whyText = (r) => (r && r.why && WHY_TEXT[r.why]) || 'needs doing by hand';
-
 const travelCode = (acc, deps) => run(acc, 'travel', deps);
 const updateHousehold = (acc, deps) => run(acc, 'update', deps);
 const updateEnabled = () => UPDATE_ON();
 
-module.exports = { netflixAccounts, travelCode, updateHousehold, verificationCode, updateEnabled, latestMail, whyText, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, verificationCodeFrom, codeKindOf, labelFor, inboxSearch, MAIL_WORDS, directAuth, pageProblem, actionLinkFrom, WHY_TEXT } };
+module.exports = { netflixAccounts, travelCode, updateHousehold, verificationCode, updateEnabled, latestMail, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, verificationCodeFrom, codeKindOf, labelFor, inboxSearch, MAIL_WORDS, directAuth, pageProblem, actionLinkFrom, WHY_TEXT } };

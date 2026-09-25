@@ -89,17 +89,42 @@ async function start(phone, deps, req) {
  * 'signin' is the one that matters: that link only opens for someone already signed in to the Netflix account, so
  * no amount of retrying by the customer will ever help and the honest thing is to hand it to a person.
  */
+/**
+ * When we could not read the page ourselves, hand over the Netflix link instead of an apology. Netflix's link
+ * signs the visitor in as it opens, so the customer tapping it lands straight on their code — which is what the
+ * owner does by hand from Gmail. That makes the fallback strictly better than anything we could explain.
+ * Owner, 25 Sep 2026: "for fallback give that link to customer with a button heres code - they click it and get code".
+ */
+const WHY_WORDS = {
+  signin: 'Netflix wanted the account signed in',
+  browser: 'Netflix refused us as an unsupported browser',
+  expired: 'the Netflix link had already expired',
+  captcha: 'Netflix showed a robot check',
+  nodigits: 'the page opened but had no code on it',
+  nomail: 'no Netflix mail with that link yet',
+  error: 'the Netflix page could not be reached',
+  off: 'the household update switch is off',
+};
+const whyWords = (r) => (r && r.why && WHY_WORDS[r.why]) || 'needs doing by hand';
+
 function whyOut(r) {
   const why = (r && r.why) || '';
-  const handOff = why === 'signin' || why === 'browser' || why === 'captcha';
+  const link = (r && r.link) || '';
+  if (link) {
+    return {
+      why,
+      openCode: link,
+      message: why === 'expired'
+        ? 'That one had already run out — ask on the TV again, then tap the button.'
+        : 'Tap the button and Netflix will show you the 4 digits. It only works for about 15 minutes.',
+    };
+  }
   return {
     why,
-    handOff,                       // true = a person has to do this one; do not tell them to try again
-    message: handOff
-      ? 'Netflix will only give this code to us with the account signed in, so we are doing it for you by hand — it will be with you in a few minutes.'
-      : why === 'expired' ? 'That code had already run out. Ask on the TV again and we will fetch the new one.'
-        : why === 'nomail' ? 'Netflix has not sent it yet. Ask on the TV, wait a moment, then try again.'
-          : '',
+    handOff: why === 'signin' || why === 'browser' || why === 'captcha',
+    message: why === 'expired' ? 'That code had already run out. Ask on the TV again and we will fetch the new one.'
+      : why === 'nomail' ? 'Netflix has not sent it yet. Ask on the TV, wait a moment, then try again.'
+        : '',
   };
 }
 
@@ -187,11 +212,11 @@ async function fix(phone, accountId, what, deps, req) {
     if (r && r.ok) return end('household.travel', '✅ TV code given', { ok: true, code: r.code, accountId: acc.accountId });
     // WHY, in the change log and on the screen. Until 25 Sep 2026 every one of these read the same
     // "needs doing by hand" whatever had gone wrong, and 33 failures in a row told nobody anything.
-    return end('household.travel', '⚠️ no code — ' + H.whyText(r), Object.assign({ ok: false, manual: true }, whyOut(r)));
+    return end('household.travel', '⚠️ no code — ' + whyWords(r), Object.assign({ ok: false, manual: true }, whyOut(r)));
   }
   if (kind === 'signin') {
     const r = await H.verificationCode(target, deps);
-    if (!r || !r.ok) return end('household.signin', '⚠️ no code — ' + H.whyText(r), Object.assign({ ok: false, manual: true }, whyOut(r)));
+    if (!r || !r.ok) return end('household.signin', '⚠️ no code — ' + whyWords(r), Object.assign({ ok: false, manual: true }, whyOut(r)));
     // The length says which of the two it was, and the change log is worth that detail: a 6-digit verification code
     // means somebody got past the password, which is a different event from a 4-digit sign-in code.
     const digits = r.digits || String(r.code).length;
@@ -204,7 +229,7 @@ async function fix(phone, accountId, what, deps, req) {
   const r = await H.updateHousehold(target, deps);
   return r && r.ok
     ? end('household.update', '🏠 this TV made the home', { ok: true, done: true, accountId: acc.accountId })
-    : end('household.update', '⚠️ could not — ' + H.whyText(r), Object.assign({ ok: false, manual: true }, whyOut(r)));
+    : end('household.update', '⚠️ could not — ' + whyWords(r), Object.assign({ ok: false, manual: true }, whyOut(r)));
 }
 
 // ── the example pictures the customer points at ───────────────────────────────────────────────────────────────

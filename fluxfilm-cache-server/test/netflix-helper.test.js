@@ -215,6 +215,22 @@ deps.mailparser.simpleParser = async () => {
     ok('…and a mail with nothing to press gives nothing', A('<a href="https://help.netflix.com/en">help</a>', 'travel') === '');
   }
 
+  section('🤖 Netflix\'s own JavaScript is not a robot check');
+  {
+    const B = hh._internal.isBlocked;
+    // The line that broke it, copied from a real Netflix page on 25 Sep 2026. isBlocked grepped raw HTML for
+    // "recaptcha", so EVERY Netflix page came back blocked and travel could never read one.
+    const SHELL = '<html><head><script>window.netflix.nonmemberStaticFramework.data[\'recaptcha\'] = undefined;</script></head>'
+      + '<body><h1>Your temporary access code</h1><p>Enter this code on the requesting device</p><div>4 1 7 3</div></body></html>';
+    ok('a JS key called recaptcha does not block the page', B(SHELL) === false);
+    ok('…and the code is read straight off it', hh._internal.readTravelPage(SHELL).code === '4173', hh._internal.readTravelPage(SHELL));
+    ok('a REAL robot widget still blocks', B('<div class="g-recaptcha" data-sitekey="x"></div>') === true);
+    ok('…and the recaptcha script does too', B('<script src="https://www.google.com/recaptcha/api.js"></script>') === true);
+    ok('a real password box still blocks', B('<form><input name="p" type="password"/></form>') === true);
+    ok('…but the WORD password in a script does not', B('<script>var password = null;</script><h1>Your temporary access code</h1>') === false);
+    ok('an expired notice still blocks', B('<p>This link has expired</p>') === true);
+  }
+
   section('🚪 why a Netflix page would not play along');
   {
     const W = hh._internal.pageProblem;

@@ -3996,6 +3996,19 @@ function HouseholdTool({
         className: "ff-sheet-btns"
       }, again));
     }
+    // 🔑 We could not read the code, but the Netflix link still works in their own browser — it signs them in
+    // as it opens. Far better than "try again", which is what this used to say.
+    if (out.openCode) {
+      return E(ToolsSheet, {
+        onClose: onClose
+      }, head("Here's your code", out.message || 'Tap below and Netflix will show you the 4 digits.'), E("div", {
+        className: "ff-sheet-btns"
+      }, E(Btn, {
+        variant: "danger",
+        full: true,
+        onClick: () => openExternal_(out.openCode)
+      }, "🔑 Show me the code"), again));
+    }
     if (out.ok && out.openLink) {
       return E(ToolsSheet, {
         onClose: onClose
