@@ -215,6 +215,58 @@ deps.mailparser.simpleParser = async () => {
     ok('…and a mail with nothing to press gives nothing', A('<a href="https://help.netflix.com/en">help</a>', 'travel') === '');
   }
 
+  section('🔐 the emailed code says WHY it could not be fetched');
+  {
+    // Until 26 Sep 2026 every one of these came back as a bare { ok:false, manual:true } and the change log wrote
+    // the same "needs doing by hand" for all of them — the identical blind spot that hid the travel failures for
+    // weeks. A real one turned up the morning after the travel fix went out (Khushwant, 25 Sep 21:54).
+    const WHY = hh._internal.WHY_TEXT;
+    const acc = (x) => Object.assign({ service: 'Netflix', email: 'harshwalia8888@gmail.com', kind: 'H', tag: 'ACC1', ref: 'NFLX-H1' }, x || {});
+
+    let r = await hh.verificationCode(acc(), deps);
+    ok('the happy path is untouched: a code comes back with no reason attached', r.ok === true && /^\d{4,8}$/.test(String(r.code)) && r.why === undefined, r);
+
+    r = await hh.verificationCode(acc({ email: '' }), deps);
+    ok('no account details to look anything up with -> noacc', r.ok === false && r.why === 'noacc', r);
+
+    r = await hh.verificationCode(acc({ kind: 'D' }), deps);
+    ok('a partner account -> notours (their mailbox has it, ours never will)', r.ok === false && r.why === 'notours', r);
+
+    // ACC5 has an empty label folder, and the only [ACC5] mail in All Mail is a household one - no code mail at all.
+    r = await hh.verificationCode(acc({ email: 'ininjathetriggerman@gmail.com', tag: 'ACC5', ref: 'NFLX-H5' }), deps);
+    ok('nothing in the mailbox yet -> nomail, which is the one worth asking them to retry', r.ok === false && r.why === 'nomail', r);
+
+    // The mail DID arrive and we could not read a code out of it. Telling this customer to press the TV button
+    // again five more times wastes their evening, so it must not be reported as "nothing has arrived".
+    MAIL['NETFLIX/acc3'] = [{ uid: 71, from: 'Netflix <info@account.netflix.com>', subject: '[FF][ACC3][CODE] Your verification code',
+      html: '<h1>Your verification code</h1><p>Enter it on the device to finish signing in.</p>', ageMin: 1 }];
+    r = await hh.verificationCode(acc({ email: 'nobody@example.com', tag: 'ACC3', ref: 'NFLX-H3' }), deps);
+    ok('a code mail with no code in it -> nocode, NOT nomail', r.ok === false && r.why === 'nocode', r);
+    delete MAIL['NETFLIX/acc3'];
+
+    const broken = { imap: { ImapFlow: class { async connect() { throw new Error('IMAP is down'); } } }, mailparser: deps.mailparser };
+    r = await hh.verificationCode(acc(), broken);
+    ok('the mailbox could not be reached -> error, not a shrug', r.ok === false && r.why === 'error', r);
+
+    ok('…and every one of those reasons has words to show for it', ['noacc', 'notours', 'nomail', 'nocode', 'error'].every((k) => WHY[k] && WHY[k].length > 10), WHY);
+  }
+
+  section('the three lists of reasons must not drift apart');
+  {
+    // The words are written out three times on purpose — reaching for the household module from olivia.js made a
+    // partial test fake enough to break the chat (24 Sep 2026). Copies are fine; copies that quietly disagree are
+    // not, so a new reason with no words in one of the three fails the build here instead of in the change log.
+    const keysOf = (src, name) => {
+      const m = src.match(new RegExp('const ' + name + ' = \\{([\\s\\S]*?)\\n\\};'));
+      return m ? m[1].split('\n').map((l) => ((l.match(/^\s{2}([a-z]+):/) || [])[1]) || '').filter(Boolean).sort().join(',') : '';
+    };
+    const src = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+    const a = keysOf(src('oliviahousehold.js'), 'WHY_TEXT');
+    const b = keysOf(src('householdhelp.js'), 'WHY_WORDS');
+    const c = keysOf(src('olivia.js'), 'WHY_LOG');
+    ok('oliviahousehold WHY_TEXT, householdhelp WHY_WORDS and olivia WHY_LOG name the same reasons', a.split(',').length >= 14 && a === b && b === c, { a, b, c });
+  }
+
   section('🏠 pressing "Confirm Update" — the button Netflix draws with no form around it');
   {
     // The real page, 25 Sep 2026: no <form> anywhere, and the control is a type="button" whose click is a JS POST.

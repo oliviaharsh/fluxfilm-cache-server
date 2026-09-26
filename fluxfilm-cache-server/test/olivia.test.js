@@ -30,7 +30,9 @@ const mockDb = {
     throw new Error('unexpected SQL: ' + sql);
   },
 };
-Module._load = (function (orig) { return function (req) { if (req === './db') return mockDb; return orig.apply(this, arguments); }; })(Module._load);
+// Every line Olivia writes to the 🕘 Change log, captured instead of written.
+const HHLOG = [];
+Module._load = (function (orig) { return function (req) { if (req === './db') return mockDb; if (req === './customerlog') return { record: async (_d, _r, e) => { HHLOG.push(e); } }; return orig.apply(this, arguments); }; })(Module._load);
 
 const olivia = require('../olivia');
 const words = require('../oliviawords');
@@ -104,7 +106,7 @@ const tools = {
   householdCode: async (acc) => { calls.push(['householdCode', acc && acc.subId, acc && acc.kind]); const mine = !shop.hhCodeSub || (acc && acc.subId === shop.hhCodeSub); return shop.hhCode && mine ? { ok: true, code: shop.hhCode } : { ok: false, manual: true, why: shop.hhWhy, link: shop.hhLink }; },
   householdUpdate: async (acc) => { calls.push(['householdUpdate', acc && acc.subId, acc && acc.kind]); return shop.hhUpdated ? { ok: true, updated: true } : { ok: false, manual: true, why: shop.hhWhy, link: shop.hhLink }; },
   householdUpdateEnabled: () => shop.hhUpdateOn === true,
-  verificationCode: async (acc) => { calls.push(['verificationCode', acc && acc.subId, acc && acc.kind]); const mine = !shop.verifySub || (acc && acc.subId === shop.verifySub); return shop.verifyCode && mine ? { ok: true, code: shop.verifyCode } : { ok: false, manual: true }; },
+  verificationCode: async (acc) => { calls.push(['verificationCode', acc && acc.subId, acc && acc.kind]); const mine = !shop.verifySub || (acc && acc.subId === shop.verifySub); return shop.verifyCode && mine ? { ok: true, code: shop.verifyCode } : { ok: false, manual: true, why: shop.verifyWhy }; },
 };
 olivia._internal.setDeps({ tools });
 
@@ -845,9 +847,21 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   ok('no verification code yet (1st) → guide to log in again + "I clicked, check again", not manual', last(r).intent === 'HH_CODE_NOT_YET' && /6 digit code|6 अंक|6-digit/i.test(last(r).text) && ids(last(r))[0] === 'hhretry' && !ids(last(r)).includes('hhupdate'), last(r));
   r = await say({ text: 'login kar liya' });
   ok('"login kar liya" repeats the verification fetch (not the TV code), keeps guiding', last(r).intent === 'HH_CODE_NOT_YET' && calls.some((c) => c[0] === 'verificationCode') && !calls.some((c) => c[0] === 'householdCode'), last(r));
+  {
+    // The tool screen has named the reason since 25 Sep 2026; the chat wrote "⚠️ nothing yet" for every failure
+    // alike, so an evening of them could mean five different things and the log could not say which.
+    const lastLog = () => HHLOG[HHLOG.length - 1] || {};
+    HHLOG.length = 0;
+    shop.verifyWhy = 'nomail';
+    await say({ choice: 'hhretry' });
+    ok('a chat failure writes the reason into the change log', /nothing yet/.test(lastLog().summary || '') && /no Netflix mail/.test(lastLog().summary || '') && (lastLog().details || {}).why === 'nomail', lastLog());
+    HHLOG.length = 0;
+    shop.verifyWhy = '';
+  }
   shop.verifyCode = '112233';
   r = await say({ choice: 'hhretry' });
   ok('retry succeeds once the verification email arrives → the code card', last(r).intent === 'VERIFY_CODE_READY' && last(r).card.code === '112233', last(r));
+  ok('…and a success still logs as a success, with no reason bolted on', /🔐 sign-in code given/.test((HHLOG[HHLOG.length - 1] || {}).summary || '') && !((HHLOG[HHLOG.length - 1] || {}).details || {}).why, HHLOG[HHLOG.length - 1]);
   shop.verifyCode = ''; shop.nflxAccounts = [];
   await say({ choice: 'menu' });
   r = await say({ text: 'verification code chahiye netflix' });

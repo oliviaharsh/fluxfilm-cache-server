@@ -177,6 +177,10 @@ const WHY_TEXT = {
   nomail: 'no Netflix mail with that link in the mailbox yet',
   error: 'the Netflix page could not be reached',
   off: 'the household update switch is off (OLIVIA_HH_UPDATE)',
+  // 🔐 the three ways the emailed-code path ends, which until 26 Sep 2026 all read the same "needs doing by hand"
+  nocode: 'the Netflix mail arrived but had no code in it',
+  notours: 'that code is emailed to the partner mailbox, not to one of ours',
+  noacc: 'we do not have that account on file',
 };
 function pageProblem(page) {
   const url = s(page && page.url);
@@ -517,9 +521,23 @@ function verificationCodeFrom(html) {
 /** Which of the two emailed codes this is, by its length. 4 = the sign-in code, 6 = the verification code. */
 const codeKindOf = (code) => (String(code || '').length === 4 ? 'signin' : 'verify');
 
-/** The newest recent verification code for this account. */
-async function inboxCode(acc, deps) {
-  const hit = await inboxSearch(acc, (p) => verificationCodeFrom(String(p.html || p.textAsHtml || p.text || '')) || null, deps);
+/**
+ * Words that mark a mail as one of the TWO code mails. Used for one thing only: telling "Netflix has not sent it
+ * yet" apart from "it did, and we could not read the code out of it". The customer is told a different thing for
+ * each — press it on the TV again, versus stop pressing, we have it in hand and it did not work — so a failure
+ * that cannot tell them apart is the failure that hid 33 times over (CLAUDE.md, cautions).
+ */
+const CODE_MAIL = /verify with this code|verification code|sign.?in code|log.?in code|code requested|enter this code|to sign in/i;
+
+/** The newest recent verification code for this account. seen.mail comes back true if a code mail was there. */
+async function inboxCode(acc, deps, seen) {
+  const hit = await inboxSearch(acc, (p) => {
+    const body = String(p.html || p.textAsHtml || p.text || '');
+    const code = verificationCodeFrom(body);
+    if (code) return code;
+    if (seen && CODE_MAIL.test(visible(body))) seen.mail = true;
+    return null;
+  }, deps);
   return hit || '';
 }
 
@@ -575,11 +593,18 @@ async function latestMail(acc, mode, deps) {
  */
 async function verificationCode(acc, deps) {
   const a = acc || {};
-  if (!famNetflix(a.service) || !s(a.email) || !a.kind) return { ok: false, manual: true };
-  if (a.kind !== 'H') return { ok: false, manual: true }; // verification codes come by email; only our own inbox has them
+  // ✈️ travel and 🏠 household have carried a reason since 25 Sep 2026; 🔐 was the one path still ending in silence,
+  // and the change log showed it the very next day: "⚠️ no code — needs doing by hand", which tells nobody anything.
+  if (!famNetflix(a.service) || !s(a.email) || !a.kind) return { ok: false, manual: true, why: 'noacc' };
+  if (a.kind !== 'H') return { ok: false, manual: true, why: 'notours' }; // it goes to the partner's mailbox, not ours
   let code = '';
-  try { code = await inboxCode(a, deps); } catch (e) { console.log('[olivia-hh] verification code failed:', e.message); return { ok: false, manual: true }; }
-  return code ? { ok: true, code, digits: code.length, codeKind: codeKindOf(code) } : { ok: false, manual: true };
+  const seen = { mail: false };
+  try { code = await inboxCode(a, deps, seen); }
+  catch (e) { console.log('[olivia-hh] verification code failed:', e.message); return { ok: false, manual: true, why: 'error' }; }
+  if (code) return { ok: true, code, digits: code.length, codeKind: codeKindOf(code) };
+  const why = seen.mail ? 'nocode' : 'nomail';
+  console.log('[olivia-hh] verification code held back for ' + s(a.ref) + ': ' + (WHY_TEXT[why] || why));
+  return { ok: false, manual: true, why };
 }
 
 async function run(acc, mode, deps) {
@@ -604,4 +629,4 @@ const travelCode = (acc, deps) => run(acc, 'travel', deps);
 const updateHousehold = (acc, deps) => run(acc, 'update', deps);
 const updateEnabled = () => UPDATE_ON();
 
-module.exports = { netflixAccounts, travelCode, updateHousehold, verificationCode, updateEnabled, latestMail, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, verificationCodeFrom, codeKindOf, labelFor, inboxSearch, MAIL_WORDS, directAuth, pageProblem, actionLinkFrom, WHY_TEXT, confirmPost, confirmUpdateFromNetflixLink } };
+module.exports = { netflixAccounts, travelCode, updateHousehold, verificationCode, updateEnabled, latestMail, _internal: { kindOfRef, accountIdOf, tagOf, readTravelPage, isBlocked, codeFromNetflixLink, verificationCodeFrom, codeKindOf, labelFor, inboxSearch, MAIL_WORDS, directAuth, pageProblem, actionLinkFrom, WHY_TEXT, confirmPost, confirmUpdateFromNetflixLink, CODE_MAIL } };

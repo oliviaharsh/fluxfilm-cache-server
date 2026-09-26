@@ -38,16 +38,42 @@ function tools() { return deps.tools || (deps.tools = require('./oliviatools').m
  * 🏠 Tools → Netflix Household writes the same lines from householdhelp.js — a log that covered only one door
  * would answer "who accessed the household" wrong. 🔐 The code itself is never written down.
  */
-function hhLog(phone, mode, got, acc, tried) {
+/**
+ * The same short reasons householdhelp.js keeps, in the words the owner reads in the 🕘 Change log.
+ * It is a LOCAL copy on purpose: reaching for the household module from here made a partial test fake enough to
+ * break the chat (24 Sep 2026). A test keeps the three lists from drifting apart instead.
+ */
+const WHY_LOG = {
+  signin: 'Netflix wanted the account signed in',
+  browser: 'Netflix refused us as an unsupported browser',
+  expired: 'the Netflix link had already expired',
+  captcha: 'Netflix showed a robot check',
+  nodigits: 'the page opened but had no code on it',
+  nobutton: 'the Netflix page had no Update Household button on it',
+  noconfirm: 'Netflix did not confirm the change',
+  nopress: 'Netflix would not accept the last press',
+  nomail: 'no Netflix mail with that link yet',
+  error: 'the Netflix page could not be reached',
+  off: 'the household update switch is off',
+  nocode: 'the Netflix mail had no code in it',
+  notours: 'that code goes to the partner mailbox, not ours',
+  noacc: 'we do not have that account on file',
+};
+
+function hhLog(phone, mode, got, acc, tried, fail) {
   const action = mode === 'update' ? 'household.update' : mode === 'verify' ? 'household.signin' : 'household.travel';
   const label = mode === 'update' ? 'make this TV the home' : mode === 'verify' ? 'get the sign-in code' : 'get the TV code';
   const done = mode === 'update' ? '🏠 this TV made the home' : mode === 'verify' ? '🔐 sign-in code given' : '✅ TV code given';
   const where = acc ? s(acc.ref) + ' · ' : '';
+  // WHY, here too. The tool screen has said it since 25 Sep 2026 but the chat still wrote the same line for every
+  // failure, so a whole evening of "⚠️ nothing yet" could mean five different things and the log could not say which.
+  const why = s(fail && fail.why);
+  const because = !got && why ? ' — ' + (WHY_LOG[why] || why) : '';
   try {
     require('./customerlog').record(null, null, {
       action, phone,
-      summary: 'in Olivia chat · ' + where + label + ' · ' + (got ? done : '⚠️ nothing yet — asked to try again'),
-      details: { what: mode, via: 'olivia', accountId: acc ? s(acc.ref) : '', email: acc ? s(acc.email) : '', ok: !!got, tried: Math.min(tried || 0, 4) },
+      summary: 'in Olivia chat · ' + where + label + ' · ' + (got ? done : '⚠️ nothing yet — asked to try again' + because),
+      details: { what: mode, via: 'olivia', accountId: acc ? s(acc.ref) : '', email: acc ? s(acc.email) : '', ok: !!got, tried: Math.min(tried || 0, 4), why: got ? '' : why },
     });
   } catch (_) { /* the log must never break the chat */ }
 }
@@ -1261,13 +1287,13 @@ async function turn(c, input, ctx) {
       // Permanent update (state-changing) - only reachable when OLIVIA_HH_UPDATE=on; nothing is pressed until confirmed.
       for (const acc of tryAccs.slice(0, 4)) { const r = await tryAcc(tools().householdUpdate, acc, (x) => x.updated); if (r) { got = r; gotAcc = acc; break; } }
       ctx.meta.push({ tool: 'householdUpdate', ok: !!got, tried: Math.min(tryAccs.length, 4), why: fail && fail.why });
-      hhLog(c.phone, mode, got, gotAcc, tryAccs.length);
+      hhLog(c.phone, mode, got, gotAcc, tryAccs.length, fail);
       if (got) { st.hhTries = 0; delete st.hhMode; delete st.hhPick; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_UPDATE_DONE', buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     } else if (mode === 'verify') {
       // The 6-digit new-device verification code, read from our own account inbox (read-only).
       for (const acc of tryAccs.slice(0, 4)) { const r = await tryAcc(tools().verificationCode, acc, (x) => /^\d{4,8}$/.test(String(x.code))); if (r) { got = r; gotAcc = acc; break; } }
       ctx.meta.push({ tool: 'verificationCode', ok: !!got, tried: Math.min(tryAccs.length, 4), why: fail && fail.why });
-      hhLog(c.phone, mode, got, gotAcc, tryAccs.length);
+      hhLog(c.phone, mode, got, gotAcc, tryAccs.length, fail);
       if (got) { st.hhTries = 0; delete st.hhMode; delete st.hhPick; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'VERIFY_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     } else {
       // "Just fix it" (owner, 23 Sep 2026): try the PERMANENT update first — it is the real fix, not a 7-day patch —
@@ -1286,7 +1312,7 @@ async function turn(c, input, ctx) {
       }
       for (const acc of tryAccs.slice(0, 4)) { const r = await tryAcc(tools().householdCode, acc, (x) => /^\d{4}$/.test(String(x.code))); if (r) { got = r; gotAcc = acc; break; } }
       ctx.meta.push({ tool: 'householdCode', ok: !!got, tried: Math.min(tryAccs.length, 4), why: fail && fail.why });
-      hhLog(c.phone, mode, got, gotAcc, tryAccs.length);
+      hhLog(c.phone, mode, got, gotAcc, tryAccs.length, fail);
       if (got) { st.hhTries = 0; delete st.hhMode; delete st.hhPick; if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info'; return [{ intent: 'HH_CODE_READY', card: { type: 'code', code: String(got.code) }, buttons: withBackToPay(st, lang, [btn('menu', lang), btn('whatsapp', lang)]) }]; }
     }
     // 🔗 We could not read the page, but Netflix's own link still works in the customer's browser — it signs them
@@ -1294,7 +1320,7 @@ async function turn(c, input, ctx) {
     if (fail && fail.link) {
       st.hhTries = 0; delete st.hhMode; delete st.hhPick;
       if (st.orderId && PAY_STEPS.has(st.step)) st.paused = true; else st.step = 'info';
-      hhLog(c.phone, mode, null, null, tryAccs.length);
+      hhLog(c.phone, mode, null, null, tryAccs.length, fail);
       return [{ intent: 'HH_OPEN_NETFLIX', facts: { mode }, buttons: withBackToPay(st, lang,
         [{ id: 'hhopen', label: words.buttonLabel(mode === 'update' ? 'hhopenhome' : 'hhopencode', lang), url: fail.link },
           btn('whatsapp', lang), btn('menu', lang)]) }];

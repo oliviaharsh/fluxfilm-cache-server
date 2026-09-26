@@ -107,6 +107,9 @@ const WHY_WORDS = {
   nomail: 'no Netflix mail with that link yet',
   error: 'the Netflix page could not be reached',
   off: 'the household update switch is off',
+  nocode: 'the Netflix mail had no code in it',
+  notours: 'that code goes to the partner mailbox, not ours',
+  noacc: 'we do not have that account on file',
 };
 const whyWords = (r) => (r && r.why && WHY_WORDS[r.why]) || 'needs doing by hand';
 
@@ -129,13 +132,15 @@ function whyOut(r, kind) {
           : 'Tap the button and Netflix will show you the 4 digits. It only works for about 15 minutes.',
     };
   }
+  // 'notours' and 'noacc' are not things the customer can press their way out of, so they go straight to a person.
   return {
     why,
-    handOff: why === 'signin' || why === 'browser' || why === 'captcha',
+    handOff: why === 'signin' || why === 'browser' || why === 'captcha' || why === 'notours' || why === 'noacc',
     message: why === 'expired' ? 'That code had already run out. Ask on the TV again and we will fetch the new one.'
-      : why === 'nomail' ? (home ? 'Netflix has not sent it yet. Press "Update Household" on the TV, wait a moment, then try again.'
-        : 'Netflix has not sent it yet. Ask on the TV, wait a moment, then try again.')
-        : '',
+      : why === 'nocode' ? 'The last mail from Netflix had no code in it. Ask on the TV again and we will fetch the new one.'
+        : why === 'nomail' ? (home ? 'Netflix has not sent it yet. Press "Update Household" on the TV, wait a moment, then try again.'
+          : 'Netflix has not sent it yet. Ask on the TV, wait a moment, then try again.')
+          : '',
   };
 }
 

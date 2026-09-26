@@ -49,10 +49,11 @@ const ACC = {
   'NFLX-D3': { ref: 'NFLX-D3', subId: 'S-THEIRS', service: 'Netflix', email: 'someone@darkflix.shop', kind: 'D', tag: '' },
 };
 let updateOn = true;
+let signinFail = '';   // a reason string makes verificationCode fail with it
 const fakeHh = {
   netflixAccounts: async (phone) => ({ ok: true, accounts: (SUBS[phone] || []).map((s) => ACC[String(s.inventory_ref).split('#')[0]]).filter(Boolean) }),
   travelCode: async (a) => { CALLS.push(['travel', a.ref]); return { ok: true, code: '1234' }; },
-  verificationCode: async (a) => { CALLS.push(['signin', a.ref]); return { ok: true, code: '068097' }; },
+  verificationCode: async (a) => { CALLS.push(['signin', a.ref]); return signinFail ? { ok: false, manual: true, why: signinFail } : { ok: true, code: '068097' }; },
   updateHousehold: async (a) => { CALLS.push(['update', a.ref]); return { ok: true }; },
   updateEnabled: () => updateOn,
 };
@@ -172,6 +173,20 @@ const deps = { household: fakeHh };
     ok('the code is logged as given, and named', out.ok && last().action === 'household.signin' && /🔐 6-digit verification code given/.test(last().summary), last());
     ok('🔐 …and that code is not written down either', out.code === '068097' && JSON.stringify(last()).indexOf('068097') === -1, last());
 
+    // A failure has to say which failure. The first real one after the travel fix shipped read only "needs doing
+    // by hand" (Khushwant, 25 Sep 2026) — true of every failure there is, and therefore no use to anybody.
+    signinFail = 'nocode';
+    AUDIT.length = 0;
+    out = await hh.fix('9000000002', 'NFLX-H5', 'signin', deps, req);
+    ok('a 🔐 failure names the reason in the change log, not "needs doing by hand"',
+      !out.ok && last().action === 'household.signin' && /no code in it/.test(last().summary) && !/needs doing by hand/.test(last().summary), last());
+    ok('…and the customer is told to ask on the TV again rather than left guessing', /had no code in it/.test(String(out.message || '')) && out.why === 'nocode', out);
+
+    signinFail = 'notours';
+    out = await hh.fix('9000000002', 'NFLX-H5', 'signin', deps, req);
+    ok('…a reason the customer cannot press their way out of goes straight to a person', !out.ok && out.handOff === true && out.why === 'notours', out);
+    signinFail = '';
+
     AUDIT.length = 0;
     out = await hh.fix('9971430096', 'NFLX-H5', 'household', deps, req);
     ok('making the TV the home is logged', out.ok && last().action === 'household.update' && /🏠 this TV made the home/.test(last().summary), last());
@@ -273,7 +288,11 @@ const deps = { household: fakeHh };
 
   ok('Olivia logs all three household actions she does in chat', (() => {
     const o = read('olivia.js');
-    return (o.match(/hhLog\(c\.phone, (?:mode|'update'), got, gotAcc, tryAccs\.length\);/g) || []).length === 4 && /require\('\.\/customerlog'\)\.record\(/.test(o);
+    return (o.match(/hhLog\(c\.phone, (?:mode|'update'), got, gotAcc, tryAccs\.length(?:, fail)?\);/g) || []).length === 4 && /require\('\.\/customerlog'\)\.record\(/.test(o);
+  })());
+  ok('…and every call that can fail hands the REASON to the log', (() => {
+    const o = read('olivia.js');
+    return (o.match(/hhLog\([^)]*, fail\);/g) || []).length === 4;
   })());
   ok('householdhelp and Olivia share one logger', /require\('\.\/customerlog'\)/.test(read('householdhelp.js')));
   ok('🔐 no code is ever handed to the logger', !/record\([^)]*\bcode\b/.test(read('customerlog.js')) && !/code: r\.code[^)]*note\(/.test(read('householdhelp.js')));
