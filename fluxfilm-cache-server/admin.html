@@ -438,6 +438,16 @@ textarea.inp{resize:vertical}
 .tcard.clear{opacity:.6}.tcard.clear .tcount{color:var(--ok);font-size:1.1rem}
 .tnames{font-size:.72rem;color:var(--mut);margin-top:4px;line-height:1.5}
 .tsub{display:block;font-size:.78rem;font-weight:600;margin-top:1px}
+/* ▶️ YouTube families — one member per row, folding onto a phone instead of scrolling sideways */
+.ytrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:9px 0;border-top:1px solid var(--line)}
+.ytrow .ytname{font-weight:600;flex:1 1 130px;min-width:0}
+.ytrow .ytmail{color:var(--mut);flex:1 1 150px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.86rem}
+.ytrow .ytexp{white-space:nowrap;font-size:.86rem}
+.ytrow .ytacts{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.ytempty{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 0;border-top:1px dashed #cbd5e1}
+.ytempty .ytacts{margin-left:auto}
+@media(max-width:640px){.ytrow .ytname{flex:1 1 100%}.ytrow .ytacts{margin-left:0;width:100%}}
+
 /* 🚪 Remove users */
 .ru-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
 .ru-chip{border:1px solid var(--line);background:#fff;border-radius:14px;padding:10px 14px;font-size:.84rem;line-height:1.35;text-align:left;cursor:pointer;color:var(--ink);flex:1 1 220px}
@@ -693,7 +703,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['receivables', '💳', 'Receivables'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['receivables', '💳', 'Receivables'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'], ['ytfamily', '▶️', 'YouTube families'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
   ['DATA'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'], ['integrations', '🔗', 'Integrations'],
 ];
@@ -760,7 +770,7 @@ function wireSideClose() {
   }, { passive: true });
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView, ytfamily: ytFamilyView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -5621,6 +5631,174 @@ function ruClick(e) {
 // 🚪 Remove = the existing POST /admin/api/sub-removed (same write + change log as "Removed from account").
 // 📥 Copy from the old Sheet: preview first (reads only), then ✅ Save. The Sheet is never written.
 var OD = { data: null, chk: null, svc: store('ff_od_svc') || '', q: '', removed: false, imp: null, overwrite: false, open: {}, picks: {}, pickClash: 0 };
+/* ================= ▶️ YouTube families =================
+   YouTube is the one service not delivered on our own login: the customer's own Google address is INVITED into
+   one of our families. So there is no profile to look at, and until schema-v29 nothing recorded which family
+   anybody was in — it lived in the owner's spreadsheet. This screen answers the two questions that sheet was
+   kept for: who is in which family (so they can be taken out when they expire) and how many places are free.
+   Owner, 26 Sep 2026: "need to be able to see in which family which customer name and their email even if just
+   first characters and their expiry - so we can remove them and also know how much space we have". */
+var YT = { data: null, q: '', pick: null, editing: null, imp: null, open: {} };
+
+function ytFamilyView() {
+  $('#view').innerHTML = '<div id="ytwrap"><div class="ph"><div><h1>▶️ YouTube families</h1><p>Who is invited into which Google family, when they run out, and how many places are free</p></div><button class="btn ghost" id="ytref">⟳ Refresh</button></div>' +
+    '<div id="yttop"><p class="muted">Loading…</p></div>' +
+    '<div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center"><div class="search" style="flex:1;min-width:220px;margin:0"><input class="inp" id="ytq" placeholder="🔎 Name, email or family…" value="' + esc(YT.q) + '" autocomplete="off"/></div>' +
+    '<button class="btn sm" data-ytadd="1">＋ Add a family</button></div>' +
+    '<details class="card" id="ytimp" style="padding:10px 14px;margin-bottom:10px"' + (YT.open.ytimp ? ' open' : '') + '><summary style="cursor:pointer"><b>📥 Paste the old sheet</b> <span class="muted">— matches by email, previews before it writes anything</span></summary>' +
+    '<p class="muted" style="font-size:.76rem;margin:8px 0 4px">Copy the sheet and paste it here. A line that is only a family address starts that family; every address under it is placed in it. Names are ignored — only email addresses are matched, because a name is not unique.</p>' +
+    '<textarea class="inp" id="ytpaste" rows="5" style="width:100%;font-size:.8rem" placeholder="harshgwalia1234567@gmail.com&#10;Brian Coutinho&#9;rbk.andheri89@gmail.com&#9;13/01/2027&#10;Prince Rajput&#9;prajpoot593@gmail.com&#9;30/09/2026"></textarea>' +
+    '<div class="row" style="gap:6px;margin-top:6px"><button class="btn ghost sm" data-ytimp="preview">🔍 Preview</button><button class="btn sm" data-ytimp="apply" id="ytimpgo" hidden>✓ Place them</button></div><div id="ytimpres"></div></details>' +
+    '<div id="ytlist"></div></div>';
+  $('#ytref').onclick = function () { YT.data = null; ytLoad(); };
+  var t; $('#ytq').addEventListener('input', function () { YT.q = $('#ytq').value.trim(); clearTimeout(t); t = setTimeout(renderYt, 200); });
+  $('#ytimp').addEventListener('toggle', function () { YT.open.ytimp = $('#ytimp').open; });
+  $('#ytwrap').onclick = ytClick;
+  if (YT.data) renderYt(); else ytLoad();
+}
+function ytLoad() { api('/admin/api/yt').then(function (r) { YT.data = r; renderYt(); }); }
+
+/* One member row. The email is shown the way the owner's sheet showed it — the part before the @, which is what
+   they recognise — with the full address only on hover, so a screenshot of this screen is not a mailing list. */
+function ytPerson(p, famId) {
+  var chip = p.state === 'ACTIVE' ? '<span class="pill p-ok">ACTIVE ✅</span>'
+    : p.state === 'ENDING' ? '<span class="pill p-warn">' + esc(p.days) + ' day' + (p.days === 1 ? '' : 's') + ' left ⏳</span>'
+      : p.state === 'EXPIRED' ? '<span class="pill p-bad">EXPIRED ⚠️</span>'
+        : p.state === 'GONE' ? '<span class="pill p-grey">no longer a plan</span>' : '<span class="pill p-grey">' + esc(p.state) + '</span>';
+  return '<div class="ytrow" data-ytsub="' + esc(p.subId) + '"><span class="ytname">' + esc(p.name) + '</span>' +
+    '<span class="ytmail" title="' + esc(p.email) + '">' + esc(p.emailShort) + (p.emailHint ? '<span class="muted">@' + esc(p.emailHint) + '</span>' : '') + '</span>' +
+    '<span class="ytexp">' + esc(p.expiryLabel) + '</span>' + chip +
+    '<span class="ytacts">' + (famId ? '<button class="btn ghost sm" data-ytmove="' + esc(p.subId) + '">Move</button><button class="btn ghost sm" data-ytout="' + esc(p.subId) + '">🚪 Free the place</button>' : '<button class="btn sm" data-ytin="' + esc(p.subId) + '">＋ Place</button>') + '</span></div>';
+}
+function ytMatch(p, q) { return !q || (esc(p.name) + ' ' + p.email + ' ' + p.plan).toLowerCase().indexOf(q) > -1; }
+
+function renderYt() {
+  var d = YT.data || {};
+  if (d.needsSchema) { $('#yttop').innerHTML = '<div class="qnote warn">⚠️ Run <b>db/schema-v29.sql</b> in phpMyAdmin first — it makes the two tables this screen keeps its families in. Nothing else in the panel is affected until you do.</div>'; $('#ytlist').innerHTML = ''; return; }
+  if (!d.ok) { $('#yttop').innerHTML = '<div class="qnote warn">' + esc(d.message || 'Could not load.') + '</div>'; return; }
+  var t = d.totals || {};
+  // The headline is the free-seat count: that is the number the owner opens this screen for.
+  $('#yttop').innerHTML = '<div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:10px">' +
+    '<span class="pill ' + (t.free > 0 ? 'p-ok' : 'p-bad') + '" style="font-size:.95rem;padding:7px 13px">' + esc(t.free) + ' place' + (t.free === 1 ? '' : 's') + ' free</span>' +
+    '<span class="pill p-grey" style="padding:7px 13px">' + esc(t.used) + ' of ' + esc(t.slots) + ' used · ' + esc(t.families) + ' famil' + (t.families === 1 ? 'y' : 'ies') + '</span>' +
+    (t.expiredInFamily ? '<span class="pill p-bad" style="padding:7px 13px">🚪 ' + esc(t.expiredInFamily) + ' expired, still in a family</span>' : '') +
+    (t.unplaced ? '<span class="pill p-warn" style="padding:7px 13px">❓ ' + esc(t.unplaced) + ' not in any family yet</span>' : '') + '</div>';
+
+  var q = YT.q.toLowerCase();
+  var html = (d.families || []).map(function (f) {
+    var rows = f.people.filter(function (p) { return ytMatch(p, q); });
+    if (q && !rows.length && f.login.toLowerCase().indexOf(q) === -1) return '';
+    var empties = '';
+    for (var i = 0; i < f.free; i++) empties += '<div class="ytempty"><span class="muted"><b>EMPTY PLACE</b> 🔥</span><span class="ytacts"><button class="btn ghost sm" data-ytfill="' + f.id + '">＋ Put someone here</button></span></div>';
+    return '<div class="card" style="padding:12px 14px;margin-bottom:10px">' +
+      '<div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:center">' +
+      '<div><b style="font-size:1rem">▶️ ' + esc(f.loginShort) + '</b>' + (f.label ? ' <span class="muted">' + esc(f.label) + '</span>' : '') + (f.isActive ? '' : ' <span class="pill p-grey">off</span>') +
+      '<div class="muted" style="font-size:.76rem">' + esc(f.login) + (f.notes ? ' · ' + esc(f.notes) : '') + '</div></div>' +
+      '<div class="row" style="gap:6px;align-items:center"><span class="pill ' + (f.over ? 'p-bad' : f.free ? 'p-ok' : 'p-grey') + '">' + esc(f.used) + '/' + esc(f.slots) + (f.over ? ' — ' + esc(f.over) + ' too many!' : f.free ? ' · ' + esc(f.free) + ' free' : ' · full') + '</span>' +
+      '<button class="btn ghost sm" data-ytedit="' + f.id + '">✏️</button></div></div>' +
+      '<div style="margin-top:8px">' + rows.map(function (p) { return ytPerson(p, f.id); }).join('') + empties + '</div></div>';
+  }).join('');
+
+  var un = (d.unplaced || []).filter(function (p) { return ytMatch(p, q); });
+  if (un.length) {
+    html += '<div class="card" style="padding:12px 14px;margin-bottom:10px;border:1px dashed #cbd5e1">' +
+      '<b>❓ Paying for YouTube, not in any family here</b> <span class="muted">— either they were never written down, or nobody has placed them</span>' +
+      '<div style="margin-top:8px">' + un.map(function (p) { return ytPerson(p, 0); }).join('') + '</div></div>';
+  }
+  $('#ytlist').innerHTML = html || '<p class="muted">No families yet — tap <b>＋ Add a family</b> and put in the Google address you invite people into.</p>';
+}
+
+/* Placing somebody is two taps: pick the person, pick the family. The chooser only offers families with room. */
+function ytChoose(subId, title) {
+  var d = YT.data || {};
+  var opts = (d.families || []).filter(function (f) { return f.isActive && (f.free > 0 || f.people.some(function (p) { return p.subId === subId; })); });
+  if (!opts.length) return toast('Every family is full — free a place first.');
+  var body = opts.map(function (f) { return '<button class="btn ghost" style="width:100%;justify-content:space-between;margin-bottom:6px" data-ytput="' + f.id + '" data-ytputsub="' + esc(subId) + '">▶️ ' + esc(f.loginShort) + ' <span class="muted">' + esc(f.free) + ' free</span></button>'; }).join('');
+  ytModal(title, body);
+}
+function ytModal(title, body) {
+  modal(esc(title), body, '', 'small');
+  var m = $('#modal'); if (m) m.addEventListener('click', ytClick);
+}
+function ytCloseModal() { closeModal(); }
+
+function ytSeat(subId, familyId) {
+  post('/admin/api/yt/seat', { subId: subId, familyId: familyId }).then(function (r) {
+    ytCloseModal();
+    if (!r.ok) return toast(r.message || 'Could not do that.');
+    YT.data = r; renderYt(); toast(familyId ? 'Placed.' : 'Place freed — now take them out at Google too.');
+  });
+}
+
+function ytEdit(f) {
+  var e = f || { id: 0, login: '', label: '', slots: 5, isActive: true, notes: '' };
+  ytModal(f ? 'Edit this family' : 'Add a family',
+    '<label class="muted" style="font-size:.78rem">Family Google address</label><input class="inp" id="ytf_login" value="' + esc(e.login) + '" placeholder="name@gmail.com"/>' +
+    '<label class="muted" style="font-size:.78rem;margin-top:8px;display:block">What you call it (optional)</label><input class="inp" id="ytf_label" value="' + esc(e.label) + '"/>' +
+    '<label class="muted" style="font-size:.78rem;margin-top:8px;display:block">Places (people you can invite, not counting this account)</label><input class="inp" id="ytf_slots" type="number" min="1" max="20" value="' + esc(e.slots) + '"/>' +
+    '<label class="row" style="gap:6px;cursor:pointer;font-size:.85rem;margin-top:10px"><input type="checkbox" id="ytf_on"' + (e.isActive ? ' checked' : '') + '/> In use (counts towards free places)</label>' +
+    '<label class="muted" style="font-size:.78rem;margin-top:8px;display:block">Note (optional)</label><input class="inp" id="ytf_notes" value="' + esc(e.notes) + '"/>' +
+    '<div class="row" style="gap:6px;margin-top:12px"><button class="btn" data-ytsave="' + e.id + '">Save</button>' +
+    (f ? '<button class="btn ghost" data-ytdel="' + e.id + '">Remove this family</button>' : '') + '</div>');
+}
+function ytSaveFamily(id) {
+  post('/admin/api/yt/family', { id: id, login: $('#ytf_login').value, label: $('#ytf_label').value, slots: $('#ytf_slots').value, isActive: $('#ytf_on').checked, notes: $('#ytf_notes').value })
+    .then(function (r) { if (!r.ok) return toast(r.message || 'Could not save.'); ytCloseModal(); YT.data = r; renderYt(); toast('Saved.'); });
+}
+
+function ytImport(apply) {
+  var text = $('#ytpaste').value;
+  if (!text.trim()) return toast('Paste the sheet first.');
+  post('/admin/api/yt/import', { text: text, apply: apply === true }).then(function (r) {
+    if (!r.ok) { $('#ytimpres').innerHTML = '<div class="qnote warn" style="margin-top:8px">' + esc(r.message || 'Could not read that.') + '</div>'; return; }
+    if (r.preview) {
+      $('#ytimpgo').hidden = !(r.place || []).length;
+      $('#ytimpres').innerHTML = '<div style="margin-top:8px">' +
+        '<b>' + (r.place || []).length + ' to place</b>' +
+        ((r.place || []).length ? '<ul style="margin:4px 0 0 18px;font-size:.82rem">' + r.place.map(function (p) { return '<li>' + esc(p.name) + ' → ▶️ ' + esc(p.familyLogin.split('@')[0]) + '</li>'; }).join('') + '</ul>' : '') +
+        ((r.skipped || []).length ? '<p class="muted" style="font-size:.8rem;margin-top:6px"><b>' + r.skipped.length + ' skipped:</b> ' + esc(r.skipped.map(function (p) { return p.name + ' (' + p.why + ')'; }).join(', ')) + '</p>' : '') +
+        ((r.unknown || []).length ? '<p class="muted" style="font-size:.8rem;margin-top:6px"><b>' + r.unknown.length + ' address(es) we have no YouTube plan for:</b> ' + esc(r.unknown.join(', ')) + '</p>' : '') +
+        '</div>';
+      return;
+    }
+    $('#ytimpgo').hidden = true;
+    $('#ytimpres').innerHTML = '<div class="qnote" style="margin-top:8px">✅ Placed ' + esc(r.placed) + '.</div>';
+    YT.data = r; renderYt(); toast('Placed ' + r.placed + '.');
+  });
+}
+
+function ytClick(e) {
+  var el = e.target.closest && e.target.closest('[data-ytadd],[data-ytedit],[data-ytsave],[data-ytdel],[data-ytin],[data-ytmove],[data-ytout],[data-ytfill],[data-ytput],[data-ytclose],[data-ytimp]');
+  if (!el) return;
+  var d = YT.data || {};
+  if (el.hasAttribute('data-ytclose')) return ytCloseModal();
+  if (el.hasAttribute('data-ytadd')) return ytEdit(null);
+  if (el.hasAttribute('data-ytimp')) return ytImport(el.getAttribute('data-ytimp') === 'apply');
+  if (el.hasAttribute('data-ytedit')) { var id = Number(el.getAttribute('data-ytedit')); return ytEdit((d.families || []).filter(function (f) { return f.id === id; })[0]); }
+  if (el.hasAttribute('data-ytsave')) return ytSaveFamily(Number(el.getAttribute('data-ytsave')));
+  if (el.hasAttribute('data-ytdel')) {
+    var did = Number(el.getAttribute('data-ytdel'));
+    if (!confirm('Remove this family from the tracker? Nothing at Google changes.')) return;
+    return post('/admin/api/yt/family', { id: did, action: 'delete' }).then(function (r) { if (!r.ok) return toast(r.message || 'Could not remove.'); ytCloseModal(); YT.data = r; renderYt(); toast('Removed.'); });
+  }
+  if (el.hasAttribute('data-ytin')) return ytChoose(el.getAttribute('data-ytin'), 'Put them in which family?');
+  if (el.hasAttribute('data-ytmove')) return ytChoose(el.getAttribute('data-ytmove'), 'Move them to which family?');
+  if (el.hasAttribute('data-ytput')) return ytSeat(el.getAttribute('data-ytputsub'), Number(el.getAttribute('data-ytput')));
+  if (el.hasAttribute('data-ytout')) {
+    // Only OUR record changes. Saying so stops the screen being mistaken for something that acts on Google.
+    if (!confirm('Free this place in the tracker?\n\nThis only updates FluxFilm. Remove them in the Google family page yourself.')) return;
+    return ytSeat(el.getAttribute('data-ytout'), 0);
+  }
+  if (el.hasAttribute('data-ytfill')) {
+    var fid = Number(el.getAttribute('data-ytfill'));
+    var un = (d.unplaced || []);
+    if (!un.length) return toast('Everybody with a YouTube plan is already in a family.');
+    return ytModal('Who goes into this place?', un.map(function (p) {
+      return '<button class="btn ghost" style="width:100%;justify-content:space-between;margin-bottom:6px" data-ytput="' + fid + '" data-ytputsub="' + esc(p.subId) + '">' + esc(p.name) + ' <span class="muted">' + esc(p.emailShort) + ' · ' + esc(p.expiryLabel) + '</span></button>';
+    }).join(''));
+  }
+}
+
 function otpDevicesView() {
   $('#view').innerHTML = '<div id="odwrap"><div class="ph"><div><h1>📱 OTP devices</h1><p>Who is on each OTP login, which device they use, and who to remove</p></div><button class="btn ghost" id="odref">⟳ Refresh</button></div>' +
     '<div id="odtop"><p class="muted">Loading…</p></div>' +
