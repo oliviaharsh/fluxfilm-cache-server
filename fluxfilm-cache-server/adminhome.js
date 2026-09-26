@@ -97,6 +97,9 @@ async function buildToday(db, deps) {
       // 💸 How today's money came in (paidvia.js): "Payments today: 6 website QR · 2 backup QR · 1 UTR", so the
       // owner can see at a glance whether the backup UPI QR is being used. Never breaks the Today screen.
       const paidVia = await paidViaToday(db).catch((e) => { console.log('[today] paid-via line failed:', e.message); return null; });
+      // ▶️ Somebody bought YouTube and nobody has invited them into a family yet. YouTube is the one service
+      // delivered by hand, so without this there is nothing anywhere to remember it (owner, 26 Sep 2026).
+      const ytToPlace = await (deps.ytFamilies || require('./ytfamilies')).pendingCount((sql, p) => db.query(sql, p)).catch(() => null);
       return ({
         ok: true,
         paidVia,
@@ -115,7 +118,9 @@ async function buildToday(db, deps) {
           expiredCard(expiredOn),
           { key: 'unpaid', icon: '🧾', title: 'Unpaid website checkouts (3 days)', count: +unpaid.n || 0, tone: 'info', go: { view: 'orders', orders: 'unpaid' } },
           { key: 'restock', icon: '🔔', title: 'Customers waiting for restock', count: +restock.n || 0, tone: 'info', go: { view: 'data', table: 'restock_requests' } },
-        ],
+        ].concat(ytToPlace == null ? [] : [
+          { key: 'ytplace', icon: '▶️', title: 'YouTube customers to invite and place', count: ytToPlace, tone: ytToPlace ? 'warn' : 'info', sub: ytToPlace ? 'invite them into a family at Google, then put them on the ▶️ screen' : '', go: { view: 'ytfamily' } },
+        ]),
         todos: hasTodos ? (todos || []) : null,
         needsSchema: !hasTodos,
       });

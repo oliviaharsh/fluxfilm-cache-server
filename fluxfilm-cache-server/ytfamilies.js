@@ -16,7 +16,7 @@
  *
  *   GET  /admin/api/yt                      families, their seats, who is unplaced, and the free-seat count
  *   POST /admin/api/yt/family               add / edit / remove a family
- *   POST /admin/api/yt/seat                 put a customer in a family, move them, or release the seat
+ *   POST /admin/api/yt/seat                 put a customer in a family, move them, edit them, or release the seat
  *   POST /admin/api/yt/import               paste the old spreadsheet; match by email and place everyone at once
  *
  * 🔐 Read-only about people: it never emails, never invites and never touches a subscription row. Releasing a
@@ -80,15 +80,22 @@ async function overview(query, now) {
   const at = now == null ? Date.now() : now;
   let fams = [];
   let seats = [];
+  let guestsOff = false;   // schema-v30 not run: no guest places yet, and the screen says so instead of offering one
   try {
     fams = await query('SELECT id, login, label, slots, is_active, notes FROM yt_families ORDER BY login', []);
-    seats = await query('SELECT id, family_id, sub_id, invited_email, joined_on, left_on, note FROM yt_seats WHERE left_on IS NULL', []);
+    seats = await query('SELECT id, family_id, sub_id, person, invited_email, joined_on, left_on, note FROM yt_seats WHERE left_on IS NULL', []);
   } catch (e) {
-    // schema-v29 not run yet: say so plainly rather than showing an empty screen that looks like "no families".
-    if (/yt_families|yt_seats|doesn't exist|Unknown table/i.test(String(e && e.message))) {
+    // schema-v30 not run: the person column is missing, so read the rest and treat every seat as a customer.
+    if (/Unknown column .*person/i.test(String(e && e.message))) {
+      seats = (await query('SELECT id, family_id, sub_id, invited_email, joined_on, left_on, note FROM yt_seats WHERE left_on IS NULL', [])).map((x) => Object.assign({ person: '' }, x));
+      guestsOff = true;
+      // and fall through to build the screen normally — every seat is an ordinary customer until v30 is run
+    } else if (/yt_families|yt_seats|doesn't exist|Unknown table/i.test(String(e && e.message))) {
+      // schema-v29 not run yet: say so plainly rather than showing an empty screen that looks like "no families".
       return { ok: true, needsSchema: true, families: [], unplaced: [], totals: { families: 0, slots: 0, used: 0, free: 0, expiredInFamily: 0, unplaced: 0 } };
+    } else {
+      throw e;
     }
-    throw e;
   }
   const subs = await query(SUBS_SQL, [YT_LIKE]);
   const bySub = new Map(subs.map((x) => [s(x.sub_id), x]));
@@ -112,18 +119,29 @@ async function overview(query, now) {
     };
   };
 
+  /**
+   * A place held by somebody with no subscription — an old customer given YouTube for nothing (Vishal R Vipin,
+   * owner 26 Sep 2026). They occupy a real place at Google, so the free count is only honest if it counts them.
+   */
+  const guest = (seat) => ({
+    seatId: seat.id, subId: '', name: s(seat.person) || 'Guest', phone: '',
+    emailShort: localPart(seat.invited_email), emailHint: domainHint(seat.invited_email), email: s(seat.invited_email),
+    plan: 'no plan — free', expiry: '', expiryLabel: '', state: 'GUEST', days: null, note: s(seat.note),
+  });
+
   const taken = new Set();
   const families = fams.map((f) => {
     const mine = seats.filter((x) => Number(x.family_id) === Number(f.id));
     const people = [];
     for (const seat of mine) {
+      if (!s(seat.sub_id)) { people.push(guest(seat)); continue; }
       const sub = bySub.get(s(seat.sub_id));
       taken.add(s(seat.sub_id));
       // A seat whose subscription has vanished from the table still occupies a place at Google — show it, do not drop it.
       people.push(sub ? person(sub, seat)
         : { seatId: seat.id, subId: s(seat.sub_id), name: 'Unknown', phone: '', emailShort: localPart(seat.invited_email), emailHint: domainHint(seat.invited_email), email: s(seat.invited_email), plan: '', expiry: '', expiryLabel: '', state: 'GONE', days: null, note: s(seat.note) });
     }
-    people.sort((a, b) => s(a.expiry).localeCompare(s(b.expiry)));
+    people.sort((a, b) => (a.expiry ? s(a.expiry) : '9999').localeCompare(b.expiry ? s(b.expiry) : '9999'));
     const slots = Math.max(0, n(f.slots, 5));
     return {
       id: Number(f.id), login: s(f.login), loginShort: localPart(f.login), label: s(f.label),
@@ -147,7 +165,7 @@ async function overview(query, now) {
     expiredInFamily: families.reduce((t, f) => t + f.expiredHere, 0),
     unplaced: unplaced.length,
   };
-  return { ok: true, families, unplaced, totals };
+  return { ok: true, guestsOff, families, unplaced, totals };
 }
 
 function mount(app, deps) {
@@ -211,11 +229,64 @@ function mount(app, deps) {
     return { moved: true, released: open.length };
   }
 
+  /** How many places a family has left right now. Used before every insert, so the free count cannot drift. */
+  async function roomIn(familyId, exceptSeatId) {
+    const fam = (await query('SELECT id, login, slots FROM yt_families WHERE id = ? LIMIT 1', [familyId]))[0];
+    if (!fam) return null;
+    const held = (await query('SELECT COUNT(*) AS c FROM yt_seats WHERE family_id = ? AND left_on IS NULL AND id <> ?', [familyId, Number(exceptSeatId) || 0]))[0];
+    return { fam, used: Number((held && held.c) || 0), slots: Math.max(1, n(fam.slots, 5)) };
+  }
+
+  const guestFail = (e) => /Unknown column .*person|cannot be null/i.test(String(e && e.message));
+
   app.post('/admin/api/yt/seat', async (req, res) => {
     if (!auth(req, res)) return;
     const b = req.body || {};
     const subId = s(b.subId);
     const familyId = n(b.familyId, 0);
+    const seatId = n(b.seatId, 0);
+    const action = s(b.action);
+
+    // ── somebody with no subscription at all: an old customer given YouTube for nothing. They hold a real place
+    //    at Google, so the screen has to be able to hold one too, or "places free" is wrong.
+    if (action === 'guest') {
+      const person = s(b.person).slice(0, 120);
+      if (!person) return res.json({ ok: false, message: 'Who is it? Put a name in.' });
+      try {
+        const r = await roomIn(familyId, 0);
+        if (!r) return res.json({ ok: false, message: 'No such family.' });
+        if (r.used >= r.slots) return res.json({ ok: false, message: s(r.fam.login) + ' is full (' + r.slots + ' places). Take somebody out first.' });
+        await query('INSERT INTO yt_seats (family_id, sub_id, person, invited_email, note) VALUES (?, NULL, ?, ?, ?)', [familyId, person, low(b.email).slice(0, 190), s(b.note).slice(0, 255)]);
+        audit.record(req, { action: 'yt.seat.guest', entity: 'yt_family', id: String(familyId), summary: '▶️ ' + person + ' (no plan) given a place in ' + s(r.fam.login), details: { person, familyId } });
+        return res.json(await overview(query));
+      } catch (e) { return guestFail(e) ? res.json({ ok: false, needsSchema: true, message: 'Run db/schema-v30.sql in phpMyAdmin first — it lets a place be held by somebody with no plan.' }) : fail(res, e); }
+    }
+
+    // ── correct what is written on a place: the address actually invited at Google (often NOT the order email)
+    //    and a note. Owner, 26 Sep 2026: "change avtar email to manmeet5mkkaur".
+    if (action === 'edit') {
+      if (!seatId) return res.json({ ok: false, message: 'Which place?' });
+      try {
+        const sets = ['invited_email = ?', 'note = ?'];
+        const vals = [low(b.email).slice(0, 190), s(b.note).slice(0, 255)];
+        if (b.person !== undefined) { sets.push('person = ?'); vals.push(s(b.person).slice(0, 120)); }
+        await query('UPDATE yt_seats SET ' + sets.join(', ') + ' WHERE id = ?', vals.concat([seatId]));
+        audit.record(req, { action: 'yt.seat.edit', entity: 'yt_seat', id: String(seatId), summary: '▶️ corrected the invited address on a YouTube place', details: { seatId, email: low(b.email) } });
+        return res.json(await overview(query));
+      } catch (e) { return guestFail(e) ? res.json({ ok: false, needsSchema: true, message: 'Run db/schema-v30.sql in phpMyAdmin first.' }) : fail(res, e); }
+    }
+
+    // ── free a place held by a guest: there is no subscription to name it by, so it goes by the place itself
+    if (seatId && !subId) {
+      try {
+        const row = (await query('SELECT id, family_id, person FROM yt_seats WHERE id = ? AND left_on IS NULL LIMIT 1', [seatId]))[0];
+        if (!row) return res.json({ ok: false, message: 'That place is already free.' });
+        await query('UPDATE yt_seats SET left_on = NOW() WHERE id = ?', [seatId]);
+        audit.record(req, { action: 'yt.seat.release', entity: 'yt_seat', id: String(seatId), summary: '▶️ ' + (s(row.person) || 'a guest') + ' taken out of the YouTube family', details: { seatId } });
+        return res.json(await overview(query));
+      } catch (e) { return fail(res, e); }
+    }
+
     if (!subId) return res.json({ ok: false, message: 'Which customer?' });
     try {
       const sub = (await query('SELECT s.sub_id, s.service, s.email, c.name FROM subscriptions s LEFT JOIN customers c ON c.phone_norm = s.phone_norm WHERE s.sub_id = ? LIMIT 1', [subId]))[0];
@@ -300,4 +371,20 @@ function mount(app, deps) {
   });
 }
 
-module.exports = { mount, _internal: { overview, stateOf, daysLeft, localPart, domainHint, prettyDate, placeable, IS_YT } };
+/**
+ * How many people are paying for YouTube right now and are in no family. This is the Today "to do": a new buyer
+ * has to be INVITED at Google by hand, and before this screen existed there was nothing anywhere to remind
+ * anybody (owner, 26 Sep 2026: "when someone buys YT - it should add as a pending task").
+ * Returns null — and the card is left out — if the YouTube tables are not there yet.
+ */
+async function pendingCount(query) {
+  try {
+    const r = await query(
+      'SELECT COUNT(*) AS n FROM subscriptions s WHERE LOWER(s.service) LIKE ? AND UPPER(s.status) = ? ' +
+      'AND s.expiry_date > NOW() AND COALESCE(s.removed, 0) = 0 ' +
+      'AND NOT EXISTS (SELECT 1 FROM yt_seats t WHERE t.sub_id = s.sub_id AND t.left_on IS NULL)', [YT_LIKE, 'ACTIVE']);
+    return Number((r && r[0] && r[0].n) || 0);
+  } catch (_) { return null; }
+}
+
+module.exports = { mount, pendingCount, _internal: { overview, stateOf, daysLeft, localPart, domainHint, prettyDate, placeable, IS_YT } };

@@ -88,7 +88,8 @@ const catalog = { getStockLevels: async () => ({ ok: true, levels: { 'SonyLiv Pr
   ok('to-dos included', Array.isArray(r.body.todos) && r.body.needsSchema === false);
   schema = false;
   r = await get('/admin/api/today');
-  ok('before schema-v14: Today still works, to-dos say to run the SQL', r.body.ok && r.body.todos === null && r.body.needsSchema === true && r.body.items.length === 13, r.body); // +2: UPI refunds to send, customer still choosing (refunds.js); +1 📨 refund requests (refundrequests.js); +1 💳 receivables (credit.js)
+  ok('before schema-v14: Today still works, to-dos say to run the SQL', r.body.ok && r.body.todos === null && r.body.needsSchema === true && r.body.items.length === 14, r.body); // +2: UPI refunds to send, customer still choosing (refunds.js); +1 📨 refund requests (refundrequests.js); +1 💳 receivables (credit.js); +1 ▶️ YouTube customers to place (ytfamilies.js)
+  ok('…and the extra card is the ▶️ YouTube one, pointing at its screen', (() => { const y = r.body.items.find((i) => i.key === 'ytplace'); return y && y.go.view === 'ytfamily'; })(), r.body.items.map((i) => i.key));
   r = await post('/admin/api/todos', { title: 'x' });
   ok('adding a to-do before schema-v14 -> 409 with the fix', r.status === 409 && /schema-v14/.test(r.body.message), r.body);
   schema = true;

@@ -5661,14 +5661,19 @@ function ytLoad() { api('/admin/api/yt').then(function (r) { YT.data = r; render
 /* One member row. The email is shown the way the owner's sheet showed it — the part before the @, which is what
    they recognise — with the full address only on hover, so a screenshot of this screen is not a mailing list. */
 function ytPerson(p, famId) {
-  var chip = p.state === 'ACTIVE' ? '<span class="pill p-ok">ACTIVE ✅</span>'
+  var chip = p.state === 'GUEST' ? '<span class="pill p-blue">FREE 🎁</span>'
+    : p.state === 'ACTIVE' ? '<span class="pill p-ok">ACTIVE ✅</span>'
     : p.state === 'ENDING' ? '<span class="pill p-warn">' + esc(p.days) + ' day' + (p.days === 1 ? '' : 's') + ' left ⏳</span>'
       : p.state === 'EXPIRED' ? '<span class="pill p-bad">EXPIRED ⚠️</span>'
         : p.state === 'GONE' ? '<span class="pill p-grey">no longer a plan</span>' : '<span class="pill p-grey">' + esc(p.state) + '</span>';
   return '<div class="ytrow" data-ytsub="' + esc(p.subId) + '"><span class="ytname">' + esc(p.name) + '</span>' +
     '<span class="ytmail" title="' + esc(p.email) + '">' + esc(p.emailShort) + (p.emailHint ? '<span class="muted">@' + esc(p.emailHint) + '</span>' : '') + '</span>' +
     '<span class="ytexp">' + esc(p.expiryLabel) + '</span>' + chip +
-    '<span class="ytacts">' + (famId ? '<button class="btn ghost sm" data-ytmove="' + esc(p.subId) + '">Move</button><button class="btn ghost sm" data-ytout="' + esc(p.subId) + '">🚪 Free the place</button>' : '<button class="btn sm" data-ytin="' + esc(p.subId) + '">＋ Place</button>') + '</span></div>';
+    '<span class="ytacts">' + (famId
+    ? '<button class="btn ghost sm" data-ytseat="' + esc(p.seatId) + '" title="Correct the address invited at Google">✏️</button>'
+      + (p.subId ? '<button class="btn ghost sm" data-ytmove="' + esc(p.subId) + '">Move</button>' : '')
+      + '<button class="btn ghost sm" data-ytout="' + esc(p.subId) + '" data-ytoutseat="' + esc(p.seatId) + '">🚪 Free the place</button>'
+    : '<button class="btn sm" data-ytin="' + esc(p.subId) + '">＋ Place</button>') + '</span></div>';
 }
 function ytMatch(p, q) { return !q || (esc(p.name) + ' ' + p.email + ' ' + p.plan).toLowerCase().indexOf(q) > -1; }
 
@@ -5682,14 +5687,15 @@ function renderYt() {
     '<span class="pill ' + (t.free > 0 ? 'p-ok' : 'p-bad') + '" style="font-size:.95rem;padding:7px 13px">' + esc(t.free) + ' place' + (t.free === 1 ? '' : 's') + ' free</span>' +
     '<span class="pill p-grey" style="padding:7px 13px">' + esc(t.used) + ' of ' + esc(t.slots) + ' used · ' + esc(t.families) + ' famil' + (t.families === 1 ? 'y' : 'ies') + '</span>' +
     (t.expiredInFamily ? '<span class="pill p-bad" style="padding:7px 13px">🚪 ' + esc(t.expiredInFamily) + ' expired, still in a family</span>' : '') +
-    (t.unplaced ? '<span class="pill p-warn" style="padding:7px 13px">❓ ' + esc(t.unplaced) + ' not in any family yet</span>' : '') + '</div>';
+    (t.unplaced ? '<span class="pill p-warn" style="padding:7px 13px">❓ ' + esc(t.unplaced) + ' not in any family yet</span>' : '') + '</div>' +
+    (d.guestsOff ? '<div class="qnote warn" style="margin-bottom:10px">Run <b>db/schema-v30.sql</b> in phpMyAdmin to give a place to somebody with no plan (an old customer, a gift). Everything else works without it.</div>' : '');
 
   var q = YT.q.toLowerCase();
   var html = (d.families || []).map(function (f) {
     var rows = f.people.filter(function (p) { return ytMatch(p, q); });
     if (q && !rows.length && f.login.toLowerCase().indexOf(q) === -1) return '';
     var empties = '';
-    for (var i = 0; i < f.free; i++) empties += '<div class="ytempty"><span class="muted"><b>EMPTY PLACE</b> 🔥</span><span class="ytacts"><button class="btn ghost sm" data-ytfill="' + f.id + '">＋ Put someone here</button></span></div>';
+    for (var i = 0; i < f.free; i++) empties += '<div class="ytempty"><span class="muted"><b>EMPTY PLACE</b> 🔥</span><span class="ytacts"><button class="btn ghost sm" data-ytfill="' + f.id + '">＋ Put someone here</button>' + (d.guestsOff ? '' : '<button class="btn ghost sm" data-ytguest="' + f.id + '" title="An old customer or a gift — somebody with no plan">🎁 Someone with no plan</button>') + '</span></div>';
     return '<div class="card" style="padding:12px 14px;margin-bottom:10px">' +
       '<div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:center">' +
       '<div><b style="font-size:1rem">▶️ ' + esc(f.loginShort) + '</b>' + (f.label ? ' <span class="muted">' + esc(f.label) + '</span>' : '') + (f.isActive ? '' : ' <span class="pill p-grey">off</span>') +
@@ -5722,8 +5728,43 @@ function ytModal(title, body) {
 }
 function ytCloseModal() { closeModal(); }
 
-function ytSeat(subId, familyId) {
-  post('/admin/api/yt/seat', { subId: subId, familyId: familyId }).then(function (r) {
+/* Somebody with no subscription at all — an old customer we give YouTube to. They hold a real place at Google,
+   so the screen has to hold one too, or "places free" is wrong (owner, 26 Sep 2026: "make vishal work without
+   subscription"). */
+function ytGuest(familyId) {
+  ytModal('Someone with no plan',
+    '<p class="muted" style="font-size:.8rem;margin:0 0 8px">For an old customer or a gift — somebody in the family who is not paying. They take up a place like anybody else; they just never run out.</p>' +
+    '<label class="muted" style="font-size:.78rem">Name</label><input class="inp" id="ytg_name" placeholder="Vishal R Vipin"/>' +
+    '<label class="muted" style="font-size:.78rem;margin-top:8px;display:block">The address you invited at Google</label><input class="inp" id="ytg_mail" placeholder="name@gmail.com"/>' +
+    '<label class="muted" style="font-size:.78rem;margin-top:8px;display:block">Note (optional)</label><input class="inp" id="ytg_note" placeholder="old customer, free"/>' +
+    '<div class="row" style="gap:6px;margin-top:12px"><button class="btn" data-ytguestsave="' + familyId + '">Give them the place</button></div>');
+}
+function ytGuestSave(familyId) {
+  post('/admin/api/yt/seat', { action: 'guest', familyId: familyId, person: $('#ytg_name').value, email: $('#ytg_mail').value, note: $('#ytg_note').value })
+    .then(function (r) { if (!r.ok) return toast(r.message || 'Could not do that.'); ytCloseModal(); YT.data = r; renderYt(); toast('Place given.'); });
+}
+
+/* The address on the order is often NOT the Google address we invited (owner's sheet had five of them), and the
+   invited one is what you search for in the Google family page — so it has to be correctable. */
+function ytEditSeat(seatId) {
+  var d = YT.data || {}, found = null;
+  (d.families || []).forEach(function (f) { (f.people || []).forEach(function (p) { if (String(p.seatId) === String(seatId)) found = p; }); });
+  if (!found) return;
+  ytModal('The address invited at Google',
+    '<p class="muted" style="font-size:.8rem;margin:0 0 8px">' + esc(found.name) + '. The order was placed with <b>' + esc(found.email || '—') + '</b>; if you invited a different Google address, put it here.</p>' +
+    (found.subId ? '' : '<label class="muted" style="font-size:.78rem">Name</label><input class="inp" id="yte_name" value="' + esc(found.name) + '"/>') +
+    '<label class="muted" style="font-size:.78rem;margin-top:8px;display:block">Invited address</label><input class="inp" id="yte_mail" value="' + esc(found.email) + '"/>' +
+    '<label class="muted" style="font-size:.78rem;margin-top:8px;display:block">Note (optional)</label><input class="inp" id="yte_note" value="' + esc(found.note || '') + '"/>' +
+    '<div class="row" style="gap:6px;margin-top:12px"><button class="btn" data-ytseatsave="' + esc(seatId) + '">Save</button></div>');
+}
+function ytEditSeatSave(seatId) {
+  var body = { action: 'edit', seatId: seatId, email: $('#yte_mail').value, note: $('#yte_note').value };
+  if ($('#yte_name')) body.person = $('#yte_name').value;
+  post('/admin/api/yt/seat', body).then(function (r) { if (!r.ok) return toast(r.message || 'Could not save.'); ytCloseModal(); YT.data = r; renderYt(); toast('Saved.'); });
+}
+
+function ytSeat(subId, familyId, seatId) {
+  post('/admin/api/yt/seat', subId ? { subId: subId, familyId: familyId } : { seatId: seatId }).then(function (r) {
     ytCloseModal();
     if (!r.ok) return toast(r.message || 'Could not do that.');
     YT.data = r; renderYt(); toast(familyId ? 'Placed.' : 'Place freed — now take them out at Google too.');
@@ -5768,7 +5809,7 @@ function ytImport(apply) {
 }
 
 function ytClick(e) {
-  var el = e.target.closest && e.target.closest('[data-ytadd],[data-ytedit],[data-ytsave],[data-ytdel],[data-ytin],[data-ytmove],[data-ytout],[data-ytfill],[data-ytput],[data-ytclose],[data-ytimp]');
+  var el = e.target.closest && e.target.closest('[data-ytadd],[data-ytedit],[data-ytsave],[data-ytdel],[data-ytin],[data-ytmove],[data-ytout],[data-ytfill],[data-ytput],[data-ytclose],[data-ytimp],[data-ytguest],[data-ytguestsave],[data-ytseat],[data-ytseatsave]');
   if (!el) return;
   var d = YT.data || {};
   if (el.hasAttribute('data-ytclose')) return ytCloseModal();
@@ -5781,13 +5822,17 @@ function ytClick(e) {
     if (!confirm('Remove this family from the tracker? Nothing at Google changes.')) return;
     return post('/admin/api/yt/family', { id: did, action: 'delete' }).then(function (r) { if (!r.ok) return toast(r.message || 'Could not remove.'); ytCloseModal(); YT.data = r; renderYt(); toast('Removed.'); });
   }
+  if (el.hasAttribute('data-ytguest')) return ytGuest(Number(el.getAttribute('data-ytguest')));
+  if (el.hasAttribute('data-ytguestsave')) return ytGuestSave(Number(el.getAttribute('data-ytguestsave')));
+  if (el.hasAttribute('data-ytseat')) return ytEditSeat(el.getAttribute('data-ytseat'));
+  if (el.hasAttribute('data-ytseatsave')) return ytEditSeatSave(el.getAttribute('data-ytseatsave'));
   if (el.hasAttribute('data-ytin')) return ytChoose(el.getAttribute('data-ytin'), 'Put them in which family?');
   if (el.hasAttribute('data-ytmove')) return ytChoose(el.getAttribute('data-ytmove'), 'Move them to which family?');
   if (el.hasAttribute('data-ytput')) return ytSeat(el.getAttribute('data-ytputsub'), Number(el.getAttribute('data-ytput')));
   if (el.hasAttribute('data-ytout')) {
     // Only OUR record changes. Saying so stops the screen being mistaken for something that acts on Google.
     if (!confirm('Free this place in the tracker?\n\nThis only updates FluxFilm. Remove them in the Google family page yourself.')) return;
-    return ytSeat(el.getAttribute('data-ytout'), 0);
+    return ytSeat(el.getAttribute('data-ytout'), 0, el.getAttribute('data-ytoutseat'));
   }
   if (el.hasAttribute('data-ytfill')) {
     var fid = Number(el.getAttribute('data-ytfill'));
