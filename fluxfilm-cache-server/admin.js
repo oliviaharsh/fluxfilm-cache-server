@@ -176,6 +176,8 @@ function mountAdmin(app, deps) {
   require('./adminbankcredits').mount(app, Object.assign({ db, auth, audit }, deps.bank || {}));
   // 🚪 Expired customers still on accounts (Sheet rule) + tick all subscriptions of an order removed (adminexpired.js).
   require('./adminexpired').mount(app, Object.assign({ db, auth, audit }, deps.expired || {}));
+  // ▶️ YouTube families: who is invited into which Google family, their expiry, and how many places are free (ytfamilies.js).
+  require('./ytfamilies').mount(app, Object.assign({ db, auth, audit }, deps.ytFamilies || {}));
   // 📱 OTP devices: per OTP login account its customers + device names, 🚪 remove, copy names from the old Sheet (adminotpdevices.js).
   require('./adminotpdevices').mount(app, Object.assign({ db, auth, audit }, deps.otpDevices || {}));
   // Maintenance: pause / resume new orders (adminstore.js).
