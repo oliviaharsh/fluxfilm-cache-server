@@ -37,6 +37,10 @@ const mockDb = {
       { sub_id: 'E2', phone_norm: '9000000003', name: 'Old Three', service: 'Netflix', status: 'EXPIRED', expiry_date: '2020-02-01 00:00:00', inventory_ref: 'NF-A#P2', login_id: 'a@x', removed: 0 },
       { sub_id: 'E3', phone_norm: '9000000004', name: 'Idle Four', service: 'Netflix', status: 'EXPIRED', expiry_date: '2020-02-01 00:00:00', inventory_ref: 'NF-B#P1', login_id: 'b@x', removed: 0 },
     ];
+    // ▶️ YouTube families (ytfamilies.js): one paying customer, in no family, so the Today card has a real count.
+    if (/FROM yt_families/.test(sql)) return [];
+    if (/FROM yt_seats/.test(sql)) return [];
+    if (/FROM subscriptions s LEFT JOIN customers c/.test(sql)) return [{ sub_id: 'YT1', phone_norm: '9000000091', email: 'y@example.test', service: 'YouTube Premium', plan: '1 Month', expiry_date: IN_2_DAYS, status: 'ACTIVE', removed: 0, name: 'Yt Buyer' }];
     if (/FROM restock_requests/.test(sql)) return [{ n: 4 }];
     if (/FROM bank_credits WHERE consumed_order_id IS NULL/.test(sql)) return [{ n: params[0] === '2026-09-14 21:00:00' && /received_at >= \?/.test(sql) ? 2 : 99 }];
     if (/^SELECT 1 FROM admin_todos/.test(sql)) return [];
@@ -89,7 +93,7 @@ const catalog = { getStockLevels: async () => ({ ok: true, levels: { 'SonyLiv Pr
   schema = false;
   r = await get('/admin/api/today');
   ok('before schema-v14: Today still works, to-dos say to run the SQL', r.body.ok && r.body.todos === null && r.body.needsSchema === true && r.body.items.length === 14, r.body); // +2: UPI refunds to send, customer still choosing (refunds.js); +1 📨 refund requests (refundrequests.js); +1 💳 receivables (credit.js); +1 ▶️ YouTube customers to place (ytfamilies.js)
-  ok('…and the extra card is the ▶️ YouTube one, pointing at its screen', (() => { const y = r.body.items.find((i) => i.key === 'ytplace'); return y && y.go.view === 'ytfamily'; })(), r.body.items.map((i) => i.key));
+  ok('…and the extra card is the ▶️ YouTube one, counting the buyer nobody has placed', (() => { const y = r.body.items.find((i) => i.key === 'ytplace'); return y && y.go.view === 'ytfamily' && y.count === 1; })(), r.body.items.map((i) => i.key));
   r = await post('/admin/api/todos', { title: 'x' });
   ok('adding a to-do before schema-v14 -> 409 with the fix', r.status === 409 && /schema-v14/.test(r.body.message), r.body);
   schema = true;

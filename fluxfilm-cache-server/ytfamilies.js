@@ -379,11 +379,18 @@ function mount(app, deps) {
  */
 async function pendingCount(query) {
   try {
-    const r = await query(
-      'SELECT COUNT(*) AS n FROM subscriptions s WHERE LOWER(s.service) LIKE ? AND UPPER(s.status) = ? ' +
-      'AND s.expiry_date > NOW() AND COALESCE(s.removed, 0) = 0 ' +
-      'AND NOT EXISTS (SELECT 1 FROM yt_seats t WHERE t.sub_id = s.sub_id AND t.left_on IS NULL)', [YT_LIKE, 'ACTIVE']);
-    return Number((r && r[0] && r[0].n) || 0);
+    // Counted from the same overview() the screen is drawn from, for two reasons.
+    //
+    // 1. It cannot disagree with the screen. A second query with its own idea of "unplaced" is a second thing to
+    //    keep right, and the Today number saying 4 while the screen lists 3 is worse than no number at all.
+    // 2. It does no cross-table comparison. The first version matched yt_seats.sub_id against subscriptions.sub_id
+    //    in SQL and threw on the live database every time, so the card silently never appeared — yt_seats is
+    //    utf8mb4_unicode_ci (schema-v29) and the older tables are not, and MariaDB refuses to compare across
+    //    collations (the same trap admin-home.test.js already fakes). overview() reads the two tables separately
+    //    and matches them in JavaScript, where no such rule exists.
+    const view = await overview(query);
+    if (view.needsSchema) return null;
+    return (view.unplaced || []).filter((p) => p.state === 'ACTIVE' || p.state === 'ENDING').length;
   } catch (_) { return null; }
 }
 
