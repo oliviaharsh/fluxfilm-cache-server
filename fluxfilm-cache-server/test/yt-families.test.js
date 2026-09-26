@@ -59,9 +59,11 @@ const mockDb = {
       SEATS.push({ id: ++seatSeq, family_id: Number(p[0]), sub_id: '', person: p[1], invited_email: p[2], note: p[3], joined_on: at(0), left_on: null });
       return { insertId: seatSeq };
     }
-    if (/FROM subscriptions s WHERE LOWER\(s.service\) LIKE \? AND UPPER\(s.status\) = \?/.test(q)) {
-      const held = new Set(SEATS.filter((x) => !x.left_on).map((x) => x.sub_id));
-      return [{ n: SUBS.filter((x) => /youtube/i.test(x.service) && String(x.status).toUpperCase() === 'ACTIVE' && new Date(x.expiry_date) > new Date() && !Number(x.removed) && !held.has(x.sub_id)).length }];
+    // Live MariaDB will not compare yt_seats.sub_id (utf8mb4_unicode_ci, schema-v29) with the older tables'
+    // columns, so the first Today count threw on every request and the card silently never appeared. The fake
+    // refuses it too, so no future query can quietly bring the same shape back.
+    if (/yt_seats[\s\S]{0,80}?\.sub_id = s\.sub_id|s\.sub_id = t\.sub_id/.test(q)) {
+      throw new Error("Illegal mix of collations (utf8mb4_general_ci,IMPLICIT) and (utf8mb4_unicode_ci,IMPLICIT) for operation '='");
     }
     if (/^SELECT COUNT\(\*\) AS c FROM yt_seats WHERE family_id = \? AND left_on IS NULL AND sub_id <> \?/.test(q)) return [{ c: SEATS.filter((x) => !x.left_on && x.family_id === Number(p[0]) && x.sub_id !== p[1]).length }];
     if (/^SELECT COUNT\(\*\) AS c FROM yt_seats WHERE family_id = \? AND left_on IS NULL/.test(q)) return [{ c: SEATS.filter((x) => !x.left_on && x.family_id === Number(p[0])).length }];
@@ -277,6 +279,12 @@ const reset = () => { FAMS = []; SEATS = []; AUDIT = []; famSeq = 0; seatSeq = 0
   // 4, not 5: the to-do is "somebody bought and nobody has invited them", so an EXPIRED customer still sitting
   // in a family is not one of them — that is the 🚪 count on the screen, a different job.
   ok('everybody PAYING and in no family is a to-do (an expired one is not)', n0 === 4, n0);
+  // The number and the screen are counted from one place, so they cannot drift apart — and the count keeps
+  // working on a database that refuses to compare the two tables in SQL.
+  {
+    const onScreen = ((await get('/admin/api/yt')).unplaced || []).filter((p) => p.state === 'ACTIVE' || p.state === 'ENDING').length;
+    ok('…and it is exactly what the screen lists, never a second opinion', n0 === onScreen, { n0, onScreen });
+  }
   await post('/admin/api/yt/family', { login: 'flixfilm157@gmail.com', slots: 5 });
   V = await get('/admin/api/yt');
   await post('/admin/api/yt/seat', { subId: 'Y1', familyId: V.families[0].id });
