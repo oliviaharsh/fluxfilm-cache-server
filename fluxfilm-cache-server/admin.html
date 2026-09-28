@@ -454,6 +454,12 @@ textarea.inp{resize:vertical}
 .seg3 button small{font-weight:500;font-size:.68rem;opacity:.75}
 @media(max-width:560px){.seg3{flex-direction:column}.seg3 button{flex:1 1 auto;width:100%}}
 
+/* 🧑‍🤝‍🧑 One person, two accounts */
+.dupg{padding:10px 14px;margin-bottom:10px}
+.dupr{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.dupr .grow{flex:1 1 200px;min-width:0}
+.dupr.keep{background:var(--soft,rgba(34,197,94,.06));border-radius:8px;padding:8px}
+
 /* 👥 WhatsApp group */
 .grprow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
 .grprow .grow{flex:1 1 200px;min-width:0}
@@ -758,7 +764,7 @@ function logout() { post('/admin/api/logout', {}).then(function () { loginView('
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
   ['TOOLS'], ['quick', '⚡', 'Quick order'], ['receivables', '💳', 'Receivables'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'], ['ytfamily', '▶️', 'YouTube families'], ['wagroup', '👥', 'WhatsApp group'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
-  ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
+  ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['duplicates', '🧑‍🤝‍🧑', 'Same person'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
   ['DATA'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'], ['integrations', '🔗', 'Integrations'],
 ];
 function shell() {
@@ -824,7 +830,7 @@ function wireSideClose() {
   }, { passive: true });
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView, ytfamily: ytFamilyView, wagroup: groupView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView, ytfamily: ytFamilyView, wagroup: groupView, duplicates: duplicatesView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -5867,6 +5873,110 @@ var OD = { data: null, chk: null, svc: store('ff_od_svc') || '', q: '', removed:
    Owner, 26 Sep 2026: "need to be able to see in which family which customer name and their email even if just
    first characters and their expiry - so we can remove them and also know how much space we have". */
 var YT = { data: null, q: '', pick: null, editing: null, imp: null, open: {} };
+
+/* ================= 🧑‍🤝‍🧑 One person, two FluxFilm accounts =================
+   Found on 27 Sep 2026 while checking Yash: 16 customers have two rows with the same email and two different
+   numbers, 20 have two rows with the same name. It costs money twice — a customer who signs in on the number
+   with no plan sees an empty My plans and BUYS AGAIN instead of renewing, and on 29 Sep it stopped ten people
+   being found in the WhatsApp group, because a name two customer rows share matches neither of them.
+
+   This screen LINKS; it does not merge. Nothing is moved, nothing is deleted, and unlinking puts it back.
+   (duplicates.js) */
+var DUP = { data: null };
+
+function duplicatesView() {
+  $('#view').innerHTML = '<div id="dupwrap"><div class="ph"><div><h1>🧑‍🤝‍🧑 Same person, two accounts</h1><p>Two customer records that look like one person — the reason somebody buys again instead of renewing</p></div><button class="btn ghost" id="dupref">⟳ Refresh</button></div>' +
+    '<div id="duptop"><p class="muted">Loading…</p></div><div id="duplist"></div></div>';
+  $('#dupref').onclick = function () { DUP.data = null; dupLoad(); };
+  $('#dupwrap').onclick = dupClick;
+  if (DUP.data) renderDup(); else dupLoad();
+}
+function dupLoad() { api('/admin/api/duplicates').then(function (r) { DUP.data = r; renderDup(); }); }
+
+function dupClick(e) {
+  var go = e.target.closest('[data-duplink]');
+  if (go) {
+    var key = go.getAttribute('data-duplink');
+    var g = (DUP.data.groups || []).find(function (x) { return x.key === key; });
+    if (!g) return;
+    var picked = ($('#dup_' + dupId(key)) || {}).value || g.suggested;
+    var tl = dupTail(g);
+    var names = g.people.map(function (p) { return p.name + ' ' + dupNum(p, tl); }).join('\n  ');
+    if (!confirm('Treat these as one person?\n\n  ' + names + '\n\nKeeping ' + (tl >= 10 ? '' : '…') + String(picked).slice(-tl) + ' as the real account.\n\nNothing is moved or deleted — this only records that they are the same person, and it can be undone.')) return;
+    go.disabled = true;
+    post('/admin/api/duplicates/link', { primary: picked, phones: g.people.map(function (p) { return p.phone; }) }).then(function (r) {
+      go.disabled = false;
+      if (!r || !r.ok) { toast('⚠️ ' + ((r && r.message) || 'failed')); return; }
+      DUP.data = r; renderDup(); toast('🧑‍🤝‍🧑 Linked');
+    });
+    return;
+  }
+  var un = e.target.closest('[data-dupunlink]');
+  if (un) {
+    var k2 = un.getAttribute('data-dupunlink');
+    var g2 = (DUP.data.groups || []).find(function (x) { return x.key === k2; });
+    if (!g2) return;
+    post('/admin/api/duplicates/link', { action: 'unlink', phones: g2.people.map(function (p) { return p.phone; }) }).then(function (r) {
+      if (!r || !r.ok) { toast('⚠️ ' + ((r && r.message) || 'failed')); return; }
+      DUP.data = r; renderDup(); toast('Unlinked');
+    });
+  }
+}
+/** A key safe to put in an id attribute. */
+function dupId(k) { return String(k).replace(/[^a-z0-9]/gi, ''); }
+/**
+ * How much of the number to show for THIS pair. The panel masks to the last four everywhere, but duplicates are
+ * often consecutive numbers bought together — Geetesh Gwalani's two are 9238711109 and 9329711109, and at four
+ * digits both rows and both dropdown options read "…1109", which is not a choice anybody can make. So show the
+ * shortest tail that tells the people in this one group apart.
+ */
+function dupTail(g) {
+  for (var n = 4; n < 10; n++) {
+    var seen = {}; var clash = false;
+    for (var i = 0; i < g.people.length; i++) {
+      var tail = String(g.people[i].phone).slice(-n);
+      if (seen[tail]) { clash = true; break; }
+      seen[tail] = 1;
+    }
+    if (!clash) return n;
+  }
+  return 10;
+}
+function dupNum(p, n) { return (n >= 10 ? '' : '…') + String(p.phone).slice(-n); }
+
+function dupPerson(p, g, tail) {
+  var plans = p.active ? '<span class="pill p-ok">' + esc(p.active) + ' live</span>' : p.subs ? '<span class="pill p-grey">' + esc(p.subs) + ' past</span>' : '<span class="pill p-grey">no plans</span>';
+  return '<div class="dupr' + (p.phone === g.suggested ? ' keep' : '') + '"><div class="grow"><b>' + esc(p.name || 'Unknown') + '</b> <span class="muted">· ' + esc(dupNum(p, tail)) + '</span>' +
+    '<div class="muted" style="font-size:.74rem">' + esc(p.email || 'no email') + ' · ' + esc(p.subs) + ' plan' + (p.subs === 1 ? '' : 's') + ', ' + esc(p.orders) + ' order' + (p.orders === 1 ? '' : 's') +
+    (p.lastExpiryLabel ? ' · last ends ' + esc(p.lastExpiryLabel) : '') + '</div></div>' + plans +
+    '<a class="celllink" onclick="store(\'ff_last_phone\',\'' + esc(p.phone) + '\');nav(\'customer\')">Open</a></div>';
+}
+
+function renderDup() {
+  var d = DUP.data || {};
+  if (d.needsSchema) { $('#duptop').innerHTML = '<div class="qnote warn">⚠️ Run <b>db/schema-v33.sql</b> in phpMyAdmin first — it makes the one table this screen needs. Nothing else in the panel is affected until you do.</div>'; $('#duplist').innerHTML = ''; return; }
+  if (!d.ok) { $('#duptop').innerHTML = '<div class="qnote warn">' + esc((d && d.message) || 'Could not load.') + '</div>'; return; }
+  var t = d.totals || {};
+  $('#duptop').innerHTML = '<div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:6px">' +
+    '<span class="pill ' + (t.open ? 'p-warn' : 'p-ok') + '" style="font-size:.95rem;padding:7px 13px">' + esc(t.open) + ' to look at</span>' +
+    (t.bothActive ? '<span class="pill p-bad" style="padding:7px 13px">💸 ' + esc(t.bothActive) + ' paying on both numbers</span>' : '') +
+    (t.linked ? '<span class="pill p-ok" style="padding:7px 13px">✓ ' + esc(t.linked) + ' already one person</span>' : '') + '</div>' +
+    '<p class="muted" style="margin:0 0 12px;font-size:.78rem">Linking records that two accounts are the same person. <b>Nothing is moved or deleted</b> — no order, no subscription, no money — and it can be undone. It is what lets the 👥 WhatsApp group screen match them, and it is the record of who has bought twice by mistake.</p>';
+
+  $('#duplist').innerHTML = (d.groups || []).map(function (g) {
+    var tail = dupTail(g);
+    var why = g.why === 'email' ? 'same email <b>' + esc(g.shown) + '</b>' : 'same name <b>' + esc(g.shown) + '</b>';
+    var head = '<div class="row" style="justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><div>' +
+      (g.linked ? '<span class="pill p-ok">✓ one person</span> ' : '') + '<span class="muted" style="font-size:.82rem">' + why + '</span>' +
+      (g.bothActive && !g.linked ? ' <span class="pill p-bad">both have a live plan</span>' : '') + '</div>' +
+      (g.linked
+        ? '<button class="btn ghost sm" data-dupunlink="' + esc(g.key) + '">Undo</button>'
+        : '<span class="row" style="gap:6px"><select class="inp sm" id="dup_' + dupId(g.key) + '" style="max-width:190px">' +
+          g.people.map(function (p) { return '<option value="' + esc(p.phone) + '"' + (p.phone === g.suggested ? ' selected' : '') + '>keep ' + esc(p.name || dupNum(p, tail)) + ' ' + esc(dupNum(p, tail)) + '</option>'; }).join('') +
+          '</select><button class="btn sm" data-duplink="' + esc(g.key) + '">🧑‍🤝‍🧑 Same person</button></span>') + '</div>';
+    return '<div class="card dupg">' + head + g.people.map(function (p) { return dupPerson(p, g, tail); }).join('') + '</div>';
+  }).join('') || '<div class="card muted">No two accounts look like the same person. 👍</div>';
+}
 
 /* ================= 👥 WhatsApp group =================
    Group Offer plans are cheaper because the customer joins the FluxFilm WhatsApp group, and until 29 Sep 2026
