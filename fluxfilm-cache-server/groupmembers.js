@@ -105,26 +105,71 @@ function lineDate(line) {
   return y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
 }
 
+/**
+ * The display name on a system line that carries no number, and whether they came or went.
+ *
+ * Half of this community is saved in the owner's contacts, so WhatsApp writes the name he saved instead of the
+ * number: "FF - (YT) Alok Yadav joined using this community's invite link". Measured on the real export on
+ * 29 Sep 2026 — 1129 join lines, 598 of them with no number anywhere in them. Ignoring those is what made the
+ * chase list more than half wrong.
+ *
+ * Only the four system sentences WhatsApp actually writes are read. Anything else is somebody talking.
+ */
+function nameEvent(rest) {
+  let m;
+  if ((m = rest.match(/^(.+?) joined using this (?:group|community)'s invite link$/))) return { name: m[1], inGroup: true };
+  if ((m = rest.match(/^(.+?) joined the (?:group|community)$/))) return { name: m[1], inGroup: true };
+  if ((m = rest.match(/^(.+?) was added$/))) return { name: m[1], inGroup: true };
+  if ((m = rest.match(/^(.+?) left$/))) return { name: m[1], inGroup: false };
+  if ((m = rest.match(/^(.+?) was removed$/))) return { name: m[1], inGroup: false };
+  // "<somebody> added <name>" / "<somebody> removed <name>" — the TARGET is the one joining or leaving.
+  if ((m = rest.match(/^.+? added (.+)$/))) return { name: m[1], inGroup: true };
+  if ((m = rest.match(/^.+? removed (.+)$/))) return { name: m[1], inGroup: false };
+  return null;
+}
+
+/**
+ * A display name reduced to something that can be compared with a customer's name.
+ *
+ * The prefixes stripped here are the owner's own filing system in his contacts — "FF - ", a service tag in
+ * brackets, WhatsApp's "~" for a push name. Nothing clever: no nicknames, no initials, no fuzzy distance. A name
+ * is not a key, and the only safe use of one is an exact match that is also the ONLY match.
+ */
+const nameKey = (v) => s(v)
+  .replace(/^~\s*/, '')
+  .replace(/^FF\s*[-–]\s*/i, '')
+  .replace(/^\([^)]{1,12}\)\s*/, '')
+  .replace(/^(?:YT|OTT|NF|PR|JH)\s+/i, '')
+  .toLowerCase().replace(/[^a-z ]/g, '').replace(/\s+/g, ' ').trim();
+
 function parseList(text) {
   const lines = s(text).split(/\r?\n/);
   let events = 0;
   let firstDate = ''; let lastDate = '';
   const state = new Map(); // phone -> true (in) / false (out)
+  const byName = new Map();          // display name -> true / false, replayed the same way
   const seenAnywhere = new Set();
   for (const line of lines) {
     const d = lineDate(line);
     if (d) { if (!firstDate || d < firstDate) firstDate = d; if (d > lastDate) lastDate = d; }
     const ph = phonesIn(line);
-    if (!ph.length) continue;
+    if (!ph.length) {
+      // No number on this line: it may still be a system line naming somebody saved in the owner's contacts.
+      const rest = s(line).replace(STAMP_RE, '');
+      const ev = rest && rest !== line ? nameEvent(rest) : null;
+      if (ev && nameKey(ev.name) && nameKey(ev.name) !== 'you') { events++; byName.set(s(ev.name).replace(/^~\s*/, ''), ev.inGroup); }
+      continue;
+    }
     const joined = JOINED_RE.test(line);
     const left = LEFT_RE.test(line);
     for (const p of ph) seenAnywhere.add(p);
     if (joined && !left) { events++; for (const p of ph) state.set(p, true); }
     else if (left && !joined) { events++; for (const p of ph) state.set(p, false); }
   }
+  const names = [...byName.entries()].filter(([, inGroup]) => inGroup).map(([nm]) => nm);
   const mode = events > 0 ? 'export' : 'list';
-  const span = { lines: lines.length, firstDate, lastDate };
-  if (mode === 'list') return Object.assign({ mode, events: 0, phones: [...seenAnywhere] }, span);
+  const span = { lines: lines.length, firstDate, lastDate, names };
+  if (mode === 'list') return Object.assign({ mode, events: 0, phones: [...seenAnywhere] }, span, { names: [] });
   // In an export, somebody who never has an event but does send messages is in the group too.
   for (const p of seenAnywhere) if (!state.has(p)) state.set(p, true);
   return Object.assign({ mode, events, phones: [...state.entries()].filter(([, inGroup]) => inGroup).map(([p]) => p) }, span);
@@ -139,6 +184,42 @@ const SUBS_SQL =
   'SELECT sub_id, phone_norm, service, plan, expiry_date, status FROM subscriptions ' +
   "WHERE UPPER(COALESCE(status,'')) NOT IN ('REFUNDED','CANCELLED')";
 const NAMES_SQL = 'SELECT phone_norm, name FROM customers';
+
+/**
+ * Names from a pasted list, matched to customers.
+ *
+ * The rule that keeps this honest: a name counts ONLY when exactly one customer has it. Two customers called
+ * "Sahil" means neither of them is matched — that is not a near miss to be resolved with a guess, it is an
+ * unanswerable question, and answering it wrongly would remove a real person from the chase list.
+ */
+function matchNames(names, byName) {
+  const matched = []; const ambiguous = []; const unknown = [];
+  for (const nm of (names || [])) {
+    const hit = byName.get(nameKey(nm));
+    if (!hit) unknown.push(nm);
+    else if (hit.length > 1) ambiguous.push(nm);
+    else matched.push({ name: nm, phone: hit[0] });
+  }
+  return { matched, ambiguous, unknown };
+}
+
+/** phone -> name, and name-key -> [phones], from the customers table. Read on its own; never joined. */
+async function customerNames(query) {
+  const byPhone = new Map(); const byName = new Map();
+  let rows = [];
+  try { rows = await query(NAMES_SQL, []); } catch (e) { console.log('[group] names unavailable:', e.message); return { byPhone, byName }; }
+  for (const c of rows) {
+    const ph = norm(c.phone_norm);
+    if (!ph) continue;
+    byPhone.set(ph, s(c.name));
+    const k = nameKey(c.name);
+    if (!k) continue;
+    const list = byName.get(k) || [];
+    if (list.indexOf(ph) === -1) list.push(ph);
+    byName.set(k, list);
+  }
+  return { byPhone, byName };
+}
 
 /**
  * The services sold on the "join the group" deal. Taken from the plans themselves (RequiresGroupJoin in
@@ -171,21 +252,26 @@ function stateOf(sub, now) {
  */
 async function overview(query, now) {
   const at = now == null ? Date.now() : now;
-  let rows;
+  let rows; let provenanceOff = false;
   try {
-    rows = await query('SELECT id, phone_norm, name, claimed_at, claimed_via, claimed_for, seen_at, missing_at, note FROM wa_group_members', []);
+    rows = await query('SELECT id, phone_norm, name, claimed_at, claimed_via, claimed_for, seen_at, seen_by, missing_at, note FROM wa_group_members', []);
   } catch (e) {
+    // schema-v32 not run: the rows are all still there, we just cannot say HOW each one was found.
+    if (/Unknown column .*seen_by/i.test(String(e && e.message))) {
+      rows = (await query('SELECT id, phone_norm, name, claimed_at, claimed_via, claimed_for, seen_at, missing_at, note FROM wa_group_members', []))
+        .map((x) => Object.assign({ seen_by: '' }, x));
+      provenanceOff = true;
+    } else
     if (/wa_group_members/i.test(String(e && e.message)) && /doesn't exist|Unknown table/i.test(String(e && e.message))) {
       return { ok: true, needsSchema: true, members: [], owe: [], strangers: [], totals: { claimed: 0, seen: 0, owe: 0, strangers: 0, neverSeen: 0 } };
+    } else {
+      throw e;   // NOT an else-less fall-through: the guard above returns rows, and this must not run when it did.
     }
-    throw e;
   }
   const byPhone = new Map(rows.map((r) => [norm(r.phone_norm), r]));
   const services = await groupServices(query);
   const subs = (await query(SUBS_SQL, [])).filter((x) => services.has(s(x.service).toLowerCase()));
-  const names = new Map();
-  try { for (const c of await query(NAMES_SQL, [])) if (norm(c.phone_norm)) names.set(norm(c.phone_norm), s(c.name)); }
-  catch (e) { console.log('[group] names unavailable:', e.message); }   // a missing name is a worse row, not a broken screen
+  const names = (await customerNames(query)).byPhone;
 
   // One line per person who is paying for a Group Offer plan today.
   const owed = new Map();
@@ -206,7 +292,7 @@ async function overview(query, now) {
   const row = (r) => ({
     id: Number(r.id), phone: norm(r.phone_norm), name: s(r.name),
     claimedAt: s(r.claimed_at), claimedVia: s(r.claimed_via), claimedFor: s(r.claimed_for),
-    seenAt: s(r.seen_at), missingAt: s(r.missing_at), note: s(r.note),
+    seenAt: s(r.seen_at), seenBy: s(r.seen_by), missingAt: s(r.missing_at), note: s(r.note),
     // seen_at set and missing_at cleared, NOT 'the later of the two timestamps'. Both are written to the second,
     // so two lists checked inside the same second made a member who had left look present — a real ordering bug
     // that a slow afternoon would have hidden for months. applyList clears missing_at whenever it sees them.
@@ -229,7 +315,8 @@ async function overview(query, now) {
 
   return {
     ok: true,
-    everChecked,
+    everChecked, provenanceOff,
+    lastList: await lastListSummary(query),
     members: members.sort((a, b) => s(b.claimedAt || b.seenAt).localeCompare(s(a.claimedAt || a.seenAt))),
     owe, strangers, expiredIn,
     totals: {
@@ -243,6 +330,15 @@ async function overview(query, now) {
   };
 }
 
+const LAST_KEY = 'wa_group_last';
+/** What the last saved list contained, so the screen can explain a community count it cannot otherwise see. */
+async function lastListSummary(query) {
+  try {
+    const r = await query('SELECT value FROM app_settings WHERE setting_key = ? LIMIT 1', [LAST_KEY]);
+    return r && r[0] ? JSON.parse(r[0].value || 'null') : null;
+  } catch (_) { return null; }
+}
+
 /**
  * What a pasted list says, without writing anything. The owner sees this before it is saved, because a bad paste
  * (the wrong group, half a screen, a list of order ids) would otherwise mark every real member as having left.
@@ -252,7 +348,8 @@ async function reconcile(query, text, now) {
   const parsed = parseList(text);
   const view = await overview(query, at);
   if (view.needsSchema) return { ok: true, needsSchema: true };
-  const found = new Set(parsed.phones);
+  const nm = matchNames(parsed.names, (await customerNames(query)).byName);
+  const found = new Set(parsed.phones.concat(nm.matched.map((x) => x.phone)));
   const owed = new Map(view.owe.concat(view.expiredIn || []).map((p) => [p.phone, p]));
   for (const m of view.members) if (!owed.has(m.phone)) owed.set(m.phone, null);
 
@@ -272,6 +369,13 @@ async function reconcile(query, text, now) {
     lines: parsed.lines, firstDate: parsed.firstDate, lastDate: parsed.lastDate, staleDays,
     looksPartial: parsed.mode === 'export' && staleDays != null && staleDays > 2,
     countFound: nowIn.length,
+    // Half a community can be saved in the owner's contacts, so the export names them and never numbers them.
+    // Those only become members we can act on when the name matches exactly one customer.
+    namesFound: (parsed.names || []).length,
+    namesMatched: nm.matched.length,
+    namesAmbiguous: nm.ambiguous.length,
+    namesUnknown: nm.unknown.length,
+    memberTotal: nowIn.length + (parsed.names || []).length,
     newRows: newRows.length,
     goneAway,
     // Named here so the owner can see the paste was understood before it is saved.
@@ -283,15 +387,25 @@ async function reconcile(query, text, now) {
 async function applyList(query, text, now) {
   const at = now == null ? Date.now() : now;
   const stamp = sqlNow(at);
+  // One probe, once: ask the table whether it has the column rather than finding out half way through a save.
+  try { await query('SELECT seen_by FROM wa_group_members LIMIT 1', []); seenByOff = false; }
+  catch (e) { if (/Unknown column .*seen_by/i.test(String(e && e.message))) seenByOff = true; else if (!/doesn't exist|Unknown table/i.test(String(e && e.message))) throw e; }
   const parsed = parseList(text);
-  if (!parsed.phones.length) return { ok: false, message: 'No phone numbers could be read out of that. Paste the participant list, or an exported chat.' };
+  const cn = await customerNames(query);
+  const nm = matchNames(parsed.names, cn.byName);
+  if (!parsed.phones.length && !nm.matched.length) return { ok: false, message: 'No phone numbers could be read out of that, and no name in it matched a customer. Paste the participant list, or an exported chat.' };
   const rows = await query('SELECT id, phone_norm, seen_at, missing_at FROM wa_group_members', []);
   const known = new Map(rows.map((r) => [norm(r.phone_norm), r]));
-  const found = new Set(parsed.phones);
+  // A number beats a name: if the export has both for the same person, the number is the one we are sure of.
+  const how = new Map();
+  for (const x of nm.matched) how.set(x.phone, 'name');
+  for (const p of parsed.phones) how.set(p, 'number');
+  const found = new Set(how.keys());
   let added = 0; let seen = 0; let gone = 0;
   for (const p of found) {
-    if (known.has(p)) { await query('UPDATE wa_group_members SET seen_at = ?, missing_at = NULL WHERE id = ?', [stamp, known.get(p).id]); seen++; }
-    else { await query('INSERT INTO wa_group_members (phone_norm, name, seen_at) VALUES (?, ?, ?)', [p, '', stamp]); added++; }
+    const by = how.get(p) || '';
+    if (known.has(p)) { await query(withSeenBy('UPDATE wa_group_members SET seen_at = ?, missing_at = NULL WHERE id = ?', 'update'), seenByArgs([stamp], by, [known.get(p).id])); seen++; }
+    else { await query(withSeenBy('INSERT INTO wa_group_members (phone_norm, name, seen_at) VALUES (?, ?, ?)', 'insert'), seenByArgs([p, cn.byPhone.get(p) || '', stamp], by, [])); added++; }
   }
   for (const r of rows) {
     const p = norm(r.phone_norm);
@@ -301,8 +415,30 @@ async function applyList(query, text, now) {
     await query('UPDATE wa_group_members SET missing_at = ? WHERE id = ?', [stamp, r.id]);
     gone++;
   }
-  return { ok: true, mode: parsed.mode, added, seen, gone, total: found.size };
+  const summary = {
+    at: stamp, numbered: parsed.phones.length, named: (parsed.names || []).length,
+    namesMatched: nm.matched.length, namesAmbiguous: nm.ambiguous.length, namesUnknown: nm.unknown.length,
+    memberTotal: parsed.phones.length + (parsed.names || []).length,
+  };
+  try {
+    await query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [LAST_KEY, JSON.stringify(summary)]);
+  } catch (e) { console.log('[group] could not record the list summary:', e.message); }
+  return { ok: true, mode: parsed.mode, added, seen, gone, total: found.size, byName: nm.matched.length, summary };
 }
+
+/**
+ * schema-v32 adds seen_by; everything works without it. Written as two tiny helpers rather than two copies of
+ * each statement, because the last time this shape was needed (schema-v30, 26 Sep) the fallback branch fell
+ * through to a throw that was written below it and the whole screen went dark.
+ */
+let seenByOff = false;
+function withSeenBy(sql, kind) {
+  if (seenByOff) return sql;
+  return kind === 'insert'
+    ? 'INSERT INTO wa_group_members (phone_norm, name, seen_at, seen_by) VALUES (?, ?, ?, ?)'
+    : 'UPDATE wa_group_members SET seen_at = ?, seen_by = ?, missing_at = NULL WHERE id = ?';
+}
+function seenByArgs(head, by, tail) { return seenByOff ? head.concat(tail) : head.concat([by]).concat(tail); }
 
 /**
  * Record that this person says they have joined the group. Called from the storefront checkout and from Olivia,
@@ -378,4 +514,4 @@ function mount(app, deps) {
   });
 }
 
-module.exports = { mount, claim, _internal: { phonesIn, parseList, overview, reconcile, applyList, groupServices, stateOf, daysLeft, prettyDate, sqlNow } };
+module.exports = { mount, claim, _internal: { phonesIn, parseList, nameEvent, nameKey, matchNames, customerNames, overview, reconcile, applyList, groupServices, stateOf, daysLeft, prettyDate, sqlNow, LAST_KEY } };
