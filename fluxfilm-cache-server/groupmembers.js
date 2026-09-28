@@ -208,6 +208,12 @@ async function customerNames(query) {
   const byPhone = new Map(); const byName = new Map();
   let rows = [];
   try { rows = await query(NAMES_SQL, []); } catch (e) { console.log('[group] names unavailable:', e.message); return { byPhone, byName }; }
+  // 🧑‍🤝‍🧑 Two customer rows the owner has marked as one person count as ONE account here. Ten names were
+  // ambiguous on 29 Sep only because the same customer exists twice — "Karan Sunder" is not two people, it is
+  // one person with two numbers, and refusing to match him was right only while nobody had said so.
+  let same = new Map();
+  try { const d = require('./duplicates'); same = (await d.links(query)).map; } catch (e) { same = new Map(); }
+  const primary = (ph) => { try { return require('./duplicates').primaryOf(same, ph); } catch (e) { return ph; } };
   for (const c of rows) {
     const ph = norm(c.phone_norm);
     if (!ph) continue;
@@ -215,7 +221,8 @@ async function customerNames(query) {
     const k = nameKey(c.name);
     if (!k) continue;
     const list = byName.get(k) || [];
-    if (list.indexOf(ph) === -1) list.push(ph);
+    const use = primary(ph);
+    if (list.indexOf(use) === -1) list.push(use);
     byName.set(k, list);
   }
   return { byPhone, byName };
