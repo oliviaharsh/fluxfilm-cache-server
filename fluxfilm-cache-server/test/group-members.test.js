@@ -14,6 +14,7 @@ const section = (t) => console.log('\n=== ' + t + ' ===');
 
 // Dates the database would hold, in India time, relative to now — so the suite cannot pass or fail by the date.
 const at = (days) => new Date(Date.now() + days * 86400e3 + 5.5 * 3600e3).toISOString().slice(0, 19).replace('T', ' ');
+const dmy = (days) => { const d = new Date(Date.now() + days * 86400e3 + 5.5 * 3600e3); return String(d.getUTCDate()).padStart(2, '0') + '/' + String(d.getUTCMonth() + 1).padStart(2, '0') + '/' + d.getUTCFullYear(); };
 
 let ROWS = [];
 let SUBS = [];
@@ -185,6 +186,27 @@ const reset = () => { ROWS = []; AUDIT = []; seq = 0; tableExists = true; SUBS =
 
   // ── pasting a list ────────────────────────────────────────────────────────────────────────────────────────
   section('pasting the group list');
+  // ── a half-file must announce itself ─────────────────────────────────────────────────────────────────────
+  // The owner exported a 490-member community, the paste stopped in May, and the screen said "Saved ✓ — 258 in
+  // the group" with nothing to suggest anything was missing. Saving a half-file marks everybody it does not
+  // mention as having left, so this is the one thing the check has to shout about.
+  {
+    const OLD = [
+      dmy(-300) + ", 10:03 - +91 98765 43210 joined using this group's invite link",
+      dmy(-260) + ", 11:15 - +91 91234 56789 joined using this group's invite link",
+    ].join('\n');
+    const half = await post('/admin/api/group/paste', { text: OLD });
+    ok('an export whose last line is months old is called out as part of a file', half.ok && half.looksPartial === true && half.staleDays >= 259, { partial: half.looksPartial, stale: half.staleDays });
+    ok('…and it says what the paste actually covered, which is how you see it at a glance', half.lastDate && half.firstDate && half.lines === 2, { first: half.firstDate, last: half.lastDate, lines: half.lines });
+    const FRESH = [
+      dmy(-300) + ", 10:03 - +91 98765 43210 joined using this group's invite link",
+      dmy(0) + ', 09:00 - +91 98765 43210: morning',
+    ].join('\n');
+    const whole = await post('/admin/api/group/paste', { text: FRESH });
+    ok('…while an export that runs up to today is not', whole.ok && whole.looksPartial === false, { partial: whole.looksPartial, stale: whole.staleDays });
+    ok('…and neither warning wrote anything', ROWS.every((x) => !x.seen_at), ROWS.map((x) => x.seen_at));
+  }
+
   r = await post('/admin/api/group/paste', { text: EXPORT });
   ok('a check reads the export and says what it found', r.ok && r.mode === 'export' && r.countFound === 4, r);
   ok('…and writes NOTHING until it is saved — a half-pasted list would mark real members as gone', ROWS.every((x) => !x.seen_at), ROWS.map((x) => x.seen_at));
@@ -237,6 +259,20 @@ const reset = () => { ROWS = []; AUDIT = []; seq = 0; tableExists = true; SUBS =
     && /t\.groupJoined\(c\.phone/.test(read('olivia.js')));
   ok('…without the chat ever waiting on it, or failing with it', /Promise\.resolve\(t\.groupJoined\([\s\S]{0,80}?\)\.catch\(\(\) => \{\}\)/.test(read('olivia.js')), (read('olivia.js').match(/t\.groupJoined[^\n]*/) || [])[0]);
   ok('the endpoints are mounted', /require\('\.\/groupmembers'\)\.mount\(app/.test(read('admin.js')));
+  // A WhatsApp export of a community runs to megabytes. At the shared 1 MB it came back 413 as an HTML error
+  // page the panel could not even read. The bigger parser has to be declared BEFORE the shared one or it never
+  // runs, so pin the ORDER, not just its presence.
+  ok('📎 a whole exported chat can actually be sent — the big parser is declared before the 1 MB one', (() => {
+    const sv = read('server.js');
+    const big = sv.indexOf("app.post('/admin/api/group/paste', express.json({ limit: '16mb' }))");
+    const small = sv.indexOf("app.use(express.json({ limit: '1mb' }))");
+    return big > -1 && small > -1 && big < small;
+  })(), { });
+  ok('…and the screen can take the file instead of a copy-paste of it', /id="grpfile"/.test(read('admin.html')) && /readAsText/.test(read('admin.html')));
+  ok('…and says so plainly when the file is too big, instead of a JSON parse error', /too big to send in one go/.test(read('admin.html')) && /Unexpected token\|JSON/.test(read('admin.html')));
+  // In a community most members are not Group Offer customers; hundreds of rows would bury the two lists that
+  // do have an action behind them.
+  ok('❓ the "paying for nothing" list is folded away and capped', /grpFolded\('❓ In the group, paying for nothing'/.test(read('admin.html')) && /and ' \+ \(rows\.length - shown\.length\) \+ ' more/.test(read('admin.html')));
   ok('the screen is in the sidebar and in the view map', /\['wagroup', '👥', 'WhatsApp group'\]/.test(read('admin.html')) && /wagroup: groupView/.test(read('admin.html')));
   // In this panel api() is a GET with a query string and post() is the POST. Sending a whole exported chat as a
   // URL fails silently — the two write buttons did nothing at all until this was noticed by clicking them.
