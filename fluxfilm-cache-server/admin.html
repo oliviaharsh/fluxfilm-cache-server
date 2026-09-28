@@ -448,6 +448,12 @@ textarea.inp{resize:vertical}
 .ytempty .ytacts{margin-left:auto}
 @media(max-width:640px){.ytrow .ytname{flex:1 1 100%}.ytrow .ytacts{margin-left:0;width:100%}}
 
+/* ⚡ Quick order: the three-way payment choice. Each button says what it is and what happens next, so the
+   QR is a thing you pick rather than a tick you have to know to clear. Stacks on a narrow phone. */
+.seg3 button{flex:1 1 33%;display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 8px;line-height:1.2}
+.seg3 button small{font-weight:500;font-size:.68rem;opacity:.75}
+@media(max-width:560px){.seg3{flex-direction:column}.seg3 button{flex:1 1 auto;width:100%}}
+
 /* 🚪 Remove users */
 .ru-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
 .ru-chip{border:1px solid var(--line);background:#fff;border-radius:14px;padding:10px 14px;font-size:.84rem;line-height:1.35;text-align:left;cursor:pointer;color:var(--ink);flex:1 1 220px}
@@ -1741,7 +1747,23 @@ function qPayHtml() {
   var methods = (Q.cat && Q.cat.payMethods) || ['UPI', 'CASH', 'BANK', 'OTHER'];
   var renew = Q.tab === 'renew';
   // 💳 Offered on NEW orders as well as renewals since 24 Sep 2026.
-  var paySeg = '<div class="fld" style="margin-bottom:12px"><label>Payment</label><div class="seg" id="q_pay"><button data-v="NOW" class="' + (Q.pay !== 'CREDIT' ? 'on' : '') + '">✅ Paid now</button><button data-v="CREDIT" class="' + (Q.pay === 'CREDIT' ? 'on' : '') + '">💳 On credit (pay later)</button></div></div>';
+  // Owner, 28 Sep 2026: "when i click renew it just shows mark paid and renew, no qr for payment to send to
+  // customer". The QR has been here since 20 Sep, but only by UNTICKING "Payment received — mark as paid now",
+  // which reads like a detail of "Paid now" rather than a different thing to do. Three named choices instead:
+  // I have the money · send them a QR · give it to them on credit. No tick, nothing hidden behind one.
+  var paySeg = '<div class="fld" style="margin-bottom:12px"><label>Payment</label><div class="seg seg3" id="q_pay">'
+    + '<button data-v="NOW" class="' + (Q.pay === 'NOW' ? 'on' : '') + '">✅ Already paid<small>I have the money</small></button>'
+    + '<button data-v="LINK" class="' + (Q.pay === 'LINK' ? 'on' : '') + '">💳 Send a QR<small>they pay, it matches itself</small></button>'
+    + '<button data-v="CREDIT" class="' + (Q.pay === 'CREDIT' ? 'on' : '') + '">🕓 On credit<small>pay later</small></button></div></div>';
+
+  // 💳 Send a QR: the order is made UNPAID on purpose, so the payment page can carry the order id as the UPI note
+  // and payments.js can match the money by itself. Nothing is asked for that we have not got yet.
+  if (Q.pay === 'LINK') {
+    return paySeg + '<div class="fields"><div class="fld"><label>Amount to ask for (₹)</label><input class="inp" id="q_amount" inputmode="numeric" value="' + esc(Q.amount) + '"/></div>' +
+      '<div class="fld"><label>Note (optional)</label><input class="inp" id="q_notes" value="' + esc(Q.notes) + '" placeholder="e.g. renewal, agreed on WhatsApp"/></div></div>' +
+      '<div class="qnote">💳 You get a <b>payment page with a QR</b> to send them, and the WhatsApp message written for you. The order number is the UPI note, so the payment <b>matches itself</b> — you never mark it paid by hand.</div>' +
+      '<div class="qnote">⏳ ' + (renew ? 'The plan renews the moment the money lands' : 'The account is handed out and the login emailed the moment the money lands') + ' — not before.</div>';
+  }
   if (Q.pay === 'CREDIT') {
     return paySeg + '<div class="fields"><div class="fld"><label>Amount due (₹)</label><input class="inp" id="q_amount" inputmode="numeric" value="' + esc(Q.amount) + '"/></div>' +
       '<div class="fld"><label>Due date</label><input class="inp" id="q_cdue" type="date" value="' + esc(Q.cdue) + '"/></div>' +
@@ -1754,7 +1776,7 @@ function qPayHtml() {
     '<div class="fld"><label>Paid by</label><div class="seg" id="q_method">' + methods.map(function (m) { return '<button data-v="' + m + '" class="' + (Q.method === m ? 'on' : '') + '">' + (m === 'UPI' ? 'UPI' : m[0] + m.slice(1).toLowerCase()) + '</button>'; }).join('') + '</div></div>' +
     '<div class="fld"><label>UTR / reference (optional)</label><input class="inp" id="q_ref" value="' + esc(Q.ref) + '"/></div>' +
     '<div class="fld"><label>Note (optional)</label><input class="inp" id="q_notes" value="' + esc(Q.notes) + '" placeholder="e.g. paid on WhatsApp"/></div></div>' +
-    '<label class="qtoggle"><input type="checkbox" id="q_markpaid"' + (Q.markPaid ? ' checked' : '') + '/> <span><b>Payment received — mark as paid now</b><small>Hands out the account and emails the login straight away</small></span></label>';
+    '<div class="qnote">✅ ' + (renew ? 'The plan renews' : 'The account is handed out and the login emailed') + ' straight away, and it counts as paid.</div>';
 }
 
 function qSummaryHtml(p) {
@@ -1770,8 +1792,12 @@ function qSummaryHtml(p) {
     '<div class="qline total"><span>Total</span><b>' + (amt != null ? money(amt) : '—') + '</b></div>' +
     (missing ? '<div class="qnote" style="margin-top:10px">👉 ' + esc(missing) + '</div>' : '') +
     (!isNew && qt && qt.ok && qt.bases ? '<div class="qline"><span>New expiry</span><b>' + esc(((Q.rbase === 'AUTO' || !qt.bases[Q.rbase]) ? (qt.preview || {}).newExpiryText : qt.bases[Q.rbase].newExpiryText) || '—') + '</b></div>' : '') +
-    (Q.pay === 'CREDIT' ? '<div class="qline"><span>💳 On credit</span><b>due ' + esc(Q.cdue ? prettyDate(Q.cdue) : '—') + '</b></div>' : '') +
-    '<button class="btn qgo" id="q_go"' + (missing || Q.busy ? ' disabled' : '') + '>' + (Q.busy ? 'Working…' : (Q.pay === 'CREDIT' ? (isNew ? '💳 Create on credit' : '💳 Renew on credit') : Q.markPaid ? '✅ Create & mark paid' : '🧾 Create unpaid order')) + '</button>' +
+    (Q.pay === 'CREDIT' ? '<div class="qline"><span>🕓 On credit</span><b>due ' + esc(Q.cdue ? prettyDate(Q.cdue) : '—') + '</b></div>' : '') +
+    (Q.pay === 'LINK' ? '<div class="qline"><span>💳 To pay</span><b>QR + link</b></div>' : '') +
+    '<button class="btn qgo" id="q_go"' + (missing || Q.busy ? ' disabled' : '') + '>' + (Q.busy ? 'Working…'
+      : Q.pay === 'CREDIT' ? (isNew ? '🕓 Create on credit' : '🕓 Renew on credit')
+        : Q.pay === 'LINK' ? '💳 Make the QR to send'
+          : (isNew ? '✅ Create & mark paid' : '✅ Renew & mark paid')) + '</button>' +
     '<button class="btn ghost sm" style="width:100%;justify-content:center;margin-top:8px" data-act="reset">Clear</button></div>';
   return h;
 }
@@ -1785,9 +1811,11 @@ function qMissing() {
     if (!Q.quote || !Q.quote.ok) return 'Waiting for the renewal check.';
     if (Q.quote.mode === 'NONE') return 'No account is free for this renewal.';
   }
-  if (Q.amount === '' || isNaN(Number(Q.amount))) return Q.pay === 'CREDIT' ? 'Enter the amount due.' : 'Enter the amount received.';
+  if (Q.amount === '' || isNaN(Number(Q.amount))) return Q.pay === 'CREDIT' ? 'Enter the amount due.' : Q.pay === 'LINK' ? 'Enter the amount to ask for.' : 'Enter the amount received.';
   if (Q.pay === 'CREDIT' && !(Number(Q.amount) > 0)) return 'The amount due must be more than ₹0.';
   if (Q.pay === 'CREDIT' && !Q.cdue) return 'Pick the date the money is due.';
+  // A QR for ₹0 is a page that cannot be paid.
+  if (Q.pay === 'LINK' && !(Number(Q.amount) > 0)) return 'The amount to ask for must be more than ₹0.';
   return '';
 }
 function qCollect() {
@@ -1798,7 +1826,8 @@ function qCollect() {
   if (g('q_ref') != null) Q.ref = g('q_ref');
   if (g('q_notes') != null) Q.notes = g('q_notes');
   if (g('q_cdue') != null) Q.cdue = g('q_cdue');
-  var mp = $('#q_markpaid'); if (mp) Q.markPaid = mp.checked;
+  // One source of truth: the chooser. "Already paid" marks it paid; the other two never do.
+  Q.markPaid = Q.pay === 'NOW';
 }
 function qRefreshSummary() { qCollect(); var el = $('.qsum'); if (el) { el.outerHTML = qSummaryHtml(qPlan()); var go = $('#q_go'); if (go) go.onclick = qSubmit; var rs = $('[data-act="reset"]'); if (rs) rs.onclick = function () { var t = Q.tab; qReset(t); quickView(); }; } }
 function qWire() {
@@ -1833,9 +1862,8 @@ function qWire() {
   body.querySelectorAll('.qsub').forEach(function (b) { b.onclick = function () { qCollect(); Q.subId = b.getAttribute('data-sub'); Q.rplan = ''; qQuote(); }; });
   var rp = $('#q_rplan'); if (rp) rp.onchange = function () { qCollect(); Q.rplan = rp.value; qQuote(); };
   var rb = $('#q_rbase'); if (rb) rb.onclick = function (e) { var b = e.target.closest('button'); if (!b) return; qCollect(); Q.rbase = b.getAttribute('data-v'); qRender(); };
-  var py = $('#q_pay'); if (py) py.onclick = function (e) { var b = e.target.closest('button'); if (!b) return; qCollect(); Q.pay = b.getAttribute('data-v'); if (Q.pay === 'CREDIT' && !Q.cdue && Q.quote && Q.quote.creditDueDate) Q.cdue = Q.quote.creditDueDate; qRender(); };
+  var py = $('#q_pay'); if (py) py.onclick = function (e) { var b = e.target.closest('button'); if (!b) return; qCollect(); Q.pay = b.getAttribute('data-v'); Q.markPaid = Q.pay === 'NOW'; if (Q.pay === 'CREDIT' && !Q.cdue && Q.quote && Q.quote.creditDueDate) Q.cdue = Q.quote.creditDueDate; qRender(); };
   ['q_phone', 'q_name', 'q_email', 'q_extra', 'q_amount', 'q_ref', 'q_notes', 'q_cdue'].forEach(function (id) { var e = $('#' + id); if (e) e.addEventListener('input', qRefreshSummary); });
-  var mp = $('#q_markpaid'); if (mp) mp.onchange = qRefreshSummary;
   var go = $('#q_go'); if (go) go.onclick = qSubmit;
   var rs = body.querySelector('[data-act="reset"]'); if (rs) rs.onclick = function () { var t = Q.tab; qReset(t); quickView(); };
 }
@@ -1866,6 +1894,9 @@ function qSubmit() {
   };
   if (Q.tab === 'renew') body.renewBase = Q.rbase || 'AUTO';
   if (Q.pay === 'CREDIT') { body.payment = 'CREDIT'; body.creditDueDate = Q.cdue || ''; body.markPaid = false; }
+  // 💳 Send a QR is an ordinary UNPAID order — the server answers with the pay pack (paylink.js) and the result
+  // screen shows the QR page link. Nothing about the order itself is special, which is why it matches itself.
+  if (Q.pay === 'LINK') { body.markPaid = false; body.payMethod = 'UPI'; body.txnRef = ''; }
   var send = function (confirmDuplicate) {
     Q.busy = true; qRefreshSummary();
     post('/admin/api/quick/order', Object.assign({ confirmDuplicate: !!confirmDuplicate }, body)).then(function (r) {
