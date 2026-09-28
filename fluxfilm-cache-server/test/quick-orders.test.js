@@ -191,6 +191,18 @@ const PLANS = [
   ok('the panel offers it after creating an order, on every unpaid order and on the order card', /💳 Ask the customer to pay/.test(adminHtml) && /function qPayBox\(/.test(adminHtml) && /data-payi=/.test(adminHtml) && /id="od_paylink"/.test(adminHtml) && /function payLinkModal\(/.test(adminHtml) && /send-paylink/.test(adminHtml));
   ok('the WhatsApp message for an unpaid order carries the link instead of "send the screenshot"', /Please pay \*₹' \+ r\.amount \+ '\* here/.test(adminHtml) && /r\.pay\.payLink/.test(adminHtml));
 
+  // 💳 Owner, 28 Sep 2026: "when i click renew it just shows mark paid and renew, no qr for payment to send to
+  // customer". The QR had been there since 20 Sep, reachable only by clearing a tick that read like a detail of
+  // "Paid now". Three named choices now, and the tick is gone — so the QR cannot hide behind a default again.
+  ok('⚡ Quick order asks WHICH of the three, in words', /data-v="NOW"[^>]*>✅ Already paid/.test(adminHtml) && /data-v="LINK"[^>]*>💳 Send a QR/.test(adminHtml) && /data-v="CREDIT"[^>]*>🕓 On credit/.test(adminHtml));
+  ok('…and the tick that used to hide the QR is gone for good', adminHtml.indexOf('q_markpaid') === -1 && adminHtml.indexOf("<b>Payment received — mark as paid now</b>") === -1);
+  ok('…"paid" is decided by the choice, not by a checkbox that can disagree with it', /Q\.markPaid = Q\.pay === 'NOW';/.test(adminHtml));
+  ok('…the QR choice makes an ORDINARY unpaid order, which is what lets the payment match itself', /if \(Q\.pay === 'LINK'\) \{ body\.markPaid = false;/.test(adminHtml) && !/body\.payment = 'LINK'/.test(adminHtml));
+  ok('…each choice asks only for what it can know: amount to ask for, no UTR, no "paid by"', /Amount to ask for \(₹\)/.test(adminHtml) && /Amount received \(₹\)/.test(adminHtml) && /Amount due \(₹\)/.test(adminHtml));
+  ok('…and the button says which one you picked', /💳 Make the QR to send/.test(adminHtml) && /🕓 Renew on credit/.test(adminHtml) && /✅ Renew & mark paid/.test(adminHtml));
+  ok('…a QR for ₹0 is refused — it would be a page nobody can pay', /Q\.pay === 'LINK' && !\(Number\(Q\.amount\) > 0\)/.test(adminHtml));
+  ok('…and three buttons still fit a phone', /\.seg3 button\{/.test(adminHtml) && /@media\(max-width:560px\)\{\.seg3\{flex-direction:column\}/.test(adminHtml));
+
   if (server.closeAllConnections) server.closeAllConnections();
   await new Promise((res) => server.close(res));
   Module._load = origLoad;
