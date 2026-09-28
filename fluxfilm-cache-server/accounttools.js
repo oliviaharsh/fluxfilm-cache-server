@@ -93,6 +93,10 @@ function mount(app, deps) {
         // `olderCount` = rows that are neither active nor "expired, not removed": already removed, refunded,
         // cancelled. They are updated too, because any of them can still be renewed later.
         sameLogin: im.sameLogin, active: im.active.map(brief), expired: im.expired.map(brief),
+        // …and WHO those older ones were. A count answers "how many"; the owner's question is "who is on this
+        // login" (28 Sep 2026), and on a shared Prime account the people who were let go are exactly the ones
+        // you are trying to account for. olderCount stays for the 🔑 password screen, which only needs the number.
+        older: im.subs.filter((x) => !im.active.includes(x) && !im.expired.includes(x)).map((x) => Object.assign(brief(x), { status: s(x.status).toUpperCase(), removed: Number(x.removed) === 1 })),
         totalSubs: im.subs.length, olderCount: Math.max(0, im.subs.length - im.active.length - im.expired.length) });
     } catch (e) { fail(res, e); }
   });

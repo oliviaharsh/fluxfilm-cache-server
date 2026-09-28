@@ -133,6 +133,33 @@ const mailer = {
   let parsed = true; for (const sc of scripts) { try { new Function(sc); } catch (e) { parsed = false; console.log('   parse error:', e.message); } }
   ok('panel parses and has Password change + Reminders screens', parsed && /function passwordView\(/.test(html) && /function remindersView\(/.test(html) && /Copy for AI/.test(html));
 
+
+  // ── 🚪 "Who is on this account?" (owner, 28 Sep 2026) ─────────────────────────────────────────────────────
+  // 🚪 Remove users only lists logins that have expired customers NOT yet ticked, so an account where everybody
+  // is active — or where every expired one is already ticked — is correctly absent from it. The owner still has
+  // to be able to ask "who is on PRI-03 right now", and impact() is what answers that.
+  section('🔍 who is on this account');
+  {
+    const w = await get('/admin/api/accounts/impact?service=Netflix&account_id=NF-03');
+    ok('it names everyone who can watch right now', w.body.ok && w.body.active.map((x) => x.subId).join() === 'A1,A2', w.body.active);
+    ok('…and the people already let go are RETURNED, not just counted — they are who you are trying to account for',
+      Array.isArray(w.body.older) && w.body.older.map((x) => x.subId).join() === 'E2', { older: w.body.older, olderCount: w.body.olderCount });
+    ok('…each saying what became of them', (w.body.older || []).every((p) => typeof p.removed === 'boolean' && typeof p.status === 'string') && w.body.older[0].removed === true, w.body.older[0]);
+    ok('…nobody appears twice across watching / still-on-it / let-go', (() => {
+      const ids = [].concat(w.body.active, w.body.expired, w.body.older).map((p) => p.subId);
+      return ids.length === new Set(ids).size && ids.length === w.body.totalSubs;
+    })(), { a: w.body.active.length, e: w.body.expired.length, o: w.body.older.length, total: w.body.totalSubs });
+    // olderCount is what the 🔑 password screen reads. Adding the older list must not change what it means.
+    ok('…and olderCount still means exactly what it did', w.body.olderCount === w.body.older.length && w.body.olderCount === w.body.totalSubs - w.body.active.length - w.body.expired.length, w.body.olderCount);
+  }
+  {
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'admin.html'), 'utf8');
+    ok('the lookup sits on the 🚪 Remove users screen with its own search', /function ruWhoBox\(/.test(html) && /Who is on this account\?/.test(html) && /id="ruwq"/.test(html) && /ruWhoBox\(\) \+/.test(html));
+    ok('…and reuses the two endpoints the 🔑 password screen already uses, not a new way to read the same thing',
+      /api\('\/admin\/api\/accounts\/search'/.test(html) && /api\('\/admin\/api\/accounts\/impact'/.test(html));
+    ok('…leading with how many can watch right now', /watching now/.test(html));
+    ok('…and an expired row still offers ✅ Removed, the same action as the list below it', /data-rurm="' \+ esc\(p\.subId\) \+ '" data-runame/.test(html));
+  }
   if (server.closeAllConnections) server.closeAllConnections();
   await new Promise((res) => server.close(res));
   Module._load = origLoad;
