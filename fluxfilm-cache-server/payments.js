@@ -28,6 +28,58 @@ async function ingestCredit(c, receivedAt) {
   return !!(r && r.affectedRows);
 }
 
+/**
+ * Pay ONE order from a bank credit that already names it, and deliver it.
+ *
+ * Until 28 Sep 2026 the only thing that ever consumed such a credit was verifyPayment(), and the only thing that
+ * called verifyPayment() was the storefront checkout page WHILE THE CUSTOMER SAT ON IT. So a customer who paid
+ * from the 💳 payment link (whose page polls a status route that only reads the order) — or who simply closed the
+ * tab — left the money sitting in bank_credits with their order id written on it, and the order stuck on CREATED.
+ * The bank alert had everything needed; nothing was listening.
+ *
+ * verifyPayment() marks it PAID but does not deliver — the storefront calls fulfilment separately — so this does
+ * both, or the order just moves from "unpaid" to "paid but not delivered".
+ */
+async function settleOne(orderId) {
+  const oid = String(orderId || '').toUpperCase();
+  if (!oid) return false;
+  const r = await require('./order').verifyPayment(oid);
+  if (!(r && r.paid)) return false;
+  // Delivery is best-effort: the money is recorded either way, and a failed delivery is already a Today card.
+  try { await require('./fulfill').fulfillForAdmin(oid); }
+  catch (e) { console.log('[settle] ' + oid + ' paid but delivery failed:', e.message); }
+  return true;
+}
+
+/**
+ * Sweep: every unused credit whose bank note named an order. Runs whenever new mail lands and on the 60-second
+ * safety scan, so nobody has to be looking at a screen for a payment to count.
+ *
+ * The order ids are split in JavaScript and each one looked up by parameter — never joined against
+ * bank_credits.order_ids in SQL. That comparison is exactly what broke the ▶️ Today count on 27 Sep: the tables
+ * do not share a collation and MariaDB refuses it.
+ */
+async function settleNamedOrders(hours) {
+  const out = { checked: 0, paid: 0 };
+  let rows;
+  try {
+    rows = await db.query(
+      'SELECT id, order_ids, amount FROM bank_credits WHERE consumed_order_id IS NULL AND order_ids <> ? ' +
+      'AND received_at > NOW() - INTERVAL ? HOUR ORDER BY received_at DESC LIMIT 100', ['', Math.max(1, Number(hours) || 72)]);
+  } catch (e) { console.log('[settle] sweep could not read credits:', e.message); return out; }
+  const seen = new Set();
+  for (const c of rows) {
+    for (const oid of String(c.order_ids || '').split(',').map((x) => x.trim().toUpperCase()).filter(Boolean)) {
+      if (seen.has(oid)) continue;
+      seen.add(oid);
+      out.checked++;
+      try { if (await settleOne(oid)) { out.paid++; console.log('[settle] ' + oid + ' paid from bank credit ' + c.id); } }
+      catch (e) { console.log('[settle] ' + oid + ' failed:', e.message); }
+    }
+  }
+  return out;
+}
+
 async function findByOrder(orderId, amount) {
   const oid = String(orderId || '').toUpperCase();
   const r = await db.query(
@@ -205,7 +257,10 @@ async function startWatcher() {
               const r = await scanInbox(client, 1);
               if (r.ingested) {
                 console.log('[imap] ingested', r.ingested, 'new credit(s)');
-                // New bank money: re-check "I've paid" claims right away (payment fallback).
+                // New bank money: pay any order the alert NAMED (the customer may have closed the page, or
+                // paid from the 💳 link, which has nobody polling verifyPayment for them).
+                try { settleNamedOrders(72).then((r) => { if (r.paid) console.log('[settle]', JSON.stringify(r)); }).catch((e) => console.log('[settle] sweep failed:', e.message)); } catch (_) {}
+                // …and re-check "I've paid" claims, for money paid to the plain backup QR (payment fallback).
                 try { require('./paymatch').sweep().catch((e) => console.log('[paymatch] sweep failed:', e.message)); } catch (_) {}
               }
             } while (scanAgain && _watching);
@@ -215,7 +270,13 @@ async function startWatcher() {
         };
         const onExists = () => { queueScan(); };
         client.on('exists', onExists);
-        const safetyScan = setInterval(() => { if (_watching) queueScan(); }, 60000);
+        const safetyScan = setInterval(() => {
+          if (!_watching) return;
+          queueScan();
+          // Belt and braces: a credit already in the table that nothing has claimed yet (a mail event missed, or
+          // the app restarted between the alert arriving and anybody looking at the order).
+          settleNamedOrders(72).then((r) => { if (r.paid) console.log('[settle]', JSON.stringify(r)); }).catch((e) => console.log('[settle] sweep failed:', e.message));
+        }, 60000);
 
         try {
           await new Promise((resolve, reject) => {
@@ -236,4 +297,4 @@ async function startWatcher() {
   })();
 }
 
-module.exports = { parseEquitasCredit, ingestCredit, findByOrder, findByRef, startWatcher, manualScan, status, _internal: { fromBank, searchFrom, searchQuery, scanInbox, logSkipped, BANK_DOMAIN, REF_WINDOW_MIN } };
+module.exports = { parseEquitasCredit, ingestCredit, findByOrder, findByRef, settleOne, settleNamedOrders, startWatcher, manualScan, status, _internal: { fromBank, searchFrom, searchQuery, scanInbox, logSkipped, BANK_DOMAIN, REF_WINDOW_MIN } };

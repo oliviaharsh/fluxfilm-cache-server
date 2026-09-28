@@ -154,8 +154,15 @@ function mount(app, deps) {
     const id = clean(req.params.orderId);
     if (!ORDER_RE.test(id) || !tokenOk(id, req.query.t)) return res.status(404).json({ ok: false });
     try {
-      const o = await load(id);
+      let o = await load(id);
       if (!o) return res.status(404).json({ ok: false });
+      // Nobody else is watching for this customer. The checkout page polls verifyPayment for the people who pay
+      // there; whoever pays from THIS page has only this poll, so it has to do the checking rather than report a
+      // status that nothing is updating. Only while still unpaid, so a paid order costs one read.
+      if (up(o.status) === 'CREATED') {
+        try { if (await require('./payments').settleOne(id)) o = (await load(id)) || o; }
+        catch (e) { console.log('[paylink] settle failed for ' + id + ':', e.message); }
+      }
       const st = up(o.status);
       res.json({ ok: true, status: st, paid: PAID.includes(st) });
     } catch (e) { res.status(500).json({ ok: false }); }
