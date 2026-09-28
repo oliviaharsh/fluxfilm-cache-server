@@ -6032,6 +6032,8 @@ function grpWho(m) {
 }
 
 function grpClick(e) {
+  var ask = e.target.closest('[data-grpask]');
+  if (ask) { grpAsk(ask.getAttribute('data-grpask')); return; }
   var go = e.target.closest('[data-grp]');
   if (go) {
     var what = go.getAttribute('data-grp');
@@ -6069,6 +6071,9 @@ function grpClick(e) {
         '<div class="qnote" style="margin-top:8px"><b>' + esc(r.countFound) + '</b> phone number' + (r.countFound === 1 ? '' : 's') + ' read' +
         (r.mode === 'export' ? ' from an exported chat (' + esc(r.events) + ' joined / left lines replayed)' : ' from a plain list') + '.' + covered + '<br/>' +
         '＋ ' + esc(r.newRows) + ' we have never seen before' + (r.goneAway.length ? ' · 🚪 ' + esc(r.goneAway.length) + ' who were in the group are not in this list' : '') + '.' +
+        // Naming them matters: "3 left" is a fact, "Rahul, Naresh and Kiran left" is something to act on — and
+        // if the list is wrong, a name you recognise is how you notice before saving it.
+        (r.goneAway.length ? '<br/><span class="muted" style="font-size:.76rem">Gone: ' + r.goneAway.slice(0, 12).map(function (g) { return esc(g.name || grpPhone(g.phone)); }).join(', ') + (r.goneAway.length > 12 ? ' …and ' + (r.goneAway.length - 12) + ' more' : '') + '</span>' : '') +
         named +
         (r.sample && r.sample.length ? '<br/><span class="muted" style="font-size:.76rem">For example: ' + r.sample.map(grpPhone).map(esc).join(', ') + '</span>' : '') +
         '<br/><span class="muted" style="font-size:.76rem">If that total is far off what the group really has, do not save.</span></div>';
@@ -6081,6 +6086,40 @@ function grpClick(e) {
     post('/admin/api/group/member', { id: id, action: 'forget' }).then(function (r) { if (r && r.ok) { GRP.data = r; renderGrp(); } });
     return;
   }
+}
+
+/**
+ * 🙏 "Please join the group" for one customer.
+ *
+ * Both ways of sending it are here, and NEITHER sends on opening: the WhatsApp button hands the message to
+ * WhatsApp with the owner's thumb still over Send, and the email has its own button under the text of the
+ * email itself. The standing rule is that a real customer message is never sent without being read first.
+ */
+function grpAsk(phone) {
+  api('/admin/api/group/nudge', { phone: phone }).then(function (r) {
+    if (!r || !r.ok) { toast('⚠️ ' + ((r && r.message) || 'Could not build that message')); return; }
+    var waited = r.rateLimited ? '<div class="qnote warn">Already emailed at ' + esc(String(r.lastSentAt).slice(0, 16)) + ' — at most one every ' + esc(r.everyHours) + ' hours. The 💬 WhatsApp button still works.</div>' : '';
+    modal('🙏 Ask ' + esc(r.name) + ' to join the group',
+      waited +
+      '<p class="muted" style="margin:0 0 6px;font-size:.78rem">Invite link being sent: <b>' + esc(r.link) + '</b></p>' +
+      '<div class="fld"><label>💬 WhatsApp message</label><textarea class="inp" id="gask_wa" rows="10" style="width:100%;font-family:inherit;font-size:.82rem">' + esc(r.whatsapp) + '</textarea></div>' +
+      '<details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-size:.82rem">✉️ The email, to ' + esc(r.to || 'no email on this customer') + '</summary>' +
+      '<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:6px;background:#fff"><b style="font-size:.84rem">' + esc(r.subject) + '</b><hr style="border:0;border-top:1px solid var(--line)">' + r.html + '</div></details>',
+      '<a class="btn wa" id="gask_wago" target="_blank" href="' + esc(waFix(r.waUrl)) + '">💬 WhatsApp</a>' +
+      '<button class="btn green" id="gask_send"' + (!r.to || r.rateLimited ? ' disabled' : '') + '>✉️ Send email</button>' +
+      '<span id="gask_msg" class="muted"></span>');
+    // Edit the WhatsApp text and the button follows it — the email is fixed, because it is the one that sends.
+    $('#gask_wa').addEventListener('input', function () { $('#gask_wago').href = waLink(phone, $('#gask_wa').value); });
+    var go = $('#gask_send');
+    if (go) go.onclick = function () {
+      if (!confirm('Email ' + r.to + ' asking them to join the group?')) return;
+      go.disabled = true;
+      post('/admin/api/group/nudge', { phone: phone }).then(function (x) {
+        $('#gask_msg').textContent = (x && x.ok) ? '✉️ Sent' : '⚠️ ' + ((x && x.message) || 'failed');
+        if (!(x && x.ok)) go.disabled = false;
+      });
+    };
+  });
 }
 
 function grpSection(title, why, rows, draw) {
@@ -6118,6 +6157,7 @@ function renderGrp() {
       '<div class="muted" style="font-size:.74rem">' + esc(p.plan || p.service) + ' · ends ' + esc(p.expiryLabel) +
       (p.claimedAt ? ' · <b>said they joined</b> ' + esc(grpWhen(p.claimedAt)) : ' · never said they joined') + '</div></div>' +
       (p.state === 'ENDING' ? '<span class="pill p-warn">' + esc(p.days) + ' day' + (p.days === 1 ? '' : 's') + ' left</span>' : '<span class="pill p-ok">ACTIVE</span>') +
+      '<button class="btn ghost sm" data-grpask="' + esc(p.phone) + '">🙏 Ask them to join</button>' +
       '<a class="celllink" onclick="store(\'ff_last_phone\',\'' + esc(p.phone) + '\');nav(\'customer\')">Open</a></div>';
   };
   var expired = function (p) {
