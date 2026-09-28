@@ -1503,7 +1503,13 @@ async function turn(c, input, ctx) {
     if (st.flow === 'renew' && st.renew && st.renew.toPlan) return renewConfirm(c, ctx);
     return advance(st, ctx.cat, lang, ctx.profile);
   }
-  if (action === 'joined') { st.groupJoined = true; return advance(st, ctx.cat, lang, ctx.profile); }
+  if (action === 'joined') {
+    st.groupJoined = true;
+    // Written down, not just remembered for this chat. Never awaited: the reply must not wait on a bookkeeping row,
+    // and must not fail with it either.
+    try { const t = tools(); if (t.groupJoined) Promise.resolve(t.groupJoined(c.phone, (ctx.profile && ctx.profile.name) || '', st.service || '')).catch(() => {}); } catch (_) {}
+    return advance(st, ctx.cat, lang, ctx.profile);
+  }
   if (action === 'slots') {
     if (st.orderId) { const done = await paidAlready(c, ctx); if (done) return done; dropOrder(st); }
     if (ents.service && ents.service !== st.service) { const keepJoin = st.groupJoined; resetPurchase(st); st.service = ents.service; if (keepJoin) st.groupJoined = true; }

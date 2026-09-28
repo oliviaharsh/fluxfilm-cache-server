@@ -50,6 +50,8 @@ function make(deps) {
     validateCoupon: (phone, code, p, scope) => order().validateCoupon(code, { phone, amount: p.price, service: p.service, plan: p.plan, scope: scope === 'RENEW' ? 'RENEW' : 'NEW' }),
     /** My plans: only this phone's own subscriptions (actionable = can still be renewed). */
     mySubscriptions: (phone) => reads().getMySubscriptions(phone),
+    /** 👥 "I have joined the group" in chat is the same promise as the tick at checkout, so it is written down too. */
+    groupJoined: (phone, name, service) => require('./groupmembers').claim(phone, name, 'olivia', service),
     /** Netflix accounts this phone actively owns (login email + H/D kind) — for the household auto-fix. */
     netflixAccounts: (phone) => require('./oliviahousehold').netflixAccounts(phone),
     /** The Netflix travel / "Watch temporarily" code for one of those accounts. Read-only; never presses Update. */

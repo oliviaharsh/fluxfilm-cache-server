@@ -324,6 +324,22 @@ async function createOrder(p, opts) {
     } catch (e) { console.log('[referral] attach failed for', orderId, e.message); }
   }
 
+  // 👥 They ticked "I have joined the group" to get the Group Offer price. Until 29 Sep 2026 that tap lived only in
+  // the checkout's own state and was thrown away with the page, so nothing recorded who had ever claimed it and the
+  // group could only be checked by scrolling it by hand. groupmembers.claim() never throws and never blocks.
+  if (groupJoinRequired && p.groupJoined) {
+    try { await require('./groupmembers').claim(phone, name, 'shop', service); }
+    catch (e) { console.log('[group] claim failed for', orderId, e.message); }
+  }
+
+  // 👥 They ticked "I have joined the group" to get the Group Offer price. Until 29 Sep 2026 that tap lived only in
+  // the checkout's own state and was thrown away with the page, so nothing recorded who had ever claimed it and the
+  // group could only be checked by scrolling it by hand. groupmembers.claim() never throws and never blocks.
+  if (groupJoinRequired && p.groupJoined) {
+    try { await require('./groupmembers').claim(phone, name, 'shop', service); }
+    catch (e) { console.log('[group] claim failed for', orderId, e.message); }
+  }
+
   // HOLD records attempts but does not count against coupon limits. Payment
   // confirmation adds the USED row below, entirely in MySQL.
   if (couponCode && discount > 0) {
