@@ -2645,8 +2645,6 @@ function renderStock() {
   renderAccounts();
   var t; $('#kq').addEventListener('input', function () { K.q = $('#kq').value.trim().toLowerCase(); clearTimeout(t); t = setTimeout(renderAccounts, 200); });
   $('#kbody').onclick = function (e) {
-    var wgo = e.target.closest('[data-ruwgo]'); if (wgo) { ruWhoSearch(); return; }
-    var wpick = e.target.closest('[data-ruwpick]'); if (wpick) { var bits = wpick.getAttribute('data-ruwpick').split('|'); ruWhoOpen(bits[0], bits[1]); return; }
     var kru = e.target.closest('[data-kru]'); if (kru) { e.preventDefault(); RU.data = null; RU.q = kru.getAttribute('data-kru') || ''; nav('removeusers'); return; }
     var f = e.target.closest('[data-kf]'); if (f) { K.filter = f.getAttribute('data-kf'); $$('#kbody [data-kf]').forEach(function (c) { c.classList.toggle('on', c === f); }); renderAccounts(); return; }
     var sv = e.target.closest('[data-ksvc]'); if (sv) { var k = sv.getAttribute('data-ksvc'); K.open[k] = !K.open[k]; renderAccounts(); return; }
@@ -5724,6 +5722,9 @@ function ruClick(e) {
   var f = e.target.closest('[data-rufam]'); if (f) { RU.fam = f.getAttribute('data-rufam'); $$('#rubody [data-rufam]').forEach(function (x) { x.classList.toggle('on', x === f); }); renderRuParts(); return; }
   var ord = e.target.closest('[data-ruorder]'); if (ord) { e.preventDefault(); openOrder(ord.getAttribute('data-ruorder')); return; }
   var pw = e.target.closest('[data-rupw]'); if (pw) { PW.q = ''; PW.accounts = null; PW.result = null; PW.showAll = {}; PW.impact = null; PW.pick = { service: pw.getAttribute('data-rusvc'), accountId: pw.getAttribute('data-rupw') }; nav('password'); loadImpact(); return; }
+  // 🔍 Who is on this account? — the lookup at the top of this screen.
+  var wgo = e.target.closest('[data-ruwgo]'); if (wgo) { ruWhoSearch(); return; }
+  var wpick = e.target.closest('[data-ruwpick]'); if (wpick) { var bits = wpick.getAttribute('data-ruwpick').split('|'); ruWhoOpen(bits[0], bits[1]); return; }
   var rm = e.target.closest('[data-rurm]');
   if (rm) {
     var sid = rm.getAttribute('data-rurm');
