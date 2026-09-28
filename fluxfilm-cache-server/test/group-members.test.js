@@ -50,9 +50,16 @@ const mockDb = {
     if (/^UPDATE wa_group_members SET note = \? WHERE id = \? LIMIT 1$/.test(q)) { const r = ROWS.find((x) => x.id === Number(p[1])); if (r) r.note = p[0]; return { affectedRows: r ? 1 : 0 }; }
 
     if (/^SELECT service, plan, raw_json FROM plans$/.test(q)) return PLANS.map((x) => Object.assign({}, x));
-    if (/^SELECT sub_id, phone_norm, name, service, plan, expiry_date, status FROM subscriptions/.test(q)) {
-      return SUBS.filter((x) => ['REFUNDED', 'CANCELLED'].indexOf(String(x.status).toUpperCase()) === -1).map((x) => Object.assign({}, x));
+    // The real subscriptions table has NO name column — the customer's name is on customers. The first version of
+    // this fake had one, because it was written from the code's own SQL rather than from the live table, so the
+    // suite was green and every request on the live site answered 500. A fake that agrees with the code proves
+    // nothing; this one refuses the column exactly as MariaDB does.
+    if (/FROM subscriptions/.test(q) && /^SELECT[^]*?\bname\b[^]*?FROM subscriptions/.test(q)) throw new Error("Unknown column 'name' in 'SELECT'");
+    if (/^SELECT sub_id, phone_norm, service, plan, expiry_date, status FROM subscriptions/.test(q)) {
+      return SUBS.filter((x) => ['REFUNDED', 'CANCELLED'].indexOf(String(x.status).toUpperCase()) === -1)
+        .map((x) => ({ sub_id: x.sub_id, phone_norm: x.phone_norm, service: x.service, plan: x.plan, expiry_date: x.expiry_date, status: x.status }));
     }
+    if (/^SELECT phone_norm, name FROM customers$/.test(q)) return CUSTS.map((x) => Object.assign({}, x));
     if (/^INSERT INTO audit_log/.test(q)) { AUDIT.push({ action: p[0], entity: p[1], id: p[2], summary: p[3] }); return { affectedRows: 1 }; }
     throw new Error('fake db: unhandled SQL: ' + q.slice(0, 140));
   },
@@ -74,7 +81,17 @@ const SEED_SUBS = () => [
   // …and a customer on a normal plan, who has no business being on this screen at all
   { sub_id: 'P1', phone_norm: '9333000333', name: 'Private Priya', service: 'Netflix', plan: 'Private 1M', expiry_date: at(30), status: 'ACTIVE' },
 ];
-const reset = () => { ROWS = []; AUDIT = []; seq = 0; tableExists = true; SUBS = SEED_SUBS(); PLANS = SEED_PLANS(); };
+// Names live here, not on the subscription — the same way round as the live database.
+const SEED_CUSTS = () => [
+  { phone_norm: '9876543210', name: 'Siddhu' },
+  { phone_norm: '9123456789', name: 'Meera Joshi' },
+  { phone_norm: '9988776655', name: 'Arun Pillai' },
+  { phone_norm: '9555000111', name: 'Old Omkar' },
+  { phone_norm: '9444000222', name: 'Refunded Ravi' },
+  { phone_norm: '9333000333', name: 'Private Priya' },
+];
+let CUSTS = [];
+const reset = () => { ROWS = []; AUDIT = []; seq = 0; tableExists = true; SUBS = SEED_SUBS(); PLANS = SEED_PLANS(); CUSTS = SEED_CUSTS(); };
 
 (async () => {
   reset();
@@ -139,6 +156,12 @@ const reset = () => { ROWS = []; AUDIT = []; seq = 0; tableExists = true; SUBS =
   // than a blank screen — it is the same mistake as a refusal that cannot say why.
   ok('…and nobody is accused of being missing on the strength of no evidence', r.totals.seen === 0 && (r.owe || []).length === 0 && (r.strangers || []).length === 0, r.totals);
   ok('a normal-plan customer is never on this screen', !find(r, 'owe', 'Private Priya'), (r.owe || []).map((x) => x.name));
+  // A name we do not hold must give a worse row, never a broken screen. Going live it gave neither: it asked
+  // subscriptions for a column that table has never had, and every request answered 500.
+  CUSTS = [];
+  const nameless = await get('/admin/api/group');
+  ok('…and a customer whose name we do not hold still loads, just unnamed', nameless.ok === true, nameless.message);
+  CUSTS = SEED_CUSTS();
   ok('a refunded group plan is not chased either — it is history', !find(r, 'owe', 'Refunded Ravi'), (r.owe || []).map((x) => x.name));
 
   // ── the tap that used to be thrown away ───────────────────────────────────────────────────────────────────
