@@ -454,6 +454,12 @@ textarea.inp{resize:vertical}
 .seg3 button small{font-weight:500;font-size:.68rem;opacity:.75}
 @media(max-width:560px){.seg3{flex-direction:column}.seg3 button{flex:1 1 auto;width:100%}}
 
+/* 🚪 "Who is on this account?" — the lookup that works even when nobody needs removing */
+.ruw-hit{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.ruw-hit .grow{flex:1 1 200px;min-width:0}
+.ruw-sec{margin-top:12px}
+.ruw-sec h5{margin:0 0 4px;font-size:.78rem;letter-spacing:.4px;color:var(--mut);font-weight:700;text-transform:uppercase}
+
 /* 🚪 Remove users */
 .ru-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
 .ru-chip{border:1px solid var(--line);background:#fff;border-radius:14px;padding:10px 14px;font-size:.84rem;line-height:1.35;text-align:left;cursor:pointer;color:var(--ink);flex:1 1 220px}
@@ -2639,6 +2645,8 @@ function renderStock() {
   renderAccounts();
   var t; $('#kq').addEventListener('input', function () { K.q = $('#kq').value.trim().toLowerCase(); clearTimeout(t); t = setTimeout(renderAccounts, 200); });
   $('#kbody').onclick = function (e) {
+    var wgo = e.target.closest('[data-ruwgo]'); if (wgo) { ruWhoSearch(); return; }
+    var wpick = e.target.closest('[data-ruwpick]'); if (wpick) { var bits = wpick.getAttribute('data-ruwpick').split('|'); ruWhoOpen(bits[0], bits[1]); return; }
     var kru = e.target.closest('[data-kru]'); if (kru) { e.preventDefault(); RU.data = null; RU.q = kru.getAttribute('data-kru') || ''; nav('removeusers'); return; }
     var f = e.target.closest('[data-kf]'); if (f) { K.filter = f.getAttribute('data-kf'); $$('#kbody [data-kf]').forEach(function (c) { c.classList.toggle('on', c === f); }); renderAccounts(); return; }
     var sv = e.target.closest('[data-ksvc]'); if (sv) { var k = sv.getAttribute('data-ksvc'); K.open[k] = !K.open[k]; renderAccounts(); return; }
@@ -5458,6 +5466,86 @@ function bankClick(e) {
 // One list for Today's 🚪 card, this screen and Stock's per-account badge: GET /admin/api/remove-users (expiredusers.js,
 // the old Sheet DASHBOARD rule). Units are always spelled out: customers (people to log out) vs accounts (logins).
 var RU = { data: null, q: '', fam: 'all', open: {} };
+/* ================= 🚪 Who is on this account? =================
+   The list below only shows logins that have expired customers NOT yet ticked removed — so an account where
+   everyone is active, or where every expired one has already been ticked, is correctly absent. That is right for
+   "who do I need to log out", and useless for "who is on PRI-03 right now", which is what the owner actually
+   asked on 28 Sep 2026: "if i want to check an account who are on this acc logged in even if everyone is active
+   how do i check". Same two endpoints the 🔑 password screen uses — no new way of reading the data. */
+var RW = { q: '', hits: null, picked: null, data: null, busy: false };
+
+function ruWhoBox() {
+  return '<details class="card" id="ruwho" style="padding:10px 14px;margin-bottom:12px"' + (RU.open.ruwho ? ' open' : '') + '>' +
+    '<summary style="cursor:pointer"><b>🔍 Who is on this account?</b> <span class="muted">— everyone on a login, even when nobody needs removing</span></summary>' +
+    '<div class="row" style="gap:6px;margin-top:8px"><input class="inp" id="ruwq" placeholder="Login email, or an account id like PRI-03" value="' + esc(RW.q) + '" autocomplete="off" style="flex:1;min-width:200px"/>' +
+    '<button class="btn sm" data-ruwgo="1">Look up</button></div><div id="ruwbody"></div></details>';
+}
+function ruWhoSearch() {
+  RW.q = ($('#ruwq') || {}).value || '';
+  if (!RW.q.trim()) { RW.hits = null; RW.data = null; return ruWhoRender(); }
+  RW.busy = true; ruWhoRender();
+  api('/admin/api/accounts/search', { q: RW.q.trim() }).then(function (r) {
+    RW.busy = false; RW.hits = r.ok ? (r.accounts || []) : []; RW.data = null;
+    // One hit is not a choice — open it.
+    if (RW.hits.length === 1) return ruWhoOpen(RW.hits[0].service, RW.hits[0].account_id);
+    ruWhoRender();
+  });
+}
+function ruWhoOpen(service, accountId) {
+  RW.busy = true; RW.picked = { service: service, accountId: accountId }; ruWhoRender();
+  api('/admin/api/accounts/impact', { service: service, account_id: accountId }).then(function (r) {
+    RW.busy = false; RW.data = r && r.ok ? r : { error: (r && r.message) || 'Could not read that account.' };
+    ruWhoRender();
+  });
+}
+/** Days from today, the same arithmetic the rest of this screen uses. */
+function ruwDays(expiry) {
+  var t = Date.parse(String(expiry || '').replace(' ', 'T') + '+05:30');
+  return isNaN(t) ? null : Math.ceil((t - Date.now()) / 86400000);
+}
+function ruwPerson(p, kind) {
+  var d = ruwDays(p.expiry);
+  var when = d == null ? '' : kind === 'active' ? (d + ' day' + (d === 1 ? '' : 's') + ' left')
+    : d <= 0 ? ('expired ' + ruPlural(-d, 'day') + ' ago') : (d + ' days left');
+  var tag = kind === 'active' ? '<span class="pill p-ok">ACTIVE</span>'
+    : kind === 'expired' ? '<span class="pill p-bad">still on it</span>'
+      : p.removed ? '<span class="pill p-grey">✅ removed</span>' : '<span class="pill p-grey">' + esc(p.status || 'ended') + '</span>';
+  return '<div class="ruw-hit"><div class="grow"><b>' + esc(p.name || 'Unknown') + '</b> <span class="muted">· ' + (p.phone ? '…' + esc(String(p.phone).slice(-4)) : 'no phone') + '</span>' +
+    '<div class="muted" style="font-size:.74rem">' + esc(p.plan || p.service) + (p.device ? ' · ' + esc(p.device) : '') + (when ? ' · ' + esc(when) : '') + ' · ' + esc(prettyDate(p.expiry)) + '</div></div>' +
+    tag + (kind === 'expired' ? ' <button class="btn ghost sm" data-rurm="' + esc(p.subId) + '" data-runame="' + esc(p.name) + '">✅ Removed</button>' : '') + '</div>';
+}
+function ruWhoRender() {
+  var el = $('#ruwbody'); if (!el) return;
+  if (RW.busy) { el.innerHTML = '<p class="muted" style="margin:8px 0 0">Looking…</p>'; return; }
+  if (RW.data && RW.data.error) { el.innerHTML = '<div class="qnote warn" style="margin-top:8px">' + esc(RW.data.error) + '</div>'; return; }
+  if (RW.data) {
+    var d = RW.data, a = d.account || {};
+    var ids = (d.sameLogin || []).map(function (x) { return x.account_id; });
+    var seen = {}; ids = ids.filter(function (x) { if (!x || seen[x]) return false; seen[x] = 1; return true; });
+    var sec = function (title, rows, kind) {
+      return '<div class="ruw-sec"><h5>' + title + ' (' + rows.length + ')</h5>' + (rows.length ? rows.map(function (p) { return ruwPerson(p, kind); }).join('') : '<p class="muted" style="margin:2px 0">Nobody.</p>') + '</div>';
+    };
+    el.innerHTML = '<div style="margin-top:10px"><b>' + esc(a.login || '') + '</b> <span class="muted">· ' + esc(a.service || '') + ' · ' + esc(ids.join(' / ') || a.accountId) + '</span>' +
+      (a.isActive ? '' : ' <span class="pill p-grey">account off</span>') + '</div>' +
+      // The headline: how many people can watch on this login right now.
+      '<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px"><span class="pill p-ok" style="padding:6px 12px">👥 ' + (d.active || []).length + ' watching now</span>' +
+      ((d.expired || []).length ? '<span class="pill p-bad" style="padding:6px 12px">🚪 ' + d.expired.length + ' expired, still on it</span>' : '') +
+      ((d.older || []).length ? '<span class="pill p-grey" style="padding:6px 12px">' + d.older.length + ' let go earlier</span>' : '') + '</div>' +
+      sec('👥 Watching now', d.active || [], 'active') +
+      sec('🚪 Expired, not ticked yet', d.expired || [], 'expired') +
+      ((d.older || []).length ? '<details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-size:.82rem">' + d.older.length + ' already let go (removed, refunded or cancelled)</summary>' + d.older.map(function (p) { return ruwPerson(p, 'older'); }).join('') + '</details>' : '');
+    return;
+  }
+  if (RW.hits && !RW.hits.length) { el.innerHTML = '<p class="muted" style="margin:8px 0 0">No account matches that. Try the login email, or an id like PRI-03.</p>'; return; }
+  if (RW.hits) {
+    el.innerHTML = '<div style="margin-top:8px">' + RW.hits.map(function (h) {
+      return '<button class="btn ghost" style="width:100%;justify-content:space-between;margin-bottom:6px" data-ruwpick="' + esc(h.service) + '|' + esc(h.account_id) + '">' + esc(h.account_id) + ' <span class="muted">' + esc(h.login_id || '') + ' · ' + esc(h.service) + '</span></button>';
+    }).join('') + '</div>';
+    return;
+  }
+  el.innerHTML = '';
+}
+
 function removeUsersView() {
   $('#view').innerHTML = '<div class="ph"><div><h1>🚪 Remove users</h1><p>Inactive customers still on a shared login — change the password when it is worth it, then tap ✅ Removed</p></div><button class="btn ghost" id="ruref">⟳ Refresh</button></div><div id="rubody"><p class="muted">Loading…</p></div>';
   $('#ruref').onclick = function () { RU.data = null; removeUsersView(); };
@@ -5565,6 +5653,7 @@ function renderRemoveUsers() {
     '<button class="ru-chip" data-rujump="ruw">⏳ <b>' + ruPlural(wait.accounts, 'account') + '</b> waiting<br><span class="muted" style="font-size:.74rem">' + (wait.next ? 'next change ' + esc(wait.next.label) : 'no date yet') + ' · ' + ruPlural(wait.inactive || 0, 'inactive customer') + '</span></button>' +
     '<button class="ru-chip ok" data-rujump="rub">💤 <b>' + ruPlural(later.accounts, 'account') + '</b> not worth it yet<br><span class="muted" style="font-size:.74rem">fewer than ' + r.minInactive + ' inactive · next expiry far</span></button>' +
     '<button class="ru-chip" data-rujump="ruc">📺 Other services: <b>' + ow.accounts + '</b> to change now<br><span class="muted" style="font-size:.74rem">' + owa.accounts + ' waiting · Zee5, JioHotstar, SonyLiv, Crunchyroll, YouTube</span></button></div>' +
+    ruWhoBox() +
     ruSettingsBox() +
     '<div class="search" style="margin-bottom:10px"><input class="inp" id="ruq" placeholder="🔎 Name, phone, order or account…" value="' + esc(RU.q) + '" autocomplete="off"/></div>' +
     '<div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">' + [['all', 'All (' + main.length + ')']].concat(fams.map(function (f) { return [f, f + ' (' + famN[f] + ')']; })).map(function (f) { return '<button class="chip' + (RU.fam === f[0] ? ' on' : '') + '" data-rufam="' + esc(f[0]) + '">' + esc(f[1]) + '</button>'; }).join('') + '</div>' +
@@ -5573,6 +5662,9 @@ function renderRemoveUsers() {
   renderRuParts();
   var t; $('#ruq').addEventListener('input', function () { RU.q = $('#ruq').value.trim(); clearTimeout(t); t = setTimeout(renderRuParts, 200); });
   $('#ruset').addEventListener('toggle', function () { RU.open.ruset = $('#ruset').open; });
+  var rw = $('#ruwho'); if (rw) rw.addEventListener('toggle', function () { RU.open.ruwho = rw.open; });
+  var rwq = $('#ruwq'); if (rwq) rwq.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); ruWhoSearch(); } });
+  ruWhoRender();
   el.onclick = ruClick;
 }
 function renderRuParts() {
