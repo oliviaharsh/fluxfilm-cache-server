@@ -261,6 +261,35 @@ Module._load = function (req) {
     s = mk(PC, 'business');
     ok('on a computer it stays wa.me - intent: is Android only', s.waLink('9876543210', 'x') === 'https://wa.me/919876543210?text=x');
 
+    // "cant we have both" (owner, 29 Sep 2026). Android will not ask twice - once it has been told which app
+    // opens wa.me it stops offering - so the choice has to be ours. On 'ask' the href stays a plain wa.me link
+    // and a capture-phase listener offers both apps instead; if that listener ever fails to run the button still
+    // opens something, which is the only reason the plain link is left on it.
+    s = mk(ANDROID, 'ask');
+    ok('"ask me each time" leaves a working link on the button rather than a dead one', s.waLink('9876543210', 'x') === 'https://wa.me/919876543210?text=x');
+    {
+      const shown = {};
+      const sb2 = {
+        WA_APPS: { business: 'com.whatsapp.w4b', personal: 'com.whatsapp' },
+        encodeURIComponent, String,
+        esc: (v) => String(v == null ? '' : v),
+        modal: (title, body, foot) => { shown.title = title; shown.body = body; shown.foot = foot; },
+      };
+      require('vm').runInNewContext(grabFn('waAskOpen') + '; this.waAskOpen = waAskOpen;', sb2);
+      sb2.waAskOpen('919876543210', 'due ₹149 & more');
+      ok('...and the chooser offers BOTH apps, each naming its own package', /package=com\.whatsapp\.w4b;/.test(shown.body) && /package=com\.whatsapp;/.test(shown.body), shown.body && shown.body.slice(0, 160));
+      ok('...with the message intact in both', (shown.body.match(/&text=([^#]*)#/g) || []).length === 2 && decodeURIComponent(shown.body.split('&text=')[1].split('#')[0]) === 'due ₹149 & more');
+      ok('...and it can be backed out of without sending anything', /Cancel/.test(shown.foot || ''), shown.foot);
+    }
+    {
+      // One listener for every 💬 button in the panel, so no call site has to know about any of this. It must be
+      // in the CAPTURE phase: the link would otherwise have already navigated by the time we saw the click.
+      const html = src;
+      ok('...wired once, in the capture phase, for every 💬 button there is', /document\.addEventListener\('click', waAskClick, true\)/.test(html) && /closest\('a\.wa\[href\]'\)/.test(html));
+      ok('...and it leaves alone any link that is not a message to a number', /not a message link/.test(html) && /\^https:\\\/\\\/wa\\\.me\\\/\(\\d\+\)\\\?text=/.test(html));
+      ok('...and ⚙️ Maintenance offers the choice', /\['ask', '🤝 Ask me each time'\]/.test(html));
+    }
+
     s = mk(ANDROID, 'business');
     ok('a link the SERVER built is re-routed too', /package=com\.whatsapp\.w4b;/.test(s.waFix('https://wa.me/919876543210?text=' + encodeURIComponent('due \u20b9149'))));
     ok('...keeping its text', decodeURIComponent(s.waFix('https://wa.me/919876543210?text=' + encodeURIComponent('due \u20b9149')).split('&text=')[1].split('#')[0]) === 'due \u20b9149');

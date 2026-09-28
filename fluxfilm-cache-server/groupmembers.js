@@ -94,12 +94,26 @@ const LEFT_RE = /\bleft\s*$|was removed\s*$|removed (\+?\d)/i;
  *   · a plain LIST — anything else. Every number in it is a member. What you get from WhatsApp Web, a
  *     screenshot typed out, or a list kept by hand.
  */
+/** The date on an exported chat line, as yyyy-mm-dd, or '' — used only to say what the paste covered. */
+function lineDate(line) {
+  const m = s(line).match(/^\s*\[?\s*(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/);
+  if (!m) return '';
+  const y = Number(m[3]) < 100 ? 2000 + Number(m[3]) : Number(m[3]);
+  // WhatsApp writes dd/mm in India. Only ever used to show the owner a range, never to decide membership.
+  const d = Number(m[1]); const mo = Number(m[2]);
+  if (!(y > 2000 && y < 2100) || mo < 1 || mo > 12 || d < 1 || d > 31) return '';
+  return y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+}
+
 function parseList(text) {
   const lines = s(text).split(/\r?\n/);
   let events = 0;
+  let firstDate = ''; let lastDate = '';
   const state = new Map(); // phone -> true (in) / false (out)
   const seenAnywhere = new Set();
   for (const line of lines) {
+    const d = lineDate(line);
+    if (d) { if (!firstDate || d < firstDate) firstDate = d; if (d > lastDate) lastDate = d; }
     const ph = phonesIn(line);
     if (!ph.length) continue;
     const joined = JOINED_RE.test(line);
@@ -109,10 +123,11 @@ function parseList(text) {
     else if (left && !joined) { events++; for (const p of ph) state.set(p, false); }
   }
   const mode = events > 0 ? 'export' : 'list';
-  if (mode === 'list') return { mode, events: 0, phones: [...seenAnywhere] };
+  const span = { lines: lines.length, firstDate, lastDate };
+  if (mode === 'list') return Object.assign({ mode, events: 0, phones: [...seenAnywhere] }, span);
   // In an export, somebody who never has an event but does send messages is in the group too.
   for (const p of seenAnywhere) if (!state.has(p)) state.set(p, true);
-  return { mode, events, phones: [...state.entries()].filter(([, inGroup]) => inGroup).map(([p]) => p) };
+  return Object.assign({ mode, events, phones: [...state.entries()].filter(([, inGroup]) => inGroup).map(([p]) => p) }, span);
 }
 
 // ── who is supposed to be in the group ────────────────────────────────────────────────────────────────────────
@@ -245,9 +260,17 @@ async function reconcile(query, text, now) {
   const nowIn = [...found];
   const newRows = nowIn.filter((p) => !known.has(p));
   const goneAway = view.members.filter((m) => m.inGroup && !found.has(m.phone)).map((m) => ({ phone: m.phone, name: m.name }));
+  // An export that stops months ago is a half-file, and a half-file saved as if it were the whole group marks
+  // everybody it is missing as having left. The owner hit exactly this: 490 members in, 258 out, and nothing on
+  // the screen said the paste had stopped in May. So the check now says what it covered, and how stale the end is.
+  const staleDays = parsed.lastDate
+    ? Math.floor((Date.parse(parsed.lastDate + 'T23:59:59+05:30') - at) / -86400000)
+    : null;
   return {
     ok: true,
     mode: parsed.mode, events: parsed.events,
+    lines: parsed.lines, firstDate: parsed.firstDate, lastDate: parsed.lastDate, staleDays,
+    looksPartial: parsed.mode === 'export' && staleDays != null && staleDays > 2,
     countFound: nowIn.length,
     newRows: newRows.length,
     goneAway,

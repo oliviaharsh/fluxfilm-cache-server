@@ -670,11 +670,46 @@ function waLink(phone, text) {
   var p = String(phone || '').replace(/\D/g, ''); if (p.length === 10) p = '91' + p;
   var web = 'https://wa.me/' + p + '?text=' + encodeURIComponent(text);
   var pkg = WA_APPS[waApp()];
-  // Only Android understands intent: URLs. Everywhere else wa.me is still the right link.
+  // Only Android understands intent: URLs. Everywhere else wa.me is still the right link — and so it is on "ask",
+  // where waAskClick below intercepts the tap and offers both apps. If that ever fails to run, the button still
+  // opens SOMETHING, which is the whole reason the plain link stays on the href.
   if (!pkg || !/Android/i.test(navigator.userAgent || '')) return web;
   return 'intent://send/?phone=' + p + '&text=' + encodeURIComponent(text)
     + '#Intent;scheme=whatsapp;package=' + pkg + ';S.browser_fallback_url=' + encodeURIComponent(web) + ';end';
 }
+/**
+ * 💬 "Can we not have both?" (owner, 29 Sep 2026). Android will not ask twice: once you tell it which app opens
+ * wa.me it stops offering, which is the whole reason the buttons went to the wrong app in the first place. So the
+ * choice has to be ours, not the phone's — set ⚙️ Maintenance → 💬 WhatsApp app → 🤝 Ask me each time and a tap
+ * offers both, each one an intent: URL naming its package outright.
+ *
+ * One listener, in the capture phase, for every 💬 button in the panel: they all carry class "wa" and an href
+ * that waLink() built. Nothing at the call sites changes.
+ */
+function waAskClick(e) {
+  if (waApp() !== 'ask' || !/Android/i.test(navigator.userAgent || '')) return;
+  var a = e.target.closest && e.target.closest('a.wa[href]');
+  if (!a) return;
+  var m = String(a.getAttribute('href') || '').match(/^https:\/\/wa\.me\/(\d+)\?text=([\s\S]*)$/);
+  if (!m) return;                       // not a message link (wa.me/message/… , a group invite): leave it alone
+  e.preventDefault();
+  var text; try { text = decodeURIComponent(m[2]); } catch (err) { text = m[2]; }
+  waAskOpen(m[1], text);
+}
+function waAskOpen(phone, text) {
+  var url = function (pkg) {
+    return 'intent://send/?phone=' + phone + '&text=' + encodeURIComponent(text)
+      + '#Intent;scheme=whatsapp;package=' + pkg + ';S.browser_fallback_url=' + encodeURIComponent('https://wa.me/' + phone + '?text=' + encodeURIComponent(text)) + ';end';
+  };
+  modal('Open in which WhatsApp?',
+    '<p class="muted" style="margin:0 0 10px">Sending to …' + esc(String(phone).slice(-4)) + '.</p>' +
+    '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+    '<a class="btn wa" style="flex:1;min-width:150px" href="' + esc(url(WA_APPS.business)) + '" onclick="closeModal()">💼 WhatsApp Business</a>' +
+    '<a class="btn ghost" style="flex:1;min-width:150px" href="' + esc(url(WA_APPS.personal)) + '" onclick="closeModal()">💬 WhatsApp</a></div>',
+    '<button class="btn ghost" onclick="closeModal()">Cancel</button>');
+}
+document.addEventListener('click', waAskClick, true);
+
 /* 💬 Customer messages are written once with WhatsApp's own *bold* markers — the same rules the server uses
    (watext.js). waClean strips markers out of anything the owner typed (a plan name, a customer name) so it
    cannot break the bold around it; waJoin turns lines into a message with no doubled or trailing blank lines. */
@@ -4961,9 +4996,9 @@ var MT = { s: null };
 /** ⚙️ Maintenance → which WhatsApp app the 💬 buttons should open on this phone. */
 function waAppCard() {
   var cur = waApp();
-  var opts = [['', 'Let my phone decide'], ['business', '💼 WhatsApp Business'], ['personal', '💬 WhatsApp']];
+  var opts = [['', 'Let my phone decide'], ['business', '💼 WhatsApp Business'], ['personal', '💬 WhatsApp'], ['ask', '🤝 Ask me each time']];
   return '<div class="card qsec"><h3 style="margin-top:0">💬 WhatsApp app</h3>' +
-    '<p class="muted" style="margin-top:0;font-size:.82rem">Both apps claim the same links, so your phone picks one — and once it has, it stops asking. Choose which app the 💬 buttons should open. Saved on <b>this device only</b>.</p>' +
+    '<p class="muted" style="margin-top:0;font-size:.82rem">Both apps claim the same links, so your phone picks one — and once it has, <b>it stops asking</b>. Choose which app the 💬 buttons should open, or pick <b>🤝 Ask me each time</b> and every 💬 button offers both. Saved on <b>this device only</b>.</p>' +
     '<div class="row" id="waappchips" style="gap:6px;flex-wrap:wrap">' +
     opts.map(function (o) { return '<button class="chip' + (cur === o[0] ? ' on' : '') + '" data-waapp="' + o[0] + '">' + o[1] + '</button>'; }).join('') +
     '</div><div id="waappmsg" class="muted" style="margin-top:8px;font-size:.8rem">' +
@@ -4976,7 +5011,7 @@ function wireWaAppCard() {
     var b = e.target.closest('[data-waapp]'); if (!b) return;
     setWaApp(b.getAttribute('data-waapp'));
     $$('#waappchips .chip').forEach(function (c) { c.classList.toggle('on', c === b); });
-    $('#waappmsg').textContent = 'Saved on this device ✓ — the 💬 buttons will open ' + (waApp() === 'business' ? 'WhatsApp Business' : waApp() === 'personal' ? 'WhatsApp' : 'whichever app your phone chooses') + '.';
+    $('#waappmsg').textContent = 'Saved on this device ✓ — the 💬 buttons will open ' + (waApp() === 'business' ? 'WhatsApp Business' : waApp() === 'personal' ? 'WhatsApp' : waApp() === 'ask' ? 'whichever you pick, each time' : 'whichever app your phone chooses') + '.';
   };
 }
 function maintenanceView() {
@@ -5786,11 +5821,21 @@ function groupView() {
     '<summary style="cursor:pointer"><b>📋 Paste the group list</b> <span class="muted">— it shows you what would change before it saves anything</span></summary>' +
     '<p class="muted" style="font-size:.76rem;margin:8px 0 4px">WhatsApp will not let you copy the participants list, so the easy way on a phone is <b>group → ⋮ → More → Export chat → Without media</b>, then paste the whole file here: the joined / left lines are replayed in order, so somebody who joined in June and left in August comes out correctly. A plain list of numbers works too — then everyone in it counts as a member.</p>' +
     '<textarea class="inp" id="grptext" rows="6" style="width:100%;font-size:.8rem" placeholder="28/09/2026, 20:14 - +91 98765 43210 joined using this group&#39;s invite link&#10;28/09/2026, 21:02 - +91 91234 56789 left&#10;&#10;…or just:&#10;+91 98765 43210&#10;9123456789"></textarea>' +
-    '<div class="row" style="gap:6px;margin-top:6px"><button class="btn ghost sm" data-grp="check">🔍 Check it</button><button class="btn sm" data-grp="save" id="grpsave" hidden>✓ Save this list</button></div>' +
+    '<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap"><label class="btn ghost sm" style="cursor:pointer">📎 Pick the exported file<input type="file" id="grpfile" accept=".txt,text/plain" hidden/></label>' +
+    '<button class="btn ghost sm" data-grp="check">🔍 Check it</button><button class="btn sm" data-grp="save" id="grpsave" hidden>✓ Save this list</button><span id="grpsize" class="muted" style="font-size:.76rem;align-self:center"></span></div>' +
     '<div id="grppv"></div></details>' +
     '<div id="grplist"></div></div>';
   $('#grpref').onclick = function () { GRP.data = null; GRP.preview = null; grpLoad(); };
   $('#grppaste').addEventListener('toggle', function () { GRP.open.grppaste = $('#grppaste').open; });
+  var gf = $('#grpfile');
+  if (gf) gf.addEventListener('change', function () {
+    var f = gf.files && gf.files[0]; if (!f) return;
+    $('#grpsize').textContent = 'reading ' + esc(f.name) + '…';
+    var fr = new FileReader();
+    fr.onload = function () { $('#grptext').value = String(fr.result || ''); $('#grpsize').textContent = grpMB($('#grptext').value.length) + ' loaded — now press 🔍 Check it'; $('#grpsave').hidden = true; };
+    fr.onerror = function () { $('#grpsize').textContent = 'Could not read that file.'; };
+    fr.readAsText(f);
+  });
   $('#grpwrap').onclick = grpClick;
   if (GRP.data) renderGrp(); else grpLoad();
 }
@@ -5802,6 +5847,10 @@ function grpWhen(v) {
   return m ? (+m[3]) + ' ' + MON[+m[2] - 1] + ' ' + m[1] : '';
 }
 function grpPhone(p) { return p ? '…' + String(p).slice(-4) : 'no number'; }
+function grpMB(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? Math.round(n / 1024) + ' KB' : n + ' bytes'; }
+/* The server takes 16 MB on this one route; anything larger comes back as an HTML error page the panel cannot
+   read, so it is caught here where the real size is known and can be said out loud. */
+var GRP_MAX = 15 * 1024 * 1024;
 /** A row's heading: the name with the number beside it, or just the number when we have never known a name. */
 function grpWho(m) {
   return m.name ? '<b>' + esc(m.name) + '</b> <span class="muted">· ' + esc(grpPhone(m.phone)) + '</span>' : '<b>' + esc(grpPhone(m.phone)) + '</b>';
@@ -5812,10 +5861,16 @@ function grpClick(e) {
   if (go) {
     var what = go.getAttribute('data-grp');
     var text = ($('#grptext') || {}).value || '';
-    if (!text.trim()) { $('#grppv').innerHTML = '<div class="qnote warn" style="margin-top:8px">Paste the list first.</div>'; return; }
+    if (!text.trim()) { $('#grppv').innerHTML = '<div class="qnote warn" style="margin-top:8px">Paste the list first, or pick the exported file.</div>'; return; }
+    if (text.length > GRP_MAX) { $('#grppv').innerHTML = '<div class="qnote warn" style="margin-top:8px">That file is ' + esc(grpMB(text.length)) + ' — too big to send in one go (the limit is 15 MB). Export the chat again without media, or ask for a shorter range.</div>'; return; }
     $('#grppv').innerHTML = '<p class="muted" style="margin:8px 0 0">Reading…</p>';
     post('/admin/api/group/paste', { text: text, apply: what === 'save' }).then(function (r) {
-      if (!r || !r.ok) { $('#grppv').innerHTML = '<div class="qnote warn" style="margin-top:8px">' + esc((r && r.message) || 'Could not read that.') + '</div>'; return; }
+      if (!r || !r.ok) {
+        // A 413 comes back as an HTML page, so JSON.parse fails and the message is gibberish about a "<" token.
+        var why = (r && r.message) || 'Could not read that.';
+        if (/Unexpected token|JSON/i.test(why)) why = 'The server would not take ' + grpMB(text.length) + ' in one go. Export the chat again without media, or send a shorter range.';
+        $('#grppv').innerHTML = '<div class="qnote warn" style="margin-top:8px">' + esc(why) + '</div>'; return;
+      }
       if (what === 'save') {
         $('#grpsave').hidden = true;
         $('#grppv').innerHTML = '<div class="qnote ok" style="margin-top:8px">Saved ✓ — ' + esc(r.total) + ' in the group (' + esc(r.added) + ' new, ' + esc(r.gone) + ' no longer there).</div>';
@@ -5824,11 +5879,16 @@ function grpClick(e) {
         return;
       }
       $('#grpsave').hidden = false;
-      $('#grppv').innerHTML = '<div class="qnote" style="margin-top:8px"><b>' + esc(r.countFound) + '</b> number' + (r.countFound === 1 ? '' : 's') + ' read' +
-        (r.mode === 'export' ? ' from an exported chat (' + esc(r.events) + ' joined / left lines replayed)' : ' from a plain list') + '.<br/>' +
+      $('#grpsave').textContent = r.looksPartial ? '⚠️ Save it anyway' : '✓ Save this list';
+      var covered = r.firstDate ? ' Covers ' + esc(prettyDate(r.firstDate)) + ' to <b>' + esc(prettyDate(r.lastDate)) + '</b>, ' + esc(r.lines) + ' lines.' : ' ' + esc(r.lines) + ' lines.';
+      $('#grppv').innerHTML =
+        // The half-file warning comes FIRST, because it is the thing that makes every number below it wrong.
+        (r.looksPartial ? '<div class="qnote warn" style="margin-top:8px"><b>This looks like part of the file.</b> The last line is dated ' + esc(prettyDate(r.lastDate)) + ' — ' + esc(r.staleDays) + ' days ago — so anybody who joined after that is missing, and saving it would mark them all as having left. Use 📎 <b>Pick the exported file</b> rather than copying the text, and make sure you took the whole export.</div>' : '') +
+        '<div class="qnote" style="margin-top:8px"><b>' + esc(r.countFound) + '</b> number' + (r.countFound === 1 ? '' : 's') + ' read' +
+        (r.mode === 'export' ? ' from an exported chat (' + esc(r.events) + ' joined / left lines replayed)' : ' from a plain list') + '.' + covered + '<br/>' +
         '＋ ' + esc(r.newRows) + ' we have never seen before' + (r.goneAway.length ? ' · 🚪 ' + esc(r.goneAway.length) + ' who were in the group are not in this list' : '') + '.' +
         (r.sample && r.sample.length ? '<br/><span class="muted" style="font-size:.76rem">For example: ' + r.sample.map(grpPhone).map(esc).join(', ') + '</span>' : '') +
-        '<br/><span class="muted" style="font-size:.76rem">If that number looks wrong, do not save — check you pasted the whole list.</span></div>';
+        '<br/><span class="muted" style="font-size:.76rem">If that count is far off what the group really has, do not save.</span></div>';
     });
     return;
   }
@@ -5844,6 +5904,13 @@ function grpSection(title, why, rows, draw) {
   return '<div class="grpsec card" style="padding:10px 14px"><h4>' + title + ' <span class="muted">(' + rows.length + ')</span></h4>' +
     '<p class="why">' + why + '</p>' +
     (rows.length ? rows.map(draw).join('') : '<p class="muted" style="margin:6px 0 0">Nobody. 👍</p>') + '</div>';
+}
+/** The same, folded shut and capped: a community has hundreds of members who are not customers, and that is normal. */
+function grpFolded(title, why, rows, draw, cap) {
+  var shown = rows.slice(0, cap);
+  return '<details class="grpsec card" style="padding:10px 14px"><summary style="cursor:pointer"><b>' + title + '</b> <span class="muted">(' + rows.length + ')</span></summary>' +
+    '<p class="why">' + why + '</p>' +
+    (rows.length ? shown.map(draw).join('') + (rows.length > shown.length ? '<p class="muted" style="margin:6px 0 0">…and ' + (rows.length - shown.length) + ' more.</p>' : '') : '<p class="muted" style="margin:6px 0 0">Nobody. 👍</p>') + '</details>';
 }
 
 function renderGrp() {
@@ -5887,7 +5954,7 @@ function renderGrp() {
   $('#grplist').innerHTML =
     grpSection('💸 Paying for a Group Offer, not in the group', 'They are getting the group price. Ask them to join, or move them to a normal plan.', d.owe || [], owed) +
     grpSection('🚪 In the group, plan expired', 'These are the ones to remove from the group.', d.expiredIn || [], expired) +
-    grpSection('❓ In the group, paying for nothing', 'Not a Group Offer customer today. Could be an old one, could be a stranger.', d.strangers || [], stranger) +
+    grpFolded('❓ In the group, paying for nothing', 'Not a Group Offer customer today — an old customer, somebody who joined the community for the offers, or a stranger. In a community this is most of it, so it is folded away.', d.strangers || [], stranger, 50) +
     (d.everChecked ? grpSection('🕓 Said they joined, never turned up', 'They ticked the box at checkout but no pasted list has ever had them in it.', neverSeen, claimed) : '');
 }
 

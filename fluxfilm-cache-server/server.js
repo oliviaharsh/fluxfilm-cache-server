@@ -156,6 +156,11 @@ app.disable('x-powered-by');
 app.use(security.securityHeaders);
 // Only FluxFilm's own sites may call the API from a browser (was: any website).
 app.use(cors(security.corsOptions()));
+// 👥 The group list is the one thing anybody sends that is genuinely large: a WhatsApp export of a community
+// with hundreds of members runs to several megabytes. At the shared 1 MB it came back 413 with an HTML error
+// page, which the panel could not even read to say so — the owner pasted 490 members and saw "Saved ✓ — 258".
+// Declared BEFORE the shared parser: body-parser marks the request done, so the 1 MB one below skips it.
+app.post('/admin/api/group/paste', express.json({ limit: '16mb' }));
 app.use(express.json({ limit: '1mb' }));
 
 // Per-IP limits on the storefront actions worth abusing. Generous: many Indian mobile
