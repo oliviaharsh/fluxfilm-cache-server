@@ -454,6 +454,13 @@ textarea.inp{resize:vertical}
 .seg3 button small{font-weight:500;font-size:.68rem;opacity:.75}
 @media(max-width:560px){.seg3{flex-direction:column}.seg3 button{flex:1 1 auto;width:100%}}
 
+/* 👥 WhatsApp group */
+.grprow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.grprow .grow{flex:1 1 200px;min-width:0}
+.grpsec{margin-top:14px}
+.grpsec h4{margin:0 0 2px;font-size:.92rem}
+.grpsec p.why{margin:0 0 4px;font-size:.76rem;color:var(--mut)}
+
 /* 🚪 "Who is on this account?" — the lookup that works even when nobody needs removing */
 .ruw-hit{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
 .ruw-hit .grow{flex:1 1 200px;min-width:0}
@@ -715,7 +722,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['receivables', '💳', 'Receivables'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'], ['ytfamily', '▶️', 'YouTube families'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['receivables', '💳', 'Receivables'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'], ['ytfamily', '▶️', 'YouTube families'], ['wagroup', '👥', 'WhatsApp group'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
   ['DATA'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'], ['integrations', '🔗', 'Integrations'],
 ];
@@ -782,7 +789,7 @@ function wireSideClose() {
   }, { passive: true });
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView, ytfamily: ytFamilyView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView, ytfamily: ytFamilyView, wagroup: groupView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -5763,6 +5770,126 @@ var OD = { data: null, chk: null, svc: store('ff_od_svc') || '', q: '', removed:
    Owner, 26 Sep 2026: "need to be able to see in which family which customer name and their email even if just
    first characters and their expiry - so we can remove them and also know how much space we have". */
 var YT = { data: null, q: '', pick: null, editing: null, imp: null, open: {} };
+
+/* ================= 👥 WhatsApp group =================
+   Group Offer plans are cheaper because the customer joins the FluxFilm WhatsApp group, and until 29 Sep 2026
+   nothing anywhere recorded whether they ever did: the "I have joined" tick lived in the checkout page and in
+   Olivia's chat and was thrown away with the session. There is also no WhatsApp API that will list a group's
+   members, so the other half of the answer has to be pasted in. This screen puts the two side by side and shows
+   only where they disagree — which is the only part with an action behind it. (groupmembers.js) */
+var GRP = { data: null, preview: null, busy: false, open: {} };
+
+function groupView() {
+  $('#view').innerHTML = '<div id="grpwrap"><div class="ph"><div><h1>👥 WhatsApp group</h1><p>Who said they joined the group, and who is really in it</p></div><button class="btn ghost" id="grpref">⟳ Refresh</button></div>' +
+    '<div id="grptop"><p class="muted">Loading…</p></div>' +
+    '<details class="card" id="grppaste" style="padding:10px 14px;margin-bottom:12px"' + (GRP.open.grppaste ? ' open' : '') + '>' +
+    '<summary style="cursor:pointer"><b>📋 Paste the group list</b> <span class="muted">— it shows you what would change before it saves anything</span></summary>' +
+    '<p class="muted" style="font-size:.76rem;margin:8px 0 4px">WhatsApp will not let you copy the participants list, so the easy way on a phone is <b>group → ⋮ → More → Export chat → Without media</b>, then paste the whole file here: the joined / left lines are replayed in order, so somebody who joined in June and left in August comes out correctly. A plain list of numbers works too — then everyone in it counts as a member.</p>' +
+    '<textarea class="inp" id="grptext" rows="6" style="width:100%;font-size:.8rem" placeholder="28/09/2026, 20:14 - +91 98765 43210 joined using this group&#39;s invite link&#10;28/09/2026, 21:02 - +91 91234 56789 left&#10;&#10;…or just:&#10;+91 98765 43210&#10;9123456789"></textarea>' +
+    '<div class="row" style="gap:6px;margin-top:6px"><button class="btn ghost sm" data-grp="check">🔍 Check it</button><button class="btn sm" data-grp="save" id="grpsave" hidden>✓ Save this list</button></div>' +
+    '<div id="grppv"></div></details>' +
+    '<div id="grplist"></div></div>';
+  $('#grpref').onclick = function () { GRP.data = null; GRP.preview = null; grpLoad(); };
+  $('#grppaste').addEventListener('toggle', function () { GRP.open.grppaste = $('#grppaste').open; });
+  $('#grpwrap').onclick = grpClick;
+  if (GRP.data) renderGrp(); else grpLoad();
+}
+function grpLoad() { api('/admin/api/group').then(function (r) { GRP.data = r; renderGrp(); }); }
+
+/** dd Mon yyyy from a MySQL datetime, or '' — the screen never shows a raw timestamp. */
+function grpWhen(v) {
+  var m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? (+m[3]) + ' ' + MON[+m[2] - 1] + ' ' + m[1] : '';
+}
+function grpPhone(p) { return p ? '…' + String(p).slice(-4) : 'no number'; }
+/** A row's heading: the name with the number beside it, or just the number when we have never known a name. */
+function grpWho(m) {
+  return m.name ? '<b>' + esc(m.name) + '</b> <span class="muted">· ' + esc(grpPhone(m.phone)) + '</span>' : '<b>' + esc(grpPhone(m.phone)) + '</b>';
+}
+
+function grpClick(e) {
+  var go = e.target.closest('[data-grp]');
+  if (go) {
+    var what = go.getAttribute('data-grp');
+    var text = ($('#grptext') || {}).value || '';
+    if (!text.trim()) { $('#grppv').innerHTML = '<div class="qnote warn" style="margin-top:8px">Paste the list first.</div>'; return; }
+    $('#grppv').innerHTML = '<p class="muted" style="margin:8px 0 0">Reading…</p>';
+    post('/admin/api/group/paste', { text: text, apply: what === 'save' }).then(function (r) {
+      if (!r || !r.ok) { $('#grppv').innerHTML = '<div class="qnote warn" style="margin-top:8px">' + esc((r && r.message) || 'Could not read that.') + '</div>'; return; }
+      if (what === 'save') {
+        $('#grpsave').hidden = true;
+        $('#grppv').innerHTML = '<div class="qnote ok" style="margin-top:8px">Saved ✓ — ' + esc(r.total) + ' in the group (' + esc(r.added) + ' new, ' + esc(r.gone) + ' no longer there).</div>';
+        GRP.data = r.view || null; renderGrp();
+        if (!GRP.data) grpLoad();
+        return;
+      }
+      $('#grpsave').hidden = false;
+      $('#grppv').innerHTML = '<div class="qnote" style="margin-top:8px"><b>' + esc(r.countFound) + '</b> number' + (r.countFound === 1 ? '' : 's') + ' read' +
+        (r.mode === 'export' ? ' from an exported chat (' + esc(r.events) + ' joined / left lines replayed)' : ' from a plain list') + '.<br/>' +
+        '＋ ' + esc(r.newRows) + ' we have never seen before' + (r.goneAway.length ? ' · 🚪 ' + esc(r.goneAway.length) + ' who were in the group are not in this list' : '') + '.' +
+        (r.sample && r.sample.length ? '<br/><span class="muted" style="font-size:.76rem">For example: ' + r.sample.map(grpPhone).map(esc).join(', ') + '</span>' : '') +
+        '<br/><span class="muted" style="font-size:.76rem">If that number looks wrong, do not save — check you pasted the whole list.</span></div>';
+    });
+    return;
+  }
+  var fg = e.target.closest('[data-grpforget]');
+  if (fg) {
+    var id = fg.getAttribute('data-grpforget');
+    post('/admin/api/group/member', { id: id, action: 'forget' }).then(function (r) { if (r && r.ok) { GRP.data = r; renderGrp(); } });
+    return;
+  }
+}
+
+function grpSection(title, why, rows, draw) {
+  return '<div class="grpsec card" style="padding:10px 14px"><h4>' + title + ' <span class="muted">(' + rows.length + ')</span></h4>' +
+    '<p class="why">' + why + '</p>' +
+    (rows.length ? rows.map(draw).join('') : '<p class="muted" style="margin:6px 0 0">Nobody. 👍</p>') + '</div>';
+}
+
+function renderGrp() {
+  var d = GRP.data || {};
+  if (d.needsSchema) { $('#grptop').innerHTML = '<div class="qnote warn">⚠️ Run <b>db/schema-v31.sql</b> in phpMyAdmin first — it makes the one table this screen keeps the group in. Nothing else in the panel is affected until you do.</div>'; $('#grplist').innerHTML = ''; return; }
+  if (!d.ok) { $('#grptop').innerHTML = '<div class="qnote warn">' + esc((d && d.message) || 'Could not load.') + '</div>'; return; }
+  var t = d.totals || {};
+  $('#grptop').innerHTML = '<div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:10px">' +
+    '<span class="pill p-ok" style="font-size:.95rem;padding:7px 13px">👥 ' + esc(t.seen) + ' in the group</span>' +
+    (t.owe ? '<span class="pill p-bad" style="padding:7px 13px">💸 ' + esc(t.owe) + ' paying, not in it</span>' : '') +
+    (t.expiredIn ? '<span class="pill p-warn" style="padding:7px 13px">🚪 ' + esc(t.expiredIn) + ' expired, still in it</span>' : '') +
+    (t.strangers ? '<span class="pill p-grey" style="padding:7px 13px">❓ ' + esc(t.strangers) + ' in it, paying nothing</span>' : '') +
+    '<span class="pill p-grey" style="padding:7px 13px">🕓 ' + esc(t.claimed) + ' said they joined</span></div>' +
+    (d.everChecked ? '' : '<div class="qnote" style="margin-bottom:10px">No group list has been pasted yet, so the shop only knows who <b>said</b> they joined. Paste one below and the rest of this screen fills in.</div>');
+
+  var owed = function (p) {
+    return '<div class="grprow"><div class="grow"><b>' + esc(p.name) + '</b> <span class="muted">· ' + esc(grpPhone(p.phone)) + '</span>' +
+      '<div class="muted" style="font-size:.74rem">' + esc(p.plan || p.service) + ' · ends ' + esc(p.expiryLabel) +
+      (p.claimedAt ? ' · <b>said they joined</b> ' + esc(grpWhen(p.claimedAt)) : ' · never said they joined') + '</div></div>' +
+      (p.state === 'ENDING' ? '<span class="pill p-warn">' + esc(p.days) + ' day' + (p.days === 1 ? '' : 's') + ' left</span>' : '<span class="pill p-ok">ACTIVE</span>') +
+      '<a class="celllink" onclick="store(\'ff_last_phone\',\'' + esc(p.phone) + '\');nav(\'customer\')">Open</a></div>';
+  };
+  var expired = function (p) {
+    return '<div class="grprow"><div class="grow"><b>' + esc(p.name) + '</b> <span class="muted">· ' + esc(grpPhone(p.phone)) + '</span>' +
+      '<div class="muted" style="font-size:.74rem">' + esc(p.plan || p.service) + ' · expired ' + esc(p.expiryLabel) + '</div></div>' +
+      '<span class="pill p-bad">EXPIRED</span>' +
+      '<a class="celllink" onclick="store(\'ff_last_phone\',\'' + esc(p.phone) + '\');nav(\'customer\')">Open</a></div>';
+  };
+  var stranger = function (m) {
+    return '<div class="grprow"><div class="grow">' + grpWho(m) +
+      '<div class="muted" style="font-size:.74rem">' + (m.claimedAt ? 'said they joined ' + esc(grpWhen(m.claimedAt)) + ' · ' : '') + 'last seen in a list ' + esc(grpWhen(m.seenAt) || 'never') + '</div></div>' +
+      '<button class="btn ghost sm" data-grpforget="' + esc(m.id) + '" title="Remove this row from the shop. It does not touch WhatsApp.">🗑 Forget</button></div>';
+  };
+  var neverSeen = (d.members || []).filter(function (m) { return m.claimedAt && !m.seenAt; });
+  var claimed = function (m) {
+    return '<div class="grprow"><div class="grow">' + grpWho(m) +
+      '<div class="muted" style="font-size:.74rem">said they joined ' + esc(grpWhen(m.claimedAt)) + ' in ' + esc(m.claimedVia === 'olivia' ? 'the chat' : 'checkout') + (m.claimedFor ? ' · ' + esc(m.claimedFor) : '') + '</div></div>' +
+      '<span class="pill p-warn">never seen in a list</span></div>';
+  };
+
+  $('#grplist').innerHTML =
+    grpSection('💸 Paying for a Group Offer, not in the group', 'They are getting the group price. Ask them to join, or move them to a normal plan.', d.owe || [], owed) +
+    grpSection('🚪 In the group, plan expired', 'These are the ones to remove from the group.', d.expiredIn || [], expired) +
+    grpSection('❓ In the group, paying for nothing', 'Not a Group Offer customer today. Could be an old one, could be a stranger.', d.strangers || [], stranger) +
+    (d.everChecked ? grpSection('🕓 Said they joined, never turned up', 'They ticked the box at checkout but no pasted list has ever had them in it.', neverSeen, claimed) : '');
+}
 
 function ytFamilyView() {
   $('#view').innerHTML = '<div id="ytwrap"><div class="ph"><div><h1>▶️ YouTube families</h1><p>Who is invited into which Google family, when they run out, and how many places are free</p></div><button class="btn ghost" id="ytref">⟳ Refresh</button></div>' +
