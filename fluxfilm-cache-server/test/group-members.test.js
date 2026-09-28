@@ -22,6 +22,8 @@ let PLANS = [];
 let AUDIT = [];
 let seq = 0;
 let tableExists = true;
+let hasSeenBy = true;      // schema-v32. Flipped off below to prove the screen still works without it.
+let SETTINGS = {};
 const noTable = () => { const e = new Error("Table 'u339830006_fluxfilm.wa_group_members' doesn't exist"); e.code = 'ER_NO_SUCH_TABLE'; throw e; };
 
 const mockDb = {
@@ -36,7 +38,25 @@ const mockDb = {
     }
     if (/wa_group_members/.test(q) && !tableExists) noTable();
 
+    if (/^SELECT id, phone_norm, name, claimed_at, claimed_via, claimed_for, seen_at, seen_by, missing_at, note FROM wa_group_members$/.test(q)) {
+      if (!hasSeenBy) throw new Error("Unknown column 'seen_by' in 'field list'");
+      return ROWS.map((r) => Object.assign({}, r));
+    }
+    if (/^SELECT seen_by FROM wa_group_members LIMIT 1$/.test(q)) {
+      if (!hasSeenBy) throw new Error("Unknown column 'seen_by' in 'field list'");
+      return ROWS.slice(0, 1).map((r) => ({ seen_by: r.seen_by || '' }));
+    }
     if (/^SELECT id, phone_norm, name, claimed_at, claimed_via, claimed_for, seen_at, missing_at, note FROM wa_group_members$/.test(q)) return ROWS.map((r) => Object.assign({}, r));
+    if (/^UPDATE wa_group_members SET seen_at = \?, seen_by = \?, missing_at = NULL WHERE id = \?$/.test(q)) {
+      if (!hasSeenBy) throw new Error("Unknown column 'seen_by' in 'field list'");
+      const r = ROWS.find((x) => x.id === Number(p[2])); if (r) { r.seen_at = p[0]; r.seen_by = p[1]; r.missing_at = null; } return { affectedRows: r ? 1 : 0 };
+    }
+    if (/^INSERT INTO wa_group_members \(phone_norm, name, seen_at, seen_by\) VALUES \(\?, \?, \?, \?\)$/.test(q)) {
+      if (!hasSeenBy) throw new Error("Unknown column 'seen_by' in 'field list'");
+      ROWS.push({ id: ++seq, phone_norm: p[0], name: p[1], claimed_at: null, claimed_via: '', claimed_for: '', seen_at: p[2], seen_by: p[3], missing_at: null, note: '' }); return { insertId: seq };
+    }
+    if (/^SELECT value FROM app_settings WHERE setting_key = \? LIMIT 1$/.test(q)) return SETTINGS[p[0]] ? [{ value: SETTINGS[p[0]] }] : [];
+    if (/^INSERT INTO app_settings \(setting_key, value\)/.test(q)) { SETTINGS[p[0]] = p[1]; return { affectedRows: 1 }; }
     if (/^SELECT id, phone_norm, seen_at, missing_at FROM wa_group_members$/.test(q)) return ROWS.map((r) => ({ id: r.id, phone_norm: r.phone_norm, seen_at: r.seen_at, missing_at: r.missing_at }));
     if (/^UPDATE wa_group_members SET seen_at = \?, missing_at = NULL WHERE id = \?$/.test(q)) { const r = ROWS.find((x) => x.id === Number(p[1])); if (r) { r.seen_at = p[0]; r.missing_at = null; } return { affectedRows: r ? 1 : 0 }; }
     if (/^UPDATE wa_group_members SET missing_at = \? WHERE id = \?$/.test(q)) { const r = ROWS.find((x) => x.id === Number(p[1])); if (r) r.missing_at = p[0]; return { affectedRows: r ? 1 : 0 }; }
@@ -92,7 +112,7 @@ const SEED_CUSTS = () => [
   { phone_norm: '9333000333', name: 'Private Priya' },
 ];
 let CUSTS = [];
-const reset = () => { ROWS = []; AUDIT = []; seq = 0; tableExists = true; SUBS = SEED_SUBS(); PLANS = SEED_PLANS(); CUSTS = SEED_CUSTS(); };
+const reset = () => { ROWS = []; AUDIT = []; SETTINGS = {}; seq = 0; tableExists = true; hasSeenBy = true; SUBS = SEED_SUBS(); PLANS = SEED_PLANS(); CUSTS = SEED_CUSTS(); };
 
 (async () => {
   reset();
@@ -207,6 +227,51 @@ const reset = () => { ROWS = []; AUDIT = []; seq = 0; tableExists = true; SUBS =
     ok('…and neither warning wrote anything', ROWS.every((x) => !x.seen_at), ROWS.map((x) => x.seen_at));
   }
 
+  // ── the half of the community that has no number in the export ───────────────────────────────────────────
+  // Measured on the owner's real export, 29 Sep 2026: 1129 join lines, 598 of them with no number anywhere.
+  // Anybody saved in his contacts is written by the name he saved — "FF - (YT) Alok Yadav joined using this
+  // community's invite link" — and ignoring those made 20 of the 38 people being chased wrong.
+  section('the members the export only names');
+  {
+    const NAMED = [
+      dmy(-40) + " - FF - (YT) Arun Pillai joined using this community's invite link",
+      dmy(-39) + ' - ~ Old Omkar joined the community',
+      dmy(-38) + " - FF - Someone Random joined using this community's invite link",
+      dmy(-30) + " - FF - Gone Gaurav joined using this community's invite link",
+      dmy(-20) + ' - FF - Gone Gaurav left',
+      dmy(-3) + ' - Harsh W added FF - Meera Joshi',
+      dmy(0) + ', 09:00 - +91 98765 43210: morning',
+    ].join('\n');
+    const pl2 = I.parseList(NAMED.replace(/^(\d{2}\/\d{2}\/\d{4}) - /gm, '$1, 10:00 - '));
+    ok('a system line with no number in it is still read', (pl2.names || []).length === 4, (pl2.names || []));
+    ok('…replayed the same way, so somebody who joined and left is not in it', (pl2.names || []).indexOf('FF - Gone Gaurav') === -1, (pl2.names || []));
+    ok('…and "X added Y" records Y, the one who joined, not X who did it', (pl2.names || []).indexOf('FF - Meera Joshi') > -1, (pl2.names || []));
+
+    const chk = await post('/admin/api/group/paste', { text: NAMED.replace(/^(\d{2}\/\d{2}\/\d{4}) - /gm, '$1, 10:00 - ') });
+    ok('the check counts them and says how many became members', chk.ok && chk.namesFound === 4 && chk.namesMatched === 3, { found: chk.namesFound, matched: chk.namesMatched, unknown: chk.namesUnknown });
+    ok('…"FF - " and a service tag are the owner\'s own filing, so they are stripped before matching', chk.namesMatched === 3, chk);
+    ok('…somebody who is not a customer is counted but never invented as one', chk.namesUnknown === 1, { unknown: chk.namesUnknown });
+    ok('…and the community total is the two halves added up, which is what WhatsApp shows', chk.memberTotal === chk.countFound + chk.namesFound, { total: chk.memberTotal, num: chk.countFound, named: chk.namesFound });
+
+    // The rule that keeps this honest. Two customers with the same name is not a near miss to be resolved with a
+    // guess — it is an unanswerable question, and answering it wrongly removes a real person from the chase list.
+    CUSTS.push({ phone_norm: '9000000123', name: 'Arun Pillai' });
+    const amb = await post('/admin/api/group/paste', { text: NAMED.replace(/^(\d{2}\/\d{2}\/\d{4}) - /gm, '$1, 10:00 - ') });
+    ok('🔒 a name two customers share matches NEITHER of them', amb.namesAmbiguous === 1 && amb.namesMatched === 2, { amb: amb.namesAmbiguous, matched: amb.namesMatched });
+    CUSTS = SEED_CUSTS();
+
+    const save = await post('/admin/api/group/paste', { text: NAMED.replace(/^(\d{2}\/\d{2}\/\d{4}) - /gm, '$1, 10:00 - '), apply: true });
+    ok('saving counts them as in the group', save.ok && save.byName === 3, save);
+    const v = await get('/admin/api/group');
+    ok('…so a customer the export never numbered stops being chased', !(v.owe || []).some((x) => x.name === 'Arun Pillai'), (v.owe || []).map((x) => x.name));
+    ok('…and the row says it got there by NAME, so it can be disbelieved', (v.members || []).filter((m) => m.seenBy === 'name').length === 3, (v.members || []).map((m) => m.phone + ':' + m.seenBy));
+    ok('…the screen can say what the whole community looked like, which it cannot otherwise see', v.lastList && v.lastList.memberTotal === 5 && v.lastList.named === 4, v.lastList);
+    // Back to where this section started: the rows it wrote go, the two claims from earlier stay.
+    ROWS = []; SETTINGS = {}; seq = 0;
+    await gm.claim('9876543210', 'Siddhu', 'shop', 'Netflix (Group Offer)', { query: mockDb.query });
+    await gm.claim('9123456789', 'Meera Joshi', 'olivia', 'Netflix (Group Offer)', { query: mockDb.query });
+  }
+
   r = await post('/admin/api/group/paste', { text: EXPORT });
   ok('a check reads the export and says what it found', r.ok && r.mode === 'export' && r.countFound === 4, r);
   ok('…and writes NOTHING until it is saved — a half-pasted list would mark real members as gone', ROWS.every((x) => !x.seen_at), ROWS.map((x) => x.seen_at));
@@ -215,6 +280,7 @@ const reset = () => { ROWS = []; AUDIT = []; seq = 0; tableExists = true; SUBS =
   ok('saving it records who is in the group', r.ok && r.total === 4, r);
   ok('…and the screen comes back with it already applied, so nothing has to be reloaded by hand', r.view && r.view.everChecked === true && r.view.totals.seen === 4, r.view && r.view.totals);
   ok('the change log says a list was checked', AUDIT.some((a) => a.action === 'group.list'), AUDIT.map((a) => a.action));
+  ok('everyone found by their number is recorded as such', (await get('/admin/api/group')).members.filter((m) => m.seenBy === 'number').length === 4, ROWS.map((x) => x.phone_norm + ':' + x.seen_by));
 
   r = await get('/admin/api/group');
   ok('💸 the customer paying the group price and NOT in the group is named', (r.owe || []).length === 1 && r.owe[0].name === 'Meera Joshi', (r.owe || []).map((x) => x.name));
@@ -245,6 +311,21 @@ const reset = () => { ROWS = []; AUDIT = []; seq = 0; tableExists = true; SUBS =
     const after = await post('/admin/api/group/member', { id: strangerRow.id, action: 'forget' });
     ok('forgetting a row removes it from the shop', after.ok && !(after.members || []).some((x) => x.id === strangerRow.id), (after.members || []).map((x) => x.id));
     ok('…and says plainly that it is only the shop — WhatsApp is untouched', /does not touch WhatsApp/.test(fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8')));
+  }
+
+  // ── before schema-v32 ────────────────────────────────────────────────────────────────────────────────────
+  // The last time a column was added like this (schema-v30, 26 Sep) the fallback branch fell through to a throw
+  // written below it and the whole screen went dark. So the no-column path is exercised, not assumed.
+  section('a database where schema-v32 has not been run');
+  {
+    hasSeenBy = false;
+    const v = await get('/admin/api/group');
+    ok('the screen still loads, with every row still there', v.ok === true && (v.members || []).length === ROWS.length, { ok: v.ok, n: (v.members || []).length, rows: ROWS.length });
+    ok('…and it says plainly that it cannot tell you HOW each one was found', v.provenanceOff === true, v.provenanceOff);
+    const save = await post('/admin/api/group/paste', { text: '+91 98765 43210\n+91 99887 76655', apply: true });
+    ok('…and a list can still be saved', save.ok === true, save);
+    ok('…the panel says which migration to run', /db\/schema-v32\.sql/.test(fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8')));
+    hasSeenBy = true;
   }
 
   // ── it is wired to the two places the tap actually happens ────────────────────────────────────────────────
@@ -280,6 +361,13 @@ const reset = () => { ROWS = []; AUDIT = []; seq = 0; tableExists = true; SUBS =
     /post\('\/admin\/api\/group\/paste'/.test(read('admin.html')) && /post\('\/admin\/api\/group\/member'/.test(read('admin.html'))
     && !/api\('\/admin\/api\/group\/(paste|member)'/.test(read('admin.html')));
   ok('schema-v31 makes the one table it needs', /CREATE TABLE IF NOT EXISTS wa_group_members/.test(read('db/schema-v31.sql')));
+  ok('schema-v32 records how each member was found', /ADD COLUMN seen_by/.test(read('db/schema-v32.sql')));
+  ok('🔒 the name matcher is exact and single — no nicknames, no initials, no fuzzy distance', (() => {
+    // Comments stripped first: the rule is about what the code does, and the paragraph above nameKey says the
+    // words "fuzzy distance" precisely in order to forbid them.
+    const code = read('groupmembers.js').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+    return !/levenshtein|distance|soundex|similar|startsWith/i.test(code) && /hit\.length > 1/.test(code);
+  })());
   // The screen asks the owner to paste an export; if the words for how to get one ever go, the screen is useless.
   ok('…and the screen says how to get a list out of WhatsApp at all', /Export chat/.test(read('admin.html')));
   ok('🔒 it never messages anybody and never touches a subscription',
