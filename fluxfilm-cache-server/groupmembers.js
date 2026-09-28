@@ -116,9 +116,14 @@ function parseList(text) {
 }
 
 // ── who is supposed to be in the group ────────────────────────────────────────────────────────────────────────
+// subscriptions carries no name — the customer's name is on customers, keyed by the same 10-digit phone.
+// Read as two statements and matched in JavaScript, never joined: this database has tables in two collations
+// and MariaDB refuses the comparison. (It went live asking subscriptions for a name column it has never had, and
+// every request 500'd — the fake in the test had the column because the fake was written from my own SQL.)
 const SUBS_SQL =
-  'SELECT sub_id, phone_norm, name, service, plan, expiry_date, status FROM subscriptions ' +
+  'SELECT sub_id, phone_norm, service, plan, expiry_date, status FROM subscriptions ' +
   "WHERE UPPER(COALESCE(status,'')) NOT IN ('REFUNDED','CANCELLED')";
+const NAMES_SQL = 'SELECT phone_norm, name FROM customers';
 
 /**
  * The services sold on the "join the group" deal. Taken from the plans themselves (RequiresGroupJoin in
@@ -163,6 +168,9 @@ async function overview(query, now) {
   const byPhone = new Map(rows.map((r) => [norm(r.phone_norm), r]));
   const services = await groupServices(query);
   const subs = (await query(SUBS_SQL, [])).filter((x) => services.has(s(x.service).toLowerCase()));
+  const names = new Map();
+  try { for (const c of await query(NAMES_SQL, [])) if (norm(c.phone_norm)) names.set(norm(c.phone_norm), s(c.name)); }
+  catch (e) { console.log('[group] names unavailable:', e.message); }   // a missing name is a worse row, not a broken screen
 
   // One line per person who is paying for a Group Offer plan today.
   const owed = new Map();
@@ -174,7 +182,7 @@ async function overview(query, now) {
     // Somebody with two group subs is one person in the group; keep the one that runs longest.
     if (prev && s(prev.expiry) >= s(sub.expiry_date)) continue;
     owed.set(ph, {
-      phone: ph, name: s(sub.name) || 'Unknown', service: s(sub.service), plan: s(sub.plan),
+      phone: ph, name: names.get(ph) || 'Unknown', service: s(sub.service), plan: s(sub.plan),
       subId: s(sub.sub_id), expiry: s(sub.expiry_date), expiryLabel: prettyDate(sub.expiry_date),
       state: st.state, days: st.days,
     });
