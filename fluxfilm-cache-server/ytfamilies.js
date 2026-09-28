@@ -67,13 +67,19 @@ const SUBS_SQL =
   'WHERE LOWER(s.service) LIKE ? ORDER BY s.expiry_date ASC LIMIT 2000';
 
 /**
- * A subscription is worth a seat while it is alive. A refunded or cancelled one that has already been let go
- * (removed = 1) is history and clutters the "who still needs placing" list.
+ * Who belongs on the "not in any family yet" list: somebody **paying right now** who has not been placed.
+ *
+ * It used to include expired customers too, on the theory that they might still be sitting in a family nobody
+ * recorded. In practice that is backwards — if they are in a family, they are IN one and the 🚪 count already
+ * names them; if they are not, an expired plan needs nothing doing. So they were three permanent rows of
+ * nothing-to-do (owner, 28 Sep 2026: "remove denish from not in any family list because its expired plan,
+ * devesh and ghanshyam also"). A list with nothing actionable on it stops being read.
+ *
+ * This also makes the ❓ chip and the ▶️ Today card the same number, counted from the same place.
  */
 const placeable = (x, now) => {
   const st = stateOf(x, now).state;
-  if (Number(x.removed) === 1 && st !== 'ACTIVE' && st !== 'ENDING') return false;
-  return st !== 'ENDED';
+  return st === 'ACTIVE' || st === 'ENDING';
 };
 
 async function overview(query, now) {
@@ -390,7 +396,9 @@ async function pendingCount(query) {
     //    and matches them in JavaScript, where no such rule exists.
     const view = await overview(query);
     if (view.needsSchema) return null;
-    return (view.unplaced || []).filter((p) => p.state === 'ACTIVE' || p.state === 'ENDING').length;
+    // No second filter: placeable() is now the only rule for "paying and not placed", so the card and the
+    // screen cannot say different numbers.
+    return (view.unplaced || []).length;
   } catch (_) { return null; }
 }
 
