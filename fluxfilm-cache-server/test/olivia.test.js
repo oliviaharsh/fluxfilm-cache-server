@@ -784,6 +784,13 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
   // ── 🔗 when we cannot read the page ourselves, Netflix's own link is the rescue (25 Sep 2026) ──────────────────
   {
     const LINK = 'https://www.netflix.com/account/travel/verify?nftoken=abc+de/f=';
+    const widgetOpens = (url) => {
+      const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'oliviawidget.js'), 'utf8');
+      const m = src.match(/var OPEN_OK = (\/[^\n]*\/i);/);
+      // A rule that cannot be read is a FAIL, not a crash - the rest of this file still has things to say.
+      if (!m) return false;
+      return new RegExp(m[1].slice(1, -2), 'i').test(String(url));
+    };
     shop.hhCode = ''; shop.hhWhy = 'nodigits'; shop.hhLink = LINK;
     await say({ choice: 'menu' });
     r = await say({ text: 'household error phir aa gaya' });
@@ -791,6 +798,10 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
     const b = (last(r).buttons || [])[0] || {};
     ok('🔗 a failure carrying the Netflix link hands it over instead of asking them to retry', last(r).intent === 'HH_OPEN_NETFLIX', last(r));
     ok('…as a real tappable button with the link on it', b.id === 'hhopen' && b.url === LINK, b);
+    // …and the BROWSER has to be willing to open it. This is where it broke on 28 Sep 2026: the server put the
+    // Netflix link on the button, the widget's own allow-list threw it away, and the customer got a button that
+    // did nothing. Both halves were "right" on their own, so pin the join — the widget's real rule, the real url.
+    ok('…and the widget would actually open it, not drop it on the floor', widgetOpens(b.url), b.url);
     ok('…and the words tell them what Netflix will show', /4 digits|code/i.test(last(r).text), last(r).text);
     ok('…never printing the link in the message itself', !last(r).text.includes('nftoken'), last(r).text);
 
@@ -803,6 +814,7 @@ const findBtn = (m, re) => (m.buttons || []).find((b) => re.test(b.label));
     const hb = (last(r).buttons || [])[0] || {};
     ok('🏠 the household failure offers the home button, not a code button', last(r).intent === 'HH_OPEN_NETFLIX' && hb.id === 'hhopen' && /home/i.test(hb.label), { i: last(r).intent, hb });
     ok('…and names the two presses Netflix asks for', /Yes, this was me/i.test(last(r).text) && /Update Household/i.test(last(r).text), last(r).text);
+    ok('…and that one opens too — this is the button a customer pressed and nothing happened', widgetOpens(hb.url), hb.url);
 
     // No link and a reason retrying cannot fix: stop wasting their evening, go to a person.
     shop.hhUpdateOn = false; shop.hhCode = ''; shop.hhWhy = 'nodigits'; shop.hhLink = '';

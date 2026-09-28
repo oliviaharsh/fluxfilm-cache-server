@@ -248,9 +248,19 @@
     if (!url) url = st.wa;
     try { var w = window.open(url, '_blank'); if (w) w.opener = null; else location.href = url; } catch (e) { location.href = url; }
   }
+  // The hosts a server-sent button may open. Netflix is here because the ONE button that carries a url today is
+  // "Make this TV the home" (olivia.js HH_OPEN_NETFLIX), and its link is always www.netflix.com/account/...
+  // 28 Sep 2026: it was not, so that button did nothing at all - no error, no message, for every customer who ever
+  // reached it. The list had been written for WhatsApp links that stopped coming this way, and nothing noticed,
+  // because the test pinned that the SERVER puts the url on the button and never asked whether the browser opens it.
+  var OPEN_OK = /^https:\/\/(www\.netflix\.com|chat\.whatsapp\.com|wa\.me|api\.whatsapp\.com)\//i;
   function openUrl(url) {
-    // Only WhatsApp group / chat links come from the server (olivia.js checks them too).
-    if (!/^https:\/\/(chat\.whatsapp\.com|wa\.me|api\.whatsapp\.com)\//i.test(String(url))) return;
+    if (!OPEN_OK.test(String(url))) {
+      // Never silently. A dead button is indistinguishable from a broken phone to the person holding it.
+      try { console.warn('[olivia] refused to open', String(url).slice(0, 60)); } catch (e) {}
+      if (st.wa) { try { var x = window.open(st.wa, '_blank'); if (x) x.opener = null; else location.href = st.wa; } catch (e) { location.href = st.wa; } }
+      return;
+    }
     try { var w = window.open(url, '_blank'); if (w) w.opener = null; else location.href = url; } catch (e) { location.href = url; }
   }
   // Olivia's photo (AI-generated, 256 px, ~12 KB). If it cannot load, the robot emoji stays.
