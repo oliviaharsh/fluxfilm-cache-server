@@ -5949,14 +5949,14 @@ function grpClick(e) {
       // Half a community is saved in your contacts, so the export names them and never numbers them. Those are
       // only members we can act on when the name matches exactly one customer — say so, with the numbers.
       var named = r.namesFound ? '<br/>👤 <b>' + esc(r.namesFound) + '</b> more appear by name only (saved in your contacts, so WhatsApp never wrote their number). ' +
-        esc(r.namesMatched) + ' of those match one customer and count as members' +
+        esc(r.namesMatched) + ' of those match one customer and count as members, so ' + esc(r.membersFound) + ' people in all would be saved' +
         (r.namesAmbiguous ? ' · ' + esc(r.namesAmbiguous) + ' match more than one customer, so they are left out' : '') +
         (r.namesUnknown ? ' · ' + esc(r.namesUnknown) + ' are not customers' : '') + '.' +
         '<br/>Up to <b>' + esc(r.memberTotal) + '</b> in the community — a ceiling, not a count: anybody you saved in your contacts partway through appears both ways in three years of history and is counted twice.' : '';
       $('#grppv').innerHTML =
         // The half-file warning comes FIRST, because it is the thing that makes every number below it wrong.
         (r.looksPartial ? '<div class="qnote warn" style="margin-top:8px"><b>This looks like part of the file.</b> The last line is dated ' + esc(prettyDate(r.lastDate)) + ' — ' + esc(r.staleDays) + ' days ago — so anybody who joined after that is missing, and saving it would mark them all as having left. Use 📎 <b>Pick the exported file</b> rather than copying the text, and make sure you took the whole export.</div>' : '') +
-        '<div class="qnote" style="margin-top:8px"><b>' + esc(r.countFound) + '</b> number' + (r.countFound === 1 ? '' : 's') + ' read' +
+        '<div class="qnote" style="margin-top:8px"><b>' + esc(r.countFound) + '</b> phone number' + (r.countFound === 1 ? '' : 's') + ' read' +
         (r.mode === 'export' ? ' from an exported chat (' + esc(r.events) + ' joined / left lines replayed)' : ' from a plain list') + '.' + covered + '<br/>' +
         '＋ ' + esc(r.newRows) + ' we have never seen before' + (r.goneAway.length ? ' · 🚪 ' + esc(r.goneAway.length) + ' who were in the group are not in this list' : '') + '.' +
         named +

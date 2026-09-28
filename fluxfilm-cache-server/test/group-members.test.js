@@ -251,7 +251,12 @@ const reset = () => { ROWS = []; AUDIT = []; SETTINGS = {}; seq = 0; tableExists
     ok('the check counts them and says how many became members', chk.ok && chk.namesFound === 4 && chk.namesMatched === 3, { found: chk.namesFound, matched: chk.namesMatched, unknown: chk.namesUnknown });
     ok('…"FF - " and a service tag are the owner\'s own filing, so they are stripped before matching', chk.namesMatched === 3, chk);
     ok('…somebody who is not a customer is counted but never invented as one', chk.namesUnknown === 1, { unknown: chk.namesUnknown });
-    ok('…and the community total is the two halves added up, which is what WhatsApp shows', chk.memberTotal === chk.countFound + chk.namesFound, { total: chk.memberTotal, num: chk.countFound, named: chk.namesFound });
+  // Three counts, and the first live run proved how easy they are to conflate: it reported 630 for a community
+  // of 488, because the name-matched people had been folded into the "numbers read" count AND counted again as
+  // names. countFound = numbers in the file. membersFound = people a save would write. memberTotal = the ceiling.
+    ok('…"numbers read" still means numbers read, not numbers plus names', chk.countFound === 1, { countFound: chk.countFound });
+    ok('…and it says how many people a save would actually write', chk.membersFound === 4, { membersFound: chk.membersFound, matched: chk.namesMatched });
+    ok('…and the ceiling adds the two halves exactly once each', chk.memberTotal === chk.countFound + chk.namesFound && chk.memberTotal === 5, { total: chk.memberTotal, num: chk.countFound, named: chk.namesFound });
 
     // The rule that keeps this honest. Two customers with the same name is not a near miss to be resolved with a
     // guess — it is an unanswerable question, and answering it wrongly removes a real person from the chase list.

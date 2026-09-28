@@ -368,14 +368,21 @@ async function reconcile(query, text, now) {
     mode: parsed.mode, events: parsed.events,
     lines: parsed.lines, firstDate: parsed.firstDate, lastDate: parsed.lastDate, staleDays,
     looksPartial: parsed.mode === 'export' && staleDays != null && staleDays > 2,
-    countFound: nowIn.length,
+    // ⚠️ Three different counts, and mixing them up is how the ceiling became nonsense on the first live run
+    // (it said 630 where the community has 488). Keep them apart:
+    //   countFound   numbers actually read out of the file
+    //   membersFound numbers + names we could turn into a customer — the rows a save would write
+    //   memberTotal  numbers + ALL names, the ceiling on the community's size
+    // The name-matched ones are in BOTH countFound's successor and namesFound, so they must not be added twice.
+    countFound: parsed.phones.length,
+    membersFound: nowIn.length,
     // Half a community can be saved in the owner's contacts, so the export names them and never numbers them.
     // Those only become members we can act on when the name matches exactly one customer.
     namesFound: (parsed.names || []).length,
     namesMatched: nm.matched.length,
     namesAmbiguous: nm.ambiguous.length,
     namesUnknown: nm.unknown.length,
-    memberTotal: nowIn.length + (parsed.names || []).length,
+    memberTotal: parsed.phones.length + (parsed.names || []).length,
     newRows: newRows.length,
     goneAway,
     // Named here so the owner can see the paste was understood before it is saved.
@@ -419,6 +426,7 @@ async function applyList(query, text, now) {
     at: stamp, numbered: parsed.phones.length, named: (parsed.names || []).length,
     namesMatched: nm.matched.length, namesAmbiguous: nm.ambiguous.length, namesUnknown: nm.unknown.length,
     memberTotal: parsed.phones.length + (parsed.names || []).length,
+    membersFound: found.size,
   };
   try {
     await query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [LAST_KEY, JSON.stringify(summary)]);
