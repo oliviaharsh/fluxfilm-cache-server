@@ -185,6 +185,38 @@ const SUBS_SQL =
   "WHERE UPPER(COALESCE(status,'')) NOT IN ('REFUNDED','CANCELLED')";
 const NAMES_SQL = 'SELECT phone_norm, name FROM customers';
 
+const ALIAS_KEY = 'wa_group_aliases';
+/**
+ * What the owner has told us somebody is called in the group.
+ *
+ * Two things the matcher cannot work out on its own, both found by the owner on 29 Sep by reading the member
+ * list against the screen:
+ *   · a contact saved under a fuller name — "FF - Naresh Nani" in WhatsApp, "Naresh" in the customer record.
+ *     One customer, not ambiguous, simply a DIFFERENT name, and no amount of cleverness makes them equal
+ *     without also making wrong pairs equal.
+ *   · a name two customer rows share — "Mohmadazaz Patel" is two accounts, so it matches neither, on purpose.
+ * Both are answered the same way: he says it once, and it is remembered. Stored in app_settings rather than a
+ * new table — it is a handful of corrections, not transactional data, and it needs no migration to start working.
+ */
+async function aliases(query) {
+  try {
+    const r = await query('SELECT value FROM app_settings WHERE setting_key = ? LIMIT 1', [ALIAS_KEY]);
+    const v = r && r[0] ? JSON.parse(r[0].value || '{}') : {};
+    const m = new Map();
+    for (const [k, ph] of Object.entries(v || {})) { const p = norm(ph); if (k && p) m.set(String(k), p); }
+    return m;
+  } catch (_) { return new Map(); }
+}
+async function saveAlias(query, key, phone) {
+  const k = s(key); const p = norm(phone);
+  if (!k) return false;
+  const m = await aliases(query);
+  if (p) m.set(k, p); else m.delete(k);
+  const obj = {}; for (const [a, b] of m) obj[a] = b;
+  await query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [ALIAS_KEY, JSON.stringify(obj)]);
+  return true;
+}
+
 /**
  * Names from a pasted list, matched to customers.
  *
@@ -192,10 +224,15 @@ const NAMES_SQL = 'SELECT phone_norm, name FROM customers';
  * "Sahil" means neither of them is matched — that is not a near miss to be resolved with a guess, it is an
  * unanswerable question, and answering it wrongly would remove a real person from the chase list.
  */
-function matchNames(names, byName) {
+function matchNames(names, byName, alias) {
   const matched = []; const ambiguous = []; const unknown = [];
+  const byHand = alias || new Map();
   for (const nm of (names || [])) {
-    const hit = byName.get(nameKey(nm));
+    const key = nameKey(nm);
+    // What the owner said wins over what the matcher can work out: he has read the member list, it has not.
+    const told = byHand.get(key);
+    if (told) { matched.push({ name: nm, phone: told, byHand: true }); continue; }
+    const hit = byName.get(key);
     if (!hit) unknown.push(nm);
     else if (hit.length > 1) ambiguous.push(nm);
     else matched.push({ name: nm, phone: hit[0] });
@@ -344,6 +381,7 @@ async function overview(query, now) {
   const services = await groupServices(query);
   const subs = (await query(SUBS_SQL, [])).filter((x) => services.has(s(x.service).toLowerCase()));
   const names = (await customerNames(query)).byPhone;
+  const aliasMap = await aliases(query);
 
   // One line per person who is paying for a Group Offer plan today.
   const owed = new Map();
@@ -389,6 +427,11 @@ async function overview(query, now) {
     ok: true,
     everChecked, provenanceOff,
     lastList: await lastListSummary(query),
+    // phone -> the name the owner said they go by in the group, so a row can show it…
+    aliasOf: (() => { const o = {}; for (const [k, p] of aliasMap) o[p] = k; return o; })(),
+    // …and the same list with the customer's real name on it, because once somebody is marked as in the group
+    // they leave every list on this screen — and a decision you cannot see is a decision you cannot take back.
+    aliased: [...aliasMap.entries()].map(([k, p]) => ({ phone: p, alias: k, name: names.get(p) || '' })),
     members: members.sort((a, b) => s(b.claimedAt || b.seenAt).localeCompare(s(a.claimedAt || a.seenAt))),
     owe, strangers, expiredIn,
     totals: {
@@ -420,7 +463,7 @@ async function reconcile(query, text, now) {
   const parsed = parseList(text);
   const view = await overview(query, at);
   if (view.needsSchema) return { ok: true, needsSchema: true };
-  const nm = matchNames(parsed.names, (await customerNames(query)).byName);
+  const nm = matchNames(parsed.names, (await customerNames(query)).byName, await aliases(query));
   const found = new Set(parsed.phones.concat(nm.matched.map((x) => x.phone)));
   const owed = new Map(view.owe.concat(view.expiredIn || []).map((p) => [p.phone, p]));
   for (const m of view.members) if (!owed.has(m.phone)) owed.set(m.phone, null);
@@ -471,7 +514,7 @@ async function applyList(query, text, now) {
   catch (e) { if (/Unknown column .*seen_by/i.test(String(e && e.message))) seenByOff = true; else if (!/doesn't exist|Unknown table/i.test(String(e && e.message))) throw e; }
   const parsed = parseList(text);
   const cn = await customerNames(query);
-  const nm = matchNames(parsed.names, cn.byName);
+  const nm = matchNames(parsed.names, cn.byName, await aliases(query));
   if (!parsed.phones.length && !nm.matched.length) return { ok: false, message: 'No phone numbers could be read out of that, and no name in it matched a customer. Paste the participant list, or an exported chat.' };
   const rows = await query('SELECT id, phone_norm, seen_at, missing_at FROM wa_group_members', []);
   const known = new Map(rows.map((r) => [norm(r.phone_norm), r]));
@@ -499,6 +542,9 @@ async function applyList(query, text, now) {
     namesMatched: nm.matched.length, namesAmbiguous: nm.ambiguous.length, namesUnknown: nm.unknown.length,
     memberTotal: parsed.phones.length + (parsed.names || []).length,
     membersFound: found.size,
+    // The names nothing could be done with. Kept so the screen can OFFER them: the owner can see "FF - Naresh
+    // Nani" in this list, recognise it as Naresh, and say so once. Capped so one paste cannot fill the row.
+    spare: nm.ambiguous.concat(nm.unknown).slice(0, 600),
   };
   try {
     await query('INSERT INTO app_settings (setting_key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [LAST_KEY, JSON.stringify(summary)]);
@@ -645,6 +691,45 @@ function mount(app, deps) {
     } catch (e) { fail(res, e); }
   });
 
+  /**
+   * "This customer is in the group, under this name." Remembered, and applied at once so the screen agrees with
+   * what the owner just saw with their own eyes — waiting for the next paste to confirm it would be absurd.
+   */
+  app.post('/admin/api/group/alias', async (req, res) => {
+    if (!auth(req, res)) return;
+    const b = req.body || {};
+    const phone = s(b.phone).replace(/\D/g, '').slice(-10);
+    const name = s(b.name);
+    const clear = s(b.action) === 'clear';
+    if (phone.length !== 10) return res.status(400).json({ ok: false, message: 'Which customer?' });
+    try {
+      if (clear) {
+        const m = await aliases(query);
+        for (const [k, p] of m) if (p === phone) await saveAlias(query, k, '');
+        await query('UPDATE wa_group_members SET missing_at = ?, seen_by = ? WHERE phone_norm = ?', [sqlNow(now()), 'name', phone])
+          .catch(async (e) => { if (/Unknown column .*seen_by/i.test(String(e && e.message))) await query('UPDATE wa_group_members SET missing_at = ? WHERE phone_norm = ?', [sqlNow(now()), phone]); else throw e; });
+        audit.record(req, { action: 'group.alias.clear', entity: 'customer', id: phone, summary: '👥 no longer treated as being in the group under another name' });
+        return res.json(await overview(query, now()));
+      }
+      if (!name) return res.status(400).json({ ok: false, message: 'Which name are they in the group under?' });
+      await saveAlias(query, nameKey(name), phone);
+      // Mark them as in the group NOW: the owner has just read the member list, which is better evidence than
+      // anything here. seen_by = name, because that is exactly what this is — a match on a name, not a number.
+      const stamp = sqlNow(now());
+      const existing = await query('SELECT id FROM wa_group_members WHERE phone_norm = ? LIMIT 1', [phone]);
+      try {
+        if (existing && existing[0]) await query('UPDATE wa_group_members SET seen_at = ?, seen_by = ?, missing_at = NULL WHERE id = ?', [stamp, 'name', existing[0].id]);
+        else await query('INSERT INTO wa_group_members (phone_norm, name, seen_at, seen_by) VALUES (?, ?, ?, ?)', [phone, '', stamp, 'name']);
+      } catch (e) {
+        if (!/Unknown column .*seen_by/i.test(String(e && e.message))) throw e;
+        if (existing && existing[0]) await query('UPDATE wa_group_members SET seen_at = ?, missing_at = NULL WHERE id = ?', [stamp, existing[0].id]);
+        else await query('INSERT INTO wa_group_members (phone_norm, name, seen_at) VALUES (?, ?, ?)', [phone, '', stamp]);
+      }
+      audit.record(req, { action: 'group.alias', entity: 'customer', id: phone, summary: '👥 in the group as "' + name + '"', details: { phone, name } });
+      res.json(await overview(query, now()));
+    } catch (e) { fail(res, e); }
+  });
+
   app.post('/admin/api/group/member', async (req, res) => {
     if (!auth(req, res)) return;
     const b = req.body || {};
@@ -662,4 +747,4 @@ function mount(app, deps) {
   });
 }
 
-module.exports = { mount, claim, nudgeText, nudgeEmail, _internal: { phonesIn, parseList, nameEvent, nameKey, matchNames, customerNames, overview, reconcile, applyList, groupServices, stateOf, daysLeft, prettyDate, sqlNow, groupLinkFor, waUrl, firstName, LAST_KEY, GROUP_LINK_RE } };
+module.exports = { mount, claim, nudgeText, nudgeEmail, _internal: { phonesIn, parseList, nameEvent, nameKey, matchNames, customerNames, overview, reconcile, applyList, groupServices, stateOf, daysLeft, prettyDate, sqlNow, groupLinkFor, waUrl, firstName, aliases, saveAlias, LAST_KEY, ALIAS_KEY, GROUP_LINK_RE } };

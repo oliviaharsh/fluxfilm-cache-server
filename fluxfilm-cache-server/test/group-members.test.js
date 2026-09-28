@@ -85,6 +85,9 @@ const mockDb = {
         .map((x) => ({ sub_id: x.sub_id, phone_norm: x.phone_norm, service: x.service, plan: x.plan, expiry_date: x.expiry_date, status: x.status }));
     }
     if (/^SELECT phone_norm, name FROM customers$/.test(q)) return CUSTS.map((x) => Object.assign({}, x));
+    if (/^SELECT id FROM wa_group_members WHERE phone_norm = \? LIMIT 1$/.test(q)) { const r = ROWS.find((x) => x.phone_norm === p[0]); return r ? [{ id: r.id }] : []; }
+    if (/^UPDATE wa_group_members SET missing_at = \?, seen_by = \? WHERE phone_norm = \?$/.test(q)) { const r = ROWS.find((x) => x.phone_norm === p[2]); if (r) { r.missing_at = p[0]; r.seen_by = p[1]; } return { affectedRows: r ? 1 : 0 }; }
+    if (/^UPDATE wa_group_members SET missing_at = \? WHERE phone_norm = \?$/.test(q)) { const r = ROWS.find((x) => x.phone_norm === p[1]); if (r) r.missing_at = p[0]; return { affectedRows: r ? 1 : 0 }; }
     if (/^SELECT email FROM customers WHERE phone_norm = \? LIMIT 1$/.test(q)) { const c = CUSTS.find((x) => x.phone_norm === p[0]); return c ? [{ email: c.email || '' }] : []; }
     if (/^SELECT ts FROM reminder_log WHERE sub_id = \? AND kind = 'GROUP_JOIN' ORDER BY ts DESC LIMIT 1$/.test(q)) {
       const r = REMINDED.filter((x) => x.sub_id === p[0]).sort((a, b) => b.ts.localeCompare(a.ts))[0];
@@ -328,6 +331,61 @@ const reset = () => { ROWS = []; AUDIT = []; SETTINGS = {}; REMINDED = []; MAILE
     ok('…and says plainly that it is only the shop — WhatsApp is untouched', /does not touch WhatsApp/.test(fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8')));
   }
 
+  // ── ✋ "they ARE in it" ──────────────────────────────────────────────────────────────────────────────────
+  // The owner read the real member list on 29 Sep and found two people the matcher had left on the chase list.
+  // Two different causes, both unanswerable from here:
+  //   · Naresh is saved in his contacts as "FF - Naresh Nani" and in the customer record as "Naresh". One
+  //     customer, not ambiguous — a DIFFERENT name, and nothing clever makes those equal without also making
+  //     wrong pairs equal.
+  //   · "Mohmadazaz Patel" is two customer rows, so it matches neither, on purpose.
+  // He can see them; the code cannot. So he says it once and it is remembered.
+  section('the owner can see them in the group and the matcher cannot');
+  {
+    ROWS = []; SETTINGS = {}; seq = 0;
+    // Arun is in the export under a fuller name; Siddhu's name is shared by a second customer row.
+    CUSTS.push({ phone_norm: '9777000111', name: 'Siddhu' });
+    // One real number in it, so the paste is a paste: a list of nothing but unplaceable names writes nothing,
+    // which is correct, and would make this fixture prove something else.
+    const EXP = [
+      dmy(-6) + ", 10:00 - +91 91234 56789 joined using this community's invite link",
+      dmy(-5) + ", 10:00 - FF - Arun Pillai Nair joined using this community's invite link",
+      dmy(-4) + ", 10:00 - FF - Siddhu joined using this community's invite link",
+    ].join('\n');
+
+    let c = await post('/admin/api/group/paste', { text: EXP });
+    ok('a fuller contact name matches nobody, and is not guessed at', c.namesMatched === 0 && c.namesUnknown === 1, { matched: c.namesMatched, unknown: c.namesUnknown, amb: c.namesAmbiguous });
+    ok('…and a name two customers share is still refused', c.namesAmbiguous === 1, { amb: c.namesAmbiguous });
+    await post('/admin/api/group/paste', { text: EXP, apply: true });
+    let v = await get('/admin/api/group');
+    ok('so both are on the chase list, which is what the owner saw', (v.owe || []).some((x) => x.name === 'Arun Pillai') && (v.owe || []).some((x) => x.name === 'Siddhu'), (v.owe || []).map((x) => x.name));
+    ok('…and the names nothing could be done with are kept, ready to be offered', (v.lastList.spare || []).length === 2 && v.lastList.spare.indexOf('FF - Arun Pillai Nair') > -1, v.lastList && v.lastList.spare);
+
+    const r1 = await post('/admin/api/group/alias', { phone: '9988776655', name: 'FF - Arun Pillai Nair' });
+    ok('saying who they are takes them off the chase list AT ONCE — he has just read the member list', r1.ok && !(r1.owe || []).some((x) => x.name === 'Arun Pillai'), (r1.owe || []).map((x) => x.name));
+    ok('…and the row says a person put them there, not a match', (r1.aliasOf || {})['9988776655'] === 'arun pillai nair', r1.aliasOf);
+    // Somebody marked as in the group leaves every list on this screen. A decision you cannot see is one you
+    // cannot take back, so they get their own folded list with the name they were matched to, and an Undo.
+    ok('…and they are listed somewhere, by name, so the decision can be found again',
+      (r1.aliased || []).some((a) => a.phone === '9988776655' && a.alias === 'arun pillai nair' && a.name === 'Arun Pillai'), r1.aliased);
+    ok('…written to the change log', AUDIT.some((a) => a.action === 'group.alias'), AUDIT.map((a) => a.action));
+
+    const r2 = await post('/admin/api/group/alias', { phone: '9876543210', name: 'FF - Siddhu' });
+    ok('the same answer settles an ambiguous name — the owner knows which one it is', r2.ok && !(r2.owe || []).some((x) => x.name === 'Siddhu'), (r2.owe || []).map((x) => x.name));
+
+    // The point of remembering it: the next export must not undo the answer.
+    const after = await post('/admin/api/group/paste', { text: EXP, apply: true });
+    ok('the next paste keeps them in, instead of asking again', after.ok && after.byName === 2, { byName: after.byName });
+    v = await get('/admin/api/group');
+    ok('…and they stay off the chase list', !(v.owe || []).some((x) => x.name === 'Arun Pillai' || x.name === 'Siddhu'), (v.owe || []).map((x) => x.name));
+
+    const undone = await post('/admin/api/group/alias', { phone: '9988776655', action: 'clear' });
+    ok('undo puts them back on it, because that is the honest answer again', undone.ok && (undone.owe || []).some((x) => x.name === 'Arun Pillai'), (undone.owe || []).map((x) => x.name));
+
+    CUSTS = SEED_CUSTS(); ROWS = []; SETTINGS = {}; seq = 0;
+    await gm.claim('9876543210', 'Siddhu', 'shop', 'Netflix (Group Offer)', { query: mockDb.query });
+    await gm.claim('9123456789', 'Meera Joshi', 'olivia', 'Netflix (Group Offer)', { query: mockDb.query });
+  }
+
   // ── 🙏 asking them to join ───────────────────────────────────────────────────────────────────────────────
   section('asking somebody to join the group');
   {
@@ -417,6 +475,19 @@ const reset = () => { ROWS = []; AUDIT = []; SETTINGS = {}; REMINDED = []; MAILE
   ok('❓ the "paying for nothing" list is folded away and capped', /grpFolded\('❓ In the group, paying for nothing'/.test(read('admin.html')) && /and ' \+ \(rows\.length - shown\.length\) \+ ' more/.test(read('admin.html')));
   // The 🙏 button lives on the rows, so its handler has to live in grpClick — the PR 207 lesson: a unique
   // anchor is not a correct one, so pin the PLACE.
+  ok('✋ the "they are in it" handler is inside grpClick too', (() => {
+    const html = read('admin.html');
+    const from = html.indexOf('function grpClick(e) {');
+    if (from < 0) return false;
+    const next = html.indexOf('\nfunction ', from + 10);
+    return html.slice(from, next < 0 ? html.length : next).indexOf("closest('[data-grpin]')") > -1;
+  })());
+  // The offered names are the leftovers from the last export, not a free-text box: a typed name that matches
+  // nothing in the group would be a note to nobody.
+  ok('…and the hand-made ones are listed with an Undo, not left invisible',
+    /grpFolded\('✋ Marked as in the group by hand'/.test(read('admin.html')) && /data-grpundo=/.test(read('admin.html')));
+  ok('…and it offers the names from the last export rather than asking him to type one',
+    /d\.lastList && d\.lastList\.spare/.test(read('admin.html')) && /data-grppick=/.test(read('admin.html')));
   ok('🙏 the ask handler is inside grpClick, where the rows are', (() => {
     const html = read('admin.html');
     const from = html.indexOf('function grpClick(e) {');
