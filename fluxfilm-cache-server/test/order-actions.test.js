@@ -561,6 +561,28 @@ const rawOrder = (id) => { const r = order(id).raw_json; return typeof r === 'st
   ok('admin.html scripts parse', parsed && scripts.length > 0);
   ok('order modal loads actions and calls every action route', /loadOrderActions\(o\.order_id\)/.test(adminHtml) && ['/admin/api/order/actions', '/admin/api/order/fulfil', '/admin/api/order/manual-deliver', '/admin/api/order/refund', '/admin/api/order/erase'].every((u) => adminHtml.includes("'" + u + "'")));
   ok('erase needs the typed order ID in the panel too', /oa_econfirm/.test(adminHtml) && /Erase permanently/.test(adminHtml));
+
+  // ▶️ YouTube has no login and no password — the customer is invited into a Google family on their own address.
+  // Asking "type the login you gave them" was asking for something that does not exist (owner, 29 Sep 2026), and
+  // the placement then had to be done again by hand on another screen.
+  ok('▶️ a YouTube order gets its own delivery form, before the login/password one',
+    /if \(act === 'manual' && \/you\\s\*tube\/i\.test\(r\.service \|\| ''\)\) \{ ytDeliverForm/.test(adminHtml)
+    && adminHtml.indexOf("ytDeliverForm(form, r, id); return;") < adminHtml.indexOf("<b>✍️ Deliver manually</b>"));
+  ok('…asking which family and which address, not for a login or a password',
+    /Which family did you put them in\?/.test(adminHtml) && /id="oa_ytfam"/.test(adminHtml) && /id="oa_ytmail"/.test(adminHtml));
+  ok('…offering the customer\'s own address, which the actions route now returns',
+    /email: s\(o\.email\)/.test(fs.readFileSync(path.join(__dirname, '..', 'adminorderactions.js'), 'utf8')) && /value="' \+ esc\(r\.email \|\| ''\) \+ '"/.test(adminHtml));
+  ok('…and it does BOTH jobs: delivers the order, then takes the place in the family',
+    /post\('\/admin\/api\/order\/manual-deliver'[\s\S]{0,900}?post\('\/admin\/api\/yt\/seat', \{ subId: x\.subId, familyId: famId, email: email \}\)/.test(adminHtml));
+  // If the family is full the ▶️ screen refuses the seat. The order has still been delivered by then, so saying
+  // "failed" would be a lie that invites a second delivery.
+  ok('…and when the place is refused it says the delivery still happened', /the family place was NOT taken/.test(adminHtml));
+  // A full family must be visibly full rather than silently chosen and then rejected.
+  ok('…with each family showing how much room is left, and a full one unpickable', /f\.free <= 0 \? ' disabled' : ''/.test(adminHtml) && /free of/.test(adminHtml));
+  // The access email is written around a login and a password; for YouTube there is neither, and Google has
+  // already sent the invite. Ticking it is a choice, not the default.
+  ok('…and the customer email is OFF by default for YouTube only',
+    /id="oa_notify"\/> Email the customer/.test(adminHtml) && /id="oa_notify" checked\/> Email \+ notify the customer/.test(adminHtml));
   ok('Today stuck orders open the order; Customer 360 rows open it with a Fix button', /data-toid/.test(adminHtml) && /openOrder\(so\.getAttribute\('data-toid'\)\)/.test(adminHtml) && /⚡ Fix/.test(adminHtml) && /#c360 \.orow/.test(adminHtml));
   const idx = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const iscripts = [...idx.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter((t) => t.trim() && !/^\s*\{/.test(t));

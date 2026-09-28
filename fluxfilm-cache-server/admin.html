@@ -2275,6 +2275,61 @@ function oaRefundHow1(f) {
   return 'by ' + esc(f.method || '—');
 }
 function oaMsg(html) { var m = $('#oa_msg'); if (m) m.innerHTML = html; }
+/**
+ * ▶️ Delivering a YouTube Premium order.
+ *
+ * Every other service hands over one of OUR logins, so "type the login and password" is the right question. For
+ * YouTube there is no login to hand over — the customer is invited into a Google family on their own address —
+ * so the only things worth recording are WHICH family and WHICH address was invited, and those are exactly what
+ * the ▶️ YouTube families screen needs too. One press does both: the order is delivered and the place is taken.
+ *
+ * Two requests, deliberately: /order/manual-deliver and the ▶️ screen's own /yt/seat, each already doing its own
+ * job with its own checks (a full family is still refused). If the second fails the first has still happened and
+ * the message says so, rather than pretending the whole thing failed and tempting a second delivery.
+ */
+function ytDeliverForm(form, r, id) {
+  form.innerHTML = '<div class="oaform" data-nodirty><b>▶️ Deliver YouTube Premium</b>' +
+    '<span class="muted" style="font-size:.75rem">No login or password: you invite their own Google address into one of our families. This saves the subscription (' + esc(r.service) + ' · ' + esc(r.plan) + ', starting today) <b>and</b> takes the place in that family.</span>' +
+    '<label>Google address you invited *<input class="inp" id="oa_ytmail" autocomplete="off" value="' + esc(r.email || '') + '"/></label>' +
+    '<label>Which family did you put them in? *<select class="inp" id="oa_ytfam"><option value="">Loading…</option></select></label>' +
+    '<label>Note (optional)<input class="inp" id="oa_note" autocomplete="off"/></label>' +
+    '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="oa_notify"/> Email the customer</label>' +
+    '<span class="muted" style="font-size:.72rem">Off by default for YouTube — the access email is written around a login and password, and there is neither. Google has already emailed them the invite.</span>' +
+    '<button class="btn green" id="oa_go">✅ Deliver and take the place</button></div>';
+  // The families, with how much room is left, so a full one is obvious before it is chosen.
+  api('/admin/api/yt').then(function (y) {
+    var sel = $('#oa_ytfam'); if (!sel) return;
+    if (!y || !y.ok) { sel.innerHTML = '<option value="">Could not load the families</option>'; return; }
+    var fams = (y.families || []).filter(function (f) { return f.isActive; });
+    sel.innerHTML = '<option value="">— pick one —</option>' + fams.map(function (f) {
+      return '<option value="' + esc(f.id) + '"' + (f.free <= 0 ? ' disabled' : '') + '>' + esc(f.loginShort) + ' — ' + esc(f.free) + ' free of ' + esc(f.slots) + (f.free <= 0 ? ' (full)' : '') + '</option>';
+    }).join('');
+  });
+  $('#oa_go').onclick = function () {
+    var email = ($('#oa_ytmail').value || '').trim();
+    var famId = $('#oa_ytfam').value;
+    if (!email) { $('#oa_ytmail').focus(); oaMsg('<div class="qnote bad">Which address did you invite?</div>'); return; }
+    if (!famId) { $('#oa_ytfam').focus(); oaMsg('<div class="qnote bad">Pick the family you put them in.</div>'); return; }
+    var go = this; go.disabled = true; oaMsg('<div class="qnote">Working…</div>');
+    // The address IS the login for YouTube — it is what the customer signs in with — so it is stored as one.
+    post('/admin/api/order/manual-deliver', { orderId: id, login: email, password: '', accountRef: '', note: $('#oa_note').value, notify: $('#oa_notify').checked })
+      .then(function (x) {
+        if (!x.ok) { go.disabled = false; oaMsg('<div class="qnote bad">⚠️ ' + esc(x.message || 'failed') + '</div>'); return null; }
+        if (!x.subId) { go.disabled = false; oaMsg('<div class="qnote">' + esc(x.message || 'Already delivered') + ' — place them on the ▶️ YouTube families screen.</div>'); return null; }
+        return post('/admin/api/yt/seat', { subId: x.subId, familyId: famId, email: email }).then(function (p) { return { x: x, p: p }; });
+      })
+      .then(function (out) {
+        if (!out) return;
+        go.disabled = false;
+        var m = $('#modal'); if (m) m.removeAttribute('data-dirty');
+        var placed = out.p && out.p.ok;
+        toast(placed ? '✅ Delivered and placed' : '✅ Delivered');
+        oaAfter(id, '<div class="qnote" style="margin-bottom:10px">' + esc(out.x.message || '✅ Delivered') +
+          (placed ? ' Their place in the family is taken.' : ' <b>But the family place was NOT taken:</b> ' + esc((out.p && out.p.message) || 'the ▶️ screen refused it') + ' — do it on the ▶️ YouTube families screen.') + '</div>');
+      });
+  };
+  $('#oa_ytmail').focus();
+}
 function oaNotes(x) { return (x.notes || []).map(function (n) { return '<div class="qnote">ℹ️ ' + esc(n) + '</div>'; }).join(''); }
 // After a change: reopen the order (fresh state) and refresh whatever list is behind the modal.
 function oaAfter(id, flash, erased) {
@@ -2300,6 +2355,13 @@ function wireOrderActions(r) {
         oaMsg('<div class="qnote bad">😔 Still not delivered: ' + esc(x.message || x.fulfillment || '') + (x.stock ? '<br>📦 ' + esc(oaStockText(x.stock)) : '') + '<br>Add stock, or use Deliver manually / Refund.</div>');
       });
     }
+    // ▶️ YouTube Premium has no login and no password: it is delivered by inviting the customer's own Google
+    //    address into one of our families. Asking for a login here was asking for something that does not exist
+    //    (owner, 29 Sep 2026: "it asks for login id and pass - yt does not have that - instead should ask which
+    //    account did we put him in - only for yt but - rest yes id pass"). So for YouTube the form asks the real
+    //    question, and the same ✅ both delivers the order AND takes the place in the family, which is the pair
+    //    of jobs that were being done on two screens.
+    if (act === 'manual' && /you\s*tube/i.test(r.service || '')) { ytDeliverForm(form, r, id); return; }
     if (act === 'manual') {
       form.innerHTML = '<div class="oaform" data-nodirty><b>✍️ Deliver manually</b><span class="muted" style="font-size:.75rem">Type the login you set up for this customer. It is saved as their subscription (' + esc(r.service) + ' · ' + esc(r.plan) + ', starting today) and emailed to them.</span>' +
         '<div class="row2"><label>Login (email / phone) *<input class="inp" id="oa_login" autocomplete="off"/></label><label>Password<input class="inp" id="oa_pass" autocomplete="off"/></label></div>' +

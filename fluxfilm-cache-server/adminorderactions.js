@@ -182,7 +182,9 @@ function mount(app, deps) {
       const raw = rawOf(o.raw_json);
       const d = decide(o, subs);
       const out = {
-        ok: true, orderId: o.order_id, service: o.service, plan: o.plan, amount: asNum(o.final_amount), actions: d,
+        // YouTube is delivered by inviting the customer's OWN Google address, so the form has to be able to
+        // offer it rather than asking the owner to go and look it up on another screen.
+        ok: true, orderId: o.order_id, service: o.service, plan: o.plan, email: s(o.email), amount: asNum(o.final_amount), actions: d,
         lastError: s(raw.LastFulfilError) || (d.failed ? 'An earlier delivery attempt failed (most likely no stock for ' + s(o.service) + ' ' + s(o.plan) + ' at that moment).' : ''),
         lastErrorAt: s(raw.LastFulfilAt),
         refulfilled: raw.Refulfilled === true, refulfilledAt: s(raw.RefulfilledAt), manualDelivered: raw.ManualDelivered === true,
