@@ -159,6 +159,20 @@ const mailer = {
       /api\('\/admin\/api\/accounts\/search'/.test(html) && /api\('\/admin\/api\/accounts\/impact'/.test(html));
     ok('…leading with how many can watch right now', /watching now/.test(html));
     ok('…and an expired row still offers ✅ Removed, the same action as the list below it', /data-rurm="' \+ esc\(p\.subId\) \+ '" data-runame/.test(html));
+    // The Look-up button shipped WIRED INTO THE WRONG FUNCTION (28 Sep 2026): the anchor I patched against was
+    // unique in the file and belonged to renderStock()'s click handler, so the button did nothing on the screen
+    // it was drawn on. A uniqueness check proves an anchor occurs once; it does not prove it occurs in the right
+    // place. So pin the place, not just the presence — the handlers must sit inside ruClick, which is what
+    // #rubody is wired to.
+    ok('🔌 the Look-up and pick handlers are inside ruClick, not some other screen\'s click handler', (() => {
+      const from = html.indexOf('function ruClick(e) {');
+      if (from < 0) return false;
+      const next = html.indexOf('\nfunction ', from + 10);
+      const body = html.slice(from, next < 0 ? html.length : next);
+      return body.indexOf("closest('[data-ruwgo]')") > -1 && body.indexOf("closest('[data-ruwpick]')") > -1;
+    })());
+    ok('…and nowhere else, so a stray copy cannot be mistaken for the live one',
+      (html.match(/closest\('\[data-ruwgo\]'\)/g) || []).length === 1 && (html.match(/closest\('\[data-ruwpick\]'\)/g) || []).length === 1);
   }
   if (server.closeAllConnections) server.closeAllConnections();
   await new Promise((res) => server.close(res));
