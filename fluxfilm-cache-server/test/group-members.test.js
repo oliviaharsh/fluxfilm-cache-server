@@ -23,6 +23,10 @@ let AUDIT = [];
 let seq = 0;
 let tableExists = true;
 let hasSeenBy = true;      // schema-v32. Flipped off below to prove the screen still works without it.
+let REMINDED = [];         // reminder_log rows the nudge writes
+let MAILED = [];           // what the mailer was asked to send — nothing ever leaves this array
+const sqlNowStr = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 19).replace('T', ' ');
+const fakeMailer = { send: async (to, subject, html) => { MAILED.push({ to, subject, html }); return { ok: true, sender: 'support@fluxfilm.in' }; } };
 let SETTINGS = {};
 const noTable = () => { const e = new Error("Table 'u339830006_fluxfilm.wa_group_members' doesn't exist"); e.code = 'ER_NO_SUCH_TABLE'; throw e; };
 
@@ -81,6 +85,12 @@ const mockDb = {
         .map((x) => ({ sub_id: x.sub_id, phone_norm: x.phone_norm, service: x.service, plan: x.plan, expiry_date: x.expiry_date, status: x.status }));
     }
     if (/^SELECT phone_norm, name FROM customers$/.test(q)) return CUSTS.map((x) => Object.assign({}, x));
+    if (/^SELECT email FROM customers WHERE phone_norm = \? LIMIT 1$/.test(q)) { const c = CUSTS.find((x) => x.phone_norm === p[0]); return c ? [{ email: c.email || '' }] : []; }
+    if (/^SELECT ts FROM reminder_log WHERE sub_id = \? AND kind = 'GROUP_JOIN' ORDER BY ts DESC LIMIT 1$/.test(q)) {
+      const r = REMINDED.filter((x) => x.sub_id === p[0]).sort((a, b) => b.ts.localeCompare(a.ts))[0];
+      return r ? [{ ts: r.ts }] : [];
+    }
+    if (/^INSERT INTO reminder_log/.test(q)) { REMINDED.push({ ts: sqlNowStr(), sub_id: p[0], channel: p[1], kind: p[2], ok: p[5], note: p[6] }); return { affectedRows: 1 }; }
     if (/^INSERT INTO audit_log/.test(q)) { AUDIT.push({ action: p[0], entity: p[1], id: p[2], summary: p[3] }); return { affectedRows: 1 }; }
     throw new Error('fake db: unhandled SQL: ' + q.slice(0, 140));
   },
@@ -105,14 +115,14 @@ const SEED_SUBS = () => [
 // Names live here, not on the subscription — the same way round as the live database.
 const SEED_CUSTS = () => [
   { phone_norm: '9876543210', name: 'Siddhu' },
-  { phone_norm: '9123456789', name: 'Meera Joshi' },
-  { phone_norm: '9988776655', name: 'Arun Pillai' },
+  { phone_norm: '9123456789', name: 'Meera Joshi', email: 'meera.joshi@gmail.com' },
+  { phone_norm: '9988776655', name: 'Arun Pillai', email: 'arun.pillai@gmail.com' },
   { phone_norm: '9555000111', name: 'Old Omkar' },
   { phone_norm: '9444000222', name: 'Refunded Ravi' },
   { phone_norm: '9333000333', name: 'Private Priya' },
 ];
 let CUSTS = [];
-const reset = () => { ROWS = []; AUDIT = []; SETTINGS = {}; seq = 0; tableExists = true; hasSeenBy = true; SUBS = SEED_SUBS(); PLANS = SEED_PLANS(); CUSTS = SEED_CUSTS(); };
+const reset = () => { ROWS = []; AUDIT = []; SETTINGS = {}; REMINDED = []; MAILED = []; seq = 0; tableExists = true; hasSeenBy = true; SUBS = SEED_SUBS(); PLANS = SEED_PLANS(); CUSTS = SEED_CUSTS(); };
 
 (async () => {
   reset();
@@ -125,7 +135,7 @@ const reset = () => { ROWS = []; AUDIT = []; SETTINGS = {}; seq = 0; tableExists
 
   const app = express(); app.use(express.json());
   const audit = require('../audit').makeAudit({ query: mockDb.query });
-  gm.mount(app, { db: mockDb, auth: () => true, audit });
+  gm.mount(app, { db: mockDb, auth: () => true, audit, mailer: fakeMailer });
   const server = app.listen(0); await new Promise((r) => server.once('listening', r));
   const base = 'http://127.0.0.1:' + server.address().port;
   const H = { 'Content-Type': 'application/json' };
@@ -318,6 +328,52 @@ const reset = () => { ROWS = []; AUDIT = []; SETTINGS = {}; seq = 0; tableExists
     ok('…and says plainly that it is only the shop — WhatsApp is untouched', /does not touch WhatsApp/.test(fs.readFileSync(path.join(__dirname, '..', 'admin.html'), 'utf8')));
   }
 
+  // ── 🙏 asking them to join ───────────────────────────────────────────────────────────────────────────────
+  section('asking somebody to join the group');
+  {
+    // Set the scene: a list with only Siddhu in it, so the other two are "paying, not in the group".
+    await post('/admin/api/group/paste', { text: '+91 98765 43210', apply: true });
+    const cur = await get('/admin/api/group');
+    const target = (cur.owe || [])[0];
+    ok('there is somebody to ask', !!target, (cur.owe || []).map((x) => x.name));
+    const pv = await get('/admin/api/group/nudge?phone=' + target.phone);
+    ok('the message is written for that customer by name', pv.ok && pv.name === target.name, { ok: pv.ok, name: pv.name });
+    ok('…and carries the real invite link from their own plan, not a hard-coded one',
+      pv.link === 'https://chat.whatsapp.com/abc' && pv.whatsapp.indexOf(pv.link) > -1, pv.link);
+    ok('…says WHY they are being asked — the price is the group price', /Group Offer/i.test(pv.whatsapp), pv.whatsapp.slice(0, 200));
+    ok('…says what happens if they do not join, without threatening them', /normal price at renewal/i.test(pv.whatsapp) && !/cancel|suspend|block/i.test(pv.whatsapp), pv.whatsapp.slice(-220));
+    ok('…and offers the way out that is usually the truth: they are in it on another number', /different number/i.test(pv.whatsapp));
+    ok('there is a WhatsApp link with the message already in it', /^https:\/\/wa\.me\/91\d{10}\?text=/.test(pv.waUrl) && decodeURIComponent(pv.waUrl.split('?text=')[1]).indexOf('Group Offer') > -1);
+    ok('…and an email with a subject and a body', /join the FluxFilm group/i.test(pv.subject) && /Join the WhatsApp group/.test(pv.html) && pv.to === 'arun.pillai@gmail.com', { subject: pv.subject, to: pv.to });
+    // 🔒 The standing rule: a real customer message is never sent without the owner seeing it first.
+    ok('🔒 opening it sends NOTHING', MAILED.length === 0 && REMINDED.length === 0, { mailed: MAILED.length, logged: REMINDED.length });
+
+    const bad = await get('/admin/api/group/nudge?phone=9000099999');
+    ok('somebody who is not on the list cannot be nudged', bad.ok === false, bad);
+
+    const sent = await post('/admin/api/group/nudge', { phone: target.phone });
+    ok('sending it emails them once', sent.ok === true && MAILED.length === 1 && MAILED[0].to === 'arun.pillai@gmail.com', { sent, mailed: MAILED.length });
+    ok('…and it is written down, so nobody is asked twice by accident', REMINDED.length === 1 && REMINDED[0].kind === 'GROUP_JOIN' && AUDIT.some((a) => a.action === 'group.nudge'), { log: REMINDED, audit: AUDIT.map((a) => a.action) });
+    const again = await post('/admin/api/group/nudge', { phone: target.phone });
+    ok('…and asking again the same day is refused', again.ok === false && again.rateLimited === true && MAILED.length === 1, again);
+
+    // A customer with no email is common here; the WhatsApp half still works and the answer says so.
+    const noMail = (cur.owe || []).find((x) => x.phone !== target.phone);
+    if (noMail) {
+      const c = CUSTS.find((x) => x.phone_norm === noMail.phone); const keep = c ? c.email : '';
+      if (c) c.email = '';
+      const r2 = await post('/admin/api/group/nudge', { phone: noMail.phone });
+      ok('no email address → it says to use WhatsApp instead of failing silently', r2.ok === false && /WhatsApp/i.test(r2.message || ''), r2);
+      if (c) c.email = keep;
+    }
+
+    // A field that is not a WhatsApp invite must never be pasted into a customer's message.
+    PLANS[0].raw_json = JSON.stringify({ RequiresGroupJoin: 'TRUE', GroupJoinLink: 'https://example.com/not-a-group' });
+    const safe = await get('/admin/api/group/nudge?phone=' + target.phone);
+    ok('🔒 anything that is not a WhatsApp invite link is ignored, not sent', /^https:\/\/chat\.whatsapp\.com\//.test(safe.link), safe.link);
+    PLANS = SEED_PLANS();
+  }
+
   // ── before schema-v32 ────────────────────────────────────────────────────────────────────────────────────
   // The last time a column was added like this (schema-v30, 26 Sep) the fallback branch fell through to a throw
   // written below it and the whole screen went dark. So the no-column path is exercised, not assumed.
@@ -359,6 +415,19 @@ const reset = () => { ROWS = []; AUDIT = []; SETTINGS = {}; seq = 0; tableExists
   // In a community most members are not Group Offer customers; hundreds of rows would bury the two lists that
   // do have an action behind them.
   ok('❓ the "paying for nothing" list is folded away and capped', /grpFolded\('❓ In the group, paying for nothing'/.test(read('admin.html')) && /and ' \+ \(rows\.length - shown\.length\) \+ ' more/.test(read('admin.html')));
+  // The 🙏 button lives on the rows, so its handler has to live in grpClick — the PR 207 lesson: a unique
+  // anchor is not a correct one, so pin the PLACE.
+  ok('🙏 the ask handler is inside grpClick, where the rows are', (() => {
+    const html = read('admin.html');
+    const from = html.indexOf('function grpClick(e) {');
+    if (from < 0) return false;
+    const next = html.indexOf('\nfunction ', from + 10);
+    const body = html.slice(from, next < 0 ? html.length : next);
+    return body.indexOf("closest('[data-grpask]')") > -1;
+  })());
+  ok('…and the check NAMES who has left, not just how many — that is what you act on', /Gone: ' \+ r\.goneAway\.slice\(0, 12\)/.test(read('admin.html')));
+  ok('🔒 the panel never sends without a press: both buttons are in the preview, and the email confirms',
+    /data-grpask/.test(read('admin.html')) && /confirm\('Email ' \+ r\.to/.test(read('admin.html')));
   ok('the screen is in the sidebar and in the view map', /\['wagroup', '👥', 'WhatsApp group'\]/.test(read('admin.html')) && /wagroup: groupView/.test(read('admin.html')));
   // In this panel api() is a GET with a query string and post() is the POST. Sending a whole exported chat as a
   // URL fails silently — the two write buttons did nothing at all until this was noticed by clicking them.
@@ -375,9 +444,19 @@ const reset = () => { ROWS = []; AUDIT = []; SETTINGS = {}; seq = 0; tableExists
   })());
   // The screen asks the owner to paste an export; if the words for how to get one ever go, the screen is useless.
   ok('…and the screen says how to get a list out of WhatsApp at all', /Export chat/.test(read('admin.html')));
-  ok('🔒 it never messages anybody and never touches a subscription',
-    !/mailer|sendMail|transport|wa\.me|whatsappText/i.test(read('groupmembers.js'))
-    && !/UPDATE subscriptions|INSERT INTO subscriptions|DELETE FROM subscriptions/.test(read('groupmembers.js')));
+  // It CAN message somebody now — that was the point of the 🙏 button — so the promise is narrower and has to
+  // be stated as what it actually is: nothing goes out on a timer, and the only send is the one the owner pressed.
+  ok('🔒 nothing is ever sent on a timer or a schedule', !/setInterval|setTimeout|cron|schedule/i.test(read('groupmembers.js')));
+  ok('🔒 …the only send is inside the POST the owner presses', (() => {
+    const src = read('groupmembers.js');
+    const sends = (src.match(/\.send\(/g) || []).length;
+    const i = src.indexOf("app.post('/admin/api/group/nudge'");
+    const j = src.indexOf("app.post('/admin/api/group/member'");
+    if (i < 0 || j < 0 || j < i) return false;
+    return sends === 1 && src.slice(i, j).indexOf('.send(') > -1;
+  })());
+  ok('🔒 and it still never touches a subscription',
+    !/UPDATE subscriptions|INSERT INTO subscriptions|DELETE FROM subscriptions/.test(read('groupmembers.js')));
   ok('🔒 and it never compares phone_norm across tables in SQL — the collation trap that broke the Today count',
     !/JOIN\s+(customers|subscriptions)/i.test(read('groupmembers.js')));
 

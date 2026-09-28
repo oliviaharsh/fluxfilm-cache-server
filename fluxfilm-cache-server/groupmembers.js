@@ -246,6 +246,71 @@ async function groupServices(query) {
   return out;
 }
 
+const GROUP_FALLBACK = 'https://chat.whatsapp.com/IY67tbIr0zj0WfTFyYp3eB';
+/**
+ * The invite link to send THIS customer: the one on the plan they are actually paying for, so a second group
+ * with its own link keeps working. Only a real WhatsApp invite link is ever sent — anything else in that field
+ * is ignored rather than pasted into a customer's message.
+ */
+const GROUP_LINK_RE = /^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+$/;
+async function groupLinkFor(query, service) {
+  let rows = [];
+  try { rows = await query('SELECT service, plan, raw_json FROM plans', []); } catch (_) { rows = []; }
+  const linkOf = (r) => { try { const raw = r.raw_json ? (typeof r.raw_json === 'string' ? JSON.parse(r.raw_json) : r.raw_json) : {}; return s(raw.GroupJoinLink); } catch (_) { return ''; } };
+  const wanted = s(service).toLowerCase();
+  const mine = rows.filter((r) => s(r.service).toLowerCase() === wanted).map(linkOf).filter((x) => GROUP_LINK_RE.test(x));
+  if (mine.length) return mine[0];
+  const any = rows.map(linkOf).filter((x) => GROUP_LINK_RE.test(x));
+  return any.length ? any[0] : GROUP_FALLBACK;
+}
+
+const escHtml = (v) => s(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const firstName = (v) => { const w = s(v).split(/\s+/)[0] || ''; return /^[\p{L}\p{M}.'-]{2,20}$/u.test(w) ? w : ''; };
+
+/**
+ * "Please join the group" — the message the owner sends to somebody paying the Group Offer price who is not in
+ * the group.
+ *
+ * It has to say what happens next, because that is the whole point of sending it, and it has to say it without
+ * threatening anybody: the Group Offer is cheaper BECAUSE of the group, so not being in it means the plan moves
+ * to the normal price or stops at the end of the term. That is a fact about the deal, not a punishment.
+ *
+ * 🔒 Nothing here sends anything. It writes the words; the owner reads them and presses send.
+ */
+function nudgeText(p) {
+  const hi = 'Hi' + (firstName(p.name) ? ' ' + firstName(p.name) : '') + ',';
+  return [hi, '',
+    'Your FluxFilm *' + s(p.service).replace(/\s*\(.*\)$/, '') + '*' + (s(p.plan) ? ' (' + s(p.plan) + ')' : '') + ' is on our *Group Offer* price'
+      + (s(p.expiryLabel) ? ', valid till *' + s(p.expiryLabel) + '*' : '') + '.',
+    '',
+    'That price is only for members of our WhatsApp group — and we cannot find your number in it 🙏',
+    '',
+    '👉 Please join here:', s(p.link), '',
+    'If you are already in it with a different number, just tell us which one and we will fix it.',
+    '',
+    'If you would rather not join, that is completely fine — we will move you to the normal price at renewal instead. 💚',
+  ].join('\n');
+}
+
+function nudgeEmail(p) {
+  const subject = '🙏 Please join the FluxFilm group — your Group Offer price';
+  const html = '<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:520px;margin:auto">' +
+    '<h2 style="color:#0f766e;margin-bottom:4px">🙏 One small thing</h2>' +
+    '<p style="color:#475569;margin-top:0">Hi ' + escHtml(firstName(p.name) || 'there') + ',</p>' +
+    '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin:14px 0;font-size:14px">' +
+    '<b>' + escHtml(s(p.service).replace(/\s*\(.*\)$/, '')) + '</b>' + (s(p.plan) ? ' — ' + escHtml(p.plan) : '') +
+    (s(p.expiryLabel) ? '<br>valid till ' + escHtml(p.expiryLabel) : '') + '</div>' +
+    '<p style="color:#475569;font-size:14px">You are on our <b>Group Offer</b> price, which is only for members of our WhatsApp group — and we cannot find your number in it.</p>' +
+    '<p><a href="' + escHtml(p.link) + '" style="display:inline-block;background:#16a34a;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700">Join the WhatsApp group</a></p>' +
+    '<p style="color:#475569;font-size:14px">Already in it with a different number? Just reply and tell us which one, and we will fix it.</p>' +
+    '<p style="color:#475569;font-size:14px">If you would rather not join, that is completely fine — we will simply move you to the normal price at renewal. 💚</p>' +
+    '<p style="color:#94a3b8;font-size:12px;margin-top:18px">Need help? Just reply to this email or message us on WhatsApp.</p></div>';
+  return { subject, html };
+}
+
+/** A wa.me link the panel re-points at whichever WhatsApp app the owner chose (waFix in admin.html). */
+function waUrl(phone, text) { const d = norm(phone); return d.length === 10 ? 'https://wa.me/91' + d + '?text=' + encodeURIComponent(text) : ''; }
+
 function stateOf(sub, now) {
   const d = daysLeft(sub && sub.expiry_date, now);
   if (d == null) return { state: 'UNKNOWN', days: null };
@@ -512,6 +577,74 @@ function mount(app, deps) {
     } catch (e) { fail(res, e); }
   });
 
+  /**
+   * Everything needed to nudge one customer, written but NOT sent. The owner reads it and presses send — the
+   * standing rule is that a real customer message is never sent without them seeing it first.
+   */
+  const NUDGE_EVERY_HOURS = 24;
+  async function nudgeFor(phone) {
+    const ph = s(phone).replace(/\D/g, '').slice(-10);
+    if (ph.length !== 10) return null;
+    const view = await overview(query, now());
+    if (view.needsSchema) return null;
+    const p = (view.owe || []).find((x) => x.phone === ph) || (view.expiredIn || []).find((x) => x.phone === ph);
+    if (!p) return null;
+    const link = await groupLinkFor(query, p.service);
+    const full = Object.assign({}, p, { link });
+    let to = '';
+    try {
+      const r = await query('SELECT email FROM customers WHERE phone_norm = ? LIMIT 1', [ph]);
+      to = s(r && r[0] && r[0].email);
+    } catch (e) { console.log('[group] could not read the email for ...' + ph.slice(-4) + ':', e.message); }
+    let lastSentAt = ''; let recent = 0;
+    try {
+      const r = await query("SELECT ts FROM reminder_log WHERE sub_id = ? AND kind = 'GROUP_JOIN' ORDER BY ts DESC LIMIT 1", [p.subId]);
+      lastSentAt = s(r && r[0] && r[0].ts);
+      if (lastSentAt) recent = (Date.now() - Date.parse(String(lastSentAt).replace(' ', 'T') + '+05:30')) < NUDGE_EVERY_HOURS * 3600e3 ? 1 : 0;
+    } catch (_) { lastSentAt = ''; }
+    const text = nudgeText(full);
+    const mail = nudgeEmail(full);
+    return { person: full, to, link, text, mail, waUrl: waUrl(ph, text), lastSentAt, rateLimited: !!recent };
+  }
+
+  app.get('/admin/api/group/nudge', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      const r = await nudgeFor(s(req.query.phone));
+      if (!r) return res.status(404).json({ ok: false, message: 'That customer is not on the "paying, not in the group" list.' });
+      res.json({
+        ok: true, phone: r.person.phone, name: r.person.name, to: r.to, link: r.link,
+        subject: r.mail.subject, html: r.mail.html, whatsapp: r.text, waUrl: r.waUrl,
+        lastSentAt: r.lastSentAt, rateLimited: r.rateLimited, everyHours: NUDGE_EVERY_HOURS,
+      });
+    } catch (e) { fail(res, e); }
+  });
+
+  app.post('/admin/api/group/nudge', async (req, res) => {
+    if (!auth(req, res)) return;
+    const b = req.body || {};
+    try {
+      const r = await nudgeFor(s(b.phone));
+      if (!r) return res.status(404).json({ ok: false, message: 'That customer is not on the "paying, not in the group" list.' });
+      if (!r.to || r.to.indexOf('@') < 0) return res.status(400).json({ ok: false, message: 'No email address on this customer — use the 💬 WhatsApp button instead.' });
+      if (r.rateLimited) return res.status(429).json({ ok: false, rateLimited: true, message: 'Already emailed at ' + s(r.lastSentAt).slice(0, 16) + ' — at most one every ' + NUDGE_EVERY_HOURS + ' hours.' });
+      let sent;
+      try { sent = await (deps.mailer || require('./mailer')).send(r.to, r.mail.subject, r.mail.html); }
+      catch (e) { sent = { ok: false, error: e.message }; }
+      const good = !!(sent && sent.ok);
+      try {
+        await query('INSERT INTO reminder_log (ts, sub_id, channel, kind, expiry_date, ok, note) VALUES (NOW(), ?, ?, ?, ?, ?, ?)',
+          [r.person.subId, 'EMAIL', 'GROUP_JOIN', r.person.expiry || null, good ? 1 : 0, (good ? 'asked to join the group' : s(sent && (sent.error || sent.skipped))).slice(0, 300) || null]);
+      } catch (e) { console.log('[group] reminder_log write failed:', e.message); }
+      audit.record(req, {
+        action: good ? 'group.nudge' : 'group.nudgeFailed', entity: 'subscription', id: r.person.subId,
+        summary: (good ? '👥 Asked ' : '👥 Could NOT ask ') + r.person.name + ' to join the group (' + r.to + ')' + (good ? '' : ' — ' + s(sent && (sent.error || sent.skipped))),
+      });
+      if (!good) return res.status(502).json({ ok: false, message: 'Email not sent: ' + (s(sent && (sent.error || sent.skipped)) || 'unknown error') });
+      res.json({ ok: true, to: r.to, message: '✉️ Sent to ' + r.to });
+    } catch (e) { fail(res, e); }
+  });
+
   app.post('/admin/api/group/member', async (req, res) => {
     if (!auth(req, res)) return;
     const b = req.body || {};
@@ -529,4 +662,4 @@ function mount(app, deps) {
   });
 }
 
-module.exports = { mount, claim, _internal: { phonesIn, parseList, nameEvent, nameKey, matchNames, customerNames, overview, reconcile, applyList, groupServices, stateOf, daysLeft, prettyDate, sqlNow, LAST_KEY } };
+module.exports = { mount, claim, nudgeText, nudgeEmail, _internal: { phonesIn, parseList, nameEvent, nameKey, matchNames, customerNames, overview, reconcile, applyList, groupServices, stateOf, daysLeft, prettyDate, sqlNow, groupLinkFor, waUrl, firstName, LAST_KEY, GROUP_LINK_RE } };
