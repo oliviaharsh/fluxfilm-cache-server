@@ -121,8 +121,11 @@ const reset = () => { FAMS = []; SEATS = []; AUDIT = []; famSeq = 0; seatSeq = 0
   tablesExist = true;
 
   r = await get('/admin/api/yt');
-  ok('no families yet, but the paying customers are already listed as unplaced', r.ok && !r.families.length && r.unplaced.length === 5, r.totals);
+  ok('no families yet, but the paying customers are already listed as unplaced', r.ok && !r.families.length && r.unplaced.length === 4, r.totals);
   ok('a refunded and let-go plan is not asked about — it is history, not somebody waiting for a place', !r.unplaced.some((p) => p.subId === 'Y6'), r.unplaced.map((p) => p.subId));
+  // An expired customer who is in NO family needs nothing doing: if they were in one, the 🚪 count would name
+  // them. Three such rows sat there permanently until 28 Sep 2026 and made the list stop being worth reading.
+  ok('…and neither is an EXPIRED customer who is in no family — there is nothing to do about them', !r.unplaced.some((p) => p.subId === 'Y4') && r.unplaced.every((p) => p.state === 'ACTIVE' || p.state === 'ENDING'), r.unplaced.map((p) => p.subId + ':' + p.state));
   ok('a Netflix customer is never in this screen at all', !r.unplaced.some((p) => p.subId === 'N1'), r.unplaced.map((p) => p.subId));
 
   // ── families ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -182,6 +185,7 @@ const reset = () => { FAMS = []; SEATS = []; AUDIT = []; famSeq = 0; seatSeq = 0
   const expired = who(fam(r, 'harshgwalia1234567@gmail.com'), 'Devesh Singh');
   ok('an expired customer is NOT hidden — they are still sitting in the family, which is the thing to act on', expired && expired.state === 'EXPIRED', expired);
   ok('…and the top of the screen counts them', r.totals.expiredInFamily === 1, r.totals);
+  ok('…and being expired does NOT drop them out of the family they are sitting in', (fam(r, 'harshgwalia1234567@gmail.com').people || []).some((p) => p.name === 'Devesh Singh'), fam(r, 'harshgwalia1234567@gmail.com').people.map((p) => p.name));
   const soon = who(fam(r, 'harshwalia157@gmail.com'), 'Prince Rajput');
   ok('somebody ending this week is marked before they expire, not after', soon && soon.state === 'ENDING' && soon.days > 0 && soon.days <= 7, soon);
 
@@ -279,6 +283,7 @@ const reset = () => { FAMS = []; SEATS = []; AUDIT = []; famSeq = 0; seatSeq = 0
   // 4, not 5: the to-do is "somebody bought and nobody has invited them", so an EXPIRED customer still sitting
   // in a family is not one of them — that is the 🚪 count on the screen, a different job.
   ok('everybody PAYING and in no family is a to-do (an expired one is not)', n0 === 4, n0);
+  ok('…and the card counts exactly the screen list, with no second filter of its own', n0 === ((await get('/admin/api/yt')).unplaced || []).length, n0);
   // The number and the screen are counted from one place, so they cannot drift apart — and the count keeps
   // working on a database that refuses to compare the two tables in SQL.
   {
