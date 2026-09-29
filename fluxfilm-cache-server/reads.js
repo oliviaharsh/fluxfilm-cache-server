@@ -7,6 +7,7 @@
  */
 const db = require('./db');
 const deviceLogins = require('./devicelogins');
+const couponExpiry = require('./couponexpiry');
 
 function normPhone(p) {
   const s = String(p == null ? '' : p).replace(/\D/g, '');
@@ -306,6 +307,11 @@ async function getActiveCouponsForCustomer(phone) {
   for (const cr of couponRows) {
     const raw = rawOf(cr.raw_json);
     if (String(raw.Active || '').toUpperCase() !== 'TRUE') continue;
+    // Never offer a coupon whose date has gone. This list used to check the flag and NOT the date, so a
+    // customer opened Account -> coupons, saw a dead coupon presented as theirs, typed it, and got
+    // "Coupon expired." couponexpiry.js clears the flag on a tick, but the customer's list has to be right
+    // even when that tick has not run - so the date is checked here too, on purpose, not instead.
+    if (couponExpiry.isExpired(raw.Expiry)) continue;
     const showInProfile = raw.ShowInProfile != null ? String(raw.ShowInProfile).toUpperCase() : 'TRUE';
     if (showInProfile !== 'TRUE') continue;
     const code = String((raw.CouponCode != null ? raw.CouponCode : '') || (raw.Code != null ? raw.Code : '') || '').trim().toUpperCase();

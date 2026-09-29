@@ -184,6 +184,8 @@ function mountAdmin(app, deps) {
   require('./duplicates').mount(app, Object.assign({ db, auth, audit }, deps.duplicates || {}));
   // ⚠️ Subscriptions whose plan name and device count disagree, and the one-row correction (subfix.js).
   require('./subfix').mount(app, Object.assign({ db, auth, audit }, deps.subFix || {}));
+  // 🎟️ Coupons that expired but still say Active - list them, and switch them off now (couponexpiry.js).
+  require('./couponexpiry').mount(app, Object.assign({ db, auth, audit }, deps.couponExpiry || {}));
   // 📱 OTP devices: per OTP login account its customers + device names, 🚪 remove, copy names from the old Sheet (adminotpdevices.js).
   require('./adminotpdevices').mount(app, Object.assign({ db, auth, audit }, deps.otpDevices || {}));
   // Maintenance: pause / resume new orders (adminstore.js).

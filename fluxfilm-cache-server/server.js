@@ -741,6 +741,10 @@ try { if (db.ENABLED) require('./reminderjobs').startTimer(); } catch (e) { cons
 // 🎉 The sale announcement goes out by itself on the day — an hourly tick, so nothing has to be set up on Hostinger.
 // A cron job hitting POST /cron/anniversary does the same work behind the same "never twice" guard.
 if (annivMod && db.ENABLED) annivMod.startTimer();
+// 🎟️ A coupon whose date has passed should stop SAYING it is active, not just stop working. Every 15 minutes,
+// so a sale that closes at 23:59 reads closed the same night. Checkout and the customer's coupon list already
+// go by the date themselves, so this tick is tidiness, never the thing that keeps a dead coupon from working.
+try { if (db.ENABLED) require('./couponexpiry').startTimer(); } catch (e) { console.log('[couponexpiry] not started:', e.message); }
 // 📊 Owner business summaries: daily 23:30 / weekly Sunday 23:45 / monthly last day 23:50 IST (times in admin), checked
 // every minute; a DB guard row per period stops double sends; missed by a restart → sent within 6 h, else skipped.
 try { if (db.ENABLED) require('./reports').startTimer(); } catch (e) { console.log('[reports] scheduler not started:', e.message); }

@@ -13,6 +13,7 @@ const deviceLogins = require('./devicelogins');
 const emaillock = require('./emaillock');
 // 💸 "How was this paid" (website QR / typed UTR / backup QR / coins / admin / credit) — stamped at payment time.
 const paidvia = require('./paidvia');
+const couponExpiry = require('./couponexpiry');
 
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
 const asNum = (v) => { const n = parseFloat(v); return isNaN(n) || !isFinite(n) ? 0 : n; };
@@ -80,13 +81,10 @@ async function couponDiscount(code, phone, baseAmount, ctx) {
   }
   if (!raw) return { ok: false, message: 'Invalid coupon.' };
   if (String(raw.Active || '').toUpperCase() !== 'TRUE') return { ok: false, message: 'Coupon is not active.' };
-  if (raw.Expiry) {
-    // A date without a time (the admin form saves "YYYY-MM-DD") is valid until the END of that day in India.
-    // new Date("2026-12-31") alone is UTC midnight = 05:30 IST, so the coupon died ~18 hours early.
-    const ev = String(raw.Expiry).trim();
-    const ex = /^\d{4}-\d{2}-\d{2}$/.test(ev) ? new Date(ev + 'T23:59:59+05:30') : new Date(ev.replace(' ', 'T'));
-    if (!isNaN(ex.getTime()) && ex.getTime() < Date.now()) return { ok: false, message: 'Coupon expired.' };
-  }
+  // ONE definition of when a coupon dies, shared with reads.js and the sweep - see couponexpiry.js.
+  // A bare "YYYY-MM-DD" is valid to the END of that day in India; new Date("2026-12-31") is UTC midnight,
+  // i.e. 05:30 IST, which once killed coupons ~18 hours early. Do not re-implement this here.
+  if (couponExpiry.isExpired(raw.Expiry)) return { ok: false, message: 'Coupon expired.' };
   const allowed = raw.AllowedPhones != null ? String(raw.AllowedPhones).trim() : 'ALL';
   if (allowed && allowed.toUpperCase() !== 'ALL') {
     const list = allowed.split(',').map((x) => norm(x)).filter(Boolean);
