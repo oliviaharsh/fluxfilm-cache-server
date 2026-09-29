@@ -39,9 +39,31 @@ const SUBS_SQL =
  * Every row where the plan name and the device count disagree, newest expiry first, with the plan the customer
  * last actually PAID for — which is the evidence for which side is wrong.
  */
+/**
+ * The services where a plan name can say how many devices — the ones that actually sell a multi-device plan.
+ *
+ * Only Netflix, Netflix (Group Offer) and Prime Video do. JioHotstar's four plans are 1 Month / 3 Months /
+ * 6 Months / 1 Year and never mention devices, so "no number in the name" there means "this service does not
+ * count devices", NOT "one device" — and reading it as one turned Ankit Satija's real two-device JioHotstar
+ * into a fault to be corrected (owner, 29 Sep 2026: "yes he bought 2 devices, we can add 2 devices plan but
+ * right now we do not have enough stock"). There is no plan name for him to be moved to, so there is nothing
+ * to disagree with and nothing to fix.
+ *
+ * Read from the catalogue, not hard-coded: the day a 2-device JioHotstar plan is added, the check turns itself
+ * on for JioHotstar — and by then there IS a plan name to move him to, which is exactly when it should.
+ */
+async function servicesWithDevicePlans(query) {
+  const out = new Set();
+  let rows = [];
+  try { rows = await query('SELECT service, plan FROM plans', []); } catch (e) { console.log('[subfix] plans unavailable:', e.message); return out; }
+  for (const r of rows) if (devicesInName(r.plan) > 1) out.add(s(r.service).toLowerCase());
+  return out;
+}
+
 async function overview(query) {
   const subs = await query(SUBS_SQL, []);
-  const bad = subs.filter((x) => devicesInName(x.plan) !== n(x.device_count, 1));
+  const counts = await servicesWithDevicePlans(query);
+  const bad = subs.filter((x) => counts.has(s(x.service).toLowerCase()) && devicesInName(x.plan) !== n(x.device_count, 1));
   if (!bad.length) return { ok: true, rows: [], totals: { all: 0, active: 0 } };
 
   // The orders for those customers, read on their own and matched in JS — never joined, the tables are in two
@@ -130,4 +152,4 @@ function mount(app, deps) {
   });
 }
 
-module.exports = { mount, _internal: { overview, devicesInName, prettyDate } };
+module.exports = { mount, _internal: { overview, devicesInName, servicesWithDevicePlans, prettyDate } };

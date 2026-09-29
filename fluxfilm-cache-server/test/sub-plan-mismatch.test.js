@@ -28,6 +28,10 @@ const SEED_SUBS = () => [
   // refunded, and one with no device count at all — neither is a mismatch worth showing
   { sub_id: 'S-REF', phone_norm: '9000000003', service: 'Prime Video', plan: '2 Devices 1M', device_count: 1, status: 'REFUNDED', expiry_date: at(-5), order_id: 'O-R', raw_json: null },
   { sub_id: 'S-NULL', phone_norm: '9000000004', service: 'Prime Video', plan: '2 Devices 1M', device_count: null, status: 'ACTIVE', expiry_date: at(40), order_id: 'O-N', raw_json: null },
+  // JioHotstar sells no multi-device plan, so "1 Year" does not claim one device — it says nothing about
+  // devices at all. Ankit Satija really does have two (owner, 29 Sep 2026), and there is no plan name to move
+  // him to, so there is nothing here to disagree with.
+  { sub_id: 'S-JIO', phone_norm: '9711114532', service: 'JioHotstar', plan: '1 Year', device_count: 2, status: 'ACTIVE', expiry_date: at(140), order_id: 'O-JIO', raw_json: null },
 ];
 const SEED_ORDS = () => [
   { order_id: 'O-1M', phone_norm: '7016076889', service: 'Prime Video', plan: '1 Month', final_amount: 39, created_at_sheet: at(-28), status: 'PAID' },
@@ -38,6 +42,7 @@ const SEED_ORDS = () => [
 const SEED_PLANS = () => [
   { service: 'Prime Video', plan: '1 Month' }, { service: 'Prime Video', plan: '2 Devices 1M' },
   { service: 'Netflix', plan: 'Sharing 2 Devices 1M' },
+  { service: 'JioHotstar', plan: '1 Month' }, { service: 'JioHotstar', plan: '1 Year' },
 ];
 
 const mockDb = {
@@ -59,6 +64,7 @@ const mockDb = {
     if (/^SELECT sub_id, service, plan, device_count FROM subscriptions WHERE sub_id = \? LIMIT 1$/.test(q)) {
       const x = SUBS.find((y) => y.sub_id === p[0]); return x ? [{ sub_id: x.sub_id, service: x.service, plan: x.plan, device_count: x.device_count }] : [];
     }
+    if (/^SELECT service, plan FROM plans$/.test(q)) return PLANS.map((x) => ({ service: x.service, plan: x.plan }));
     if (/^SELECT plan FROM plans WHERE service = \?$/.test(q)) return PLANS.filter((x) => x.service === p[0]).map((x) => ({ plan: x.plan }));
     if (/^UPDATE subscriptions SET plan = \?, device_count = \?, raw_json = IF\(raw_json IS NULL, NULL, JSON_SET\(raw_json, '\$\.Plan', \?, '\$\.DeviceConcurrency', \?\)\) WHERE sub_id = \? LIMIT 1$/.test(q)) {
       const x = SUBS.find((y) => y.sub_id === p[4]);
@@ -99,6 +105,21 @@ const reset = () => { SUBS = SEED_SUBS(); ORDS = SEED_ORDS(); PLANS = SEED_PLANS
   ok('a row that agrees with itself is not', !row(r, 'S-OK') && !row(r, 'S-OK2'), (r.rows || []).map((x) => x.subId));
   ok('a refunded row is not — there is nothing to renew', !row(r, 'S-REF'), (r.rows || []).map((x) => x.subId));
   ok('…and neither is one with no device count at all, which is most of them', !row(r, 'S-NULL'), (r.rows || []).map((x) => x.subId));
+  // The false positive this screen produced on its first run against real data.
+  ok('🔒 a service that sells no multi-device plan is never flagged — its plan names say nothing about devices',
+    !row(r, 'S-JIO'), (r.rows || []).map((x) => x.subId + ':' + x.service));
+  ok('…and the services that DO are read from the catalogue, not hard-coded', (() => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'subfix.js'), 'utf8');
+    return /SELECT service, plan FROM plans/.test(src) && !/JioHotstar|Prime Video'|Netflix'/.test(src.replace(/\/\*[\s\S]*?\*\//g, ' '));
+  })());
+  {
+    // …so the day a 2-device JioHotstar plan is added, the check turns itself on — and by then there IS a plan
+    // name to move him to, which is exactly when it should start asking.
+    PLANS.push({ service: 'JioHotstar', plan: '2 Devices 1Y' });
+    const later = await get('/admin/api/subs/mismatch');
+    ok('…and it starts flagging that service the moment such a plan exists', !!row(later, 'S-JIO'), (later.rows || []).map((x) => x.subId));
+    PLANS = SEED_PLANS();
+  }
   ok('the soonest to expire comes first, because that is the one about to be mispriced', (r.rows || [])[0].subId === 'S-STALE' || String((r.rows || [])[0].expiry) >= String((r.rows || [])[1].expiry), (r.rows || []).map((x) => x.subId + ' ' + x.expiryLabel));
 
   section('which side is wrong is decided by what they PAID');
