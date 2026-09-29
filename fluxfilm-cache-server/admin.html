@@ -6027,11 +6027,27 @@ var GRP_MAX = 15 * 1024 * 1024;
 function grpWho(m) {
   // "by name" is not decoration: it is the difference between "the export had their number" and "we guessed from
   // a name that only one customer has". The second is good enough to act on and not good enough to trust silently.
-  var how = m.seenBy === 'name' ? ' <span class="pill p-warn" title="Matched from the name in the export, not from a phone number">by name</span>' : '';
+  var byHand = ((GRP.data || {}).aliasOf || {})[m.phone];
+  var how = byHand ? ' <span class="pill p-blue" title="You said they are in the group as ' + esc(byHand) + '">✋ by hand</span>'
+    : m.seenBy === 'name' ? ' <span class="pill p-warn" title="Matched from the name in the export, not from a phone number">by name</span>' : '';
   return (m.name ? '<b>' + esc(m.name) + '</b> <span class="muted">· ' + esc(grpPhone(m.phone)) + '</span>' : '<b>' + esc(grpPhone(m.phone)) + '</b>') + how;
 }
 
 function grpClick(e) {
+  var und = e.target.closest('[data-grpundo]');
+  if (und) {
+    post('/admin/api/group/alias', { phone: und.getAttribute('data-grpundo'), action: 'clear' }).then(function (r) {
+      if (!r || !r.ok) { toast('⚠️ ' + ((r && r.message) || 'failed')); return; }
+      GRP.data = r; renderGrp(); toast('Undone');
+    });
+    return;
+  }
+  var ing = e.target.closest('[data-grpin]');
+  if (ing) {
+    var ph = ing.getAttribute('data-grpin');
+    var who = ((GRP.data && GRP.data.owe) || []).find(function (x) { return x.phone === ph; }) || { name: 'this customer' };
+    grpInGroup(ph, who.name); return;
+  }
   var ask = e.target.closest('[data-grpask]');
   if (ask) { grpAsk(ask.getAttribute('data-grpask')); return; }
   var go = e.target.closest('[data-grp]');
@@ -6122,6 +6138,54 @@ function grpAsk(phone) {
   });
 }
 
+/**
+ * ✋ "They ARE in the group" — the owner has the member list open and can see them; the matcher cannot.
+ *
+ * Two things it can never work out on its own, both found by reading the real list on 29 Sep:
+ *   · a contact saved under a fuller name — "FF - Naresh Nani" in WhatsApp, "Naresh" in the customer record;
+ *   · a name two customer rows share, which is refused on purpose.
+ * Both are answered by picking the name out of the ones left over. Said once, remembered, and applied straight
+ * away — waiting for the next paste to agree with something he has just seen would be absurd.
+ */
+function grpInGroup(phone, name) {
+  var d = GRP.data || {};
+  var spare = (d.lastList && d.lastList.spare) || [];
+  var cur = (d.aliasOf || {})[phone] || '';
+  if (!spare.length && !cur) { toast('Paste a group list first — then the names it could not place are offered here.'); return; }
+  var draw = function (q) {
+    var list = spare.filter(function (n) { return !q || n.toLowerCase().indexOf(q) > -1; });
+    return (list.length ? list.slice(0, 60).map(function (n) {
+      return '<button class="btn ghost" style="width:100%;justify-content:flex-start;margin-bottom:4px" data-grppick="' + esc(n) + '">' + esc(n) + '</button>';
+    }).join('') + (list.length > 60 ? '<p class="muted" style="margin:4px 0 0;font-size:.76rem">…and ' + (list.length - 60) + ' more — keep typing.</p>' : '')
+      : '<p class="muted" style="margin:6px 0 0">Nothing in the list matches that. If they joined after your last export, paste a fresh one instead.</p>');
+  };
+  modal('✋ ' + esc(name) + ' is in the group as…',
+    (cur ? '<div class="qnote" style="margin-bottom:8px">Currently treated as <b>' + esc(cur) + '</b>. <button class="btn ghost sm" data-grpclear="' + esc(phone) + '">Undo</button></div>' : '') +
+    '<p class="muted" style="margin:0 0 8px;font-size:.78rem">These are the names from your last export that could not be matched to a customer. Pick the one that is them — it is remembered, so the next paste keeps them in.</p>' +
+    '<input class="inp" id="grpq" placeholder="🔎 Type a few letters of the name…" autocomplete="off"/>' +
+    '<div id="grppick" style="margin-top:8px;max-height:46vh;overflow:auto">' + draw('') + '</div>',
+    '<button class="btn ghost" onclick="closeModal()">Cancel</button>');
+  $('#grpq').addEventListener('input', function () { $('#grppick').innerHTML = draw(this.value.trim().toLowerCase()); });
+  $('#modal').addEventListener('click', function (e) {
+    var pick = e.target.closest('[data-grppick]');
+    if (pick) {
+      post('/admin/api/group/alias', { phone: phone, name: pick.getAttribute('data-grppick') }).then(function (r) {
+        if (!r || !r.ok) { toast('⚠️ ' + ((r && r.message) || 'failed')); return; }
+        closeModal(); GRP.data = r; renderGrp(); toast('✋ Marked as in the group');
+      });
+      return;
+    }
+    var clr = e.target.closest('[data-grpclear]');
+    if (clr) {
+      post('/admin/api/group/alias', { phone: phone, action: 'clear' }).then(function (r) {
+        if (!r || !r.ok) { toast('⚠️ ' + ((r && r.message) || 'failed')); return; }
+        closeModal(); GRP.data = r; renderGrp(); toast('Undone');
+      });
+    }
+  });
+  $('#grpq').focus();
+}
+
 function grpSection(title, why, rows, draw) {
   return '<div class="grpsec card" style="padding:10px 14px"><h4>' + title + ' <span class="muted">(' + rows.length + ')</span></h4>' +
     '<p class="why">' + why + '</p>' +
@@ -6157,6 +6221,7 @@ function renderGrp() {
       '<div class="muted" style="font-size:.74rem">' + esc(p.plan || p.service) + ' · ends ' + esc(p.expiryLabel) +
       (p.claimedAt ? ' · <b>said they joined</b> ' + esc(grpWhen(p.claimedAt)) : ' · never said they joined') + '</div></div>' +
       (p.state === 'ENDING' ? '<span class="pill p-warn">' + esc(p.days) + ' day' + (p.days === 1 ? '' : 's') + ' left</span>' : '<span class="pill p-ok">ACTIVE</span>') +
+      '<button class="btn ghost sm" data-grpin="' + esc(p.phone) + '">✋ They are in it</button>' +
       '<button class="btn ghost sm" data-grpask="' + esc(p.phone) + '">🙏 Ask them to join</button>' +
       '<a class="celllink" onclick="store(\'ff_last_phone\',\'' + esc(p.phone) + '\');nav(\'customer\')">Open</a></div>';
   };
@@ -6171,6 +6236,11 @@ function renderGrp() {
       '<div class="muted" style="font-size:.74rem">' + (m.claimedAt ? 'said they joined ' + esc(grpWhen(m.claimedAt)) + ' · ' : '') + 'last seen in a list ' + esc(grpWhen(m.seenAt) || 'never') + '</div></div>' +
       '<button class="btn ghost sm" data-grpforget="' + esc(m.id) + '" title="Remove this row from the shop. It does not touch WhatsApp.">🗑 Forget</button></div>';
   };
+  var byHand = function (a) {
+    return '<div class="grprow"><div class="grow"><b>' + esc(a.name || grpPhone(a.phone)) + '</b> <span class="muted">· ' + esc(grpPhone(a.phone)) + '</span>' +
+      '<div class="muted" style="font-size:.74rem">in the group as <b>' + esc(a.alias) + '</b></div></div>' +
+      '<button class="btn ghost sm" data-grpundo="' + esc(a.phone) + '">Undo</button></div>';
+  };
   var neverSeen = (d.members || []).filter(function (m) { return m.claimedAt && !m.seenAt; });
   var claimed = function (m) {
     return '<div class="grprow"><div class="grow">' + grpWho(m) +
@@ -6182,6 +6252,7 @@ function renderGrp() {
     grpSection('💸 Paying for a Group Offer, not in the group', 'They are getting the group price. Ask them to join, or move them to a normal plan.', d.owe || [], owed) +
     grpSection('🚪 In the group, plan expired', 'These are the ones to remove from the group.', d.expiredIn || [], expired) +
     grpFolded('❓ In the group, paying for nothing', 'Not a Group Offer customer today — an old customer, somebody who joined the community for the offers, or a stranger. In a community this is most of it, so it is folded away.', d.strangers || [], stranger, 50) +
+    ((d.aliased || []).length ? grpFolded('✋ Marked as in the group by hand', 'You told the shop these people are in the group under a different name. They are treated as members until you undo it.', d.aliased, byHand, 50) : '') +
     (d.everChecked ? grpSection('🕓 Said they joined, never turned up', 'They ticked the box at checkout but no pasted list has ever had them in it.', neverSeen, claimed) : '');
 }
 
