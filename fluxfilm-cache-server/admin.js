@@ -182,6 +182,8 @@ function mountAdmin(app, deps) {
   require('./groupmembers').mount(app, Object.assign({ db, auth, audit }, deps.groupMembers || {}));
   // 🧑‍🤝‍🧑 One person with two FluxFilm accounts: the pairs, and marking them as one person (duplicates.js).
   require('./duplicates').mount(app, Object.assign({ db, auth, audit }, deps.duplicates || {}));
+  // ⚠️ Subscriptions whose plan name and device count disagree, and the one-row correction (subfix.js).
+  require('./subfix').mount(app, Object.assign({ db, auth, audit }, deps.subFix || {}));
   // 📱 OTP devices: per OTP login account its customers + device names, 🚪 remove, copy names from the old Sheet (adminotpdevices.js).
   require('./adminotpdevices').mount(app, Object.assign({ db, auth, audit }, deps.otpDevices || {}));
   // Maintenance: pause / resume new orders (adminstore.js).
