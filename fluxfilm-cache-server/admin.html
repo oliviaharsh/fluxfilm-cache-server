@@ -5061,6 +5061,46 @@ function plPreview(e) {
 
 /* ================= maintenance: pause / resume new orders ================= */
 var MT = { s: null };
+/* ⚠️ Subscriptions whose plan name and device count disagree.
+   A renewal only started rewriting the plan name on 23 Sep 2026, so a plan changed before that kept its old
+   name while the device count moved — and renewQuote() prices from the plan name when the customer does not
+   pick one, so the next renewal is quoted at the old plan's price. The mismatch does not always mean the same
+   thing, so this shows what their last PAID order was for and lets the owner choose per row. (subfix.js) */
+var SFX = { rows: null };
+function sfxCard() { return '<div class="card qsec" id="sfxcard"><h3 style="margin-top:0">⚠️ Plan and device count disagree</h3><div id="sfxbody"><p class="muted">Checking…</p></div></div>'; }
+function sfxLoad() {
+  api('/admin/api/subs/mismatch').then(function (r) { SFX.rows = (r && r.ok) ? (r.rows || []) : null; renderSfx(r); });
+}
+function renderSfx(r) {
+  var el = $('#sfxbody'); if (!el) return;
+  if (!r || !r.ok) { el.innerHTML = '<p class="muted">' + esc((r && r.message) || 'Could not check.') + '</p>'; return; }
+  var rows = r.rows || [];
+  if (!rows.length) { el.innerHTML = '<p class="muted" style="margin:0">Every subscription agrees with its own plan name. 👍</p>'; return; }
+  el.innerHTML = '<p class="muted" style="margin:0 0 8px;font-size:.82rem">The plan name is what a renewal is priced from when the customer does not pick one, so these can charge the wrong amount. <b>They do not all mean the same thing</b> — check what they last paid for.</p>' +
+    rows.map(function (x) {
+      var sug = x.suggest;
+      return '<div class="dupr"><div class="grow"><b>' + esc(x.service) + '</b> <span class="muted">· …' + esc(String(x.phone).slice(-4)) + ' · ' + esc(x.subId) + '</span>' +
+        '<div class="muted" style="font-size:.74rem">row says <b>' + esc(x.plan) + '</b> (' + esc(x.nameSays) + ' device' + (x.nameSays === 1 ? '' : 's') + ') but device count is <b>' + esc(x.deviceCount) + '</b> · ' + esc(x.status) + ' · ends ' + esc(x.expiryLabel) + '</div>' +
+        '<div class="muted" style="font-size:.74rem">' + (x.lastPaidPlan ? 'last paid: <b>' + esc(x.lastPaidPlan) + '</b>' + (x.lastPaidAmount != null ? ' · ₹' + esc(x.lastPaidAmount) : '') + (x.lastPaidOn ? ' · ' + esc(x.lastPaidOn) : '') : 'no paid order found for this service') + '</div></div>' +
+        (sug ? '<button class="btn sm" data-sfx="' + esc(x.subId) + '" data-sfxplan="' + esc(sug.plan) + '" data-sfxdev="' + esc(sug.devices) + '">Make it ' + esc(sug.plan) + ' ×' + esc(sug.devices) + '</button>' : '<span class="pill p-grey">decide by hand</span>') +
+        '</div>';
+    }).join('');
+}
+function wireSfxCard() {
+  var el = $('#sfxcard'); if (!el) return;
+  el.onclick = function (e) {
+    var b = e.target.closest('[data-sfx]'); if (!b) return;
+    var id = b.getAttribute('data-sfx'), plan = b.getAttribute('data-sfxplan'), dev = b.getAttribute('data-sfxdev');
+    if (!confirm('Set ' + id + ' to "' + plan + '" with ' + dev + ' device' + (dev === '1' ? '' : 's') + '?\n\nOnly the plan name and the device count change. The expiry, the account and everything else stay exactly as they are.')) return;
+    b.disabled = true;
+    post('/admin/api/subs/fix-plan', { subId: id, plan: plan, devices: Number(dev) }).then(function (x) {
+      if (!x || !x.ok) { b.disabled = false; toast('⚠️ ' + ((x && x.message) || 'failed')); return; }
+      toast('✅ Corrected'); renderSfx(x);
+    });
+  };
+  sfxLoad();
+}
+
 /** ⚙️ Maintenance → which WhatsApp app the 💬 buttons should open on this phone. */
 function waAppCard() {
   var cur = waApp();
@@ -5114,8 +5154,10 @@ function renderMaintenance() {
     '<div class="rf-save"><button class="btn green" id="mtrrsave">💾 Save days</button><span class="rf-state" id="mtrrstate"></span></div></div>' +
     '<div class="card"><h3>😏 Greeting on My plans</h3><label class="row" style="gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="mtsass"' + (s.sassyGreeting !== false ? ' checked' : '') + ' style="width:22px;height:22px;flex:none;margin-top:2px"/>' +
     '<span><b>Sassy greeting</b><br><span class="muted">ON: a fun line that changes with the time, the day and the customer\'s plans (e.g. "Missed me?? Here we go again!! 😏", "Your Netflix ends in 2 days — don\'t leave me on read 👀"). OFF: plain "Welcome back, Name 👋". Saves at once.</span></span></label></div>' +
-    waAppCard();
+    waAppCard() +
+    sfxCard();
   wireWaAppCard();
+  wireSfxCard();
   $('#mtsass').onchange = function () {
     var box = this, on = box.checked; box.disabled = true;
     post('/admin/api/store', { sassyGreeting: on }).then(function (r) {
