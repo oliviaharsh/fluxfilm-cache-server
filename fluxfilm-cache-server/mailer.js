@@ -110,4 +110,31 @@ async function sendPasswordChanged(p) {
   return send(p.email, '🔑 New password for your FluxFilm ' + (p.service || '') + ' account', html);
 }
 
-module.exports = { send, sendAccessEmail, sendRenewalReminder, sendPasswordChanged };
+/**
+ * The owner's own words to one customer (custmessage.js). No template, no plan, no login — whatever he
+ * typed, in the FluxFilm shell so it does not look like a scam.
+ *
+ * ⚠️ The body is TEXT and is escaped before it reaches the HTML. He types a message, not markup: a stray
+ * "<" in "price < 100" must not eat the rest of the email, and nothing he pastes can inject a link or a
+ * script into a message going to a customer. Blank lines become paragraphs, single newlines become <br>.
+ */
+function ownerMessageHtml(p) {
+  p = p || {};
+  const paras = String(p.body == null ? '' : p.body).replace(/\r/g, '').split(/\n{2,}/)
+    .map((block) => block.split('\n').map(escHtml).join('<br>'))
+    .filter((x) => x.trim())
+    .map((x) => '<p style="color:#334155;font-size:15px;line-height:1.55;margin:0 0 12px">' + x + '</p>')
+    .join('');
+  return wrap(
+    '<p style="color:#475569;margin:0 0 12px">Hi ' + escHtml(p.name || 'there') + ',</p>' +
+    paras +
+    '<p style="margin:18px 0 0"><a href="' + escHtml(SITE()) + '" style="display:inline-block;background:#059669;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700">Open FluxFilm</a></p>');
+}
+
+// payload: { email, name, subject, body }
+async function ownerMessage(p) {
+  p = p || {};
+  return send(p.email, String(p.subject || '').trim() || 'A message from FluxFilm', ownerMessageHtml(p));
+}
+
+module.exports = { send, sendAccessEmail, sendRenewalReminder, sendPasswordChanged, ownerMessage, ownerMessageHtml };

@@ -186,6 +186,8 @@ function mountAdmin(app, deps) {
   require('./subfix').mount(app, Object.assign({ db, auth, audit }, deps.subFix || {}));
   // 🎟️ Coupons that expired but still say Active - list them, and switch them off now (couponexpiry.js).
   require('./couponexpiry').mount(app, Object.assign({ db, auth, audit }, deps.couponExpiry || {}));
+  // ✉️ Message ONE customer in the owner's own words, by email (+ push if they have it) (custmessage.js).
+  require('./custmessage').mount(app, Object.assign({ db, auth, audit }, deps.custMessage || {}));
   // 📱 OTP devices: per OTP login account its customers + device names, 🚪 remove, copy names from the old Sheet (adminotpdevices.js).
   require('./adminotpdevices').mount(app, Object.assign({ db, auth, audit }, deps.otpDevices || {}));
   // Maintenance: pause / resume new orders (adminstore.js).
