@@ -59,6 +59,12 @@ function keywordMap() {
   return map;
 }
 const norm = (v) => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d ? d.slice(-10) : ''; };
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** '2026-10-28 19:29:00' -> '28 Oct'. Empty in, empty out. */
+function prettyDay(v) {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? Number(m[3]) + ' ' + MONTHS_SHORT[Number(m[2]) - 1] : '';
+}
 function svcKeyOf(service) {
   const s = String(service || '').toLowerCase();
   const keys = Object.keys(keywordMap()).sort((a, b) => b.length - a.length);
@@ -327,7 +333,7 @@ async function getLatestOtp(service, phone, token, subRef, deps, req) {
   const allowed = new Set(groups.flatMap((g) => g.rows.map((r) => loginKey(r.login_id))).filter(Boolean));
   if (!allowed.size) return { ok: true, found: false, message: NOT_READY };
   const quota = await getOtpQuota(ph, svcKey);
-  if (quota.remaining <= 0) { noteOtp(deps, req, ph, svcKey, 'quota', { used: quota.used, limit: quota.limit }); return { ok: true, found: false, message: 'You have used all your OTP requests for ' + svc + ' this month.' }; }
+  if (quota.remaining <= 0) { noteOtp(deps, req, ph, svcKey, 'quota', { used: quota.used, limit: quota.limit }); return { ok: true, found: false, message: 'You have used all your OTP requests for ' + svc + (quota.cycleTo ? ' — you get ' + quota.limit + ' more on ' + prettyDay(quota.cycleTo) : ' this month') + '.' }; }
   const known = await knownLoginsFor(svcKey);
   const windowMin = (await getSettings()).windowMin;
   const windowMs = windowMin * 60e3;
@@ -399,6 +405,60 @@ function quotaDefaults(services) {
   return out;
 }
 
+const pad2 = (n) => String(n).padStart(2, '0');
+const sqlDt = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+
+/**
+ * Add whole months to a date, clamping the day so the end of a month cannot roll into the next one:
+ * 31 Jan + 1 month is 28 Feb (29 in a leap year), NOT 3 March. Without the clamp a customer who started on
+ * the 31st would silently get an extra allowance every short month.
+ */
+function addMonths(d, n) {
+  const day = d.getDate();
+  const x = new Date(d.getFullYear(), d.getMonth() + n, 1, d.getHours(), d.getMinutes(), d.getSeconds());
+  const lastDay = new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate();
+  x.setDate(Math.min(day, lastDay));
+  return x;
+}
+
+/**
+ * When the customer's OWN month began for this service — the most recent monthly anniversary of the start
+ * date of the plan they are on, at or before now.
+ *
+ * Returns null when there is no plan we can date, and the caller then falls back to the calendar month.
+ * That fallback matters: getOtpQuota must never throw or hand out an unlimited allowance because a row is
+ * missing. Old behaviour is the safe floor, not an error.
+ */
+async function cycleStart(phone, svcKey, now) {
+  const ph = norm(phone);
+  const t = now ? new Date(now) : new Date();
+  let rows = [];
+  try {
+    rows = await db.query(
+      "SELECT service, start_date FROM subscriptions WHERE phone_norm = ? AND start_date IS NOT NULL " +
+      "AND UPPER(COALESCE(status, '')) = 'ACTIVE' ORDER BY start_date DESC LIMIT 20", [ph]);
+  } catch (e) { return null; }
+  // Match on the same key the OTP log is written with, so 'JioHotstar' and 'jiohotstar' meet.
+  const mine = (rows || []).filter((r) => svcKeyOf(r.service) === svcKey);
+  if (!mine.length) return null;
+  // The plan they are on now: the newest start date that has actually begun.
+  let start = null;
+  for (const r of mine) {
+    const d = new Date(String(r.start_date).replace(' ', 'T'));
+    if (isNaN(d.getTime()) || d.getTime() > t.getTime()) continue;
+    if (!start || d.getTime() > start.getTime()) start = d;
+  }
+  if (!start) return null;
+  // Walk the monthly anniversary forward to the last one at or before now.
+  let cur = start, guard = 0;
+  for (;;) {
+    const next = addMonths(start, ++guard);
+    if (next.getTime() > t.getTime() || guard > 600) break;
+    cur = next;
+  }
+  return { start: cur, next: addMonths(start, guard), planStart: start };
+}
+
 async function getOtpQuota(phone, service) {
   const svcKey = svcKeyOf(service);
   const key = quotaKey(svcKey);
@@ -410,12 +470,23 @@ async function getOtpQuota(phone, service) {
     : Number(process.env[envKey] || process.env.OTP_QUOTA_DEFAULT || 60);
   const source = (Number.isFinite(Number(fromPanel)) && fromPanel != null) ? 'panel' : (process.env[envKey] || process.env.OTP_QUOTA_DEFAULT ? 'env' : 'default');
   const ph = norm(phone);
+  // Each customer's own month, from the start date of the plan they are on — not the 1st of the calendar
+  // month, which handed a bigger allowance to whoever happened to buy near the end of one.
+  let cycle = null;
+  try { cycle = await cycleStart(ph, svcKey, new Date()); } catch (_) { cycle = null; }
   let used = 0;
   try {
-    const r = await db.query("SELECT COUNT(*) n FROM sms_otp_log WHERE phone_norm = ? AND service = ? AND ts >= DATE_FORMAT(NOW(),'%Y-%m-01')", [ph, svcKey]);
+    const r = cycle
+      ? await db.query('SELECT COUNT(*) n FROM sms_otp_log WHERE phone_norm = ? AND service = ? AND ts >= ?', [ph, svcKey, sqlDt(cycle.start)])
+      : await db.query("SELECT COUNT(*) n FROM sms_otp_log WHERE phone_norm = ? AND service = ? AND ts >= DATE_FORMAT(NOW(),'%Y-%m-01')", [ph, svcKey]);
     used = +(r[0] || {}).n || 0;
   } catch (_) {}
-  return { ok: true, service: svcKey, limit, used, remaining: Math.max(0, limit - used), source };
+  return {
+    ok: true, service: svcKey, limit, used, remaining: Math.max(0, limit - used), source,
+    // So the refusal can say WHEN it comes back, instead of "this month".
+    cycleFrom: cycle ? sqlDt(cycle.start) : '', cycleTo: cycle ? sqlDt(cycle.next) : '',
+    basis: cycle ? 'plan' : 'calendar',
+  };
 }
 
 /* ================= Admin: 🔎 Get OTP check (adminotpdevices.js) ================= */
@@ -479,5 +550,4 @@ async function adminSelfTest(input) {
 module.exports = {
   quotaDefaults,
   getLatestOtp, getOtpQuota, getSettings, saveSettings, adminDiagnostics, adminSelfTest,
-  _internal: { extractOtp, svcKeyOf, loginKey, loginsIn, pickOtpMail, mobileLast10, blankNumbers, explainMail, serviceOfMail, newDiag, validateSettings, diagKey, WINDOW_MIN, WINDOW_MAX, QUOTA_MAX, quotaKey, noteOtp, OTP_OUTCOME },
-};
+  _internal: { extractOtp, svcKeyOf, loginKey, loginsIn, pickOtpMail, mobileLast10, blankNumbers, explainMail, serviceOfMail, newDiag, validateSettings, diagKey, WINDOW_MIN, WINDOW_MAX, QUOTA_MAX, quotaKey, noteOtp, OTP_OUTCOME }, _quota: { cycleStart, addMonths, prettyDay, sqlDt } };
