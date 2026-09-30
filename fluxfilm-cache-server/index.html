@@ -8632,8 +8632,15 @@ function RenewStartScreen({
   const isExpired = dl < 0;
   // Only the discount the server will really give (reads.js earlyRenewDiscountEligible) — the old fallback to the
   // plan's biggest tier showed ₹ off that the pay screen then did not take.
-  const earlyDisc = !isExpired && isSamePlan ? Number(sub.earlyRenewDiscountEligible || 0) || 0 : 0;
+  const earlyDiscEligible = !isExpired && isSamePlan ? Number(sub.earlyRenewDiscountEligible || 0) || 0 : 0;
+  // ⚠️ ONE discount, never two. order.js createOrder is an if/else — "if (couponCode) … else if
+  // (discountOverride > 0)" — so a coupon REPLACES the early-renew discount. This page used to subtract both
+  // and promised a price the pay screen did not honour (₹140 out on a yearly Netflix renewal, 30 Sep 2026).
+  const earlyDisc = couponState.applied ? 0 : earlyDiscEligible;
   const tier = !isExpired && isSamePlan ? sub.earlyRenewDiscountTier === '8PLUS' ? '8+ days early' : sub.earlyRenewDiscountTier === '7TO2' ? '2–7 days early' : '' : '';
+  // The coupon took the early-renew discount's place: tell them which one won, so "where did my ₹5 go?" has
+  // an answer on the screen instead of in a WhatsApp message.
+  const couponReplacedEarly = couponState.applied && earlyDiscEligible > 0;
   const basePrice = Number(chosenPlanObj?.price || 0);
   const finalPrice = Math.max(0, basePrice - earlyDisc - (couponState.applied ? couponState.discount : 0));
   const coinRupees = coinSel.on && coinSel.q && coinSel.q.coins > 0 ? Math.min(finalPrice, Number(coinSel.q.rupees || 0)) : 0;
@@ -8647,7 +8654,10 @@ function RenewStartScreen({
     const ph = normPhone_(phone || sub.phone || '');
     API.validateCoupon(couponCode.trim(), {
       phone: ph,
-      amount: basePrice - earlyDisc,
+      // The FULL plan price, never (price − earlyDisc): order.js createOrder prices the coupon on the plan
+      // price and drops the early-renew discount entirely, so asking on a smaller number quoted a smaller
+      // % off than the customer was then charged.
+      amount: basePrice,
       service,
       plan: selectedPlan,
       scope: 'RENEW'
@@ -9240,7 +9250,16 @@ function RenewStartScreen({
       marginTop: 8,
       textAlign: 'center'
     }
-  }, "🎉 ₹", earlyDisc, " discount applied to your renewal!")), React.createElement("div", {
+  }, "🎉 ₹", earlyDisc, " discount applied to your renewal!"), couponReplacedEarly && React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12,
+      fontWeight: 700,
+      color: C.muted,
+      marginTop: 8,
+      textAlign: 'center'
+    }
+  }, "Your coupon (−₹", couponState.discount, ") is bigger than the early-renewal ₹", earlyDiscEligible, ", so we used the coupon. Only one discount applies per order.")), React.createElement("div", {
     style: {
       marginTop: 14,
       paddingTop: 14,

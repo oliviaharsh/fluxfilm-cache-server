@@ -148,7 +148,10 @@ const plans = [
   ok('closes with ✕, tap outside and Esc; "Remind me later" snoozes 24 h', /"aria-label": "Close",\s*onClick: close/.test(comp) && /if \(e\.target === e\.currentTarget\) close\(\);/.test(comp) && /if \(e\.key === 'Escape'\) setPop\(null\);/.test(comp) && /'snooze', now \+ RR_SNOOZE_MS_/.test(comp));
   ok('accessible: role dialog, aria-modal, labelled, focused on open', /role: "dialog",\s*"aria-modal": "true",\s*"aria-labelledby": "ff-rr-title"/.test(comp) && /dlgRef\.current\.focus\(\{\s*preventScroll: true/.test(comp) && /tabIndex: -1/.test(comp));
   ok('"Renew now" opens the normal renew flow for that plan with the coupon', /nav\('renewStart', \{\s*sub: row\.sub,\s*renewCoupon: p\.coupon \? p\.coupon\.code : ''\s*\}\)/.test(comp) && /renewCoupon: d\.renewCoupon/.test(html));
-  const rsc = html.slice(html.indexOf('function RenewStartScreen({'), html.indexOf('function RenewStartScreen({') + 6000);
+  // A fixed window, so anything added at the top of RenewStartScreen pushes the block being matched off the
+  // end of it. 6000 broke the moment a comment went in above applyCoupon (30 Sep 2026) even though the code
+  // was untouched — the window has to have room for the whole match, not just its first character.
+  const rsc = html.slice(html.indexOf('function RenewStartScreen({'), html.indexOf('function RenewStartScreen({') + 9000);
   ok('renew page applies that coupon once, quietly (server still checks it)', /applyCouponRef\.current\(true\)/.test(rsc) && /if \(quiet === true\) \{[\s\S]{0,400}msg: ''\s*\}\)\);\s*setCouponCode\(getPromoCoupon_\(\)\);\s*return;\s*\}/.test(rsc) && /applyCouponRef\.current = applyCoupon;/.test(html));
   ok('coins asked once, only when a reminder is due (kind RENEW), 2.5 s fallback', /API\.getCoinQuote\(phone, amount, 'RENEW'/.test(comp) && /setTimeout\(\(\) => show\(null\), 2500\)/.test(comp) && (html.match(/API\.getCoinQuote\(/g) || []).length === 3);
   ok('motion: small entrance, off for reduced motion, shorter on ff-lite; fixed overlay (no layout shift)', /\.ff-rr-bg \{ position: fixed; inset: 0;/.test(html) && /@media \(prefers-reduced-motion: reduce\) \{ \.ff-rr, \.ff-rr-bg, \.ff-rr-ring \.val \{ animation: none; \} \}/.test(html) && /html\.ff-lite \.ff-rr \{ animation-duration: \.18s; \}/.test(html));
