@@ -4245,6 +4245,8 @@ function ToolsGrid({
   }, "Close"))));
 }
 // 🏆 Why trust us (trust.js → getTrust). The four cards above are CLAIMS; this is the evidence under them.
+// The three big numbers are the years before this database (a figure the owner typed once) PLUS everything
+// MySQL counts, so they go up by themselves when a real order is paid — nobody has to remember to edit them.
 // Everything here is public and anonymous by design: the ticker carries a service and "4 min ago", never a
 // name, a phone or an order id, because this renders for logged-out visitors too.
 // It renders nothing until the data arrives and nothing at all if the server says off, so a slow or broken
@@ -4264,58 +4266,55 @@ function TrustProof() {
     };
   }, []);
   if (!t) return null;
-  const hasLive = t.live && (t.live.running > 0 || t.live.comeBackPct > 0);
-  const stat = (big, small, key) => React.createElement("div", {
+  const T = t.totals || {};
+  const nf = n => Number(n || 0).toLocaleString('en-IN');
+  const big = (value, label, key) => React.createElement("div", {
     key: key,
     style: {
-      flex: '1 1 92px'
+      flex: '1 1 86px'
     }
   }, React.createElement("div", {
     style: {
       fontFamily: PJS,
-      fontSize: 18,
+      fontSize: 24,
       fontWeight: 800,
-      color: C.text,
-      lineHeight: 1.15
+      color: C.green,
+      letterSpacing: '-.5px',
+      lineHeight: 1.1
     }
-  }, big), React.createElement("div", {
+  }, value), React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 11,
       color: C.muted,
       fontWeight: 600,
-      marginTop: 2
+      marginTop: 3
     }
-  }, small));
+  }, label));
+  const headline = [T.orders > 0 ? big(nf(T.orders), 'orders delivered', 'o') : null, T.customers > 0 ? big(nf(T.customers), 'customers served', 'c') : null, T.recurring > 0 ? big(nf(T.recurring), 'came back for more', 'r') : null].filter(Boolean);
+  const small = [t.live && t.live.running > 0 ? nf(t.live.running) + ' plans running right now' : '', T.recurringPct > 0 ? T.recurringPct + '% of customers renew with us' : '', t.live && t.live.renewals > 0 ? nf(t.live.renewals) + ' renewals so far' : ''].filter(Boolean);
+  if (!headline.length && !small.length && !(t.services || []).length && !(t.recent || []).length) return null;
   return React.createElement(Card, {
     className: "ff-trust-proof ff-o6",
     pad: 16,
     style: {
       margin: '12px 0 6px'
     }
-  }, t.headline ? React.createElement("div", {
+  }, headline.length ? React.createElement("div", {
     style: {
       display: 'flex',
-      alignItems: 'baseline',
-      gap: 8,
+      gap: 10,
       flexWrap: 'wrap'
     }
-  }, React.createElement("span", {
+  }, headline) : null, t.since ? React.createElement("div", {
     style: {
       fontFamily: PJS,
-      fontSize: 28,
-      fontWeight: 800,
-      color: C.green,
-      letterSpacing: '-.5px'
+      fontSize: 11.5,
+      color: C.subtle,
+      fontWeight: 600,
+      marginTop: 8
     }
-  }, t.headline.orders), React.createElement("span", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 13.5,
-      fontWeight: 700,
-      color: C.text
-    }
-  }, "orders delivered", t.headline.since ? ' since ' + t.headline.since : '')) : null, t.note ? React.createElement("div", {
+  }, "Serving India since ", t.since) : null, t.note ? React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 12,
@@ -4323,16 +4322,20 @@ function TrustProof() {
       fontWeight: 500,
       marginTop: 4
     }
-  }, t.note) : null, hasLive ? React.createElement("div", {
+  }, t.note) : null, small.length ? React.createElement("div", {
     style: {
-      display: 'flex',
-      gap: 10,
-      flexWrap: 'wrap',
-      marginTop: 14,
-      paddingTop: 14,
-      borderTop: '1px solid ' + C.border
+      fontFamily: PJS,
+      fontSize: 11.5,
+      color: C.muted,
+      fontWeight: 600,
+      marginTop: 12,
+      paddingTop: 12,
+      borderTop: '1px solid ' + C.border,
+      lineHeight: 1.7
     }
-  }, [t.live.running > 0 ? stat(t.live.running, 'plans running now', 'r') : null, t.live.comeBackPct > 0 ? stat(t.live.comeBackPct + '%', 'customers come back', 'c') : null, t.live.renewals > 0 ? stat(t.live.renewals, 'renewals so far', 'n') : null].filter(Boolean)) : null, (t.services || []).length ? React.createElement("div", {
+  }, small.map((x, i) => React.createElement("div", {
+    key: i
+  }, "· ", x))) : null, (t.services || []).length ? React.createElement("div", {
     style: {
       display: 'flex',
       gap: 6,
@@ -4399,7 +4402,7 @@ function TrustProof() {
     style: {
       color: C.subtle
     }
-  }, " \u00b7 ", x.ago))))) : null, (t.journey || []).length ? React.createElement("div", {
+  }, " · ", x.ago))))) : null, (t.journey || []).length ? React.createElement("div", {
     style: {
       marginTop: 14,
       paddingTop: 14,

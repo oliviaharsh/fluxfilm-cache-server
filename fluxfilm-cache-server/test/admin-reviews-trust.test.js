@@ -149,17 +149,21 @@ const READY = { ok: true, ready: true, reviews: REVIEWS, counts: { visible: 1, p
   // ══ 🏆 Why trust us ══════════════════════════════════════════════════════════════════════════════════════
   const TRUST = {
     ok: true,
-    settings: { enabled: true, lifetimeOrders: '5,000+', since: '2024', note: '', showTicker: true, showServices: true, showJourney: false, journey: [] },
+    settings: { enabled: true, baselineOrders: null, baselineCustomers: null, lifetimeOrders: '5,000+', since: '2024', note: '', showTicker: true, showServices: true, showJourney: false, journey: [] },
     proved: { paidOrders: 956, customers: 275, running: 186 },
-    live: { running: 186, comeBackPct: 61, renewals: 349, services: [{ service: 'Netflix', n: 49 }] },
+    live: { running: 186, comeBackPct: 61, renewals: 349, recurring: 169, services: [{ service: 'Netflix', n: 49 }] },
+    totals: { orders: 5000, customers: 275, recurring: 169, recurringPct: 61, counted: { orders: 956, customers: 275 }, before: { orders: 4044, customers: 0 }, carriedOver: true },
   };
   section('🏆 Why trust us: the claim and the proof, side by side');
   reset(); API_REPLY = TRUST;
   views.trustView(); await tick();
   h = EL['#trbody'].innerHTML;
-  ok('the headline is an editable box, not a number we computed', /data-k="lifetimeOrders"[^>]*value="5,000\+"/.test(h), h.slice(h.indexOf('lifetimeOrders') - 60, h.indexOf('lifetimeOrders') + 90));
-  ok('🔒 and right beside it, what the DATABASE can prove', /956 paid orders from 275 customers/.test(h));
-  ok('…with WHY the two differ, so the owner is choosing, not guessing', /years before the import are not in it/.test(h));
+  ok('the total is shown with its arithmetic, so there is nothing to guess at', /5,000[\s\S]{0,120}4,044 before \+ 956 counted/.test(h), h.slice(h.indexOf('trsum'), h.indexOf('trsum') + 320));
+  ok('customers served and recurring are shown too', /275[\s\S]{0,80}customers served/.test(h) && /169[\s\S]{0,80}came back for more/.test(h));
+  ok('only the part nobody can count is editable', /data-k="baselineOrders"/.test(h) && /data-k="baselineCustomers"/.test(h) && !/data-k="lifetimeOrders"/.test(h));
+  ok('🔒 and it says which half is counted, and that it rises by itself', /counts <b>956 paid orders<\/b>/.test(h) && /rises on its own/.test(h));
+  ok('🔒 a carried-over old claim is called out so the owner checks it rather than inheriting it silently',
+    /carried over as <b>4,044 before the database<\/b>/.test(h) && /Please check it/.test(h), h.slice(h.indexOf('carried over') - 60, h.indexOf('carried over') + 200));
   ok('…and a nudge to keep it defensible', /could defend if a customer asked/.test(h));
   ok('the live numbers are shown as read-only facts', /186[\s\S]{0,80}plans running now/.test(h) && /61%[\s\S]{0,80}customers come back/.test(h));
   ok('all four switches are there', /data-b="enabled"/.test(h) && /data-b="showTicker"/.test(h) && /data-b="showServices"/.test(h) && /data-b="showJourney"/.test(h));
@@ -179,11 +183,11 @@ const READY = { ok: true, ready: true, reviews: REVIEWS, counts: { visible: 1, p
   section('saving');
   reset(); API_REPLY = TRUST; POST = [];
   views.trustView(); await tick();
-  EL['#trbody'].oninput({ target: { dataset: { k: 'lifetimeOrders' }, value: '6,000+' } });
+  EL['#trbody'].oninput({ target: { dataset: { k: 'baselineOrders' }, value: '4200' } });
   EL['#trbody'].onchange({ target: { dataset: { b: 'showTicker' }, checked: false } });
-  POST_REPLY = { ok: true, settings: Object.assign({}, TRUST.settings, { lifetimeOrders: '6,000+', showTicker: false }) };
+  POST_REPLY = { ok: true, settings: Object.assign({}, TRUST.settings, { baselineOrders: 4200, showTicker: false }) };
   click('#trbody', { id: 'trsave' }); await tick();
-  ok('what the owner typed is what is sent', POST[0].path === '/admin/api/trust' && POST[0].body.lifetimeOrders === '6,000+' && POST[0].body.showTicker === false, POST[0]);
+  ok('what the owner typed is what is sent', POST[0].path === '/admin/api/trust' && POST[0].body.baselineOrders === '4200' && POST[0].body.showTicker === false, POST[0]);
   ok('…and they are told it is not instant', TOASTS.some((t) => /live within 5 minutes/.test(t)), TOASTS);
 
   reset(); API_REPLY = TRUST; POST = []; TOASTS = [];

@@ -1,11 +1,12 @@
 /* 🏆 Why trust us — the numbers, the badges, the ticker and the journey on the home screen.
  *
  * Owner, 1 Oct 2026: "can we add our orders count and some proofs or some journey section to increase trust",
- * then: headline the lifetime figure WITH the live numbers · a live activity ticker · service badges with real counts.
+ * then (2 Oct): "show no of orders including the past ones, then on top of them add the real ones in real time,
+ * show customers served and recurring also" — so the totals are baseline + counted, and they move by themselves.
  *
  * The home screen already had four trust cards and every one is a CLAIM. This is the evidence, so the thing that
  * matters most in this file is that the evidence is TRUE and that it gives nobody away:
- *   - the headline is the owner's typed claim and is NEVER computed from the database
+ *   - the part nobody can count (the paper and Sheet years) is typed, and the rest is counted every time
  *   - every live number is counted, and is 0 rather than invented when it cannot be read
  *   - the ticker carries no name, phone, email or order id — it is served to logged-out visitors
  *   - no query compares a phone column across two tables (the MariaDB collation lesson, 27 Sep)
@@ -111,24 +112,49 @@ Module._load = origLoad;
   ok('🔒 an expired plan is not counted as running', !l.services.some((x) => x.service === 'Zee5 Premium'), l.services);
   ok('🔒 a row with no service name is never shown as an empty badge', l.services.every((x) => x.service), l.services);
 
-  // ── the headline is the owner's claim, never a computed number ───────────────────────────────────────────
-  section('the headline is a claim, and stays one');
+  // ── the big numbers: what came before, plus what is counted ──────────────────────────────────
+  section('the numbers are the past PLUS the present, and the present moves');
   reset(); trust._internal.reset();
   let t = await trust.getTrust();
-  ok('the default headline is the owner\'s figure, NOT the 6 orders the database holds',
-    t.headline.orders === '5,000+' && t.headline.text === '5,000+ orders delivered since 2024', t.headline);
-  ok('🔒 nothing computed ever overwrites it', (await trust.live(true, NOW)).paidOrders === 6 && t.headline.orders === '5,000+');
-  let r = await trust.saveSettings({ lifetimeOrders: '6,200+', since: '2023' });
+  // The fake database holds 6 paid orders from 3 customers, 2 of whom came back.
+  ok('out of the box the old "5,000+" claim is carried over, so the site does not suddenly show 6',
+    t.totals.orders === 5000, t.totals);
+  ok('🔒 and it is carried over by SUBTRACTING what we can count, not by adding to it',
+    trust.baselineOf({ baselineOrders: null, lifetimeOrders: '5,000+' }, 6) === 4994);
+  ok('customers served is counted + whatever the owner says came before (nothing yet)',
+    t.totals.customers === 3, t.totals);
+  ok('recurring is a real number AND a share', t.totals.recurring === 2 && t.totals.recurringPct === 67, t.totals);
+  ok('the year is sent for "Serving India since …"', t.since === '2024');
+
+  section('it rises on its own when a real order lands');
+  ORDERS.push({ status: 'PAID', order_type: 'NEW', phone_norm: '9000000007', service: 'Netflix', plan: 'Sharing 1M', at: '2026-10-01 21:58:00', name: 'New Person', email: 'n7@example.com', order_id: 'FF8888888' });
+  trust._internal.reset();
+  let t2 = await trust.getTrust();
+  ok('🔒 one more paid order, one more on the total — nobody edited anything',
+    t2.totals.orders === t.totals.orders + 1, { before: t.totals.orders, after: t2.totals.orders });
+  ok('…and one more customer served', t2.totals.customers === t.totals.customers + 1, t2.totals);
+
+  section('the owner sets the part nobody can count');
+  reset(); trust._internal.reset();
+  let r = await trust.saveSettings({ baselineOrders: 4200, baselineCustomers: 600, since: '2023' });
   trust._internal.reset();
   t = await trust.getTrust();
-  ok('the owner can change it', r.ok && t.headline.text === '6,200+ orders delivered since 2023', t.headline);
-  ok('🔒 a headline with markup in it is refused, not escaped-and-hoped',
-    (await trust.saveSettings({ lifetimeOrders: '<b>lots</b>' })).ok === false);
-  ok('🔒 and so is a silly year', (await trust.saveSettings({ since: '12' })).ok === false);
-  ok('an empty headline simply removes it rather than printing "orders delivered since"',
-    (await trust.saveSettings({ lifetimeOrders: '' })).ok === true);
+  ok('typed baselines are added to the counted ones', r.ok && t.totals.orders === 4206 && t.totals.customers === 603, t.totals);
+  ok('…and the year changes with it', t.since === '2023');
+  ok('🔒 once set, the old claim is ignored completely', (await trust.getSettings(true)).baselineOrders === 4200);
+  ok('a baseline of zero is a real answer, not "unset"',
+    (await trust.saveSettings({ baselineOrders: 0 })).settings.baselineOrders === 0);
   trust._internal.reset();
-  ok('…and the section then has no headline at all', (await trust.getTrust()).headline === null);
+  ok('…so the total is then exactly what the database counts', (await trust.getTrust()).totals.orders === 6);
+  ok('an empty box means "not said yet" and falls back again',
+    (await trust.saveSettings({ baselineOrders: '' })).settings.baselineOrders === null);
+  ok('🔒 a baseline that is not a whole number is refused with a reason',
+    (await trust.saveSettings({ baselineOrders: '4.5' })).ok === false && /whole number/.test((await trust.saveSettings({ baselineOrders: 'lots' })).message));
+  ok('🔒 and a negative one, which would shrink the truth', (await trust.saveSettings({ baselineOrders: '-10' })).ok === false);
+  ok('commas are accepted, because that is how it is typed', (await trust.saveSettings({ baselineOrders: '4,200' })).settings.baselineOrders === 4200);
+  ok('🔒 a silly year is still refused', (await trust.saveSettings({ since: '12' })).ok === false);
+  ok('🔒 an old claim SMALLER than what we have counted gives a baseline of 0, never a negative',
+    trust.baselineOf({ baselineOrders: null, lifetimeOrders: '3' }, 6) === 0);
 
   // ── privacy ──────────────────────────────────────────────────────────────────────────────────────────────
   section('nothing here can identify a customer');
@@ -200,7 +226,7 @@ Module._load = origLoad;
   missing.add('orders'); missing.add('subscriptions'); missing.add('app_settings');
   t = await trust.getTrust();
   ok('🔒 nothing readable at all: still ok, nothing invented', t.ok === true && t.live.running === 0 && t.live.comeBackPct === 0 && !t.recent.length, t);
-  ok('…and the owner\'s default claim still shows, because it was never a database number', t.headline.orders === '5,000+', t.headline);
+  ok('…and the carried-over baseline still shows, because it was never a database number', t.totals.orders === 5000, t.totals);
 
   section('a thrown error is caught, not sent to the home screen');
   reset(); trust._internal.reset();
@@ -213,11 +239,18 @@ Module._load = origLoad;
   // ── caching ──────────────────────────────────────────────────────────────────────────────────────────────
   section('the home page does not hammer the database');
   reset(); trust._internal.reset();
+  // The very first load also carries the old claim over and writes it down, which costs one extra round. That
+  // happens once, ever - so measure the steady state, and check the one-off separately below.
+  await trust.getTrust();
   await trust.getTrust();
   const n1 = SQL.length;
   await trust.getTrust(); await trust.getTrust();
-  ok('three home loads, one set of queries', SQL.length === n1, { first: n1, after: SQL.length });
-  ok('…and it is a 5-minute cache, not forever', trust.CACHE_MS === 5 * 60e3);
+  ok('two more home loads, not one more query', SQL.length === n1, { settled: n1, after: SQL.length });
+  ok('🔒 and the carry-over was written down exactly ONCE',
+    SQL.filter((q) => /^INSERT INTO app_settings/.test(q)).length === 1, SQL.filter((q) => /^INSERT INTO app_settings/.test(q)).length);
+  ok('🔒 …so the baseline is a stored number now, not something re-derived (which would freeze the total)',
+    (await trust.getSettings(true)).baselineOrders === 4994, (await trust.getSettings(true)).baselineOrders);
+  ok('…and it is a one-minute cache, so the count really does move', trust.CACHE_MS === 60e3);
 
   // ── promises in the code ─────────────────────────────────────────────────────────────────────────────────
   section('the code');
@@ -252,10 +285,11 @@ Module._load = origLoad;
   });
   let x = await call('GET', '/admin/api/trust');
   ok('the claim and the proof are shown side by side', x.body.ok && x.body.settings.lifetimeOrders === '5,000+' && x.body.proved.paidOrders === 6, x.body.proved);
-  ok('🔒 and it SAYS the database holds less, so the headline is an informed choice, not an accident',
-    /MySQL can prove 6 paid orders/.test(x.body.proved.note) && /real lifetime number is higher/.test(x.body.proved.note), x.body.proved.note);
-  x = await call('POST', '/admin/api/trust', { lifetimeOrders: '7,000+' });
-  ok('saving works and is written to the change log', x.body.ok && audits.some((a) => a.action === 'trust.save' && /7,000\+/.test(a.summary)), audits);
+  ok('🔒 and it SAYS which half is counted and which half is the owner\'s word',
+    /counts 6 paid orders from 3 customers/.test(x.body.proved.note) && /rises by itself/.test(x.body.proved.note), x.body.proved.note);
+  ok('…and hands the admin screen its arithmetic to show', x.body.totals.before.orders === 4994 && x.body.totals.counted.orders === 6 && x.body.totals.orders === 5000, x.body.totals);
+  x = await call('POST', '/admin/api/trust', { baselineOrders: 7000 });
+  ok('saving works and is written to the change log', x.body.ok && audits.some((a) => a.action === 'trust.save'), audits);
   x = await call('POST', '/admin/api/trust', { since: 'nineteen' });
   ok('a bad value is refused with a reason the owner can read', x.code === 400 && /four digits/.test(x.body.message), x.body);
 
