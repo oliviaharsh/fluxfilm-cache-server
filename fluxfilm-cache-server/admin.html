@@ -543,6 +543,8 @@ button,.btn,[role="button"]{-webkit-user-select:none;user-select:none;-webkit-to
 button,.btn{transition:transform .1s ease,filter .1s ease}
 :where(button,.btn):active:not(:disabled){transform:scale(.96);filter:brightness(.94)}
 @media (prefers-reduced-motion: reduce){button,.btn{transition:none}}
+.rv-reply{margin-top:8px;margin-left:10px;padding-left:10px;border-left:2px solid #22c55e}
+.rv-reply>div{color:#64748b;font-size:.86rem;margin-top:2px}
 </style></head><body>
 <div id="ff-splash" hidden aria-hidden="true"><div class="ff-sp-streaks"><i style="transform:rotate(0deg)"><b style="background:#fecdd3;animation-delay:1.52s"></b></i><i style="transform:rotate(27deg)"><b style="background:#fb7185;animation-delay:1.54s"></b></i><i style="transform:rotate(54deg)"><b style="background:#f43f5e;animation-delay:1.56s"></b></i><i style="transform:rotate(60deg)"><b style="background:#fda4af;animation-delay:1.58s"></b></i><i style="transform:rotate(87deg)"><b style="background:#fbbf24;animation-delay:1.60s"></b></i><i style="transform:rotate(114deg)"><b style="background:#ffffff;animation-delay:1.52s"></b></i><i style="transform:rotate(120deg)"><b style="background:#fca5a5;animation-delay:1.54s"></b></i><i style="transform:rotate(147deg)"><b style="background:#fecdd3;animation-delay:1.56s"></b></i><i style="transform:rotate(174deg)"><b style="background:#fb7185;animation-delay:1.58s"></b></i><i style="transform:rotate(180deg)"><b style="background:#f43f5e;animation-delay:1.60s"></b></i><i style="transform:rotate(207deg)"><b style="background:#fda4af;animation-delay:1.52s"></b></i><i style="transform:rotate(234deg)"><b style="background:#fbbf24;animation-delay:1.54s"></b></i><i style="transform:rotate(240deg)"><b style="background:#ffffff;animation-delay:1.56s"></b></i><i style="transform:rotate(267deg)"><b style="background:#fca5a5;animation-delay:1.58s"></b></i><i style="transform:rotate(294deg)"><b style="background:#fecdd3;animation-delay:1.60s"></b></i><i style="transform:rotate(300deg)"><b style="background:#fb7185;animation-delay:1.52s"></b></i><i style="transform:rotate(327deg)"><b style="background:#f43f5e;animation-delay:1.54s"></b></i><i style="transform:rotate(354deg)"><b style="background:#fda4af;animation-delay:1.56s"></b></i></div><div class="ff-sp-stage"><div class="ff-sp-rib"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="ff-sp-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="ffasp-bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#3f0f20"/><stop offset="1" stop-color="#12040a"/></linearGradient><radialGradient id="ffasp-hi" cx="143" cy="61" r="460" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset=".55" stop-color="#ffffff" stop-opacity="0"/></radialGradient><linearGradient id="ffasp-mk" x1="0" y1="96" x2="0" y2="416" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fecdd3"/><stop offset="1" stop-color="#fb7185"/></linearGradient><filter id="ffasp-sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity=".45"/></filter><mask id="ffasp-f" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect width="512" height="512" fill="#fff"/><g fill="#000"><rect x="198" y="186" width="36" height="148" rx="6"/><rect x="198" y="186" width="98" height="32" rx="6"/><rect x="198" y="244" width="78" height="30" rx="6"/></g></mask></defs><rect width="512" height="512" rx="112" fill="url(#ffasp-bg)"/><rect width="512" height="512" rx="112" fill="url(#ffasp-hi)"/><g filter="url(#ffasp-sh)"><path transform="translate(8 0)" d="M170 128V384L392 256Z" fill="url(#ffasp-mk)" stroke="url(#ffasp-mk)" stroke-width="64" stroke-linejoin="round" mask="url(#ffasp-f)"/></g></svg></div></div></div>
 <script>
@@ -763,7 +765,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['receivables', '💳', 'Receivables'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'], ['ytfamily', '▶️', 'YouTube families'], ['wagroup', '👥', 'WhatsApp group'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['receivables', '💳', 'Receivables'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['reviews', '⭐', 'Reviews'], ['trust', '🏆', 'Why trust us'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'], ['ytfamily', '▶️', 'YouTube families'], ['wagroup', '👥', 'WhatsApp group'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['duplicates', '🧑‍🤝‍🧑', 'Same person'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
   ['DATA'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'], ['integrations', '🔗', 'Integrations'],
 ];
@@ -830,7 +832,7 @@ function wireSideClose() {
   }, { passive: true });
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, promos: promosView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView, ytfamily: ytFamilyView, wagroup: groupView, duplicates: duplicatesView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, promos: promosView, reviews: reviewsView, trust: trustView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView, ytfamily: ytFamilyView, wagroup: groupView, duplicates: duplicatesView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -3694,6 +3696,167 @@ function rpOpenSnap(id) {
     el.innerHTML = '<p style="margin:0 0 8px"><b>' + esc(sn.line || '') + '</b></p><div id="rpsnapin"></div><p class="muted" style="font-size:.75rem">Delivered: ' + (dl.push ? '📱 ' + (dl.push.sent || 0) + ' of ' + (dl.push.devices || 0) + ' device(s)' : '📱 push off') + ' · ' + (dl.email ? (dl.email.ok ? '✉️ email sent' : '✉️ email not sent' + (dl.email.skipped || dl.email.error ? ' (' + esc(dl.email.skipped || dl.email.error) + ')' : '')) : '✉️ email off') + '</p>';
     rpRender(sn, $('#rpsnapin'), false);
   });
+}
+/* ================= ⭐ reviews: approve, hide, delete, and REPLY (reviews.js) ================= */
+var RV = { list: [], filter: 'all', counts: {}, replying: 0 };
+var RV_STATUS = { visible: ['Shown', 'p-green'], pending: ['Waiting for you', 'p-amber'], hidden: ['Hidden', 'p-grey'] };
+
+function reviewsView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>⭐ Reviews</h1><p>What customers say on the site, and your reply underneath. Only people who have actually bought a plan can write one, and each person has one review they can rewrite.</p></div></div>' +
+    '<div id="rvbody"><p class="muted">Loading…</p></div>';
+  rvLoad();
+}
+function rvLoad() {
+  api('/admin/api/reviews', { status: 'all', limit: 200 }).then(function (r) {
+    if (!$('#rvbody')) return;
+    if (!r.ok) { $('#rvbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
+    if (r.ready === false) {
+      $('#rvbody').innerHTML = '<div class="card" style="text-align:center;padding:28px"><div style="font-size:2.4rem">📜</div><h3>One step to switch reviews on</h3>' +
+        '<p class="muted">Run <b>' + esc(r.schemaFile || 'db/schema-v34.sql') + '</b> in phpMyAdmin, then open this screen again. Nothing else changes until you do — the site simply shows no reviews.</p></div>';
+      return;
+    }
+    RV.list = r.reviews || []; RV.counts = r.counts || {}; RV.average = r.average; RV.visibleCount = r.visibleCount;
+    rvRender();
+  });
+}
+function rvRender() {
+  var c = RV.counts;
+  var all = RV.list.length;
+  var tab = function (k, label, n) {
+    return '<button class="btn sm ' + (RV.filter === k ? 'dark' : 'ghost') + '" data-f="' + k + '">' + label + (n ? ' (' + n + ')' : '') + '</button>';
+  };
+  var rows = RV.list.filter(function (x) { return RV.filter === 'all' || x.status === RV.filter; });
+  var head = '<div class="card" style="margin-bottom:12px"><div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">' +
+    '<div><b style="font-size:1.5rem">' + (RV.visibleCount ? RV.average : '—') + '</b> <span class="muted">average of ' + (RV.visibleCount || 0) + ' shown on the site</span></div>' +
+    '<div class="grow"></div>' + tab('all', 'All', all) + tab('pending', '⏳ Waiting', c.pending) + tab('visible', '✅ Shown', c.visible) + tab('hidden', '🚫 Hidden', c.hidden) +
+    '</div>' + (c.pending ? '<div class="qnote warn" style="margin-top:10px">⏳ ' + c.pending + ' review' + (c.pending === 1 ? '' : 's') + ' waiting for you. Held ones are usually fine — words like “cheap” look like selling to the filter, which on a review is normally a compliment.</div>' : '') + '</div>';
+
+  var body = '';
+  if (!rows.length) {
+    body = '<div class="card" style="text-align:center;padding:28px"><div style="font-size:2.4rem">⭐</div><h3>' + (all ? 'Nothing in this list' : 'No reviews yet') + '</h3>' +
+      '<p class="muted">' + (all ? 'Try another tab.' : 'Customers write one from their dashboard after they log in. Until the first one arrives the site shows no review section at all.') + '</p></div>';
+  } else {
+    body = rows.map(function (v) {
+      var st = RV_STATUS[v.status] || [v.status, 'p-grey'];
+      var stars = '★★★★★'.slice(0, Math.max(0, Math.min(5, v.rating))) + '<span class="muted">' + '★★★★★'.slice(0, 5 - Math.max(0, Math.min(5, v.rating))) + '</span>';
+      var acts = '';
+      if (v.status !== 'visible') acts += '<button class="btn sm green" data-show="' + v.id + '">✅ Show on site</button>';
+      if (v.status !== 'hidden') acts += '<button class="btn sm ghost" data-hide="' + v.id + '">🚫 Hide</button>';
+      acts += '<button class="btn sm dark" data-reply="' + v.id + '">' + (v.reply ? '✏️ Edit reply' : '💬 Reply') + '</button>';
+      acts += '<button class="btn sm ghost" data-del="' + v.id + '">🗑</button>';
+      var reply = v.reply ? '<div class="rv-reply"><b>FluxFilm</b><span class="muted"> · ' + esc(v.repliedAt) + '</span><div>' + esc(v.reply) + '</div></div>' : '';
+      var box = RV.replying === v.id
+        ? '<div style="margin-top:10px"><textarea class="inp" id="rvtext" rows="3" maxlength="400" placeholder="Write back to ' + esc(v.name) + '…">' + esc(v.reply || '') + '</textarea>' +
+          '<div class="row" style="gap:8px;margin-top:8px"><button class="btn sm green" data-save="' + v.id + '">Save reply</button>' +
+          '<button class="btn sm ghost" data-cancel="1">Cancel</button>' + (v.reply ? '<button class="btn sm ghost" data-rmreply="' + v.id + '">Remove reply</button>' : '') + '</div></div>'
+        : '';
+      return '<div class="card" style="margin-bottom:10px"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">' +
+        '<b>' + esc(v.name) + '</b><span style="color:#f59e0b;letter-spacing:1px">' + stars + '</span>' +
+        '<span class="pill ' + st[1] + '">' + st[0] + '</span>' +
+        '<span class="muted" style="font-size:.78rem">' + esc(v.at) + (v.service ? ' · ' + esc(v.service) : '') + ' · ' + esc(v.phone) + '</span></div>' +
+        '<div style="margin-top:6px">' + esc(v.text) + '</div>' + reply + box +
+        '<div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap">' + acts + '</div></div>';
+    }).join('');
+  }
+  $('#rvbody').innerHTML = head + body;
+  $('#rvbody').onclick = function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    var d = b.dataset;
+    if (d.f) { RV.filter = d.f; RV.replying = 0; rvRender(); return; }
+    if (d.reply) { RV.replying = +d.reply; rvRender(); var t = $('#rvtext'); if (t) t.focus(); return; }
+    if (d.cancel) { RV.replying = 0; rvRender(); return; }
+    if (d.save) {
+      var t = $('#rvtext'); if (!t) return;
+      b.disabled = true;
+      post('/admin/api/reviews/reply', { id: +d.save, reply: t.value }).then(function (r) {
+        toast(r.ok ? '💬 Reply posted' : '⚠️ ' + (r.message || 'error')); RV.replying = 0; rvLoad();
+      });
+      return;
+    }
+    if (d.rmreply) { post('/admin/api/reviews/reply', { id: +d.rmreply, reply: '' }).then(function (r) { toast(r.ok ? 'Reply removed' : '⚠️ ' + (r.message || 'error')); RV.replying = 0; rvLoad(); }); return; }
+    if (d.show) { post('/admin/api/reviews/status', { id: +d.show, status: 'visible' }).then(function (r) { toast(r.ok ? '⭐ Shown on the site' : '⚠️ ' + (r.message || 'error')); rvLoad(); }); return; }
+    if (d.hide) { post('/admin/api/reviews/status', { id: +d.hide, status: 'hidden' }).then(function (r) { toast(r.ok ? 'Hidden' : '⚠️ ' + (r.message || 'error')); rvLoad(); }); return; }
+    if (d.del) {
+      if (!confirm('Delete this review? The customer can write a new one.')) return;
+      post('/admin/api/reviews/delete', { id: +d.del }).then(function (r) { toast(r.ok ? '🗑 Deleted' : '⚠️ ' + (r.message || 'error')); rvLoad(); });
+    }
+  };
+}
+
+/* ================= 🏆 why trust us: the headline, the switches, the journey (trust.js) ================= */
+var TR = { s: null, proved: null, live: null };
+
+function trustView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>🏆 Why trust us</h1><p>The numbers under the four cards on the home page. The big one is <b>yours to type</b> — everything else is counted from the database and updates by itself.</p></div></div>' +
+    '<div id="trbody"><p class="muted">Loading…</p></div>';
+  trLoad();
+}
+function trLoad() {
+  api('/admin/api/trust').then(function (r) {
+    if (!$('#trbody')) return;
+    if (!r.ok) { $('#trbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
+    TR.s = r.settings; TR.proved = r.proved || {}; TR.live = r.live || {};
+    trRender();
+  });
+}
+function trRender() {
+  var s = TR.s, p = TR.proved, l = TR.live;
+  var tog = function (k, label, hint) {
+    return '<label class="rf-tog" style="display:flex;gap:8px;align-items:flex-start;margin:0 0 8px"><input type="checkbox" data-b="' + k + '"' + (s[k] ? ' checked' : '') + '/><span><b>' + label + '</b><br><span class="muted" style="font-size:.78rem">' + hint + '</span></span></label>';
+  };
+  var jrow = function (j, i) {
+    return '<div class="row" style="gap:6px;margin-bottom:6px;align-items:flex-start"><input class="inp" style="max-width:110px" data-j="when" data-i="' + i + '" maxlength="20" value="' + esc(j.when) + '" placeholder="2024"/>' +
+      '<input class="inp" style="max-width:180px" data-j="title" data-i="' + i + '" maxlength="60" value="' + esc(j.title) + '" placeholder="Where it started"/>' +
+      '<input class="inp grow" data-j="text" data-i="' + i + '" maxlength="200" value="' + esc(j.text) + '" placeholder="What happened"/>' +
+      '<button class="btn sm ghost" data-jdel="' + i + '">🗑</button></div>';
+  };
+  $('#trbody').innerHTML =
+    '<div class="card" style="margin-bottom:12px"><h3 style="margin-top:0">The big number</h3>' +
+    '<div class="row" style="gap:8px;flex-wrap:wrap"><label style="max-width:160px">Orders<input class="inp" data-k="lifetimeOrders" maxlength="20" value="' + esc(s.lifetimeOrders) + '" placeholder="5,000+"/></label>' +
+    '<label style="max-width:120px">Since<input class="inp" data-k="since" maxlength="4" value="' + esc(s.since) + '" placeholder="2024"/></label></div>' +
+    '<div class="qnote" style="margin-top:10px">🧮 <b>What the database can actually prove:</b> ' + (p.paidOrders || 0) + ' paid orders from ' + (p.customers || 0) + ' customers. The years before the import are not in it, so the real number is higher — that is why this one is yours to type. Type something you could defend if a customer asked.</div>' +
+    '<label style="margin-top:10px">Small line underneath <span class="muted">(optional)</span><input class="inp" data-k="note" maxlength="140" value="' + esc(s.note || '') + '" placeholder="Serving customers across India"/></label></div>' +
+
+    '<div class="card" style="margin-bottom:12px"><h3 style="margin-top:0">Counted live — nothing to type</h3>' +
+    '<div class="row" style="gap:18px;flex-wrap:wrap"><div><b style="font-size:1.3rem">' + (l.running || 0) + '</b><div class="muted" style="font-size:.78rem">plans running now</div></div>' +
+    '<div><b style="font-size:1.3rem">' + (l.comeBackPct || 0) + '%</b><div class="muted" style="font-size:.78rem">customers come back</div></div>' +
+    '<div><b style="font-size:1.3rem">' + (l.renewals || 0) + '</b><div class="muted" style="font-size:.78rem">renewals so far</div></div>' +
+    '<div><b style="font-size:1.3rem">' + ((l.services || []).length) + '</b><div class="muted" style="font-size:.78rem">services with a badge</div></div></div></div>' +
+
+    '<div class="card" style="margin-bottom:12px"><h3 style="margin-top:0">What to show</h3>' +
+    tog('enabled', 'The whole section', 'Off means the home page shows nothing of this at all.') +
+    tog('showTicker', 'Live activity', '“Someone renewed Netflix · 4 min ago”. No names, no numbers — just what was bought and roughly when.') +
+    tog('showServices', 'Service badges', 'How many people are on each service right now.') +
+    tog('showJourney', 'How we got here', 'Only shows if you have written the steps below.') + '</div>' +
+
+    '<div class="card" style="margin-bottom:12px"><h3 style="margin-top:0">How we got here</h3>' +
+    '<p class="muted" style="margin-top:0">Your story, in your words. It ships empty on purpose — a made-up timeline on the page that is meant to build trust would do the opposite. Up to 8 steps.</p>' +
+    '<div id="trj">' + (s.journey.length ? s.journey.map(jrow).join('') : '<p class="muted">No steps yet.</p>') + '</div>' +
+    '<button class="btn sm ghost" id="trjadd"' + (s.journey.length >= 8 ? ' disabled' : '') + '>➕ Add a step</button></div>' +
+
+    '<div class="row" style="gap:8px"><button class="btn green" id="trsave">Save</button><button class="btn ghost" id="trreload">Reload</button></div>';
+
+  $('#trbody').oninput = function (e) {
+    var t = e.target;
+    if (t.dataset.k) TR.s[t.dataset.k] = t.value;
+    if (t.dataset.j) TR.s.journey[+t.dataset.i][t.dataset.j] = t.value;
+  };
+  $('#trbody').onchange = function (e) { if (e.target.dataset.b) TR.s[e.target.dataset.b] = e.target.checked; };
+  $('#trbody').onclick = function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.id === 'trjadd') { TR.s.journey.push({ when: '', title: '', text: '' }); trRender(); return; }
+    if (b.dataset.jdel) { TR.s.journey.splice(+b.dataset.jdel, 1); trRender(); return; }
+    if (b.id === 'trreload') { trLoad(); return; }
+    if (b.id === 'trsave') {
+      b.disabled = true;
+      post('/admin/api/trust', TR.s).then(function (r) {
+        b.disabled = false;
+        if (!r.ok) { toast('⚠️ ' + (r.message || 'error')); return; }
+        toast('🏆 Saved — live within 5 minutes');
+        TR.s = r.settings; trLoad();
+      });
+    }
+  };
 }
 /* ================= offers: announcement bar, banner card, pop-up (promos.js) ================= */
 var PR = { list: [], edit: null };
