@@ -309,7 +309,9 @@ Module._load = origLoad;
   ok('🔒 totalsOf never touches `running` — the one figure that must stay a snapshot',
     !/running/.test(nocomment.split('function totalsOf')[1].split('function suggestBaselines')[0]));
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-  ok('the section is drawn on Home', /React\.createElement\(TrustProof, null\)/.test(html) && /function TrustProof\(\)/.test(html));
+  ok('the section is drawn on Home, open, and on the dashboard, folded',
+    /React\.createElement\(TrustProof, null\)/.test(html) && /React\.createElement\(TrustProof, \{\s*fold: true\s*\}\)/.test(html)
+    && /function TrustProof\(\{/.test(html));
   ok('…and draws NOTHING until the server answers, so it cannot delay the page', /if \(!t\) return null;/.test(html));
   ok('the storefront action is reachable', /getTrust\(onSuccess, onFailure\)/.test(html));
   ok('🔒 no journey text is shipped in the code — the owner writes it, we do not guess it for them',

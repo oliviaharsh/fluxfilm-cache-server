@@ -4251,8 +4251,26 @@ function ToolsGrid({
 // name, a phone or an order id, because this renders for logged-out visitors too.
 // It renders nothing until the data arrives and nothing at all if the server says off, so a slow or broken
 // trust section can never hold up or break the landing screen.
-function TrustProof() {
+function TrustProof({
+  fold
+}) {
   const [t, setT] = useState(null);
+  // Remembered per device. A private window throws on localStorage, so every touch is guarded — a trust
+  // section must never be the thing that breaks the screen it sits on.
+  const [open, setOpen] = useState(() => {
+    if (!fold) return true;
+    try {
+      return localStorage.getItem('ff_trust_open') === '1';
+    } catch (e) {
+      return false;
+    }
+  });
+  const toggle = () => setOpen(v => {
+    try {
+      localStorage.setItem('ff_trust_open', v ? '0' : '1');
+    } catch (e) {}
+    return !v;
+  });
   useEffect(() => {
     let alive = true;
     const load = () => API.getTrust(r => {
@@ -4294,13 +4312,64 @@ function TrustProof() {
   const headline = [T.orders > 0 ? big(nf(T.orders), 'orders delivered', 'o') : null, T.customers > 0 ? big(nf(T.customers), 'customers served', 'c') : null, T.recurring > 0 ? big(nf(T.recurring), 'came back for more', 'r') : null].filter(Boolean);
   const small = [t.live && t.live.running > 0 ? nf(t.live.running) + ' plans running right now' : '', T.recurringPct > 0 ? T.recurringPct + '% of customers renew with us' : '', t.live && t.live.renewals > 0 ? nf(t.live.renewals) + ' renewals so far' : ''].filter(Boolean);
   if (!headline.length && !small.length && !(t.services || []).length && !(t.recent || []).length) return null;
+  // 📂 Folded: one line that still says the two numbers worth knowing, so it is a summary and not a mystery box.
+  const summary = fold ? React.createElement("button", {
+    type: "button",
+    onClick: toggle,
+    "aria-expanded": open ? 'true' : 'false',
+    style: {
+      width: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      background: 'none',
+      border: 'none',
+      padding: open ? '0 0 10px' : 0,
+      margin: 0,
+      cursor: 'pointer',
+      textAlign: 'left',
+      font: 'inherit'
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 15
+    }
+  }, "\U0001F3C6"), React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12.5,
+      fontWeight: 700,
+      color: C.text,
+      flex: 1,
+      minWidth: 0
+    }
+  }, T.orders > 0 ? nf(T.orders) + ' orders' : 'Why trust us', T.customers > 0 ? React.createElement("span", {
+    style: {
+      color: C.muted,
+      fontWeight: 600
+    }
+  }, " · ", nf(T.customers), " customers served") : null), React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11,
+      fontWeight: 700,
+      color: C.green
+    }
+  }, open ? 'Hide ▴' : 'See ▾')) : null;
+  if (fold && !open) return React.createElement(Card, {
+    className: "ff-trust-proof ff-o6",
+    pad: 14,
+    style: {
+      margin: '12px 0 6px'
+    }
+  }, summary);
   return React.createElement(Card, {
     className: "ff-trust-proof ff-o6",
     pad: 16,
     style: {
       margin: '12px 0 6px'
     }
-  }, headline.length ? React.createElement("div", {
+  }, summary, headline.length ? React.createElement("div", {
     style: {
       display: 'flex',
       gap: 10,
@@ -19632,7 +19701,9 @@ function App() {
     }) : null;
   })(), screen === 'dashboard' && React.createElement(FeedStrip, {
     nav: nav
-  }), screen === 'dashboard' && React.createElement(TrustProof, null), screen === 'dashboard' && React.createElement(ReviewsWall, {
+  }), screen === 'dashboard' && React.createElement(TrustProof, {
+    fold: true
+  }), screen === 'dashboard' && React.createElement(ReviewsWall, {
     phone: sessionPhone
   }),storeBlocked && React.createElement(MaintenanceScreen, {
     status: storeStatus,
