@@ -232,7 +232,7 @@ const S = (at, extra) => Object.assign({ kind: 'session', at }, extra || {});
 const SOFT = (at, extra) => Object.assign({ kind: 'soft', at }, extra || {});
 const POLICY = {
   // catalog, stock, offers, feed read, SEO, store status: public
-  getBootstrap: P, getStockLevels: P, getTrendingItems: P, getStoreStatus: P, getPromos: P, promoEvent: P,
+  getBootstrap: P, getStockLevels: P, getTrendingItems: P, getStoreStatus: P, getPromos: P, promoEvent: P, getTrust: P,
   getPushKey: P, pushUnsubscribe: P, getAnniversary: P, householdPics: P, getFeed: P, feedEvent: P, getFeedComments: P, getFeedCommentPreviews: P,
   getGamesStatus: P, checkReferral: P,
   getNetflixHouseholdLink: P, // needs the shared account's login email, not a customer's data
