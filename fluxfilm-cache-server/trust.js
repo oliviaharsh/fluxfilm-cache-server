@@ -63,6 +63,8 @@ const DEFAULTS = Object.freeze({
   enabled: true,
   baselineOrders: null,
   baselineCustomers: null,
+  baselineRecurring: null,
+  baselineRenewals: null,
   lifetimeOrders: '5,000+',   // legacy: the frozen claim, kept only so an existing setting can be carried over
   since: '2024',
   note: '',
@@ -90,7 +92,8 @@ function validate(input) {
     else out.lifetimeOrders = v;
   }
   // The two baselines: whole numbers, or blank to mean "not said yet".
-  for (const [k, label] of [['baselineOrders', 'Orders before the database'], ['baselineCustomers', 'Customers before the database']]) {
+  for (const [k, label] of [['baselineOrders', 'Orders before the database'], ['baselineCustomers', 'Customers before the database'],
+    ['baselineRecurring', 'Repeat customers before the database'], ['baselineRenewals', 'Renewals before the database']]) {
     if (i[k] === undefined) continue;
     const raw = s(i[k]).replace(/,/g, '');
     if (raw === '') { out[k] = null; continue; }
@@ -231,19 +234,61 @@ async function carryOverBaseline(cfg, countedOrders) {
   } catch (e) { console.log('[trust] could not write the carried-over baseline:', e.message); }
 }
 
-/** baseline + counted, for the three numbers the site leads with. */
+/**
+ * baseline + counted, for every figure that is a RUNNING TOTAL.
+ *
+ * ⚠️ "plans running right now" is deliberately absent and must stay absent. It is a snapshot of this moment,
+ * not a total: a plan that ran in 2024 is not running now, and adding the old days to it would be a plain
+ * falsehood on a section whose whole job is to be believed.
+ */
 function totalsOf(cfg, l) {
   const beforeOrders = baselineOf(cfg, l.paidOrders);
-  const beforeCustomers = cfg.baselineCustomers != null ? cfg.baselineCustomers : 0;
+  const before = {
+    orders: beforeOrders,
+    customers: cfg.baselineCustomers != null ? cfg.baselineCustomers : 0,
+    recurring: cfg.baselineRecurring != null ? cfg.baselineRecurring : 0,
+    renewals: cfg.baselineRenewals != null ? cfg.baselineRenewals : 0,
+  };
+  const counted = { orders: num(l.paidOrders), customers: num(l.customers), recurring: num(l.recurring), renewals: num(l.renewals) };
+  const customers = before.customers + counted.customers;
+  const recurring = before.recurring + counted.recurring;
   return {
-    orders: beforeOrders + num(l.paidOrders),
-    customers: beforeCustomers + num(l.customers),
-    recurring: num(l.recurring),
-    recurringPct: num(l.comeBackPct),
-    // What each half contributed, so the admin screen can show its working and nobody has to guess later.
-    counted: { orders: num(l.paidOrders), customers: num(l.customers) },
-    before: { orders: beforeOrders, customers: beforeCustomers },
+    orders: before.orders + counted.orders,
+    customers,
+    recurring,
+    renewals: before.renewals + counted.renewals,
+    // The share is of EVERYONE we have ever served, so it moves with the baselines too rather than describing
+    // only the people the database happens to hold.
+    recurringPct: customers > 0 ? Math.round((recurring / customers) * 100) : 0,
+    counted, before,
     carriedOver: cfg.baselineOrders == null && beforeOrders > 0,
+  };
+}
+
+/**
+ * What the old days probably looked like, worked out from the ratios the database CAN see. Offered to the owner
+ * in admin with the arithmetic shown; never applied on its own. A number the owner accepts is theirs; one we
+ * wrote in quietly would be an invention, which is the single thing this section must not contain.
+ */
+function suggestBaselines(cfg, l) {
+  const o = num(l.paidOrders), c = num(l.customers), rc = num(l.recurring), rn = num(l.renewals);
+  const beforeOrders = baselineOf(cfg, o);
+  if (!(beforeOrders > 0) || !(o > 0) || !(c > 0)) return null;
+  const perCustomer = o / c;
+  const customers = Math.round(beforeOrders / perCustomer);
+  return {
+    basis: {
+      ordersPerCustomer: Math.round(perCustomer * 100) / 100,
+      comeBackShare: Math.round((rc / c) * 100),
+      renewalShare: Math.round((rn / o) * 100),
+    },
+    baselineOrders: beforeOrders,
+    baselineCustomers: customers,
+    baselineRecurring: Math.round(customers * (rc / c)),
+    baselineRenewals: Math.round(beforeOrders * (rn / o)),
+    note: 'Worked out from what the database can see: ' + (Math.round(perCustomer * 100) / 100) + ' orders per customer, '
+      + Math.round((rc / c) * 100) + '% coming back, ' + Math.round((rn / o) * 100) + '% of orders being renewals. '
+      + 'These are ESTIMATES from today\'s pattern, not records — check them against what you remember before saving.',
   };
 }
 
@@ -261,7 +306,7 @@ async function getTrust() {
       since: cfg.since,
       // The three the site leads with. orders and customers include the years before the database; they rise on
       // their own as real orders land, so nobody has to remember to edit a number.
-      totals: { orders: tt.orders, customers: tt.customers, recurring: tt.recurring, recurringPct: tt.recurringPct },
+      totals: { orders: tt.orders, customers: tt.customers, recurring: tt.recurring, renewals: tt.renewals, recurringPct: tt.recurringPct },
       note: cfg.note,
       live: {
         running: l.running,
@@ -295,7 +340,7 @@ function mount(app, deps) {
       cfg = await getSettings(true);
       const tt = totalsOf(cfg, l);
       res.json({
-        ok: true, settings: cfg, live: l, totals: tt,
+        ok: true, settings: cfg, live: l, totals: tt, suggest: suggestBaselines(cfg, l),
         // What the DATABASE can prove, printed next to the claim the owner types, so the headline is always an
         // informed choice. MySQL only holds what was imported - the Sheet and notebook years are not in it.
         proved: {
@@ -330,7 +375,7 @@ function mount(app, deps) {
 }
 
 module.exports = {
-  getTrust, getSettings, saveSettings, validate, live, mount, ago, totalsOf, baselineOf,
+  getTrust, getSettings, saveSettings, validate, live, mount, ago, totalsOf, baselineOf, suggestBaselines,
   KEY, DEFAULTS, DEFAULT_JOURNEY, CACHE_MS, TICKER_MAX, SERVICES_MAX, JOURNEY_MAX,
   _internal: { reset: () => { setCache = null; liveCache = null; setAt = 0; liveAt = 0; carryTried = false; } },
 };
