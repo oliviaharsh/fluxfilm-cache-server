@@ -3799,7 +3799,7 @@ function trLoad() {
   api('/admin/api/trust').then(function (r) {
     if (!$('#trbody')) return;
     if (!r.ok) { $('#trbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
-    TR.s = r.settings; TR.proved = r.proved || {}; TR.live = r.live || {}; TR.totals = r.totals || {};
+    TR.s = r.settings; TR.proved = r.proved || {}; TR.live = r.live || {}; TR.totals = r.totals || {}; TR.suggest = r.suggest || null;
     trRender();
   });
 }
@@ -3821,17 +3821,26 @@ function trRender() {
     '<div class="trsum">' +
       '<div><div class="trn">' + nf(tt.orders) + '</div><div class="muted">orders delivered</div><div class="muted" style="font-size:.72rem">' + nf((tt.before || {}).orders) + ' before + ' + nf((tt.counted || {}).orders) + ' counted</div></div>' +
       '<div><div class="trn">' + nf(tt.customers) + '</div><div class="muted">customers served</div><div class="muted" style="font-size:.72rem">' + nf((tt.before || {}).customers) + ' before + ' + nf((tt.counted || {}).customers) + ' counted</div></div>' +
-      '<div><div class="trn">' + nf(tt.recurring) + '</div><div class="muted">came back for more</div><div class="muted" style="font-size:.72rem">' + (tt.recurringPct || 0) + '% of those counted</div></div>' +
+      '<div><div class="trn">' + nf(tt.recurring) + '</div><div class="muted">came back for more</div><div class="muted" style="font-size:.72rem">' + nf((tt.before || {}).recurring) + ' before + ' + nf((tt.counted || {}).recurring) + ' counted · ' + (tt.recurringPct || 0) + '%</div></div>' +
+      '<div><div class="trn">' + nf(tt.renewals) + '</div><div class="muted">renewals</div><div class="muted" style="font-size:.72rem">' + nf((tt.before || {}).renewals) + ' before + ' + nf((tt.counted || {}).renewals) + ' counted</div></div>' +
     '</div>' +
     (tt.carriedOver ? '<div class="qnote warn" style="margin-top:10px">↪️ Your old “' + esc(s.lifetimeOrders || '') + '” has been carried over as <b>' + nf((tt.before || {}).orders) + ' before the database</b>, so the number on the site did not jump — it just started moving. <b>Please check it</b> and save, and this note goes away.</div>' : '') +
     '<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">' +
       '<label style="max-width:190px">Orders before the database<input class="inp" data-k="baselineOrders" inputmode="numeric" value="' + esc(s.baselineOrders == null ? '' : s.baselineOrders) + '" placeholder="' + nf((tt.before || {}).orders) + '"/></label>' +
       '<label style="max-width:190px">Customers before it<input class="inp" data-k="baselineCustomers" inputmode="numeric" value="' + esc(s.baselineCustomers == null ? '' : s.baselineCustomers) + '" placeholder="0"/></label>' +
+      '<label style="max-width:190px">Of those, repeat customers<input class="inp" data-k="baselineRecurring" inputmode="numeric" value="' + esc(s.baselineRecurring == null ? '' : s.baselineRecurring) + '" placeholder="0"/></label>' +
+      '<label style="max-width:190px">Renewals before it<input class="inp" data-k="baselineRenewals" inputmode="numeric" value="' + esc(s.baselineRenewals == null ? '' : s.baselineRenewals) + '" placeholder="0"/></label>' +
       '<label style="max-width:110px">Since<input class="inp" data-k="since" maxlength="4" value="' + esc(s.since) + '" placeholder="2024"/></label></div>' +
+    (TR.suggest ? '<div class="qnote" style="margin-top:10px">💡 <b>Not sure what the old days came to?</b> From what the database can see — ' +
+      TR.suggest.basis.ordersPerCustomer + ' orders per customer, ' + TR.suggest.basis.comeBackShare + '% coming back, ' + TR.suggest.basis.renewalShare + '% of orders being renewals — ' +
+      nf(TR.suggest.baselineOrders) + ' earlier orders works out at about <b>' + nf(TR.suggest.baselineCustomers) + ' customers</b>, <b>' + nf(TR.suggest.baselineRecurring) + ' repeat</b> and <b>' + nf(TR.suggest.baselineRenewals) + ' renewals</b>. ' +
+      'These are ESTIMATES from today’s pattern, not records — check them against what you remember.' +
+      '<div style="margin-top:8px"><button class="btn sm ghost" id="trsug">Fill those in</button></div></div>' : '') +
     '<div class="qnote" style="margin-top:10px">🧮 The database counts <b>' + (p.paidOrders || 0) + ' paid orders</b> from <b>' + (p.customers || 0) + ' customers</b>, and that part rises on its own. The paper and Sheet years were never imported, so the two boxes above are the only figures nobody can check — put numbers you could defend if a customer asked. Leave a box empty for “none”.</div>' +
     '<label style="margin-top:10px">Small line underneath <span class="muted">(optional)</span><input class="inp" data-k="note" maxlength="140" value="' + esc(s.note || '') + '" placeholder="Serving customers across India"/></label></div>' +
 
     '<div class="card" style="margin-bottom:12px"><h3 style="margin-top:0">Also counted live — nothing to type</h3>' +
+    '<p class="muted" style="margin-top:0">“Plans running now” has no box on purpose: it is how many are running <b>this minute</b>, not a running total. A plan from 2024 is not running now, so adding the old days to it would simply be untrue.</p>' +
     '<div class="row" style="gap:18px;flex-wrap:wrap"><div><b style="font-size:1.3rem">' + (l.running || 0) + '</b><div class="muted" style="font-size:.78rem">plans running now</div></div>' +
     '<div><b style="font-size:1.3rem">' + (l.comeBackPct || 0) + '%</b><div class="muted" style="font-size:.78rem">customers come back</div></div>' +
     '<div><b style="font-size:1.3rem">' + (l.renewals || 0) + '</b><div class="muted" style="font-size:.78rem">renewals so far</div></div>' +
@@ -3858,6 +3867,13 @@ function trRender() {
   $('#trbody').onchange = function (e) { if (e.target.dataset.b) TR.s[e.target.dataset.b] = e.target.checked; };
   $('#trbody').onclick = function (e) {
     var b = e.target.closest('button'); if (!b) return;
+    if (b.id === 'trsug') {
+      var g = TR.suggest; if (!g) return;
+      TR.s.baselineOrders = g.baselineOrders; TR.s.baselineCustomers = g.baselineCustomers;
+      TR.s.baselineRecurring = g.baselineRecurring; TR.s.baselineRenewals = g.baselineRenewals;
+      trRender(); toast('💡 Filled in — check them, then Save');
+      return;
+    }
     if (b.id === 'trjadd') { TR.s.journey.push({ when: '', title: '', text: '' }); trRender(); return; }
     if (b.dataset.jdel) { TR.s.journey.splice(+b.dataset.jdel, 1); trRender(); return; }
     if (b.id === 'trreload') { trLoad(); return; }

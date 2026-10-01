@@ -156,6 +156,50 @@ Module._load = origLoad;
   ok('🔒 an old claim SMALLER than what we have counted gives a baseline of 0, never a negative',
     trust.baselineOf({ baselineOrders: null, lifetimeOrders: '3' }, 6) === 0);
 
+  section('every RUNNING TOTAL gets its old days, and nothing else does');
+  reset(); trust._internal.reset();
+  await trust.saveSettings({ baselineOrders: 4000, baselineCustomers: 1100, baselineRecurring: 700, baselineRenewals: 1400 });
+  trust._internal.reset();
+  t = await trust.getTrust();
+  // The fake database holds 6 paid orders · 3 customers · 2 of them repeat · 2 renewals.
+  ok('orders', t.totals.orders === 4006, t.totals);
+  ok('customers served', t.totals.customers === 1103, t.totals);
+  ok('came back for more', t.totals.recurring === 702, t.totals);
+  ok('renewals', t.totals.renewals === 1402, t.totals);
+  ok('the share is of EVERYONE ever served, not only the ones the database holds',
+    t.totals.recurringPct === Math.round(702 / 1103 * 100), { pct: t.totals.recurringPct });
+  ok('🔒 "plans running right now" is NOT a running total and never gets a baseline — a plan from 2024 is not '
+    + 'running now, and saying so would be a plain falsehood on the one section that has to be believed',
+    t.live.running === 5 && t.totals.running === undefined, { running: t.live.running, inTotals: t.totals.running });
+
+  section('and they all still move on their own');
+  ORDERS.push({ status: 'PAID', order_type: 'RENEW', phone_norm: '9000000001', service: 'Netflix', plan: 'Sharing 1M', at: '2026-10-01 21:59:00', name: 'Amit Sharma', email: 'amit@example.com', order_id: 'FF9999991' });
+  trust._internal.reset();
+  const after = (await trust.getTrust()).totals;
+  ok('🔒 one more paid renewal: orders AND renewals both rise, nobody edited anything',
+    after.orders === t.totals.orders + 1 && after.renewals === t.totals.renewals + 1, { before: t.totals, after });
+
+  section('the suggestion is offered, never applied');
+  reset(); trust._internal.reset();
+  let sg = trust.suggestBaselines({ baselineOrders: 4044 }, { paidOrders: 956, customers: 275, recurring: 169, renewals: 349 });
+  ok('it works the old days out from the ratios the database CAN see',
+    sg.basis.ordersPerCustomer === 3.48 && sg.basis.comeBackShare === 61 && sg.basis.renewalShare === 37, sg.basis);
+  ok('…and turns 4,044 earlier orders into customers, repeats and renewals',
+    sg.baselineCustomers === 1163 && sg.baselineRecurring === 715 && sg.baselineRenewals === 1476, sg);
+  ok('🔒 it SAYS they are estimates, not records', /ESTIMATES from today/.test(sg.note) && /check them/.test(sg.note), sg.note);
+  trust._internal.reset();
+  ok('🔒 and NOTHING was saved by asking — a number we wrote in quietly would be an invention',
+    (await trust.getSettings(true)).baselineCustomers === null);
+  ok('no suggestion when there is nothing to go on', trust.suggestBaselines({ baselineOrders: 0 }, { paidOrders: 0, customers: 0 }) === null);
+  ok('…and none when the old days are already nothing', trust.suggestBaselines({ baselineOrders: 0 }, { paidOrders: 956, customers: 275, recurring: 169, renewals: 349 }) === null);
+
+  section('the new baselines are validated like the first two');
+  reset(); trust._internal.reset();
+  ok('a fraction is refused', (await trust.saveSettings({ baselineRecurring: '1.5' })).ok === false);
+  ok('a negative is refused', (await trust.saveSettings({ baselineRenewals: '-3' })).ok === false);
+  ok('commas are fine', (await trust.saveSettings({ baselineRenewals: '1,476' })).settings.baselineRenewals === 1476);
+  ok('blank means not said yet', (await trust.saveSettings({ baselineRenewals: '' })).settings.baselineRenewals === null);
+
   // ── privacy ──────────────────────────────────────────────────────────────────────────────────────────────
   section('nothing here can identify a customer');
   reset(); trust._internal.reset();
@@ -262,6 +306,8 @@ Module._load = origLoad;
     /SELECT service, plan, order_type, COALESCE\(verified_at, created_at_sheet\) at FROM orders/.test(nocomment)
     && !/SELECT[^;]*\bname\b[^;]*FROM orders/.test(nocomment));
   ok('🔒 the public endpoint can never throw at the home screen', /catch \(e\) \{[\s\S]{0,200}return \{ ok: true, on: false \};/.test(nocomment));
+  ok('🔒 totalsOf never touches `running` — the one figure that must stay a snapshot',
+    !/running/.test(nocomment.split('function totalsOf')[1].split('function suggestBaselines')[0]));
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   ok('the section is drawn on Home', /React\.createElement\(TrustProof, null\)/.test(html) && /function TrustProof\(\)/.test(html));
   ok('…and draws NOTHING until the server answers, so it cannot delay the page', /if \(!t\) return null;/.test(html));
