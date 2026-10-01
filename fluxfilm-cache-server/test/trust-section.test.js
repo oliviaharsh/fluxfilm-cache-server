@@ -159,12 +159,16 @@ Module._load = origLoad;
   section('the journey');
   reset(); trust._internal.reset();
   t = await trust.getTrust();
-  ok('there is a journey out of the box, for the owner to correct', t.journey.length === 4 && t.journey[0].when === '2024', t.journey);
-  r = await trust.saveSettings({ journey: [{ when: '2024', title: 'Started', text: 'With friends.' }, { when: '', title: '', text: '' }] });
+  // The owner is planning the wording. A draft nobody checked must never appear on a section whose whole job
+  // is to be trusted, so there is nothing shipped that could be switched on by mistake.
+  ok('⏸️ the journey ships EMPTY and OFF', t.journey.length === 0, t.journey);
+  ok('🔒 …and the stored default really is empty, so switching it on cannot reveal invented dates',
+    (await trust.getSettings(true)).journey.length === 0 && (await trust.getSettings(true)).showJourney === false);
+  r = await trust.saveSettings({ showJourney: true, journey: [{ when: '2024', title: 'Started', text: 'With friends.' }, { when: '', title: '', text: '' }] });
   trust._internal.reset();
   t = await trust.getTrust();
   ok('the owner can rewrite it, and a blank row is dropped rather than rendered as a gap', r.ok && t.journey.length === 1 && t.journey[0].title === 'Started', t.journey);
-  r = await trust.saveSettings({ journey: new Array(20).fill({ when: '2024', title: 'x', text: 'y' }) });
+  r = await trust.saveSettings({ showJourney: true, journey: new Array(20).fill({ when: '2024', title: 'x', text: 'y' }) });
   ok('🔒 the list is capped so the home screen cannot be flooded', r.ok && r.settings.journey.length === trust.JOURNEY_MAX, r.settings.journey.length);
   ok('🔒 markup in a journey step is stripped', (await trust.saveSettings({ journey: [{ when: '2024', title: '<script>x</script>', text: 'y' }] })).settings.journey[0].title === 'scriptx/script');
 
@@ -174,9 +178,12 @@ Module._load = origLoad;
   await trust.saveSettings({ showTicker: false }); trust._internal.reset();
   t = await trust.getTrust();
   ok('ticker off', t.recent.length === 0 && t.services.length > 0 && t.on === true, { recent: t.recent.length, services: t.services.length });
-  await trust.saveSettings({ showServices: false, showJourney: false }); trust._internal.reset();
+  await trust.saveSettings({ showServices: false, showJourney: true, journey: [{ when: '2024', title: 'Started', text: 'x' }] });
+  trust._internal.reset();
   t = await trust.getTrust();
-  ok('badges and journey off, the numbers stay', t.services.length === 0 && t.journey.length === 0 && t.live.running === 5, t);
+  ok('badges off, the journey the owner wrote stays', t.services.length === 0 && t.journey.length === 1 && t.live.running === 5, t);
+  await trust.saveSettings({ showJourney: false }); trust._internal.reset();
+  ok('journey off again', (await trust.getTrust()).journey.length === 0);
   await trust.saveSettings({ enabled: false }); trust._internal.reset();
   t = await trust.getTrust();
   ok('🔒 the whole section off = { on: false } and the home screen draws nothing', t.ok === true && t.on === false, t);
@@ -226,6 +233,8 @@ Module._load = origLoad;
   ok('the section is drawn on Home', /React\.createElement\(TrustProof, null\)/.test(html) && /function TrustProof\(\)/.test(html));
   ok('…and draws NOTHING until the server answers, so it cannot delay the page', /if \(!t\) return null;/.test(html));
   ok('the storefront action is reachable', /getTrust\(onSuccess, onFailure\)/.test(html));
+  ok('🔒 no journey text is shipped in the code — the owner writes it, we do not guess it for them',
+    /const DEFAULT_JOURNEY = Object\.freeze\(\[\]\);/.test(src) && /showJourney: false/.test(src));
   const sv = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   ok('getTrust is a public storefront action with a rate limit', /'getTrust'/.test(sv) && /getTrust: security\.rateLimiter/.test(sv));
   ok('package.json runs this test', /node test\/trust-section\.test\.js/.test(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')));

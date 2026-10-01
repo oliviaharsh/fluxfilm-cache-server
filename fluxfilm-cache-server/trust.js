@@ -44,15 +44,13 @@ const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const clean = (v, max) => s(v).replace(/[<>]/g, '').slice(0, max);
 const missingTable = (e) => /doesn't exist|ER_NO_SUCH_TABLE|Unknown column/i.test(String(e && e.message));
 
-// The journey the owner can correct in admin. Deliberately vague on months: I know FluxFilm was already serving
-// customers in January 2024 and that shop.fluxfilm.in went live on 14 Sep 2026, and I am not going to invent the
-// dates in between. The admin screen says so.
-const DEFAULT_JOURNEY = Object.freeze([
-  { when: '2024', title: 'Where it started', text: 'A handful of plans, shared with friends. Every order written down by hand.' },
-  { when: '2025', title: 'FluxFilm went online', text: 'A real storefront, so people could order at midnight without messaging anyone.' },
-  { when: 'Sep 2026', title: 'Rebuilt to be fast', text: 'A new app on our own database. Payments confirm themselves and plans arrive in seconds.' },
-  { when: 'Today', title: 'Nine services', text: 'Netflix, Prime, JioHotstar, YouTube, Zee5, SonyLIV and more — all in one place.' },
-]);
+// ⏸️ The journey ships EMPTY and switched OFF (owner, 1 Oct 2026: "hold on to journey page - we will
+// first plan that more"). It had a four-step draft written by me, and I only genuinely knew two dates: FluxFilm
+// was already serving customers in January 2024, and shop.fluxfilm.in went live on 14 Sep 2026. Shipping a
+// plausible-looking middle that nobody had checked, on a section whose whole job is to be TRUSTED, is the one
+// thing this feature must not do. So there is nothing to accidentally switch on: the owner writes the steps in
+// admin and turns it on when they are right.
+const DEFAULT_JOURNEY = Object.freeze([]);
 
 const DEFAULTS = Object.freeze({
   enabled: true,
@@ -61,7 +59,7 @@ const DEFAULTS = Object.freeze({
   note: '',
   showTicker: true,
   showServices: true,
-  showJourney: true,
+  showJourney: false,
   journey: DEFAULT_JOURNEY.map((x) => Object.assign({}, x)),
 });
 
@@ -198,6 +196,7 @@ async function getTrust() {
       },
       services: cfg.showServices ? l.services : [],
       recent: cfg.showTicker ? l.recent : [],
+      // Off, or written but empty, both mean: draw no journey at all. An empty heading is worse than none.
       journey: cfg.showJourney ? cfg.journey : [],
     };
     return out;
