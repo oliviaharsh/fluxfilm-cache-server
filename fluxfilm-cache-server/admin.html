@@ -545,6 +545,10 @@ button,.btn{transition:transform .1s ease,filter .1s ease}
 @media (prefers-reduced-motion: reduce){button,.btn{transition:none}}
 .rv-reply{margin-top:8px;margin-left:10px;padding-left:10px;border-left:2px solid #22c55e}
 .rv-reply>div{color:#64748b;font-size:.86rem;margin-top:2px}
+.trsum{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0}
+.trsum>div{flex:1 1 120px}
+.trsum .trn{font-size:1.5rem;font-weight:800;color:#16a34a;line-height:1.1}
+.trsum .muted{font-size:.78rem}
 </style></head><body>
 <div id="ff-splash" hidden aria-hidden="true"><div class="ff-sp-streaks"><i style="transform:rotate(0deg)"><b style="background:#fecdd3;animation-delay:1.52s"></b></i><i style="transform:rotate(27deg)"><b style="background:#fb7185;animation-delay:1.54s"></b></i><i style="transform:rotate(54deg)"><b style="background:#f43f5e;animation-delay:1.56s"></b></i><i style="transform:rotate(60deg)"><b style="background:#fda4af;animation-delay:1.58s"></b></i><i style="transform:rotate(87deg)"><b style="background:#fbbf24;animation-delay:1.60s"></b></i><i style="transform:rotate(114deg)"><b style="background:#ffffff;animation-delay:1.52s"></b></i><i style="transform:rotate(120deg)"><b style="background:#fca5a5;animation-delay:1.54s"></b></i><i style="transform:rotate(147deg)"><b style="background:#fecdd3;animation-delay:1.56s"></b></i><i style="transform:rotate(174deg)"><b style="background:#fb7185;animation-delay:1.58s"></b></i><i style="transform:rotate(180deg)"><b style="background:#f43f5e;animation-delay:1.60s"></b></i><i style="transform:rotate(207deg)"><b style="background:#fda4af;animation-delay:1.52s"></b></i><i style="transform:rotate(234deg)"><b style="background:#fbbf24;animation-delay:1.54s"></b></i><i style="transform:rotate(240deg)"><b style="background:#ffffff;animation-delay:1.56s"></b></i><i style="transform:rotate(267deg)"><b style="background:#fca5a5;animation-delay:1.58s"></b></i><i style="transform:rotate(294deg)"><b style="background:#fecdd3;animation-delay:1.60s"></b></i><i style="transform:rotate(300deg)"><b style="background:#fb7185;animation-delay:1.52s"></b></i><i style="transform:rotate(327deg)"><b style="background:#f43f5e;animation-delay:1.54s"></b></i><i style="transform:rotate(354deg)"><b style="background:#fda4af;animation-delay:1.56s"></b></i></div><div class="ff-sp-stage"><div class="ff-sp-rib"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="ff-sp-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="ffasp-bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#3f0f20"/><stop offset="1" stop-color="#12040a"/></linearGradient><radialGradient id="ffasp-hi" cx="143" cy="61" r="460" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset=".55" stop-color="#ffffff" stop-opacity="0"/></radialGradient><linearGradient id="ffasp-mk" x1="0" y1="96" x2="0" y2="416" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fecdd3"/><stop offset="1" stop-color="#fb7185"/></linearGradient><filter id="ffasp-sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity=".45"/></filter><mask id="ffasp-f" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect width="512" height="512" fill="#fff"/><g fill="#000"><rect x="198" y="186" width="36" height="148" rx="6"/><rect x="198" y="186" width="98" height="32" rx="6"/><rect x="198" y="244" width="78" height="30" rx="6"/></g></mask></defs><rect width="512" height="512" rx="112" fill="url(#ffasp-bg)"/><rect width="512" height="512" rx="112" fill="url(#ffasp-hi)"/><g filter="url(#ffasp-sh)"><path transform="translate(8 0)" d="M170 128V384L392 256Z" fill="url(#ffasp-mk)" stroke="url(#ffasp-mk)" stroke-width="64" stroke-linejoin="round" mask="url(#ffasp-f)"/></g></svg></div></div></div>
 <script>
@@ -3795,12 +3799,13 @@ function trLoad() {
   api('/admin/api/trust').then(function (r) {
     if (!$('#trbody')) return;
     if (!r.ok) { $('#trbody').innerHTML = '<div class="card muted">' + esc(r.message || 'error') + '</div>'; return; }
-    TR.s = r.settings; TR.proved = r.proved || {}; TR.live = r.live || {};
+    TR.s = r.settings; TR.proved = r.proved || {}; TR.live = r.live || {}; TR.totals = r.totals || {};
     trRender();
   });
 }
 function trRender() {
-  var s = TR.s, p = TR.proved, l = TR.live;
+  var s = TR.s, p = TR.proved, l = TR.live, tt = TR.totals || {};
+  var nf = function (n) { return Number(n || 0).toLocaleString('en-IN'); };
   var tog = function (k, label, hint) {
     return '<label class="rf-tog" style="display:flex;gap:8px;align-items:flex-start;margin:0 0 8px"><input type="checkbox" data-b="' + k + '"' + (s[k] ? ' checked' : '') + '/><span><b>' + label + '</b><br><span class="muted" style="font-size:.78rem">' + hint + '</span></span></label>';
   };
@@ -3811,13 +3816,22 @@ function trRender() {
       '<button class="btn sm ghost" data-jdel="' + i + '">🗑</button></div>';
   };
   $('#trbody').innerHTML =
-    '<div class="card" style="margin-bottom:12px"><h3 style="margin-top:0">The big number</h3>' +
-    '<div class="row" style="gap:8px;flex-wrap:wrap"><label style="max-width:160px">Orders<input class="inp" data-k="lifetimeOrders" maxlength="20" value="' + esc(s.lifetimeOrders) + '" placeholder="5,000+"/></label>' +
-    '<label style="max-width:120px">Since<input class="inp" data-k="since" maxlength="4" value="' + esc(s.since) + '" placeholder="2024"/></label></div>' +
-    '<div class="qnote" style="margin-top:10px">🧮 <b>What the database can actually prove:</b> ' + (p.paidOrders || 0) + ' paid orders from ' + (p.customers || 0) + ' customers. The years before the import are not in it, so the real number is higher — that is why this one is yours to type. Type something you could defend if a customer asked.</div>' +
+    '<div class="card" style="margin-bottom:12px"><h3 style="margin-top:0">The big numbers</h3>' +
+    '<p class="muted" style="margin-top:0">The site shows <b>what came before this database</b> plus <b>everything it counts</b>. Only the first half is typed, and it never changes — so the total goes up by itself every time somebody pays.</p>' +
+    '<div class="trsum">' +
+      '<div><div class="trn">' + nf(tt.orders) + '</div><div class="muted">orders delivered</div><div class="muted" style="font-size:.72rem">' + nf((tt.before || {}).orders) + ' before + ' + nf((tt.counted || {}).orders) + ' counted</div></div>' +
+      '<div><div class="trn">' + nf(tt.customers) + '</div><div class="muted">customers served</div><div class="muted" style="font-size:.72rem">' + nf((tt.before || {}).customers) + ' before + ' + nf((tt.counted || {}).customers) + ' counted</div></div>' +
+      '<div><div class="trn">' + nf(tt.recurring) + '</div><div class="muted">came back for more</div><div class="muted" style="font-size:.72rem">' + (tt.recurringPct || 0) + '% of those counted</div></div>' +
+    '</div>' +
+    (tt.carriedOver ? '<div class="qnote warn" style="margin-top:10px">↪️ Your old “' + esc(s.lifetimeOrders || '') + '” has been carried over as <b>' + nf((tt.before || {}).orders) + ' before the database</b>, so the number on the site did not jump — it just started moving. <b>Please check it</b> and save, and this note goes away.</div>' : '') +
+    '<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">' +
+      '<label style="max-width:190px">Orders before the database<input class="inp" data-k="baselineOrders" inputmode="numeric" value="' + esc(s.baselineOrders == null ? '' : s.baselineOrders) + '" placeholder="' + nf((tt.before || {}).orders) + '"/></label>' +
+      '<label style="max-width:190px">Customers before it<input class="inp" data-k="baselineCustomers" inputmode="numeric" value="' + esc(s.baselineCustomers == null ? '' : s.baselineCustomers) + '" placeholder="0"/></label>' +
+      '<label style="max-width:110px">Since<input class="inp" data-k="since" maxlength="4" value="' + esc(s.since) + '" placeholder="2024"/></label></div>' +
+    '<div class="qnote" style="margin-top:10px">🧮 The database counts <b>' + (p.paidOrders || 0) + ' paid orders</b> from <b>' + (p.customers || 0) + ' customers</b>, and that part rises on its own. The paper and Sheet years were never imported, so the two boxes above are the only figures nobody can check — put numbers you could defend if a customer asked. Leave a box empty for “none”.</div>' +
     '<label style="margin-top:10px">Small line underneath <span class="muted">(optional)</span><input class="inp" data-k="note" maxlength="140" value="' + esc(s.note || '') + '" placeholder="Serving customers across India"/></label></div>' +
 
-    '<div class="card" style="margin-bottom:12px"><h3 style="margin-top:0">Counted live — nothing to type</h3>' +
+    '<div class="card" style="margin-bottom:12px"><h3 style="margin-top:0">Also counted live — nothing to type</h3>' +
     '<div class="row" style="gap:18px;flex-wrap:wrap"><div><b style="font-size:1.3rem">' + (l.running || 0) + '</b><div class="muted" style="font-size:.78rem">plans running now</div></div>' +
     '<div><b style="font-size:1.3rem">' + (l.comeBackPct || 0) + '%</b><div class="muted" style="font-size:.78rem">customers come back</div></div>' +
     '<div><b style="font-size:1.3rem">' + (l.renewals || 0) + '</b><div class="muted" style="font-size:.78rem">renewals so far</div></div>' +

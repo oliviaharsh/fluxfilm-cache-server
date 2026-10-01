@@ -7,13 +7,16 @@
  *
  * Three kinds of number, and they are not the same kind, which is the whole point of keeping them apart:
  *
- *   1. The HEADLINE is the owner's own claim ("5,000+ orders since 2024"). FluxFilm ran on paper and then on a
- *      Google Sheet long before MySQL existed, so the true lifetime figure is bigger than anything this database
- *      can prove. It is typed in admin, it is never computed, and the admin screen prints what the database CAN
- *      prove right beside the box so the owner is never overstating by accident.
- *   2. The LIVE numbers are counted from MySQL every time (cached 5 minutes): plans running now, customers with a
- *      live plan, how many customers come back. These are true to the row and cannot go stale.
- *   3. The TICKER and the service badges are the same live data, shown as activity.
+ *   1. The BASELINE is what happened before this database existed - FluxFilm ran on paper and then on a Google
+ *      Sheet for a long time, and none of it was imported. It is a number the owner types once. It is the only
+ *      figure here that cannot be checked, so it is also the only one that never moves.
+ *   2. The COUNTED numbers come from MySQL on every call (cached a minute): paid orders, people served, how many
+ *      came back, plans running now, renewals.
+ *   3. What the site SHOWS is baseline + counted, so the total is honest about the years we cannot see AND goes
+ *      up by itself the moment a real order is paid. Nobody has to remember to edit it.
+ *      Owner, 2 Oct 2026: "show no of orders including the past ones, then on top of them add the real ones in
+ *      real time, show customers served and recurring also".
+ *   4. The TICKER and the service badges are the same counted data, shown as activity.
  *
  * 🔒 Privacy: the ticker carries a service, a plan and "4 min ago" — never a name, a phone, an email, a city or an
  * order id. Nothing on this endpoint can identify a customer, because it is served to anybody who opens the site,
@@ -33,7 +36,9 @@
 const db = require('./db');
 
 const KEY = 'trust';
-const CACHE_MS = 5 * 60e3;
+// A minute. The owner asked for the count to rise "in real time"; these are five cheap COUNT(*)s, and the
+// storefront re-asks every five minutes anyway, so a long cache here only adds lag for no saving.
+const CACHE_MS = 60e3;
 const TICKER_MAX = 12;
 const SERVICES_MAX = 12;
 const JOURNEY_MAX = 8;
@@ -52,9 +57,13 @@ const missingTable = (e) => /doesn't exist|ER_NO_SUCH_TABLE|Unknown column/i.tes
 // admin and turns it on when they are right.
 const DEFAULT_JOURNEY = Object.freeze([]);
 
+// null means "the owner has not said yet", which is NOT the same as zero - zero is a real answer that says
+// "nothing happened before the database". Only null falls back to the old typed claim.
 const DEFAULTS = Object.freeze({
   enabled: true,
-  lifetimeOrders: '5,000+',
+  baselineOrders: null,
+  baselineCustomers: null,
+  lifetimeOrders: '5,000+',   // legacy: the frozen claim, kept only so an existing setting can be carried over
   since: '2024',
   note: '',
   showTicker: true,
@@ -79,6 +88,15 @@ function validate(input) {
     const v = clean(i.lifetimeOrders, 20);
     if (v && !/^[0-9][0-9,]*\+?$/.test(v)) errors.push('Orders should look like 5,000+ — digits, commas and an optional +.');
     else out.lifetimeOrders = v;
+  }
+  // The two baselines: whole numbers, or blank to mean "not said yet".
+  for (const [k, label] of [['baselineOrders', 'Orders before the database'], ['baselineCustomers', 'Customers before the database']]) {
+    if (i[k] === undefined) continue;
+    const raw = s(i[k]).replace(/,/g, '');
+    if (raw === '') { out[k] = null; continue; }
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 10000000 || Math.floor(n) !== n) errors.push(label + ' must be a whole number (or left blank).');
+    else out[k] = n;
   }
   if (i.since !== undefined) {
     const v = clean(i.since, 4);
@@ -156,12 +174,15 @@ async function live(fresh, now) {
     many("SELECT service, plan, order_type, COALESCE(verified_at, created_at_sheet) at FROM orders WHERE UPPER(COALESCE(status, '')) = 'PAID' AND COALESCE(verified_at, created_at_sheet) IS NOT NULL ORDER BY COALESCE(verified_at, created_at_sheet) DESC LIMIT " + TICKER_MAX),
   ]);
   const total = num(repeat.total), backs = num(repeat.backs);
+  // "Recurring" as a number as well as a share - 169 people reads better than 61% to some, and worse to others,
+  // so the storefront is given both and chooses.
   liveCache = {
     running: num(running.n),
     customersWithPlan: num(withPlan.n),
     paidOrders: num(paid.n),
     renewals: num(paid.renewals),
     customers: total,
+    recurring: backs,
     comeBackPct: total > 0 ? Math.round((backs / total) * 100) : 0,
     services: services.map((r) => ({ service: s(r.service), n: num(r.n) })).filter((r) => r.service && r.n > 0),
     recent: recent.map((r) => ({
@@ -174,6 +195,58 @@ async function live(fresh, now) {
   return liveCache;
 }
 
+/**
+ * What came before this database. The owner types it once; until they do, an existing "5,000+" claim is carried
+ * over by subtracting what MySQL can already count, so the number on the site does not jump the day this ships -
+ * it simply starts moving. Never negative: if the claim is smaller than what we have counted, the counted number
+ * is already the better one and the baseline is nothing.
+ */
+function baselineOf(cfg, countedOrders) {
+  if (cfg.baselineOrders != null) return cfg.baselineOrders;
+  const legacy = parseInt(s(cfg.lifetimeOrders).replace(/[^0-9]/g, ''), 10);
+  if (!Number.isFinite(legacy) || legacy <= 0) return 0;
+  return Math.max(0, legacy - num(countedOrders));
+}
+
+/**
+ * Carry an old "5,000+" claim over ONCE and write it down.
+ *
+ * It must be written down, not worked out each time: the carry-over is (claim - counted), so if it were derived
+ * on every call the baseline would shrink by exactly as much as the count grew and the total would sit at 5,000
+ * for ever. That is the opposite of what was asked for. Caught by a test that paid one more order and watched
+ * the total not move.
+ *
+ * Runs at most once per process, never blocks the answer, and if the write fails the derived value is still
+ * used - a frozen number is better than a wrong one or an error.
+ */
+let carryTried = false;
+async function carryOverBaseline(cfg, countedOrders) {
+  if (carryTried || cfg.baselineOrders != null) return;
+  carryTried = true;
+  const before = baselineOf(cfg, countedOrders);
+  if (!(before > 0)) return;
+  try {
+    await saveSettings(Object.assign({}, cfg, { baselineOrders: before }));
+    console.log('[trust] carried the old "' + s(cfg.lifetimeOrders) + '" claim over as ' + before + ' orders before the database; the total now rises on its own');
+  } catch (e) { console.log('[trust] could not write the carried-over baseline:', e.message); }
+}
+
+/** baseline + counted, for the three numbers the site leads with. */
+function totalsOf(cfg, l) {
+  const beforeOrders = baselineOf(cfg, l.paidOrders);
+  const beforeCustomers = cfg.baselineCustomers != null ? cfg.baselineCustomers : 0;
+  return {
+    orders: beforeOrders + num(l.paidOrders),
+    customers: beforeCustomers + num(l.customers),
+    recurring: num(l.recurring),
+    recurringPct: num(l.comeBackPct),
+    // What each half contributed, so the admin screen can show its working and nobody has to guess later.
+    counted: { orders: num(l.paidOrders), customers: num(l.customers) },
+    before: { orders: beforeOrders, customers: beforeCustomers },
+    carriedOver: cfg.baselineOrders == null && beforeOrders > 0,
+  };
+}
+
 // ---------------- what the storefront gets ----------------
 /** Public. Never throws: on any trouble it answers { ok: true, on: false } and the home screen shows nothing. */
 async function getTrust() {
@@ -181,12 +254,14 @@ async function getTrust() {
     const cfg = await getSettings();
     if (!cfg.enabled) return { ok: true, on: false };
     const l = await live();
+    await carryOverBaseline(cfg, l.paidOrders);
+    const tt = totalsOf(await getSettings(), l);
     const out = {
       ok: true, on: true,
-      headline: cfg.lifetimeOrders ? {
-        orders: cfg.lifetimeOrders, since: cfg.since,
-        text: cfg.lifetimeOrders + ' orders delivered' + (cfg.since ? ' since ' + cfg.since : ''),
-      } : null,
+      since: cfg.since,
+      // The three the site leads with. orders and customers include the years before the database; they rise on
+      // their own as real orders land, so nobody has to remember to edit a number.
+      totals: { orders: tt.orders, customers: tt.customers, recurring: tt.recurring, recurringPct: tt.recurringPct },
       note: cfg.note,
       live: {
         running: l.running,
@@ -215,15 +290,19 @@ function mount(app, deps) {
   app.get('/admin/api/trust', async (req, res) => {
     if (!auth(req, res)) return;
     try {
-      const [cfg, l] = [await getSettings(true), await live(true)];
+      let [cfg, l] = [await getSettings(true), await live(true)];
+      await carryOverBaseline(cfg, l.paidOrders);
+      cfg = await getSettings(true);
+      const tt = totalsOf(cfg, l);
       res.json({
-        ok: true, settings: cfg, live: l,
+        ok: true, settings: cfg, live: l, totals: tt,
         // What the DATABASE can prove, printed next to the claim the owner types, so the headline is always an
         // informed choice. MySQL only holds what was imported - the Sheet and notebook years are not in it.
         proved: {
           paidOrders: l.paidOrders, customers: l.customers, running: l.running,
-          note: 'MySQL can prove ' + l.paidOrders + ' paid orders from ' + l.customers + ' customers. The years before the '
-            + 'import are not in it, so the real lifetime number is higher — that is why the headline is yours to type.',
+          note: 'The database counts ' + l.paidOrders + ' paid orders from ' + l.customers + ' customers, and that part '
+            + 'rises by itself. The paper and Sheet years were never imported, so whatever you add below is the only '
+            + 'figure nobody can check — put a number you could defend.',
         },
         preview: await getTrust(),
       });
@@ -251,7 +330,7 @@ function mount(app, deps) {
 }
 
 module.exports = {
-  getTrust, getSettings, saveSettings, validate, live, mount, ago,
+  getTrust, getSettings, saveSettings, validate, live, mount, ago, totalsOf, baselineOf,
   KEY, DEFAULTS, DEFAULT_JOURNEY, CACHE_MS, TICKER_MAX, SERVICES_MAX, JOURNEY_MAX,
-  _internal: { reset: () => { setCache = null; liveCache = null; setAt = 0; liveAt = 0; } },
+  _internal: { reset: () => { setCache = null; liveCache = null; setAt = 0; liveAt = 0; carryTried = false; } },
 };
