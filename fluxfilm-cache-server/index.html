@@ -4450,6 +4450,257 @@ function TrustProof() {
     }
   }, j.text) : null)))) : null);
 }
+// ⭐ Reviews (reviews.js). Read-only for a visitor; a logged-in customer who has bought something also gets the
+// box to write one. The owner's reply is shown underneath the review it answers.
+// Renders nothing until the server answers, and nothing at all before db/schema-v34.sql has been run, so it can
+// never hold up or break the screen it sits on.
+function ReviewsWall({
+  phone
+}) {
+  const [data, setData] = useState(null);
+  const [me, setMe] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [stars, setStars] = useState(5);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const loadList = () => API.getReviews(r => {
+    if (r && r.ok && r.ready) setData(r);
+  }, () => {});
+  useEffect(() => {
+    loadList();
+  }, []);
+  useEffect(() => {
+    if (!phone) {
+      setMe(null);
+      return;
+    }
+    API.getMyReview(phone, r => {
+      if (r && r.ok && r.ready) {
+        setMe(r);
+        if (r.review) {
+          setStars(r.review.rating || 5);
+          setText(r.review.text || '');
+        }
+      }
+    }, () => {});
+  }, [phone]);
+  const send = () => {
+    if (busy) return;
+    setBusy(true);
+    setMsg('');
+    API.addReview(phone, stars, text, '', r => {
+      setBusy(false);
+      setMsg(r && r.message ? r.message : 'Something went wrong.');
+      if (r && r.ok) {
+        setOpen(false);
+        loadList();
+        API.getMyReview(phone, x => {
+          if (x && x.ok) setMe(x);
+        }, () => {});
+      }
+    }, () => {
+      setBusy(false);
+      setMsg('Could not send that — please try again.');
+    });
+  };
+  const canWrite = !!(phone && me && me.canWrite);
+  const rows = data && data.reviews || [];
+  if (!data || !rows.length && !canWrite) return null;
+  const starRow = (n, size) => {
+    const full = Math.max(0, Math.min(5, n));
+    return React.createElement("span", {
+      style: {
+        fontSize: size || 12,
+        letterSpacing: .5,
+        color: C.amber
+      },
+      "aria-label": full + ' out of 5'
+    }, '★★★★★'.slice(0, full), React.createElement("span", {
+      style: {
+        color: C.border
+      }
+    }, '★★★★★'.slice(0, 5 - full)));
+  };
+  return React.createElement(Card, {
+    className: "ff-reviews ff-o6",
+    pad: 16,
+    style: {
+      margin: '12px 0 6px'
+    }
+  }, React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+      flexWrap: 'wrap'
+    }
+  }, React.createElement("div", null, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 14,
+      fontWeight: 800,
+      color: C.text
+    }
+  }, "What customers say"), data.count ? React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
+      marginTop: 3
+    }
+  }, starRow(Math.round(data.average), 14), React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12,
+      color: C.muted,
+      fontWeight: 600
+    }
+  }, data.average, " · ", data.count, data.count === 1 ? ' review' : ' reviews')) : null), canWrite ? React.createElement(Btn, {
+    variant: "ghost",
+    onClick: () => {
+      setOpen(!open);
+      setMsg('');
+    }
+  }, me && me.review ? '✏️ Edit yours' : '⭐ Write one') : null), canWrite && open ? React.createElement("div", {
+    style: {
+      marginTop: 12,
+      paddingTop: 12,
+      borderTop: '1px solid ' + C.border
+    }
+  }, React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 4,
+      marginBottom: 8
+    }
+  }, [1, 2, 3, 4, 5].map(n => React.createElement("button", {
+    key: n,
+    type: "button",
+    onClick: () => setStars(n),
+    "aria-label": n + (n === 1 ? ' star' : ' stars'),
+    style: {
+      border: 'none',
+      background: 'none',
+      cursor: 'pointer',
+      padding: 0,
+      fontSize: 24,
+      lineHeight: 1,
+      color: n <= stars ? C.amber : C.border
+    }
+  }, '★'))), React.createElement("textarea", {
+    value: text,
+    onChange: e => setText(e.target.value.slice(0, 280)),
+    rows: 3,
+    placeholder: "How has FluxFilm been for you?",
+    style: {
+      width: '100%',
+      boxSizing: 'border-box',
+      fontFamily: PJS,
+      fontSize: 13,
+      color: C.text,
+      border: '1px solid ' + C.borderMd,
+      borderRadius: 14,
+      padding: 10,
+      resize: 'vertical'
+    }
+  }), React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
+      marginTop: 8
+    }
+  }, React.createElement(Btn, {
+    variant: "primary",
+    onClick: send,
+    disabled: busy || !text.trim()
+  }, busy ? 'Sending…' : 'Post review'), React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11,
+      color: C.subtle,
+      fontWeight: 500
+    }
+  }, 280 - text.length, " left"))) : null, msg ? React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12,
+      color: C.muted,
+      fontWeight: 600,
+      marginTop: 8
+    }
+  }, msg) : null, me && me.review && me.review.status === 'pending' ? React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11.5,
+      color: C.muted,
+      fontWeight: 500,
+      marginTop: 8
+    }
+  }, "⏳ Your review is with us and will appear shortly.") : null, rows.map(rv => React.createElement("div", {
+    key: rv.id,
+    style: {
+      marginTop: 12,
+      paddingTop: 12,
+      borderTop: '1px solid ' + C.border
+    }
+  }, React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8
+    }
+  }, React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12.5,
+      fontWeight: 800,
+      color: C.text
+    }
+  }, rv.name), starRow(rv.rating), React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11,
+      color: C.subtle,
+      fontWeight: 500,
+      marginLeft: 'auto'
+    }
+  }, rv.at)), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12.5,
+      color: C.muted,
+      fontWeight: 500,
+      lineHeight: 1.5,
+      marginTop: 3
+    }
+  }, rv.text), rv.reply ? React.createElement("div", {
+    style: {
+      marginTop: 8,
+      marginLeft: 10,
+      paddingLeft: 10,
+      borderLeft: '2px solid ' + C.green2
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11,
+      fontWeight: 800,
+      color: C.green
+    }
+  }, "FluxFilm"), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12,
+      color: C.muted,
+      fontWeight: 500,
+      lineHeight: 1.5,
+      marginTop: 1
+    }
+  }, rv.reply)) : null)));
+}
 function HomeScreen({
   nav,
   onNeedAccount
@@ -4693,7 +4944,9 @@ function HomeScreen({
       fontWeight: 500,
       marginTop: 2
     }
-  }, t.sub)))))), React.createElement(TrustProof, null), React.createElement("div", {
+  }, t.sub)))))), React.createElement(TrustProof, null), React.createElement(ReviewsWall, {
+    phone: ''
+  }), React.createElement("div", {
     className: "ff-home-right"
   }, React.createElement(Card, {
     className: "ff-o2"
@@ -19376,6 +19629,8 @@ function App() {
     }) : null;
   })(), screen === 'dashboard' && React.createElement(FeedStrip, {
     nav: nav
+  }), screen === 'dashboard' && React.createElement(ReviewsWall, {
+    phone: sessionPhone
   }),storeBlocked && React.createElement(MaintenanceScreen, {
     status: storeStatus,
     nav: navReset,
@@ -19665,6 +19920,15 @@ const API = {
   },
   getTrust(onSuccess, onFailure) {
     apiCall_('getTrust', [], onSuccess, onFailure);
+  },
+  getReviews(onSuccess, onFailure) {
+    apiCall_('getReviews', [], onSuccess, onFailure);
+  },
+  getMyReview(phone, onSuccess, onFailure) {
+    apiCall_('getMyReview', [phone], onSuccess, onFailure);
+  },
+  addReview(phone, rating, text, service, onSuccess, onFailure) {
+    apiCall_('addReview', [phone, rating, text, service], onSuccess, onFailure);
   },
   getAnniversary(onSuccess, onFailure) {
     apiCall_('getAnniversary', [], onSuccess, onFailure);
