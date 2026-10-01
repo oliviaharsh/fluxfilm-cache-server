@@ -28,6 +28,54 @@ async function ingestCredit(c, receivedAt) {
   return !!(r && r.affectedRows);
 }
 
+// Everything creditState / markPaidNow / afterPaid read off the order row.
+const CREDIT_ORDER_COLS = 'order_id, created_at_sheet, name, phone_norm, email, service, plan, final_amount, status, source, order_type, renew_sub_id, txn_ref, raw_json';
+
+/**
+ * 💳 A credit renewal (status CREDIT - the 💳 Receivables list) that the customer has now actually paid.
+ *
+ * verifyPayment() refuses status CREDIT on purpose: the plan is already running and the money is a receivable,
+ * so the checkout page must never "confirm" one. But that refusal also meant the one kind of order with NOBODY
+ * polling for it was the one kind a bank alert could never settle - the owner creates it, there is no checkout
+ * page at all. Amit Sharma, 1 Oct 2026: paid at 21:35, the alert named FF6638684 and carried the right ₹99,
+ * and it still sat in Receivables until it was settled by hand.
+ *
+ * Narrow on purpose:
+ *   - only an OPEN credit with nothing paid against it yet; part-paid ones stay the owner's to finish
+ *   - only for the exact amount still due (findByOrder matches ROUND(amount) and the order id in the note)
+ *   - the credit is taken by findByOrder - the same atomic UPDATE ... WHERE consumed_order_id IS NULL every other
+ *     match uses, so two sweeps can never spend one payment twice - and is put straight back if settling fails
+ * Nothing is delivered here: a credit renewal was delivered when it was put on credit (credit.startCredit).
+ */
+async function settleCreditOrder(orderId) {
+  const oid = String(orderId || '').toUpperCase();
+  if (!oid) return false;
+  const credit = require('./credit');
+  const rows = await db.query('SELECT ' + CREDIT_ORDER_COLS + ' FROM orders WHERE order_id = ? LIMIT 1', [oid]);
+  const o = (rows || [])[0];
+  if (!o || String(o.source || '') !== 'node') return false;
+  const st = credit.creditState(o, new Date());
+  if (!st.open || st.paid > 0 || !(st.due > 0)) return false;
+  const c = await findByOrder(oid, st.due);
+  if (!c) return false;
+  const giveBack = async (why) => {
+    await db.query('UPDATE bank_credits SET consumed_order_id = NULL WHERE consumed_order_id = ?' + (c.id ? ' AND id = ?' : ''), c.id ? [oid, c.id] : [oid]).catch(() => {});
+    console.log('[settle] ' + oid + ' credit renewal NOT settled (' + why + ') - the payment is back in the list');
+    return false;
+  };
+  if (!c.id) return giveBack('the matched payment could not be read back');
+  let r;
+  try {
+    r = await credit.markPaidNow({ db }, o, {
+      amount: st.due, method: 'UPI', ref: String(c.upi_ref || ''), key: 'bank-' + c.id,
+      note: 'Matched automatically: the bank alert named this order (UPI ref ' + String(c.upi_ref || '') + ', bank payment #' + c.id + ').',
+    }, new Date());
+  } catch (e) { return giveBack(e.message); }
+  if (!r || (r.action !== 'PAID' && r.action !== 'ALREADY')) return giveBack(String((r && r.message) || r && r.action || '?'));
+  console.log('[settle] ' + oid + ' credit renewal settled from bank credit ' + c.id + ' (₹' + st.due + ')');
+  return true;
+}
+
 /**
  * Pay ONE order from a bank credit that already names it, and deliver it.
  *
@@ -39,11 +87,16 @@ async function ingestCredit(c, receivedAt) {
  *
  * verifyPayment() marks it PAID but does not deliver — the storefront calls fulfilment separately — so this does
  * both, or the order just moves from "unpaid" to "paid but not delivered".
+ *
+ * 💳 A credit renewal goes to settleCreditOrder() instead: verifyPayment refuses status CREDIT by design, which
+ * until 1 Oct 2026 left the one kind of order nobody polls for as the one kind this could never settle.
  */
 async function settleOne(orderId) {
   const oid = String(orderId || '').toUpperCase();
   if (!oid) return false;
   const r = await require('./order').verifyPayment(oid);
+  // 💳 A credit renewal: verifyPayment will never mark one paid, so settle the receivable instead.
+  if (r && r.credit) return settleCreditOrder(oid);
   if (!(r && r.paid)) return false;
   // Delivery is best-effort: the money is recorded either way, and a failed delivery is already a Today card.
   try { await require('./fulfill').fulfillForAdmin(oid); }
@@ -297,4 +350,4 @@ async function startWatcher() {
   })();
 }
 
-module.exports = { parseEquitasCredit, ingestCredit, findByOrder, findByRef, settleOne, settleNamedOrders, startWatcher, manualScan, status, _internal: { fromBank, searchFrom, searchQuery, scanInbox, logSkipped, BANK_DOMAIN, REF_WINDOW_MIN } };
+module.exports = { parseEquitasCredit, ingestCredit, findByOrder, findByRef, settleOne, settleCreditOrder, settleNamedOrders, startWatcher, manualScan, status, _internal: { fromBank, searchFrom, searchQuery, scanInbox, logSkipped, BANK_DOMAIN, REF_WINDOW_MIN } };
