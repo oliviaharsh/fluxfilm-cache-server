@@ -11,7 +11,11 @@ const path = require('path');
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x).slice(0, 600) : '')); } };
 const section = (t) => console.log('\n=== ' + t + ' ===');
-const at = (d) => new Date(Date.now() + d * 86400e3 + 5.5 * 3600e3).toISOString().slice(0, 19).replace('T', ' ');
+// One base time for the whole run. at() used to call Date.now() itself, and SEED_SUBS() is called twice -
+// once to seed the fake database and again to compare against it. Cross a second boundary between those two
+// calls and the two strings differ by a second, which failed "nothing else on the row moved" at random.
+const T0 = Date.now();
+const at = (d) => new Date(T0 + d * 86400e3 + 5.5 * 3600e3).toISOString().slice(0, 19).replace('T', ' ');
 
 let SUBS = []; let ORDS = []; let PLANS = []; let AUDIT = [];
 // The three real shapes, plus rows that must be left alone.
