@@ -4244,6 +4244,212 @@ function ToolsGrid({
     onClick: close
   }, "Close"))));
 }
+// 🏆 Why trust us (trust.js → getTrust). The four cards above are CLAIMS; this is the evidence under them.
+// Everything here is public and anonymous by design: the ticker carries a service and "4 min ago", never a
+// name, a phone or an order id, because this renders for logged-out visitors too.
+// It renders nothing until the data arrives and nothing at all if the server says off, so a slow or broken
+// trust section can never hold up or break the landing screen.
+function TrustProof() {
+  const [t, setT] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => API.getTrust(r => {
+      if (alive && r && r.ok && r.on) setT(r);
+    }, () => {});
+    load();
+    const iv = setInterval(load, 5 * 60000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, []);
+  if (!t) return null;
+  const hasLive = t.live && (t.live.running > 0 || t.live.comeBackPct > 0);
+  const stat = (big, small, key) => React.createElement("div", {
+    key: key,
+    style: {
+      flex: '1 1 92px'
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 18,
+      fontWeight: 800,
+      color: C.text,
+      lineHeight: 1.15
+    }
+  }, big), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11,
+      color: C.muted,
+      fontWeight: 600,
+      marginTop: 2
+    }
+  }, small));
+  return React.createElement(Card, {
+    className: "ff-trust-proof ff-o6",
+    pad: 16,
+    style: {
+      margin: '12px 0 6px'
+    }
+  }, t.headline ? React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'baseline',
+      gap: 8,
+      flexWrap: 'wrap'
+    }
+  }, React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 28,
+      fontWeight: 800,
+      color: C.green,
+      letterSpacing: '-.5px'
+    }
+  }, t.headline.orders), React.createElement("span", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13.5,
+      fontWeight: 700,
+      color: C.text
+    }
+  }, "orders delivered", t.headline.since ? ' since ' + t.headline.since : '')) : null, t.note ? React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12,
+      color: C.muted,
+      fontWeight: 500,
+      marginTop: 4
+    }
+  }, t.note) : null, hasLive ? React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 10,
+      flexWrap: 'wrap',
+      marginTop: 14,
+      paddingTop: 14,
+      borderTop: '1px solid ' + C.border
+    }
+  }, [t.live.running > 0 ? stat(t.live.running, 'plans running now', 'r') : null, t.live.comeBackPct > 0 ? stat(t.live.comeBackPct + '%', 'customers come back', 'c') : null, t.live.renewals > 0 ? stat(t.live.renewals, 'renewals so far', 'n') : null].filter(Boolean)) : null, (t.services || []).length ? React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 6,
+      flexWrap: 'wrap',
+      marginTop: 14
+    }
+  }, t.services.map(sv => React.createElement("span", {
+    key: sv.service,
+    style: {
+      fontFamily: PJS,
+      fontSize: 11,
+      fontWeight: 700,
+      color: C.text,
+      background: C.chip,
+      borderRadius: R.badge,
+      padding: '5px 10px'
+    }
+  }, sv.service, ' ', React.createElement("b", {
+    style: {
+      color: C.green
+    }
+  }, sv.n)))) : null, (t.recent || []).length ? React.createElement("div", {
+    style: {
+      marginTop: 14,
+      paddingTop: 14,
+      borderTop: '1px solid ' + C.border
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11,
+      fontWeight: 800,
+      color: C.subtle,
+      letterSpacing: '.4px',
+      textTransform: 'uppercase',
+      marginBottom: 8
+    }
+  }, "Just now on FluxFilm"), t.recent.slice(0, 4).map((x, i) => React.createElement("div", {
+    key: i,
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      fontFamily: PJS,
+      fontSize: 12,
+      color: C.muted,
+      fontWeight: 500,
+      padding: '3px 0'
+    }
+  }, React.createElement("span", {
+    style: {
+      width: 6,
+      height: 6,
+      borderRadius: 999,
+      background: C.green2,
+      flex: 'none'
+    }
+  }), React.createElement("span", null, "Someone ", x.kind, " ", React.createElement("b", {
+    style: {
+      color: C.text,
+      fontWeight: 700
+    }
+  }, x.service), x.plan ? ' ' + x.plan : '', React.createElement("span", {
+    style: {
+      color: C.subtle
+    }
+  }, " \u00b7 ", x.ago))))) : null, (t.journey || []).length ? React.createElement("div", {
+    style: {
+      marginTop: 14,
+      paddingTop: 14,
+      borderTop: '1px solid ' + C.border
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11,
+      fontWeight: 800,
+      color: C.subtle,
+      letterSpacing: '.4px',
+      textTransform: 'uppercase',
+      marginBottom: 10
+    }
+  }, "How we got here"), t.journey.map((j, i) => React.createElement("div", {
+    key: i,
+    style: {
+      display: 'flex',
+      gap: 10,
+      paddingBottom: i === t.journey.length - 1 ? 0 : 12
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11,
+      fontWeight: 800,
+      color: C.green,
+      width: 56,
+      flex: 'none',
+      paddingTop: 1
+    }
+  }, j.when), React.createElement("div", null, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12.5,
+      fontWeight: 700,
+      color: C.text
+    }
+  }, j.title), j.text ? React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11.5,
+      color: C.muted,
+      fontWeight: 500,
+      marginTop: 1,
+      lineHeight: 1.45
+    }
+  }, j.text) : null)))) : null);
+}
 function HomeScreen({
   nav,
   onNeedAccount
@@ -4487,7 +4693,7 @@ function HomeScreen({
       fontWeight: 500,
       marginTop: 2
     }
-  }, t.sub)))))), React.createElement("div", {
+  }, t.sub)))))), React.createElement(TrustProof, null), React.createElement("div", {
     className: "ff-home-right"
   }, React.createElement(Card, {
     className: "ff-o2"
@@ -19456,6 +19662,9 @@ const API = {
   },
   getPromos(onSuccess, onFailure) {
     apiCall_('getPromos', [], onSuccess, onFailure);
+  },
+  getTrust(onSuccess, onFailure) {
+    apiCall_('getTrust', [], onSuccess, onFailure);
   },
   getAnniversary(onSuccess, onFailure) {
     apiCall_('getAnniversary', [], onSuccess, onFailure);

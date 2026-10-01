@@ -196,6 +196,8 @@ function mountAdmin(app, deps) {
   require('./adminolivia').mount(app, Object.assign({ db, auth, audit }, deps.olivia || {}));
   // Offers, banners, pop-ups (adminpromos.js).
   require('./adminpromos').mount(app, Object.assign({ db, auth, audit }, deps.promos || {}));
+  // 🏆 Why trust us: the headline claim, the journey, and the switches for the ticker / badges (trust.js).
+  require('./trust').mount(app, Object.assign({ db, auth, audit }, deps.trust || {}));
   // 🍿 What's new feed: posts, pictures, TMDB search / suggestions (adminfeed.js).
   require('./adminfeed').mount(app, Object.assign({ db, auth, audit }, deps.feed || {}));
   // Push notifications: renewal reminders settings, test, send, broadcast (adminpush.js).
