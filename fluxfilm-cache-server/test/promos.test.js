@@ -7,7 +7,13 @@ let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x) : '')); } };
 
 const settings = {};
-const coupons = [{ raw_json: JSON.stringify({ Code: 'ANNIV30', Active: 'TRUE', Expiry: '2026-10-01 00:00:00' }) }, { raw_json: JSON.stringify({ CouponCode: 'OLD10', Active: 'TRUE', Expiry: '2025-01-01 00:00:00' }) }];
+// ⏰ Relative to the clock, never pinned. ANNIV30 used to expire on 2026-10-01 — comfortably ahead when it was
+// written, and it arrived: on 1 Oct 2026 the "active" coupon was expired and this suite went red on its own.
+const expiry = (daysFromNow) => {
+  const d = new Date(Date.now() + daysFromNow * 86400000); const z = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + ' 00:00:00';
+};
+const coupons = [{ raw_json: JSON.stringify({ Code: 'ANNIV30', Active: 'TRUE', Expiry: expiry(365) }) }, { raw_json: JSON.stringify({ CouponCode: 'OLD10', Active: 'TRUE', Expiry: expiry(-365) }) }];
 let writes = 0;
 const mockDb = {
   ENABLED: true,

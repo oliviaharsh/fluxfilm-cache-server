@@ -2,6 +2,23 @@
 process.env.TZ = 'Asia/Kolkata';
 const Module = require('module');
 
+// ⏰ Everything the API will measure has to sit inside the period the API will ASK for, in whatever month
+// this suite is run. Hard-coded August dates passed all through September and turned the whole suite red on
+// 1 October — and because profit-extend is the 10th file in the npm test chain, the && stopped everything
+// after it too. So the fixture is built from the same periodRange() the route uses.
+const { periodRange } = require('../profit');
+const LAST = periodRange('last_month', new Date());
+const LAST_DAYS = LAST.days;                                  // 28, 29, 30 or 31
+const MONTH = LAST.from.slice(0, 8);                          // 'YYYY-MM-'
+const p2 = (n) => String(n).padStart(2, '0');
+/** A day inside last month, as the database stores it (India time, no zone). */
+const lastMonth = (day, time) => MONTH + p2(day) + ' ' + (time || '12:00:00');
+/** N days before last month began — for a long plan that is still running through it. */
+const before = (days) => {
+  const d = new Date(Date.parse(LAST.from.replace(' ', 'T')) - days * 86400000);
+  return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' 00:00:00';
+};
+
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x) : '')); } };
 const section = (t) => console.log('\n=== ' + t + ' ===');
@@ -16,11 +33,12 @@ const mockDb = {
   query: async (sql, params) => {
     sql = sql.replace(/\s+/g, ' ').trim(); calls.push({ sql, params });
     if (/FROM orders o LEFT JOIN subscriptions s1/.test(sql)) return [
-      { order_id: 'O1', service: 'Netflix (Group Offer)', final_amount: '199.00', order_type: 'NEW', ref: 'NF-01#P2', paid_at: '2026-08-10 12:00:00' },
-      { order_id: 'O2', service: 'Netflix', final_amount: '199', order_type: 'RENEW', ref: 'NF-01#P3', paid_at: '2026-08-11 12:00:00' },
-      { order_id: 'O3', service: 'Prime Video', final_amount: '39', order_type: 'NEW', ref: 'PRI-01', paid_at: '2026-08-12 12:00:00' },
-      { order_id: 'O4', service: 'YouTube Premium', final_amount: '99', order_type: 'NEW', ref: null, paid_at: '2026-08-13 12:00:00' },
-      { order_id: 'O5', service: 'Prime Video', final_amount: '40', order_type: 'NEW', ref: 'PRI-OLD', paid_at: '2026-08-31 23:59:00' },
+      { order_id: 'O1', service: 'Netflix (Group Offer)', final_amount: '199.00', order_type: 'NEW', ref: 'NF-01#P2', paid_at: lastMonth(10) },
+      { order_id: 'O2', service: 'Netflix', final_amount: '199', order_type: 'RENEW', ref: 'NF-01#P3', paid_at: lastMonth(11) },
+      { order_id: 'O3', service: 'Prime Video', final_amount: '39', order_type: 'NEW', ref: 'PRI-01', paid_at: lastMonth(12) },
+      { order_id: 'O4', service: 'YouTube Premium', final_amount: '99', order_type: 'NEW', ref: null, paid_at: lastMonth(13) },
+      // the very last minute of the month, which must still count as inside it
+      { order_id: 'O5', service: 'Prime Video', final_amount: '40', order_type: 'NEW', ref: 'PRI-OLD', paid_at: lastMonth(LAST_DAYS, '23:59:00') },
     ].concat(EXTRA);
     if (/^SELECT service, account_id, login_id, is_active FROM inventory_accounts/.test(sql)) return [
       { service: 'Netflix', account_id: 'NF-01', login_id: 'n@x', is_active: 'TRUE' },
@@ -39,7 +57,6 @@ const mockDb = {
 };
 
 (async () => {
-  const { periodRange } = require('../profit');
   section('periods (India time)');
   const now = new Date('2026-09-14T06:00:00Z'); // 14 Sep 11:30 IST
   let pr = periodRange('this_month', now);
@@ -69,7 +86,7 @@ const mockDb = {
   section('profit');
   let r = await get('/admin/api/profit?period=last_month');
   const b = r.body; const acc = (id) => b.accounts.find((a) => a.accountId === id);
-  const months = 31 / 30.4375;
+  const months = LAST_DAYS / 30.4375;   // the cost of an account for a month this long
   ok('paid orders in the period, by payment time', b.ok && /UPPER\(o.status\) = 'PAID' AND COALESCE\(o.verified_at, o.created_at_sheet\) >= DATE_SUB\(\?, INTERVAL 400 DAY\)/.test(last(/FROM orders o LEFT JOIN/).sql) && last(/FROM orders o LEFT JOIN/).params.join() === b.range.from + ',' + b.range.to && b.range.period === 'last_month' && /-01 00:00:00$/.test(b.range.from), b.range);
   ok('totals: revenue 576, 5 orders, 1 renewal', b.totals.revenue === 576 && b.totals.orders === 5 && b.totals.renewals === 1, b.totals);
   ok('Netflix account: 2 orders across profiles (Group Offer counts as Netflix), cost 300/month', acc('NF-01').revenue === 398 && acc('NF-01').orders === 2 && Math.abs(acc('NF-01').cost - 300 * months) < 0.02 && acc('NF-01').activeCustomers === 2, acc('NF-01'));
@@ -83,6 +100,8 @@ const mockDb = {
   section('earned = spread over the plan days');
   const { durationDays, orderSplit, istMs } = require('../profit');
   ok('duration from duration_days, else the plan name', durationDays({ duration_days: 90 }) === 90 && durationDays({ plan: 'Private 3M' }) === 90 && durationDays({ plan: 'Sharing 1 Month' }) === 30 && durationDays({ plan: '1 Year' }) === 365 && durationDays({ plan: 'Premium' }) === 0);
+  // These pass their own from/to, so they never read the clock and are correct on any date. Leave them fixed:
+  // a unit test of the arithmetic wants dates you can check by hand.
   const F = istMs('2026-09-01 00:00:00'), T = istMs('2026-09-15 00:00:00');
   let x = orderSplit({ final_amount: '499', duration_days: 90, paid_at: '2026-09-03 00:00:00' }, F, T);
   ok('₹499 3-month plan paid 3 Sep: cash 499, earned 12 of 90 days, rest counted as paid ahead', x.cash === 499 && Math.abs(x.earned - 499 * 12 / 90) < 0.01 && Math.abs(x.ahead - 499 * 78 / 90) < 0.01, x);
@@ -92,11 +111,14 @@ const mockDb = {
   ok('no known duration -> counted fully when paid', x.cash === 50 && x.earned === 50);
   x = orderSplit({ final_amount: '99', duration_days: 30, paid_at: '2026-06-01 00:00:00' }, F, T);
   ok('plan that already ended before the period earns nothing', x.earned === 0 && x.cash === 0);
-  EXTRA = [{ order_id: 'O6', service: 'Netflix', plan: 'Private 3M', duration_days: 90, final_amount: '900', order_type: 'RENEW', ref: 'NF-01#P1', paid_at: '2026-07-17 00:00:00' },
-    { order_id: 'O7', service: 'Netflix', plan: 'Private 1M', duration_days: 30, final_amount: '99', order_type: 'NEW', ref: 'NF-01#P1', paid_at: '2026-05-01 00:00:00' }];
+  // A 3-month plan bought 45 days before last month began: still running right through it (90 - 45 > 31), so
+  // it earns every one of its days, and none of its cash falls in the period.
+  EXTRA = [{ order_id: 'O6', service: 'Netflix', plan: 'Private 3M', duration_days: 90, final_amount: '900', order_type: 'RENEW', ref: 'NF-01#P1', paid_at: before(45) },
+    // and a 1-month plan from long before, which ended well before the period and must earn nothing
+    { order_id: 'O7', service: 'Netflix', plan: 'Private 1M', duration_days: 30, final_amount: '99', order_type: 'NEW', ref: 'NF-01#P1', paid_at: before(150) }];
   r = await get('/admin/api/profit?period=last_month');
   const nf2 = r.body.accounts.find((a) => a.accountId === 'NF-01');
-  ok('API: July 3-month plan earns its August days; cash/orders unchanged; profit uses earned', nf2.revenue === 398 && nf2.orders === 2 && Math.abs(nf2.earned - (398 + 900 * 31 / 90)) < 0.02 && Math.abs(nf2.profit - (nf2.earned - nf2.cost)) < 0.02 && r.body.totals.orders === 5 && Math.abs(r.body.totals.earned - (576 + 300 * 31 / 90 * 3)) < 0.05, { nf2, totals: r.body.totals });
+  ok('API: an older 3-month plan earns its days in this period; cash/orders unchanged; profit uses earned', nf2.revenue === 398 && nf2.orders === 2 && Math.abs(nf2.earned - (398 + 900 * LAST_DAYS / 90)) < 0.02 && Math.abs(nf2.profit - (nf2.earned - nf2.cost)) < 0.02 && r.body.totals.orders === 5 && Math.abs(r.body.totals.earned - (576 + 900 * LAST_DAYS / 90)) < 0.05, { nf2, totals: r.body.totals, lastDays: LAST_DAYS });
   EXTRA = [];
   costsTable = false;
   r = await get('/admin/api/profit');
