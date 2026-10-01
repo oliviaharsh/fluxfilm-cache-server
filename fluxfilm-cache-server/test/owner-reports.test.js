@@ -369,7 +369,9 @@ function mkOrder(id, extra, raw) {
   ok('notification taps open the order / the summary', /\/panel\?v=orders&order=FF123 opens that order/.test(html) && /openOrder\(id\)/.test(html) && /rpOpenSnap\(id\)/.test(html));
   const adminJs = fs.readFileSync(path.join(ROOT, 'admin.js'), 'utf8'); const orderJs = fs.readFileSync(path.join(ROOT, 'order.js'), 'utf8'); const creditJs = fs.readFileSync(path.join(ROOT, 'credit.js'), 'utf8');
   ok('admin.js mounts adminreports', /require\('\.\/adminreports'\)\.mount\(app/.test(adminJs));
-  ok('order.js alerts from _markPaid + ₹0 checkout; credit.js from Mark paid', (orderJs.match(/notifyOwnerPaid\(/g) || []).length === 3 && /creditPaidLater\(id, r\.received\)/.test(creditJs));
+  // credit.js alerts from markPaidNow() since 1 Oct 2026 — the write half of Mark paid, now shared with the bank
+  // sweep (payments.settleCreditOrder), so a credit the customer has paid tells the owner whichever way it settles.
+  ok('order.js alerts from _markPaid + ₹0 checkout; credit.js from markPaidNow (dialog AND bank sweep)', (orderJs.match(/notifyOwnerPaid\(/g) || []).length === 3 && /creditPaidLater\(s\(o\.order_id\), r\.received\)/.test(creditJs));
   ok('package.json runs this test', /node test\/owner-reports\.test\.js/.test(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');

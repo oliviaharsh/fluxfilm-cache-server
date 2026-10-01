@@ -16,6 +16,8 @@
  *   amount != due, no mode        → nothing written; "₹X received but ₹Y due" and the owner picks
  *   Every payment carries a key from the dialog: the same tap twice records it once. The UPDATE also checks txn_ref
  *   (changed on every payment), so two devices can't both record against the same balance.
+ * The WRITE half of Mark paid is markPaidNow(), shared with the bank sweep (payments.settleCreditOrder), so a
+ * credit the customer has actually paid settles itself when the bank alert names the order.
  * Cancel credit: what was delivered STAYS — cancelling only writes off the money. Nothing paid → status
  *   WRITTEN_OFF; partly paid → PAID for the part received. ⚠️ On a RENEW that means the customer keeps the extra
  *   days; on a NEW order it means they keep a whole plan, seat and all, for nothing. Writing one off does not free
@@ -259,6 +261,32 @@ async function afterPaid(deps, o, amount) {
   return out;
 }
 
+/**
+ * Record a payment against an open credit and WRITE it: settle() decides, this does the row, the paid-order
+ * rules (coins, coin spends, referral) and the owner's alert. Extracted from the 💳 Mark paid route so that
+ * route and the bank sweep (payments.settleCreditOrder) cannot drift apart — one of them recording money
+ * differently from the other is the kind of bug nobody sees for months.
+ *
+ * Returns settle()'s own result. { written: true } means a row changed; ALREADY / REFUSED / MISMATCH wrote
+ * nothing, and CHANGED means somebody else recorded a payment while we were deciding.
+ */
+async function markPaidNow(deps, o, b, now) {
+  const r = settle(o, b, now);
+  if (r.action === 'ALREADY' || r.action === 'REFUSED' || r.action === 'MISMATCH') return r;
+  const upd = await deps.db.query(
+    'UPDATE orders SET status = ?, txn_ref = ?, final_amount = ?, raw_json = ?' + (r.action === 'PAID' ? ', verified_at = NOW()' : '') +
+    " WHERE order_id = ? AND UPPER(status) = 'CREDIT' AND COALESCE(txn_ref, '') = ? LIMIT 1",
+    [r.status, r.txnRef, r.finalAmount, JSON.stringify(r.raw), s(o.order_id), s(o.txn_ref)]);
+  if (!upd || upd.affectedRows !== 1) return { action: 'CHANGED', message: 'This credit changed meanwhile — reopen it and try again.' };
+  const out = Object.assign({}, r, { written: true, extra: {} });
+  if (r.action !== 'PAID') return out;
+  out.extra = await afterPaid(deps, o, r.finalAmount);
+  // ✅ "Credit paid ₹X" on the owner's phones (ownernotify.js) — fire and forget, once per order.
+  try { (deps.ownernotify || require('./ownernotify')).creditPaidLater(s(o.order_id), r.received); } catch (e) { console.log('[owner-alert] not loaded:', e.message); }
+  try { require('./n8nhooks').kick(); } catch (_) { /* webhooks are optional */ }
+  return out;
+}
+
 /** CREATED renew order (just made by quickorders.js with raw Credit) → CREDIT, then deliver it. */
 async function startCredit(deps, orderId) {
   const upd = await deps.db.query("UPDATE orders SET status = 'CREDIT' WHERE order_id = ? AND UPPER(status) = 'CREATED' LIMIT 1", [orderId]);
@@ -326,19 +354,12 @@ function mount(app, deps) {
     try {
       const o = await orderRow(id);
       if (!o) return res.status(404).json({ ok: false, message: 'Order not found.' });
-      const r = settle(o, b, now());
+      const r = await markPaidNow(deps, o, b, now());
       if (r.action === 'ALREADY') return res.json({ ok: true, already: true, message: r.message });
       if (r.action === 'REFUSED') return res.status(400).json({ ok: false, message: r.message });
       if (r.action === 'MISMATCH') return res.status(409).json({ ok: false, mismatch: true, received: r.received, due: r.due, canPartial: r.canPartial, message: r.message });
-      const upd = await q(
-        'UPDATE orders SET status = ?, txn_ref = ?, final_amount = ?, raw_json = ?' + (r.action === 'PAID' ? ', verified_at = NOW()' : '') +
-        " WHERE order_id = ? AND UPPER(status) = 'CREDIT' AND COALESCE(txn_ref, '') = ? LIMIT 1",
-        [r.status, r.txnRef, r.finalAmount, JSON.stringify(r.raw), id, s(o.txn_ref)]);
-      if (!upd || upd.affectedRows !== 1) return res.status(409).json({ ok: false, changed: true, message: 'This credit changed meanwhile — reopen it and try again.' });
-      let extra = {};
-      if (r.action === 'PAID') extra = await afterPaid(deps, o, r.finalAmount);
-      // ✅ "Credit paid ₹X" on the owner's phones (ownernotify.js) — fire and forget, once per order.
-      if (r.action === 'PAID') { try { (deps.ownernotify || require('./ownernotify')).creditPaidLater(id, r.received); } catch (e) { console.log('[owner-alert] not loaded:', e.message); } try { require('./n8nhooks').kick(); } catch (_) {} }
+      if (r.action === 'CHANGED') return res.status(409).json({ ok: false, changed: true, message: r.message });
+      const extra = r.extra || {};
       audit.record(req, { action: r.action === 'PAID' ? 'credit.paid' : 'credit.partial', entity: 'order', id, summary: r.message.replace(/^\W+\s*/, '') + ' · ' + s(o.service) + ' · ' + s(o.phone_norm), details: { amount: rupees(b.amount), method: s(b.method), ref: s(b.ref), mode: s(b.mode), note: s(b.note) } });
       res.json({ ok: true, orderId: id, status: r.status, received: r.received, left: r.left || 0, message: r.message, coins: extra.coins || null });
     } catch (e) { fail(res, e); }
@@ -418,6 +439,6 @@ function mount(app, deps) {
 }
 
 module.exports = {
-  mount, creditState, settle, writeOff, receivables, summarizeReceivables, todayCard, startCredit, afterPaid,
+  mount, creditState, settle, markPaidNow, writeOff, receivables, summarizeReceivables, todayCard, startCredit, afterPaid,
   whatsappText, waUrl, reminderEmail, renewLink, defaultDueDate, parseDueDate, ymdText, PAY_METHODS, REMIND_EVERY_HOURS,
 };
