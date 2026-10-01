@@ -232,7 +232,7 @@ const S = (at, extra) => Object.assign({ kind: 'session', at }, extra || {});
 const SOFT = (at, extra) => Object.assign({ kind: 'soft', at }, extra || {});
 const POLICY = {
   // catalog, stock, offers, feed read, SEO, store status: public
-  getBootstrap: P, getStockLevels: P, getTrendingItems: P, getStoreStatus: P, getPromos: P, promoEvent: P, getTrust: P,
+  getBootstrap: P, getStockLevels: P, getTrendingItems: P, getStoreStatus: P, getPromos: P, promoEvent: P, getTrust: P, getReviews: P,
   getPushKey: P, pushUnsubscribe: P, getAnniversary: P, householdPics: P, getFeed: P, feedEvent: P, getFeedComments: P, getFeedCommentPreviews: P,
   getGamesStatus: P, checkReferral: P,
   getNetflixHouseholdLink: P, // needs the shared account's login email, not a customer's data
@@ -248,7 +248,7 @@ const POLICY = {
   updateCustomerProfilePic: S(0), setProfilePhoto: S(0), removeProfilePhoto: S(0), setAvatar: S(0),
   emailLockStatus: S(0), emailSendCode: S(0), emailVerifyCode: S(0),
   getResumePaymentByPhone: S(0), getReferralInfo: S(0), getCoinQuote: S(0), getCoinHistory: S(0),
-  pushSubscribe: S(0), addFeedComment: S(0), anniversaryNotify: S(0), householdStart: S(0), householdFix: S(0),
+  pushSubscribe: S(0), addFeedComment: S(0), getMyReview: S(0), addReview: S(0), anniversaryNotify: S(0), householdStart: S(0), householdFix: S(0),
   // checkout + payment (buying needs login: phone → email code → pay)
   createOrder: S({ i: 0, key: 'phone' }), createRenewOrder: S(null, { sub: 0 }),
   validateCoupon: SOFT({ i: 1, key: 'phone' }),

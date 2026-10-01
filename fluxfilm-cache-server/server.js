@@ -33,6 +33,7 @@ let paymatch = null; try { paymatch = require('./paymatch'); } catch (e) { conso
 let storeMod = null; try { storeMod = require('./store'); } catch (e) { console.log('[store] not loaded:', e.message); }
 let promosMod = null; try { promosMod = require('./promos'); } catch (e) { console.log('[promos] not loaded:', e.message); }
 let trustMod = null; try { trustMod = require('./trust'); } catch (e) { console.log('[trust] not loaded:', e.message); }
+let reviewsMod = null; try { reviewsMod = require('./reviews'); } catch (e) { console.log('[reviews] not loaded:', e.message); }
 let pushMod = null; try { pushMod = require('./push'); } catch (e) { console.log('[push] not loaded:', e.message); }
 let annivMod = null; try { annivMod = require('./anniversary'); } catch (e) { console.log('[anniversary] not loaded:', e.message); }
 let hhMod = null; try { hhMod = require('./householdhelp'); } catch (e) { console.log('[household] not loaded:', e.message); }
@@ -125,6 +126,13 @@ const DB_STOREFRONT = Object.assign(
   // 🏆 Why trust us: the owner's lifetime claim + live counts, service badges and the activity ticker (trust.js).
   // Public and anonymous by design — it carries no name, phone or order id, so it is safe for a logged-out visitor.
   trustMod ? { getTrust: () => trustMod.getTrust() } : {},
+  // ⭐ Reviews. Reading is public; writing needs the customer's phone session AND a paid order (reviews.js
+  // checks that itself). a = [phone, rating, text, service].
+  reviewsMod ? {
+    getReviews: () => reviewsMod.list(),
+    getMyReview: (a) => reviewsMod.mine(a[0]),
+    addReview: (a, req) => reviewsMod.add(a[0], a[1], a[2], a[3], { ip: security.clientIp(req) }),
+  } : {},
   // Renewal reminders by push notification (admin → 🔔 Notifications). a = [phone, subscription] / [endpoint].
   pushMod ? {
     getPushKey: () => pushMod.publicKeyInfo(),
@@ -192,6 +200,9 @@ const LIMITS = {
   getStoreStatus: security.rateLimiter(200, TEN_MIN),
   getPromos: security.rateLimiter(200, TEN_MIN),
   getTrust: security.rateLimiter(200, TEN_MIN),
+  getReviews: security.rateLimiter(200, TEN_MIN),
+  getMyReview: security.rateLimiter(60, TEN_MIN),
+  addReview: security.rateLimiter(10, TEN_MIN),
   getAnniversary: security.rateLimiter(200, TEN_MIN),
   anniversaryNotify: security.rateLimiter(20, TEN_MIN),
   householdPics: security.rateLimiter(200, TEN_MIN),
@@ -274,7 +285,7 @@ const DB_WRITES = order ? {
   },
 } : {};
 const DB_READ_ACTIONS = new Set(['getMySubscriptions', 'getCustomerOrders', 'getCustomerProfile', 'getActiveCouponsForCustomer', 'getWalletByPhone']);
-const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setProfilePhoto', 'removeProfilePhoto', 'setAvatar', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent', 'getTrust', 'getPushKey', 'pushSubscribe', 'pushUnsubscribe', 'getAnniversary', 'anniversaryNotify', 'householdPics', 'householdStart', 'householdFix']);
+const DB_STOREFRONT_ACTIONS = new Set(['getBootstrap', 'getStockLevels', 'getTrendingItems', 'getNetflixHouseholdLink', 'createOrUpdateCustomerProfile', 'createCustomerProfile', 'updateCustomerProfilePic', 'setProfilePhoto', 'removeProfilePhoto', 'setAvatar', 'getOrderStatus', 'getResumePaymentByPhone', 'submitRestockRequest', 'getReferralInfo', 'checkReferral', 'getCoinQuote', 'getCoinHistory', 'getBackupPayment', 'claimManualPayment', 'getClaimStatus', 'getStoreStatus', 'getPromos', 'promoEvent', 'getTrust', 'getReviews', 'getMyReview', 'addReview', 'getPushKey', 'pushSubscribe', 'pushUnsubscribe', 'getAnniversary', 'anniversaryNotify', 'householdPics', 'householdStart', 'householdFix']);
 // 🔒 Profile email lock (emaillock.js): status, email codes, change email.
 ['emailLockStatus', 'emailSendCode', 'emailVerifyCode', 'changeProfileEmail'].forEach((a) => DB_STOREFRONT_ACTIONS.add(a));
 const DB_RECOVER_ACTIONS = new Set(['recoverSendOtp', 'recoverVerifyOtp', 'recoverListSubscriptionsSafe', 'recoverGetAccess', 'getLatestOtp', 'getOtpQuota', 'otpSendCode', 'otpVerifyCode']);
