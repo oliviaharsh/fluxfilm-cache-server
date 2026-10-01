@@ -412,11 +412,47 @@ async function whatsNewPage() {
   });
 }
 
+/**
+ * The same numbers the app shows, rendered into the HTML of /about.
+ *
+ * Server-side on purpose: a figure only a browser running JavaScript can see is invisible to Google and to
+ * anyone the link is shared with, and this page exists to be read by exactly those.
+ *
+ * Returns '' for anything it cannot do - the section is switched off, the module is missing, a query fails.
+ * About is a footer page people reach when they want reassurance; losing it to a numbers problem would be a
+ * poor trade.
+ */
+async function trustFigures() {
+  let t;
+  try { t = await require('./trust').getTrust(); } catch (e) { return ''; }
+  if (!t || !t.ok || !t.on) return '';
+  const nf = (n) => Number(n || 0).toLocaleString('en-IN');
+  const T = t.totals || {};
+  const cells = [
+    T.orders > 0 ? [nf(T.orders), 'orders delivered'] : null,
+    T.customers > 0 ? [nf(T.customers), 'customers served'] : null,
+    T.recurring > 0 ? [nf(T.recurring), 'came back for more'] : null,
+    t.live && t.live.running > 0 ? [nf(t.live.running), 'plans running right now'] : null,
+  ].filter(Boolean);
+  if (!cells.length) return '';
+  return '<div class="card" style="margin-top:16px"><h2 style="margin-top:0;font-size:18px">FluxFilm by the numbers</h2>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:18px;margin:12px 0">' +
+    cells.map((c) => '<div style="flex:1 1 130px"><div style="font-size:24px;font-weight:800;color:#16a34a;line-height:1.1">' + esc(c[0]) + '</div>'
+      + '<div style="font-size:12px;color:#64748b;font-weight:600;margin-top:3px">' + esc(c[1]) + '</div></div>').join('') +
+    '</div>' +
+    '<p class="muted" style="font-size:12px;margin:0">' +
+    (t.since ? 'Serving India since ' + esc(t.since) + '. ' : '') +
+    'The orders, customers and repeat figures include the years before our current system; everything else is counted live and updates by itself.' +
+    '</p></div>';
+}
+
 async function aboutPage() {
   const services = servicesOf(await catalogData({ waitMs: 4000 }));
+  const figures = await trustFigures();
   const body = '<div class="card"><p>FluxFilm helps people in India watch more for less. We sell subscription plans for ' + esc(services.map((x) => x.name).join(', ') || 'popular streaming services') + ', priced in rupees and paid by UPI.</p>' +
     '<p>Most plans are delivered instantly: your login appears on screen as soon as the payment is confirmed, with a copy by email. Your phone number is your account — sign in any time to renew, recover your details or get an OTP.</p>' +
     '<p>Need help? Tap Help in the app to reach FluxFilm support on WhatsApp.</p></div>' +
+    figures +
     '<p style="margin-top:20px"><a class="btn" href="/plans">See plans &amp; prices</a> <a class="btn ghost" href="/faq">Read the FAQ</a></p>' +
     // Credits (required by the movie data provider's terms; kept here instead of on the feed).
     '<p class="muted" style="margin-top:28px;font-size:12px">Credits: some movie and show information and images are provided by TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>';
@@ -578,6 +614,6 @@ function mount(app) {
 
 module.exports = {
   mount, decorateIndex, serviceSlug, servicesOf, indexDescription, robotsTxt, sitemapXml,
-  plansPage, servicePage, faqPage, whatsNewPage, aboutPage, refundPolicyPage, clearCache, esc, ldJson, durationLabel, catalogData,
+  plansPage, servicePage, faqPage, whatsNewPage, aboutPage, trustFigures, refundPolicyPage, clearCache, esc, ldJson, durationLabel, catalogData,
   SITE, GENERAL_FAQ, _internal: { store, postImage, devicesOf, typeOf, monthly },
 };
