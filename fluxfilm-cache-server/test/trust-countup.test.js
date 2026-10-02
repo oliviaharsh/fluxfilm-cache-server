@@ -50,6 +50,12 @@ let TID = 0;
 const TIMERS = new Map();
 const setTimeout_ = (fn, ms) => { const id = ++TID; TIMERS.set(id, { fn, at: CLOCK + ms }); return id; };
 const clearTimeout_ = (id) => { TIMERS.delete(id); };
+// The heartbeat runs on an interval. It gets a fake one for the same reason everything else here does: a
+// fake that reads the real clock makes a suite that passes or fails by the hour (CLAUDE.md, bought twice).
+let IID = 0;
+const INTERVALS = new Map();
+const setInterval_ = (fn, ms) => { const id = ++IID; INTERVALS.set(id, { fn, every: ms, next: CLOCK + ms }); return id; };
+const clearInterval_ = (id) => { INTERVALS.delete(id); };
 let REDUCED = false;
 const matchMedia = () => ({ matches: REDUCED });
 /** Advance time by ms and run whatever was waiting for it. */
@@ -59,6 +65,7 @@ const tick = (ms) => {
   FRAMES.clear();
   due.forEach(([, fn]) => fn());
   [...TIMERS.entries()].forEach(([id, t]) => { if (t.at <= CLOCK) { TIMERS.delete(id); t.fn(); } });
+  [...INTERVALS.entries()].forEach(([, iv]) => { while (iv.next <= CLOCK) { iv.next += iv.every; iv.fn(); } });
 };
 
 // ── the smallest React that still honours a dependency array ─────────────────────────────────────────────
@@ -91,19 +98,20 @@ class FakeIO {
 }
 
 const build = (IO) => new Function('useState', 'useEffect', 'useRef', 'Date', 'matchMedia',
-  'requestAnimationFrame', 'cancelAnimationFrame', 'setTimeout', 'clearTimeout', 'IntersectionObserver',
+  'requestAnimationFrame', 'cancelAnimationFrame', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'IntersectionObserver',
   SRC + '\nreturn { useCountUp: useCountUp, useInSight: useInSight };')(
   useState, useEffect, useRef, Date_, matchMedia, requestAnimationFrame, cancelAnimationFrame,
-  setTimeout_, clearTimeout_, IO);
+  setTimeout_, clearTimeout_, setInterval_, clearInterval_, IO);
 
 /** A component that is nothing but one useCountUp, so the hook can be driven directly. */
 function harness(IO) {
   const { useCountUp, useInSight } = build(IO);
-  CELLS = {}; EFFECTS = {}; CI = 0; EI = 0; PENDING = []; FRAMES.clear(); TIMERS.clear();
+  // INTERVALS too: the heartbeat outlives a harness otherwise, and the next one counts the last one's.
+  CELLS = {}; EFFECTS = {}; CI = 0; EI = 0; PENDING = []; FRAMES.clear(); TIMERS.clear(); INTERVALS.clear();
   let out = null;
-  const draw = (value, view) => {
+  const draw = (value, view, beat) => {
     CI = 0; EI = 0; PENDING = [];
-    out = useCountUp(value, view);
+    out = useCountUp(value, view, beat);
     PENDING.forEach((i) => {
       const e = EFFECTS[i];
       if (e.cleanup) e.cleanup();
@@ -118,6 +126,7 @@ function harness(IO) {
     bumped: () => out[1],
     frames: () => FRAMES.size,
     unmount: () => Object.values(EFFECTS).forEach((e) => { if (e.cleanup) e.cleanup(); }),
+    intervals: () => INTERVALS.size,
     useInSight,
   };
 }
@@ -215,7 +224,7 @@ function harness(IO) {
     const ref = { current: { tag: 'the card' } };
     const run = () => {
       CI = 0; EI = 0; PENDING = [];
-      const n = g.useInSight(ref, true);
+      const n = g.useInSight(ref, true)[0];
       PENDING.forEach((i) => { const e = EFFECTS[i]; if (e.cleanup) e.cleanup(); const c = e.fn(); e.cleanup = typeof c === 'function' ? c : null; });
       return n;
     };
@@ -241,7 +250,7 @@ function harness(IO) {
     const ref = { current: null };
     const run = (ready) => {
       CI = 0; EI = 0; PENDING = [];
-      const n = g.useInSight(ref, ready);
+      const n = g.useInSight(ref, ready)[0];
       PENDING.forEach((i) => { const e = EFFECTS[i]; if (e.cleanup) e.cleanup(); const c = e.fn(); e.cleanup = typeof c === 'function' ? c : null; });
       return n;
     };
@@ -262,7 +271,7 @@ function harness(IO) {
     let threw = false, n = -1;
     try {
       CI = 0; EI = 0; PENDING = [];
-      n = g.useInSight(ref, true);
+      n = g.useInSight(ref, true)[0];
       PENDING.forEach((i) => { const e = EFFECTS[i]; const c = e.fn(); e.cleanup = typeof c === 'function' ? c : null; });
     } catch (e) { threw = true; }
     ok('it does not throw', !threw);
@@ -281,9 +290,97 @@ function harness(IO) {
     ok('🔒 an empty ref does not throw either', !threw);
   }
 
+  // ── the heartbeat ────────────────────────────────────────────────────────────────────────────────────────
+  section('the figures keep moving while the board is on screen');
+  REDUCED = false;
+  h = harness(FakeIO);
+  h.draw(4807, 0, 0);
+  for (let i = 0; i < 50; i++) { tick(50); h.draw(4807, 0, 0); }
+  ok('the arrival roll has finished and it is sitting on the figure', h.shown() === 4807 && h.frames() === 0, h.shown());
+
+  h.draw(4807, 0, 1);                                   // a heartbeat
+  ok('a heartbeat starts it moving again', h.frames() === 1, h.frames());
+  tick(0);
+  h.draw(4807, 0, 1);
+  const pulseFrom = h.shown();
+  ok('\u{1F512} …but only over the LAST STRETCH, about 3%, so a visitor glancing down never reads a figure far '
+    + 'below the one in the heading', pulseFrom > 4807 * 0.9 && pulseFrom < 4807, pulseFrom);
+  ok('\u{1F512} and a heartbeat is not news, so it does not flash', h.bumped() === false);
+  for (let i = 0; i < 30; i++) { tick(50); h.draw(4807, 0, 1); }
+  ok('it climbs back to the exact figure', h.shown() === 4807, h.shown());
+  h.draw(4807, 0, 2);
+  tick(0); h.draw(4807, 0, 2);
+  ok('and it does it again on the next beat', h.shown() < 4807 && h.shown() > 4807 * 0.9, h.shown());
+
+  section('\u{1F512} a small figure still ticks');
+  {
+    const g2 = harness(FakeIO);
+    g2.draw(2, 0, 0);
+    for (let i = 0; i < 40; i++) { tick(50); g2.draw(2, 0, 0); }
+    g2.draw(2, 0, 1);
+    tick(0); g2.draw(2, 0, 1);
+    ok('a badge reading 2 goes to 1 and back, rather than rounding its step away to nothing', g2.shown() === 1, g2.shown());
+    for (let i = 0; i < 30; i++) { tick(50); g2.draw(2, 0, 1); }
+    ok('…and lands back on 2', g2.shown() === 2, g2.shown());
+  }
+
+  section('\u{1F512} nobody looking, nothing beating');
+  {
+    const g3 = harness(FakeIO);
+    CELLS = {}; EFFECTS = {}; CI = 0; EI = 0; PENDING = []; OBSERVED = null;
+    const ref = { current: { tag: 'card' } };
+    const run = (ready) => {
+      CI = 0; EI = 0; PENDING = [];
+      const r = g3.useInSight(ref, ready);
+      PENDING.forEach((i) => { const e = EFFECTS[i]; if (e.cleanup) e.cleanup(); const c = e.fn(); e.cleanup = typeof c === 'function' ? c : null; });
+      return r;
+    };
+    run(true);
+    ok('nothing is beating before the board has been seen', g3.intervals() === 0, g3.intervals());
+    OBSERVED.enter();
+    run(true);
+    ok('it starts beating when the board comes into sight', g3.intervals() === 1, g3.intervals());
+    const [, b0] = run(true);
+    tick(6000);
+    const [, b1] = run(true);
+    ok('a beat every six seconds', b1 === b0 + 1, { before: b0, after: b1 });
+    tick(12000);
+    const [, b2] = run(true);
+    ok('…and it keeps time', b2 === b1 + 2, { b1: b1, b2: b2 });
+    OBSERVED.leave();
+    run(true);
+    ok('\u{1F512} scrolled out of sight, the heartbeat STOPS — a board nobody can see must not sit there '
+      + 'animating itself on a phone in somebody\u2019s pocket', g3.intervals() === 0, g3.intervals());
+    const [, b3] = run(true);
+    tick(30000);
+    const [, b4] = run(true);
+    ok('\u{1F512} …and it really has stopped, not merely slowed', b4 === b3, { before: b3, after: b4 });
+    OBSERVED.enter();
+    run(true);
+    ok('coming back starts it again', g3.intervals() === 1, g3.intervals());
+    Object.values(EFFECTS).forEach((e) => { if (e.cleanup) e.cleanup(); });
+    ok('\u{1F512} and leaving the page clears it', g3.intervals() === 0, g3.intervals());
+  }
+
+  section('\u{1F512} an entrance is counted once, however many times the browser says so');
+  {
+    const g4 = harness(FakeIO);
+    CELLS = {}; EFFECTS = {}; CI = 0; EI = 0; PENDING = []; OBSERVED = null;
+    const ref = { current: { tag: 'card' } };
+    const run = () => {
+      CI = 0; EI = 0; PENDING = [];
+      const r = g4.useInSight(ref, true);
+      PENDING.forEach((i) => { const e = EFFECTS[i]; if (e.cleanup) e.cleanup(); const c = e.fn(); e.cleanup = typeof c === 'function' ? c : null; });
+      return r;
+    };
+    run();
+    OBSERVED.enter(); OBSERVED.enter(); OBSERVED.enter();
+    ok('three intersecting callbacks for one visit is still one arrival', run()[0] === 1, run()[0]);
+  }
+
   // ── wiring ───────────────────────────────────────────────────────────────────────────────────────────────
   section('it is actually wired into the board');
-  ok('TrustProof watches its own card', /const card = useRef\(null\);/.test(HTML) && /const view = useInSight\(card, !!t\)/.test(HTML));
+  ok('TrustProof watches its own card', /const card = useRef\(null\);/.test(HTML) && /const \[view, beat\] = useInSight\(card, !!t\)/.test(HTML));
   ok('🔒 …and the watcher is told WHEN the card exists, or it attaches to nothing and never retries',
     /function useInSight\(ref, ready\)/.test(HTML) && /\}, \[ready\]\);/.test(HTML));
   ok('🔒 and the ref is on a real element — Card is a plain function and cannot hold one',
@@ -291,8 +388,9 @@ function harness(IO) {
   ok('both shapes of the board are watched, including the dashboard fold',
     (HTML.match(/watched\(React\.createElement\(Card, \{/g) || []).length === 2,
     (HTML.match(/watched\(React\.createElement\(Card, \{/g) || []).length);
-  ok('every figure is handed the counter', (HTML.match(/view: view/g) || []).length === 4,
-    (HTML.match(/view: view/g) || []).length);
+  ok('every figure is handed the counter and the heartbeat',
+    (HTML.match(/view: view/g) || []).length === 4 && (HTML.match(/beat: beat/g) || []).length === 4,
+    { view: (HTML.match(/view: view/g) || []).length, beat: (HTML.match(/beat: beat/g) || []).length });
   ok('package.json runs this test', /node test\/trust-countup\.test\.js/.test(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')));
 
   section('the page still runs');

@@ -4285,7 +4285,7 @@ function ToolsGrid({
 // Returns [shown, bumped] — bumped is true for a moment after a figure MOVED while it was on screen, which is
 // news; arriving and being looked at are not news and do not flash.
 // Somebody who asked their phone to stop animating things is shown the number, not a performance.
-function useCountUp(target, view) {
+function useCountUp(target, view, beat) {
   const to = Number(target) || 0;
   // Starts at the real figure, not at zero: if anything at all stops the effect running, the number on screen
   // is still the right one. A trust panel may be dull but it may not be wrong.
@@ -4295,16 +4295,25 @@ function useCountUp(target, view) {
   // -1, so the first run always counts as "newly in sight" and the figures roll when the card is first drawn —
   // which is also what makes them roll when a logged-in customer taps See open.
   const lastView = useRef(-1);
+  const lastBeat = useRef(beat);
   useEffect(() => {
     const inSight = lastView.current !== view;
+    const pulse = !inSight && lastBeat.current !== beat;
     lastView.current = view;
+    lastBeat.current = beat;
     const prev = from.current;
     from.current = to;
-    // Coming into sight counts up from nothing. A figure that moved while it was already on screen carries on
-    // from where it was — jumping back to zero to re-count would lose the one thing worth showing, which is
-    // that it went UP.
-    const start = inSight ? 0 : prev;
-    const news = !inSight && prev !== to;
+    // Three reasons to run, and they do not start from the same place:
+    //   · coming into sight counts up from nothing — the figure genuinely is arriving
+    //   · a heartbeat, while the board sits on screen, runs only the LAST STRETCH. A repeat that went back to
+    //     zero every six seconds would leave the figure reading wrong for most of its life, and a visitor who
+    //     glanced down at the wrong moment would see a number far below the one in the heading. Three percent
+    //     is plainly moving and never meaningfully wrong.
+    //   · a figure that MOVED carries on from where it was, because that it went up is the whole point.
+    // At least 1, so a badge reading 2 still ticks instead of rounding its step away to nothing.
+    const lastStretch = Math.max(1, Math.round(to * 0.03));
+    const start = inSight ? 0 : pulse ? Math.max(0, to - lastStretch) : prev;
+    const news = !inSight && !pulse && prev !== to;
     if (start === to) return undefined;
     let still = false;
     try {
@@ -4318,7 +4327,7 @@ function useCountUp(target, view) {
       setBumped(true);
     }
     const began = Date.now();
-    const ms = inSight ? 1100 : 700;
+    const ms = inSight ? 1100 : pulse ? 900 : 700;
     let raf = 0;
     let flash = 0;
     const step = () => {
@@ -4334,12 +4343,16 @@ function useCountUp(target, view) {
       if (raf) cancelAnimationFrame(raf);
       if (flash) clearTimeout(flash);
     };
-  }, [to, view]);
+  }, [to, view, beat]);
   return [shown, bumped];
 }
 
-// Has the board been looked at? Returns a count that goes up each time it comes into sight, so the figures can
-// count up then, and again if it is scrolled away from and back to.
+// How often does the board run? Every 6 seconds while it is ON SCREEN. Owner: "the numbers should animate and
+// move while they are on screen".
+const TRUST_BEAT_MS = 6000;
+
+// Has the board been looked at, and is it being looked at NOW? Returns [view, beat]: view goes up each time
+// the board comes into sight, beat is a heartbeat that only ticks while it is there to be seen.
 // A browser without IntersectionObserver never moves the count, and the figures simply sit there reading
 // correctly — the behaviour before any of this existed, which is a fine thing to fall back to.
 //
@@ -4349,14 +4362,36 @@ function useCountUp(target, view) {
 // run again on the commit that puts the card on the page.
 function useInSight(ref, ready) {
   const [n, setN] = useState(0);
+  const [beat, setBeat] = useState(0);
+  // Whether it is on screen right now, kept in a ref: the observer fires more than once for the same visit
+  // on some browsers, and an entrance should be counted once.
+  const here = useRef(false);
   useEffect(() => {
     const el = ref && ref.current;
     if (!el || typeof IntersectionObserver !== 'function') return undefined;
     let io;
+    let timer = 0;
+    // 🔒 The heartbeat exists only while somebody can see it. Off screen it is cleared, so a board scrolled
+    // past is not quietly animating itself on a phone in somebody's pocket for the rest of the session.
+    const stop = () => {
+      if (timer) {
+        clearInterval(timer);
+        timer = 0;
+      }
+    };
     try {
       io = new IntersectionObserver(es => {
         es.forEach(e => {
-          if (e.isIntersecting) setN(v => v + 1);
+          if (e.isIntersecting) {
+            if (!here.current) {
+              here.current = true;
+              setN(v => v + 1);
+            }
+            if (!timer) timer = setInterval(() => setBeat(v => v + 1), TRUST_BEAT_MS);
+          } else {
+            here.current = false;
+            stop();
+          }
         });
       }, {
         threshold: 0.3
@@ -4366,21 +4401,23 @@ function useInSight(ref, ready) {
       return undefined;
     }
     return () => {
+      stop();
       try {
         io.disconnect();
       } catch (e) {}
     };
   }, [ready]);
-  return n;
+  return [n, beat];
 }
 
 // A single rolling figure. Kept as its own component so each number has its own animation and its own flash.
 function ScoreNum({
   value,
   label,
-  view
+  view,
+  beat
 }) {
-  const [shown, bumped] = useCountUp(value, view);
+  const [shown, bumped] = useCountUp(value, view, beat);
   return React.createElement("div", {
     style: {
       flex: '1 1 86px'
@@ -4415,9 +4452,10 @@ function ScoreNum({
 // These move for exactly the reason the headline does — somebody has just bought that one.
 function ScoreBit({
   value,
-  view
+  view,
+  beat
 }) {
-  const [n, hot] = useCountUp(value, view);
+  const [n, hot] = useCountUp(value, view, beat);
   return React.createElement("b", {
     className: "ff-ts-neon" + (hot ? ' ff-ts-hot' : ''),
     style: {
@@ -4442,7 +4480,7 @@ function TrustProof({
   // The board watches itself, so the figures count up when somebody actually looks at them.
   const card = useRef(null);
   // !!t, because the card does not exist until the figures do.
-  const view = useInSight(card, !!t);
+  const [view, beat] = useInSight(card, !!t);
   // Remembered per device. A private window throws on localStorage, so every touch is guarded — a trust
   // section must never be the thing that breaks the screen it sits on.
   const [open, setOpen] = useState(() => {
@@ -4478,17 +4516,20 @@ function TrustProof({
     key: "o",
     value: T.orders,
     label: "orders delivered",
-    view: view
+    view: view,
+    beat: beat
   }) : null, T.customers > 0 ? React.createElement(ScoreNum, {
     key: "c",
     value: T.customers,
     label: "customers served",
-    view: view
+    view: view,
+    beat: beat
   }) : null, T.recurring > 0 ? React.createElement(ScoreNum, {
     key: "r",
     value: T.recurring,
     label: "came back for more",
-    view: view
+    view: view,
+    beat: beat
   }) : null].filter(Boolean);
   const small = [t.live && t.live.running > 0 ? nf(t.live.running) + ' plans running right now' : '', T.recurringPct > 0 ? T.recurringPct + '% of customers renew with us' : '', t.live && t.live.renewals > 0 ? nf(t.live.renewals) + ' renewals so far' : ''].filter(Boolean);
   if (!headline.length && !small.length && !(t.services || []).length && !(t.recent || []).length) return null;
@@ -4625,7 +4666,8 @@ function TrustProof({
     }
   }, sv.service, ' ', React.createElement(ScoreBit, {
     value: sv.n,
-    view: view
+    view: view,
+    beat: beat
   })))) : null, (t.recent || []).length ? React.createElement("div", {
     style: {
       marginTop: 14,

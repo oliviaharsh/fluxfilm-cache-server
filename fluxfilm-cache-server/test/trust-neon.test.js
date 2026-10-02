@@ -183,7 +183,7 @@ function render(props) {
   ok('they slide in and are not left transparent', /@keyframes ffTsBul \{ from \{ opacity: 0; transform: translateY\(6px\); \} to \{ opacity: 1; transform: none; \} \}/.test(CSS));
 
   section('each service count rolls and glows');
-  ok('the badge count is its own rolling figure', /function ScoreBit\(/.test(HTML) && /React\.createElement\(ScoreBit, \{\s*value: sv\.n,\s*view: view\s*\}\)/.test(HTML));
+  ok('the badge count is its own rolling figure', /function ScoreBit\(/.test(HTML) && /React\.createElement\(ScoreBit, \{\s*value: sv\.n,\s*view: view,\s*beat: beat\s*\}\)/.test(HTML));
   ok('both badges are drawn, with their counts', /Netflix/.test(open.text) && /49/.test(open.text) && /Prime/.test(open.text) && /31/.test(open.text));
   ok('🔒 digits are tabular here too, so a rolling count cannot make the badge change width',
     /function ScoreBit\(\{[\s\S]{0,420}fontVariantNumeric: 'tabular-nums'/.test(HTML));
