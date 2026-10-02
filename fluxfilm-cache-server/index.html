@@ -4244,6 +4244,88 @@ function ToolsGrid({
     onClick: close
   }, "Close"))));
 }
+// Roll a number up to its value the way a scoreboard does: fast at first, easing into place.
+// Returns [shown, bumped] — bumped is true for a moment after the figure actually CHANGES, so the number can
+// flash when somebody pays rather than every time the component redraws.
+// Somebody who asked their phone to stop animating things is shown the number, not a performance.
+function useCountUp(target) {
+  const to = Number(target) || 0;
+  const [shown, setShown] = useState(to);
+  const [bumped, setBumped] = useState(false);
+  const from = useRef(to);
+  const first = useRef(true);
+  useEffect(() => {
+    const start = from.current;
+    from.current = to;
+    if (start === to) return undefined;
+    const wasFirst = first.current;
+    first.current = false;
+    let still = false;
+    try {
+      still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (e) {}
+    if (still) {
+      setShown(to);
+      return undefined;
+    }
+    // Only a real change is worth flashing; the first roll-up is not news, it is just the number arriving.
+    if (!wasFirst) {
+      setBumped(true);
+    }
+    const began = Date.now();
+    const ms = wasFirst ? 1100 : 700;
+    let raf = 0;
+    let flash = 0;
+    const step = () => {
+      const p = Math.min(1, (Date.now() - began) / ms);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setShown(Math.round(start + (to - start) * eased));
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    if (!wasFirst) flash = setTimeout(() => setBumped(false), 1400);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      if (flash) clearTimeout(flash);
+    };
+  }, [to]);
+  return [shown, bumped];
+}
+
+// A single rolling figure. Kept as its own component so each number has its own animation and its own flash.
+function ScoreNum({
+  value,
+  label
+}) {
+  const [shown, bumped] = useCountUp(value);
+  return React.createElement("div", {
+    style: {
+      flex: '1 1 86px'
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 24,
+      fontWeight: 800,
+      color: bumped ? C.green2 : C.green,
+      letterSpacing: '-.5px',
+      lineHeight: 1.1,
+      transition: 'color .25s ease, transform .25s ease',
+      transform: bumped ? 'scale(1.06)' : 'none',
+      // The digits must not jiggle as they roll, or the whole row dances.
+      fontVariantNumeric: 'tabular-nums'
+    }
+  }, Number(shown || 0).toLocaleString('en-IN')), React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11,
+      color: C.muted,
+      fontWeight: 600,
+      marginTop: 3
+    }
+  }, label));
+}
+
 // 🏆 Why trust us (trust.js → getTrust). The four cards above are CLAIMS; this is the evidence under them.
 // The three big numbers are the years before this database (a figure the owner typed once) PLUS everything
 // MySQL counts, so they go up by themselves when a real order is paid — nobody has to remember to edit them.
@@ -4277,7 +4359,7 @@ function TrustProof({
       if (alive && r && r.ok && r.on) setT(r);
     }, () => {});
     load();
-    const iv = setInterval(load, 5 * 60000);
+    const iv = setInterval(load, 60000);
     return () => {
       alive = false;
       clearInterval(iv);
@@ -4286,30 +4368,19 @@ function TrustProof({
   if (!t) return null;
   const T = t.totals || {};
   const nf = n => Number(n || 0).toLocaleString('en-IN');
-  const big = (value, label, key) => React.createElement("div", {
-    key: key,
-    style: {
-      flex: '1 1 86px'
-    }
-  }, React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 24,
-      fontWeight: 800,
-      color: C.green,
-      letterSpacing: '-.5px',
-      lineHeight: 1.1
-    }
-  }, value), React.createElement("div", {
-    style: {
-      fontFamily: PJS,
-      fontSize: 11,
-      color: C.muted,
-      fontWeight: 600,
-      marginTop: 3
-    }
-  }, label));
-  const headline = [T.orders > 0 ? big(nf(T.orders), 'orders delivered', 'o') : null, T.customers > 0 ? big(nf(T.customers), 'customers served', 'c') : null, T.recurring > 0 ? big(nf(T.recurring), 'came back for more', 'r') : null].filter(Boolean);
+  const headline = [T.orders > 0 ? React.createElement(ScoreNum, {
+    key: "o",
+    value: T.orders,
+    label: "orders delivered"
+  }) : null, T.customers > 0 ? React.createElement(ScoreNum, {
+    key: "c",
+    value: T.customers,
+    label: "customers served"
+  }) : null, T.recurring > 0 ? React.createElement(ScoreNum, {
+    key: "r",
+    value: T.recurring,
+    label: "came back for more"
+  }) : null].filter(Boolean);
   const small = [t.live && t.live.running > 0 ? nf(t.live.running) + ' plans running right now' : '', T.recurringPct > 0 ? T.recurringPct + '% of customers renew with us' : '', t.live && t.live.renewals > 0 ? nf(t.live.renewals) + ' renewals so far' : ''].filter(Boolean);
   if (!headline.length && !small.length && !(t.services || []).length && !(t.recent || []).length) return null;
   // 📂 Folded: one line that still says the two numbers worth knowing, so it is a summary and not a mystery box.
@@ -4334,7 +4405,7 @@ function TrustProof({
     style: {
       fontSize: 15
     }
-  }, "\U0001F3C6"), React.createElement("span", {
+  }, "🏆"), React.createElement("span", {
     style: {
       fontFamily: PJS,
       fontSize: 12.5,

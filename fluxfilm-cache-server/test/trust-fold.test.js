@@ -19,7 +19,9 @@ const section = (t) => console.log('\n=== ' + t + ' ===');
 
 const ROOT = path.join(__dirname, '..');
 const HTML = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-const a = HTML.indexOf('function TrustProof(');
+// Start at the count-up helper, not at TrustProof: the component now draws its figures with ScoreNum,
+// which is defined above it. Slicing from TrustProof alone left ScoreNum undefined.
+const a = HTML.indexOf('function useCountUp(');
 const b = HTML.indexOf('// ⭐ Reviews (reviews.js).');
 if (a < 0 || b < 0 || b < a) { console.log('CRASH: could not find TrustProof in index.html'); process.exit(1); }
 const SRC = HTML.slice(a, b);
@@ -32,6 +34,14 @@ const useState = (init) => {
   return [HOOKS[i], (v) => { HOOKS[i] = typeof v === 'function' ? v(HOOKS[i]) : v; }];
 };
 const useEffect = (fn) => { EFFECTS.push(fn); };
+const REFS = [];
+let REF_I = 0;
+const useRef = (init) => { const i = REF_I++; if (!(i in REFS)) REFS[i] = { current: init }; return REFS[i]; };
+// The roll-up asks for frames and for the motion preference. Here it is told there is no animation to
+// run, which is the branch that simply sets the number — the rolling itself is trust-scoreboard's job.
+const matchMedia = () => ({ matches: true });
+const requestAnimationFrame = () => 0;
+const cancelAnimationFrame = () => {};
 /** A rendered tree flattened to the text and the props a human would notice. */
 const flat = (n, out) => {
   out = out || { text: '', clicks: [], props: [] };
@@ -41,6 +51,10 @@ const flat = (n, out) => {
   if (n.props) {
     out.props.push(n.props);
     if (n.props.onClick) out.clicks.push(n.props.onClick);
+    // The big figures are drawn by ScoreNum, a component of its own, so a tree walker that only looks at
+    // elements would report them missing. Render function components too, or this harness quietly stops
+    // seeing the very numbers it is here to check.
+    if (typeof n.type === 'function') { flat(n.type(n.props), out); return out; }
     flat(n.props.children, out);
   }
   return out;
@@ -61,8 +75,10 @@ let API_REPLY;
 const API = { getTrust: (okFn) => { okFn(API_REPLY); } };
 const setInterval = () => 0, clearInterval = () => {};
 
-const make = new Function('React', 'useState', 'useEffect', 'C', 'PJS', 'R', 'Card', 'API', 'localStorage', 'setInterval', 'clearInterval',
-  SRC + '\nreturn TrustProof;')(React, useState, useEffect, C, PJS, R, Card, API, localStorage, setInterval, clearInterval);
+const make = new Function('React', 'useState', 'useEffect', 'useRef', 'C', 'PJS', 'R', 'Card', 'API',
+  'localStorage', 'setInterval', 'clearInterval', 'matchMedia', 'requestAnimationFrame', 'cancelAnimationFrame',
+  SRC + '\nreturn TrustProof;')(React, useState, useEffect, useRef, C, PJS, R, Card, API,
+  localStorage, setInterval, clearInterval, matchMedia, requestAnimationFrame, cancelAnimationFrame);
 
 const DATA = {
   ok: true, on: true, since: '2022',
@@ -73,10 +89,10 @@ const DATA = {
 
 /** Render once, run the effects (which load the data), render again. */
 function render(props) {
-  HOOKS = {}; EFFECTS = []; HOOK_I = 0;
+  HOOKS = {}; EFFECTS = []; HOOK_I = 0; REFS.length = 0; REF_I = 0;
   make(props || {});
   EFFECTS.forEach((fn) => { const c = fn(); if (typeof c === 'function') c(); });
-  HOOK_I = 0;
+  HOOK_I = 0; REF_I = 0;
   return flat(make(props || {}));
 }
 
@@ -107,14 +123,14 @@ function render(props) {
 
   section('the choice is remembered');
   localStorage._v = {};
-  HOOKS = {}; EFFECTS = []; HOOK_I = 0;
+  HOOKS = {}; EFFECTS = []; HOOK_I = 0; REFS.length = 0; REF_I = 0;
   make({ fold: true });
   EFFECTS.forEach((fn) => fn());
-  HOOK_I = 0;
+  HOOK_I = 0; REF_I = 0;
   let tree = flat(make({ fold: true }));
   tree.clicks[0]();
   ok('tapping it writes the choice down', localStorage._v.ff_trust_open === '1', localStorage._v);
-  HOOK_I = 0;
+  HOOK_I = 0; REF_I = 0;
   tree = flat(make({ fold: true }));
   ok('…and it is now open', /Just now on FluxFilm/.test(tree.text));
   tree.clicks[0]();
