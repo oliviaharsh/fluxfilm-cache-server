@@ -92,7 +92,10 @@ async function pageKind(page) {
  * The footer arrives as one run-together line, so it is matched by shape below rather than listed here.
  */
 const CHROME = ['home', 'movies', 'tv shows', 'sports', 'devices', 'register new device', 'register a device',
-  'search', 'help', 'send us feedback', 'cookies notice', 'registration code:', 'register device'];
+  'search', 'help', 'send us feedback', 'cookies notice', 'registration code:', 'register device',
+  // Every device row carries these three controls and a Prime badge, so each registration adds one more of
+  // each. Without them here they land in the stored device name: "…Registration date: … · Sign out".
+  'sign out', 'signed out', 'remove', 'prime'];
 
 /**
  * The lines a person would actually read on the devices page, with the furniture taken out.
@@ -120,7 +123,7 @@ function contentLines(text) {
  * registered — a success it never saw, which rule 3 at the top of this file forbids. The owner sees the
  * device name in admin, so a nonsense name is also caught by eye; this is the belt, that is the braces.
  */
-const NOT_A_DEVICE = /don.?t have any registered devices|no registered devices|^watch your favou?rite|premium add-on subscriptions/i;
+const NOT_A_DEVICE = /don.?t have any registered devices|no registered devices|^watch your favou?rite|premium add-on subscriptions|^these are the devices registered|reached the device limit/i;
 
 /** What is on the page now that was not before. A multiset, so two TVs with the same name both count. */
 function newLines(before, after) {
