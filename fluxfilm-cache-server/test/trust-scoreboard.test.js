@@ -46,12 +46,15 @@ const ADMIN = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
     /cancelAnimationFrame\(raf\)/.test(src) && /clearTimeout\(flash\)/.test(src));
   ok('🔒 digits are tabular, so a rolling number does not make the row dance', /tabular-nums/.test(src));
 
-  section('a change is news; the first appearance is not');
-  ok('the first roll-up does NOT flash — the number is just arriving', /const wasFirst = first\.current/.test(src) && /if \(!wasFirst\) \{\s*setBumped\(true\);/.test(src));
+  section('a change is news; being looked at is not');
+  ok('coming into sight does NOT flash — the number is only arriving', /const inSight = lastView\.current !== view/.test(src) && /const news = !inSight && prev !== to/.test(src));
   ok('…but a real change does, briefly', /setTimeout\(\(\) => setBumped\(false\), 1400\)/.test(src));
   ok('the flash is colour and scale, which needs no layout and cannot shift the page',
     /transform: bumped \? 'scale\(1\.06\)' : 'none'/.test(src) && /color: bumped \? C\.green2 : C\.green/.test(src));
-  ok('the first roll is slower than a later tick, because it has further to travel', /wasFirst \? 1100 : 700/.test(src));
+  ok('the roll from nothing is slower than a later tick, because it has further to travel', /inSight \? 1100 : 700/.test(src));
+  ok('🔒 and it is driven by being SEEN, not by the data arriving — the board sits below the fold, so a roll '
+    + 'tied to the fetch is over before anybody has scrolled to it', /function useInSight\(/.test(HTML)
+    && /const view = useInSight\(card, !!t\)/.test(HTML) && /\}, \[to, view\]\);/.test(src));
 
   section('🔒 somebody who asked for no animation gets none');
   ok('prefers-reduced-motion is checked', /matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches/.test(src));

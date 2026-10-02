@@ -4270,22 +4270,42 @@ function ToolsGrid({
     onClick: close
   }, "Close"))));
 }
-// Roll a number up to its value the way a scoreboard does: fast at first, easing into place.
-// Returns [shown, bumped] — bumped is true for a moment after the figure actually CHANGES, so the number can
-// flash when somebody pays rather than every time the component redraws.
+// Count a number up the way a scoreboard does: fast at first, easing into place.
+//
+// `view` is a counter that goes up every time the board comes into sight. It is the whole reason this
+// works at all: on the home screen the card sits a long way below the fold, the figures arrive about half a
+// second after load, and a roll that starts then is over long before anybody has scrolled to it. So the
+// counting is tied to being LOOKED at, not to the data turning up.
+//
+// ⚠️ The version before this one started `shown` at the target and bailed out of the effect whenever
+// `start === to`. Since the component only ever mounts once the figures have arrived, that was true on
+// every mount, and the roll never ran once in production. If this is ever rewritten: the thing to protect is
+// that there is a real gap between where the number starts and where it is going.
+//
+// Returns [shown, bumped] — bumped is true for a moment after a figure MOVED while it was on screen, which is
+// news; arriving and being looked at are not news and do not flash.
 // Somebody who asked their phone to stop animating things is shown the number, not a performance.
-function useCountUp(target) {
+function useCountUp(target, view) {
   const to = Number(target) || 0;
+  // Starts at the real figure, not at zero: if anything at all stops the effect running, the number on screen
+  // is still the right one. A trust panel may be dull but it may not be wrong.
   const [shown, setShown] = useState(to);
   const [bumped, setBumped] = useState(false);
   const from = useRef(to);
-  const first = useRef(true);
+  // -1, so the first run always counts as "newly in sight" and the figures roll when the card is first drawn —
+  // which is also what makes them roll when a logged-in customer taps See open.
+  const lastView = useRef(-1);
   useEffect(() => {
-    const start = from.current;
+    const inSight = lastView.current !== view;
+    lastView.current = view;
+    const prev = from.current;
     from.current = to;
+    // Coming into sight counts up from nothing. A figure that moved while it was already on screen carries on
+    // from where it was — jumping back to zero to re-count would lose the one thing worth showing, which is
+    // that it went UP.
+    const start = inSight ? 0 : prev;
+    const news = !inSight && prev !== to;
     if (start === to) return undefined;
-    const wasFirst = first.current;
-    first.current = false;
     let still = false;
     try {
       still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -4294,36 +4314,73 @@ function useCountUp(target) {
       setShown(to);
       return undefined;
     }
-    // Only a real change is worth flashing; the first roll-up is not news, it is just the number arriving.
-    if (!wasFirst) {
+    if (news) {
       setBumped(true);
     }
     const began = Date.now();
-    const ms = wasFirst ? 1100 : 700;
+    const ms = inSight ? 1100 : 700;
     let raf = 0;
     let flash = 0;
     const step = () => {
       const p = Math.min(1, (Date.now() - began) / ms);
       const eased = 1 - Math.pow(1 - p, 3);
       setShown(Math.round(start + (to - start) * eased));
-      if (p < 1) raf = requestAnimationFrame(step);
+      // Land on the figure itself rather than on whatever the easing rounded to.
+      if (p < 1) raf = requestAnimationFrame(step);else setShown(to);
     };
     raf = requestAnimationFrame(step);
-    if (!wasFirst) flash = setTimeout(() => setBumped(false), 1400);
+    if (news) flash = setTimeout(() => setBumped(false), 1400);
     return () => {
       if (raf) cancelAnimationFrame(raf);
       if (flash) clearTimeout(flash);
     };
-  }, [to]);
+  }, [to, view]);
   return [shown, bumped];
+}
+
+// Has the board been looked at? Returns a count that goes up each time it comes into sight, so the figures can
+// count up then, and again if it is scrolled away from and back to.
+// A browser without IntersectionObserver never moves the count, and the figures simply sit there reading
+// correctly — the behaviour before any of this existed, which is a fine thing to fall back to.
+//
+// ⚠️ `ready` is not optional furniture. TrustProof draws NOTHING until the figures arrive, so on the first
+// commit there is no card in the document and the ref is empty. With `[]` for dependencies this effect ran
+// exactly then, took its early exit, and never ran again — the observer was never created at all. It has to
+// run again on the commit that puts the card on the page.
+function useInSight(ref, ready) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const el = ref && ref.current;
+    if (!el || typeof IntersectionObserver !== 'function') return undefined;
+    let io;
+    try {
+      io = new IntersectionObserver(es => {
+        es.forEach(e => {
+          if (e.isIntersecting) setN(v => v + 1);
+        });
+      }, {
+        threshold: 0.3
+      });
+      io.observe(el);
+    } catch (e) {
+      return undefined;
+    }
+    return () => {
+      try {
+        io.disconnect();
+      } catch (e) {}
+    };
+  }, [ready]);
+  return n;
 }
 
 // A single rolling figure. Kept as its own component so each number has its own animation and its own flash.
 function ScoreNum({
   value,
-  label
+  label,
+  view
 }) {
-  const [shown, bumped] = useCountUp(value);
+  const [shown, bumped] = useCountUp(value, view);
   return React.createElement("div", {
     style: {
       flex: '1 1 86px'
@@ -4357,9 +4414,10 @@ function ScoreNum({
 // The same rolling figure, inline and small: the count on a service badge. Owner: "each subs wise numbers".
 // These move for exactly the reason the headline does — somebody has just bought that one.
 function ScoreBit({
-  value
+  value,
+  view
 }) {
-  const [n, hot] = useCountUp(value);
+  const [n, hot] = useCountUp(value, view);
   return React.createElement("b", {
     className: "ff-ts-neon" + (hot ? ' ff-ts-hot' : ''),
     style: {
@@ -4381,6 +4439,10 @@ function TrustProof({
   fold
 }) {
   const [t, setT] = useState(null);
+  // The board watches itself, so the figures count up when somebody actually looks at them.
+  const card = useRef(null);
+  // !!t, because the card does not exist until the figures do.
+  const view = useInSight(card, !!t);
   // Remembered per device. A private window throws on localStorage, so every touch is guarded — a trust
   // section must never be the thing that breaks the screen it sits on.
   const [open, setOpen] = useState(() => {
@@ -4415,15 +4477,18 @@ function TrustProof({
   const headline = [T.orders > 0 ? React.createElement(ScoreNum, {
     key: "o",
     value: T.orders,
-    label: "orders delivered"
+    label: "orders delivered",
+    view: view
   }) : null, T.customers > 0 ? React.createElement(ScoreNum, {
     key: "c",
     value: T.customers,
-    label: "customers served"
+    label: "customers served",
+    view: view
   }) : null, T.recurring > 0 ? React.createElement(ScoreNum, {
     key: "r",
     value: T.recurring,
-    label: "came back for more"
+    label: "came back for more",
+    view: view
   }) : null].filter(Boolean);
   const small = [t.live && t.live.running > 0 ? nf(t.live.running) + ' plans running right now' : '', T.recurringPct > 0 ? T.recurringPct + '% of customers renew with us' : '', t.live && t.live.renewals > 0 ? nf(t.live.renewals) + ' renewals so far' : ''].filter(Boolean);
   if (!headline.length && !small.length && !(t.services || []).length && !(t.recent || []).length) return null;
@@ -4481,14 +4546,19 @@ function TrustProof({
       color: C.green
     }
   }, open ? 'Hide ▴' : 'See ▾')) : null;
-  if (fold && !open) return React.createElement(Card, {
+  // Card is an ordinary function component, so it cannot be handed a ref; this plain wrapper can, and it
+  // changes no layout. Both shapes of the board are wrapped, because the folded one is the dashboard's.
+  const watched = el => React.createElement("div", {
+    ref: card
+  }, el);
+  if (fold && !open) return watched(React.createElement(Card, {
     className: "ff-trust-proof ff-o6",
     pad: 14,
     style: {
       margin: '12px 0 6px'
     }
-  }, summary);
-  return React.createElement(Card, {
+  }, summary));
+  return watched(React.createElement(Card, {
     className: "ff-trust-proof ff-o6",
     pad: 16,
     style: {
@@ -4554,7 +4624,8 @@ function TrustProof({
       padding: '5px 10px'
     }
   }, sv.service, ' ', React.createElement(ScoreBit, {
-    value: sv.n
+    value: sv.n,
+    view: view
   })))) : null, (t.recent || []).length ? React.createElement("div", {
     style: {
       marginTop: 14,
@@ -4674,7 +4745,7 @@ function TrustProof({
       marginTop: 1,
       lineHeight: 1.45
     }
-  }, j.text) : null)))) : null);
+  }, j.text) : null)))) : null));
 }
 // ⭐ Reviews (reviews.js). Read-only for a visitor; a logged-in customer who has bought something also gets the
 // box to write one. The owner's reply is shown underneath the review it answers.
