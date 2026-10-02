@@ -16,6 +16,7 @@ process.env.TZ = 'Asia/Kolkata';
 process.env.NODE_ENV = 'test';
 const Module = require('module');
 const path = require('path');
+const fs = require('fs');
 
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x).slice(0, 300) : '')); } };
@@ -286,6 +287,45 @@ const mine = (ph, tok) => primetv.mine(ph, tok, { access: access });
   ok('a CLAIMED row can be marked done - the worker holds it, not the owner', done.affectedRows === 1, done);
   ok('the device name is kept, because removal will need it', TVROWS[0].device_name === 'Fire TV Stick', TVROWS[0]);
   ok('LOCKED and the code is gone', TVROWS[0].code === '', TVROWS[0]);
+
+  // ── 🔒 the customer must never read the worker's notes ──────────────────────────────────────────────
+  // mine() hands why straight to the storefront. Before this, a customer whose code landed on a signed-out
+  // profile read "the browser is signed out of this account" on their phone - a note written for the owner,
+  // which tells them nothing except that something of ours is broken.
+  section("the worker's voice and the customer's are not the same voice");
+  const WW = primetv.WORKER_WHY;
+  const INTERNAL = /browser|worker|amazon|device list|registration box|security check|signed out of this account/i;
+  Object.keys(WW).forEach((c) => {
+    ok('owner and customer are told different things: ' + c, WW[c].owner !== WW[c].customer, WW[c]);
+    ok('nothing internal reaches the customer: ' + c, !INTERNAL.test(WW[c].customer), WW[c].customer);
+    ok('the raw code never reaches them either: ' + c, primetv.customerWhy(c).indexOf('worker:') < 0, primetv.customerWhy(c));
+    ok('the owner still gets the real sentence: ' + c, primetv.ownerWhy(c) === WW[c].owner);
+  });
+  ok("the owner's own typing passes through untouched",
+    primetv.customerWhy('the code had already expired') === 'the code had already expired');
+  ok('…and so does an expiry we wrote ourselves', primetv.customerWhy(primetv.WHY_STALE) === primetv.WHY_STALE);
+
+  reset(); primetv._internal.reset();
+  ACCESS = okAccess;
+  TVROWS.push({ id: 90, sub_id: 'S-TV', account_id: 'PRI-13', phone_norm: '9000000001', service: 'Prime Video',
+    code: '', status: 'FAILED', why: 'worker:signedout', device_name: null, created_at: new Date(), finished_at: new Date() });
+  const seen = await mine('9000000001', 'tok');
+  ok('a signed-out profile is not made the customer problem', seen.why === WW['worker:signedout'].customer, seen);
+  ok('…and no note of ours survives in it', !INTERNAL.test(seen.why), seen.why);
+
+  // 🔒 The guard that stops this returning: read what the worker ACTUALLY posts, not what we remember.
+  // A new internal sentence added to the worker later fails here rather than on somebody's phone.
+  section('every reason the worker posts is fit to be read by a customer');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'worker', 'tvworker.js'), 'utf8');
+  const posted = (src.match(/why: '[^']+'/g) || []).map((m) => m.slice(6, -1));
+  ok('the worker does post reasons, so this is actually checking something', posted.length >= 5, posted);
+  posted.forEach((why) => {
+    if (why.indexOf('worker:') === 0) {
+      ok('a posted code has a translation: ' + why, !!WW[why], why);
+    } else {
+      ok('a posted sentence is plain customer English: ' + why.slice(0, 45), !INTERNAL.test(why), why);
+    }
+  });
 
   section('nothing waiting');
   reset(); primetv._internal.reset();
