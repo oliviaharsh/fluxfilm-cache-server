@@ -47,14 +47,18 @@ const ADMIN = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
   ok('🔒 digits are tabular, so a rolling number does not make the row dance', /tabular-nums/.test(src));
 
   section('a change is news; being looked at is not');
-  ok('coming into sight does NOT flash — the number is only arriving', /const inSight = lastView\.current !== view/.test(src) && /const news = !inSight && prev !== to/.test(src));
+  ok('coming into sight does NOT flash — the number is only arriving', /const inSight = lastView\.current !== view/.test(src) && /const news = !inSight && !pulse && prev !== to/.test(src));
   ok('…but a real change does, briefly', /setTimeout\(\(\) => setBumped\(false\), 1400\)/.test(src));
   ok('the flash is colour and scale, which needs no layout and cannot shift the page',
     /transform: bumped \? 'scale\(1\.06\)' : 'none'/.test(src) && /color: bumped \? C\.green2 : C\.green/.test(src));
-  ok('the roll from nothing is slower than a later tick, because it has further to travel', /inSight \? 1100 : 700/.test(src));
+  ok('the roll from nothing is slower than a later tick, because it has further to travel', /inSight \? 1100 : pulse \? 900 : 700/.test(src));
+  ok('🔒 a heartbeat runs only the last stretch, so the figure is never left reading far below the truth '
+    + 'on a panel whose whole job is to be believed',
+    /const lastStretch = Math\.max\(1, Math\.round\(to \* 0\.03\)\)/.test(src)
+    && /pulse \? Math\.max\(0, to - lastStretch\)/.test(src), src.slice(src.indexOf('const lastStretch'), src.indexOf('const lastStretch') + 160));
   ok('🔒 and it is driven by being SEEN, not by the data arriving — the board sits below the fold, so a roll '
     + 'tied to the fetch is over before anybody has scrolled to it', /function useInSight\(/.test(HTML)
-    && /const view = useInSight\(card, !!t\)/.test(HTML) && /\}, \[to, view\]\);/.test(src));
+    && /const \[view, beat\] = useInSight\(card, !!t\)/.test(HTML) && /\}, \[to, view, beat\]\);/.test(src));
 
   section('🔒 somebody who asked for no animation gets none');
   ok('prefers-reduced-motion is checked', /matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches/.test(src));
