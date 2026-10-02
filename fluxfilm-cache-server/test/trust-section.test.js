@@ -115,7 +115,7 @@ Module._load = origLoad;
   // ── the big numbers: what came before, plus what is counted ──────────────────────────────────
   section('the numbers are the past PLUS the present, and the present moves');
   reset(); trust._internal.reset();
-  let t = await trust.getTrust();
+  let t = await trust.getTrust(NOW);
   // The fake database holds 6 paid orders from 3 customers, 2 of whom came back.
   ok('out of the box the old "5,000+" claim is carried over, so the site does not suddenly show 6',
     t.totals.orders === 5000, t.totals);
@@ -129,7 +129,7 @@ Module._load = origLoad;
   section('it rises on its own when a real order lands');
   ORDERS.push({ status: 'PAID', order_type: 'NEW', phone_norm: '9000000007', service: 'Netflix', plan: 'Sharing 1M', at: '2026-10-01 21:58:00', name: 'New Person', email: 'n7@example.com', order_id: 'FF8888888' });
   trust._internal.reset();
-  let t2 = await trust.getTrust();
+  let t2 = await trust.getTrust(NOW);
   ok('🔒 one more paid order, one more on the total — nobody edited anything',
     t2.totals.orders === t.totals.orders + 1, { before: t.totals.orders, after: t2.totals.orders });
   ok('…and one more customer served', t2.totals.customers === t.totals.customers + 1, t2.totals);
@@ -138,14 +138,14 @@ Module._load = origLoad;
   reset(); trust._internal.reset();
   let r = await trust.saveSettings({ baselineOrders: 4200, baselineCustomers: 600, since: '2023' });
   trust._internal.reset();
-  t = await trust.getTrust();
+  t = await trust.getTrust(NOW);
   ok('typed baselines are added to the counted ones', r.ok && t.totals.orders === 4206 && t.totals.customers === 603, t.totals);
   ok('…and the year changes with it', t.since === '2023');
   ok('🔒 once set, the old claim is ignored completely', (await trust.getSettings(true)).baselineOrders === 4200);
   ok('a baseline of zero is a real answer, not "unset"',
     (await trust.saveSettings({ baselineOrders: 0 })).settings.baselineOrders === 0);
   trust._internal.reset();
-  ok('…so the total is then exactly what the database counts', (await trust.getTrust()).totals.orders === 6);
+  ok('…so the total is then exactly what the database counts', (await trust.getTrust(NOW)).totals.orders === 6);
   ok('an empty box means "not said yet" and falls back again',
     (await trust.saveSettings({ baselineOrders: '' })).settings.baselineOrders === null);
   ok('🔒 a baseline that is not a whole number is refused with a reason',
@@ -160,7 +160,7 @@ Module._load = origLoad;
   reset(); trust._internal.reset();
   await trust.saveSettings({ baselineOrders: 4000, baselineCustomers: 1100, baselineRecurring: 700, baselineRenewals: 1400 });
   trust._internal.reset();
-  t = await trust.getTrust();
+  t = await trust.getTrust(NOW);
   // The fake database holds 6 paid orders · 3 customers · 2 of them repeat · 2 renewals.
   ok('orders', t.totals.orders === 4006, t.totals);
   ok('customers served', t.totals.customers === 1103, t.totals);
@@ -175,7 +175,7 @@ Module._load = origLoad;
   section('and they all still move on their own');
   ORDERS.push({ status: 'PAID', order_type: 'RENEW', phone_norm: '9000000001', service: 'Netflix', plan: 'Sharing 1M', at: '2026-10-01 21:59:00', name: 'Amit Sharma', email: 'amit@example.com', order_id: 'FF9999991' });
   trust._internal.reset();
-  const after = (await trust.getTrust()).totals;
+  const after = (await trust.getTrust(NOW)).totals;
   ok('🔒 one more paid renewal: orders AND renewals both rise, nobody edited anything',
     after.orders === t.totals.orders + 1 && after.renewals === t.totals.renewals + 1, { before: t.totals, after });
 
@@ -203,7 +203,7 @@ Module._load = origLoad;
   // ── privacy ──────────────────────────────────────────────────────────────────────────────────────────────
   section('nothing here can identify a customer');
   reset(); trust._internal.reset();
-  t = await trust.getTrust();
+  t = await trust.getTrust(NOW);
   const blob = JSON.stringify(t);
   ok('🔒 no phone number anywhere in what the storefront is sent', !/9000000\d{3}/.test(blob), blob.slice(0, 200));
   ok('🔒 no customer name', !/Amit|Keshav|Sudhi/.test(blob));
@@ -212,6 +212,12 @@ Module._load = origLoad;
   ok('the ticker says what happened and roughly when, and no more',
     t.recent[0].service === 'Netflix (Group Offer)' && t.recent[0].kind === 'started' && /ago|just now/.test(t.recent[0].ago)
     && Object.keys(t.recent[0]).sort().join() === 'ago,kind,plan,service', t.recent[0]);
+  // The fixture is dated five minutes before NOW, so this can only read "5 min ago" if getTrust used the
+  // clock it was HANDED. It used to fall through to the real Date.now(): the assertion above passed all day
+  // and then went red at 21:55, when real time crossed 24 hours past a fixture dated the previous evening.
+  ok('🔒 and it is dated by the clock it was GIVEN, not by the real one — otherwise this file goes red on '
+    + 'its own one evening, with no commit behind it',
+    t.recent[0].ago === '5 min ago', t.recent[0].ago);
   ok('a renewal reads as a renewal', t.recent[1].kind === 'renewed' && t.recent[1].service === 'Prime Video', t.recent[1]);
   ok('🔒 an unpaid order is NOT in the ticker — it would be announcing a sale that never happened',
     !t.recent.some((x) => x.service === 'Netflix' && x.plan === 'Private 1M' && /min ago/.test(x.ago)), t.recent);
@@ -228,7 +234,7 @@ Module._load = origLoad;
   // ── the journey ──────────────────────────────────────────────────────────────────────────────────────────
   section('the journey');
   reset(); trust._internal.reset();
-  t = await trust.getTrust();
+  t = await trust.getTrust(NOW);
   // The owner is planning the wording. A draft nobody checked must never appear on a section whose whole job
   // is to be trusted, so there is nothing shipped that could be switched on by mistake.
   ok('⏸️ the journey ships EMPTY and OFF', t.journey.length === 0, t.journey);
@@ -236,7 +242,7 @@ Module._load = origLoad;
     (await trust.getSettings(true)).journey.length === 0 && (await trust.getSettings(true)).showJourney === false);
   r = await trust.saveSettings({ showJourney: true, journey: [{ when: '2024', title: 'Started', text: 'With friends.' }, { when: '', title: '', text: '' }] });
   trust._internal.reset();
-  t = await trust.getTrust();
+  t = await trust.getTrust(NOW);
   ok('the owner can rewrite it, and a blank row is dropped rather than rendered as a gap', r.ok && t.journey.length === 1 && t.journey[0].title === 'Started', t.journey);
   r = await trust.saveSettings({ showJourney: true, journey: new Array(20).fill({ when: '2024', title: 'x', text: 'y' }) });
   ok('🔒 the list is capped so the home screen cannot be flooded', r.ok && r.settings.journey.length === trust.JOURNEY_MAX, r.settings.journey.length);
@@ -246,29 +252,29 @@ Module._load = origLoad;
   section('the owner can turn any of it off');
   reset(); trust._internal.reset();
   await trust.saveSettings({ showTicker: false }); trust._internal.reset();
-  t = await trust.getTrust();
+  t = await trust.getTrust(NOW);
   ok('ticker off', t.recent.length === 0 && t.services.length > 0 && t.on === true, { recent: t.recent.length, services: t.services.length });
   await trust.saveSettings({ showServices: false, showJourney: true, journey: [{ when: '2024', title: 'Started', text: 'x' }] });
   trust._internal.reset();
-  t = await trust.getTrust();
+  t = await trust.getTrust(NOW);
   ok('badges off, the journey the owner wrote stays', t.services.length === 0 && t.journey.length === 1 && t.live.running === 5, t);
   await trust.saveSettings({ showJourney: false }); trust._internal.reset();
-  ok('journey off again', (await trust.getTrust()).journey.length === 0);
+  ok('journey off again', (await trust.getTrust(NOW)).journey.length === 0);
   await trust.saveSettings({ enabled: false }); trust._internal.reset();
-  t = await trust.getTrust();
+  t = await trust.getTrust(NOW);
   ok('🔒 the whole section off = { on: false } and the home screen draws nothing', t.ok === true && t.on === false, t);
 
   // ── it must never break the home screen ──────────────────────────────────────────────────────────────────
   section('a broken database must not break the landing page');
   reset(); trust._internal.reset();
   missing.add('subscriptions');
-  t = await trust.getTrust();
+  t = await trust.getTrust(NOW);
   ok('no subscriptions table: the section still answers ok', t.ok === true && t.on === true, t);
   ok('…with 0 rather than a wrong or invented number', t.live.running === 0 && t.services.length === 0, t.live);
   ok('…and the parts that CAN be read are still right', t.live.comeBackPct === 67 && t.recent.length > 0, t.live);
   reset(); trust._internal.reset();
   missing.add('orders'); missing.add('subscriptions'); missing.add('app_settings');
-  t = await trust.getTrust();
+  t = await trust.getTrust(NOW);
   ok('🔒 nothing readable at all: still ok, nothing invented', t.ok === true && t.live.running === 0 && t.live.comeBackPct === 0 && !t.recent.length, t);
   ok('…and the carried-over baseline still shows, because it was never a database number', t.totals.orders === 5000, t.totals);
 
@@ -276,7 +282,7 @@ Module._load = origLoad;
   reset(); trust._internal.reset();
   const realQuery = mockDb.query;
   mockDb.query = async () => { throw new Error('connection lost'); };
-  t = await trust.getTrust();
+  t = await trust.getTrust(NOW);
   mockDb.query = realQuery;
   ok('🔒 { ok: true, on: false } — the landing screen simply shows less', t.ok === true && t.on === false, t);
 
@@ -285,10 +291,10 @@ Module._load = origLoad;
   reset(); trust._internal.reset();
   // The very first load also carries the old claim over and writes it down, which costs one extra round. That
   // happens once, ever - so measure the steady state, and check the one-off separately below.
-  await trust.getTrust();
-  await trust.getTrust();
+  await trust.getTrust(NOW);
+  await trust.getTrust(NOW);
   const n1 = SQL.length;
-  await trust.getTrust(); await trust.getTrust();
+  await trust.getTrust(NOW); await trust.getTrust(NOW);
   ok('two more home loads, not one more query', SQL.length === n1, { settled: n1, after: SQL.length });
   ok('🔒 and the carry-over was written down exactly ONCE',
     SQL.filter((q) => /^INSERT INTO app_settings/.test(q)).length === 1, SQL.filter((q) => /^INSERT INTO app_settings/.test(q)).length);
