@@ -1,0 +1,4 @@
+# 🔒 Signed-in Amazon browser profiles. These ARE the sessions — never commit them, never copy them around.
+profiles/
+node_modules/
+.env

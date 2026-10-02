@@ -1,0 +1,14 @@
+{
+  "name": "fluxfilm-tv-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Registers customers' TVs on Prime Video. Runs on the owner's own machine, never on Hostinger.",
+  "scripts": {
+    "login": "node tvworker.js login",
+    "check": "node tvworker.js check",
+    "start": "node tvworker.js run"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}

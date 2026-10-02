@@ -58,16 +58,39 @@ const db = {
       return { affectedRows: n };
     }
     if (/UPDATE tv_activations SET status = 'DONE'/.test(sql)) {
-      const r = TVROWS.find((x) => x.id === p[2] && x.status === 'PENDING');
+      const r = TVROWS.find((x) => x.id === p[2] && ['PENDING', 'CLAIMED'].indexOf(x.status) >= 0);
       if (!r) return { affectedRows: 0 };
       r.status = 'DONE'; r.code = ''; r.device_name = p[0]; r.finished_at = p[1];
       return { affectedRows: 1 };
     }
     if (/UPDATE tv_activations SET status = 'FAILED'/.test(sql)) {
-      const r = TVROWS.find((x) => x.id === p[2] && x.status === 'PENDING');
+      const r = TVROWS.find((x) => x.id === p[2] && ['PENDING', 'CLAIMED'].indexOf(x.status) >= 0);
       if (!r) return { affectedRows: 0 };
       r.status = 'FAILED'; r.code = ''; r.why = p[0]; r.finished_at = p[1];
       return { affectedRows: 1 };
+    }
+    if (/SELECT id FROM tv_activations WHERE status = 'PENDING'/.test(sql)) {
+      const next = TVROWS.filter((r) => r.status === 'PENDING').sort((a, b) => a.id - b.id)[0];
+      return next ? [{ id: next.id }] : [];
+    }
+    if (/UPDATE tv_activations SET status = 'CLAIMED'/.test(sql)) {
+      // 🔒 Honour the WHERE clause AS WRITTEN. The first version of this fake applied the PENDING guard
+      // itself, so the test passed even with the guard deleted from the SQL — a fixture doing the work it is
+      // supposed to be checking. A test that cannot fail is worse than no test.
+      const guarded = /AND status = 'PENDING'/.test(sql);
+      const r = TVROWS.find((x) => x.id === p[2] && (!guarded || x.status === 'PENDING'));
+      if (!r) return { affectedRows: 0 };
+      r.status = 'CLAIMED'; r.claimed_at = p[0]; r.claimed_by = p[1];
+      return { affectedRows: 1 };
+    }
+    if (/UPDATE tv_activations SET status = 'PENDING'/.test(sql)) {
+      let n = 0;
+      for (const r of TVROWS) { if (r.status === 'CLAIMED' && r.claimed_at < p[0]) { r.status = 'PENDING'; r.claimed_at = null; r.claimed_by = null; n++; } }
+      return { affectedRows: n };
+    }
+    if (/SELECT id, sub_id, account_id, service, code FROM tv_activations WHERE id/.test(sql)) {
+      const r = TVROWS.find((x) => x.id === p[0]);
+      return r ? [r] : [];
     }
     if (/SELECT COUNT\(\*\) n FROM tv_activations/.test(sql)) {
       return [{ n: TVROWS.filter((r) => r.sub_id === p[0] && !(r.status === 'EXPIRED' && r.why === p[2])).length }];
@@ -213,6 +236,60 @@ const mine = (ph, tok) => primetv.mine(ph, tok, { access: access });
   } catch (e) { threw = true; }
   ok('nothing throws', !threw);
   ok('…it just says it is not ready, so the storefront draws no tool', r.ready === false && m.ready === false, { r, m });
+
+  // -- the worker's claim ----------------------------------------------------------------------------------
+  section('a worker takes a job');
+  reset(); primetv._internal.reset();
+  ACCESS = okAccess; UNLOCKED = [sub([{ sub_id: 'S-TV', order_id: 'W1' }])];
+  await submit('9000000001', 'tok', 'JOB111');
+  let c = await primetv.claim('laptop');
+  ok('it gets the waiting job, with the code', c.job && c.job.code === 'JOB111' && c.job.accountId === 'PRI-13', c.job);
+  ok('the row is marked as held, and by whom', TVROWS[0].status === 'CLAIMED' && TVROWS[0].claimed_by === 'laptop', TVROWS[0]);
+
+  section('LOCKED two workers can never take the same code');
+  ok('the second one gets nothing', (await primetv.claim('vps')).job === null);
+  ok('...and the row is still held by the first', TVROWS[0].claimed_by === 'laptop', TVROWS[0]);
+
+  section('LOCKED two workers asking at the SAME MOMENT');
+  // Sequentially the second worker's SELECT simply finds nothing, so the guard on the UPDATE is never
+  // exercised — the first version of this test passed with the guard deleted. The race only exists when both
+  // workers read the queue before either writes to it, so both must be in flight at once.
+  reset(); primetv._internal.reset();
+  ACCESS = okAccess; UNLOCKED = [sub([{ sub_id: 'S-TV', order_id: 'W1b' }])];
+  await submit('9000000001', 'tok', 'RACE11');
+  const both = await Promise.all([primetv.claim('one'), primetv.claim('two')]);
+  const got = both.filter((x) => x.job);
+  ok('LOCKED exactly one of them gets it - the UPDATE is the lock, not the SELECT',
+    got.length === 1, both.map((x) => (x.job ? x.job.id : null)));
+  ok('...and the code was handed out once', TVROWS.filter((r) => r.status === 'CLAIMED').length === 1, TVROWS);
+
+  section('LOCKED a worker that dies does not strand the customer');
+  reset(); primetv._internal.reset();
+  ACCESS = okAccess; UNLOCKED = [sub([{ sub_id: 'S-TV', order_id: 'W2' }])];
+  const tA = Date.now();
+  await submit('9000000001', 'tok', 'JOB222', '', { now: tA });
+  await primetv.claim('laptop', { now: tA });
+  ok('held', TVROWS[0].status === 'CLAIMED');
+  await primetv.reapClaims(tA + (primetv.CLAIM_STUCK_MIN + 1) * 60e3);
+  ok('after it goes quiet the job returns to the queue', TVROWS[0].status === 'PENDING' && !TVROWS[0].claimed_by, TVROWS[0]);
+  ok('LOCKED the code survives the round trip - reaping must not destroy the thing the job needs',
+    TVROWS[0].code === 'JOB222', TVROWS[0].code);
+  const again = await primetv.claim('laptop', { now: tA + (primetv.CLAIM_STUCK_MIN + 1) * 60e3 });
+  ok('so another worker can pick it up', again.job && again.job.code === 'JOB222', again.job);
+
+  section('finishing a claimed job');
+  reset(); primetv._internal.reset();
+  ACCESS = okAccess; UNLOCKED = [sub([{ sub_id: 'S-TV', order_id: 'W3' }])];
+  await submit('9000000001', 'tok', 'JOB333');
+  const held = await primetv.claim('laptop');
+  const done = await db.query("UPDATE tv_activations SET status = 'DONE', code = '', device_name = ?, why = NULL, finished_at = ? WHERE id = ? AND status IN ('PENDING', 'CLAIMED')", ['Fire TV Stick', new Date(), held.job.id]);
+  ok('a CLAIMED row can be marked done - the worker holds it, not the owner', done.affectedRows === 1, done);
+  ok('the device name is kept, because removal will need it', TVROWS[0].device_name === 'Fire TV Stick', TVROWS[0]);
+  ok('LOCKED and the code is gone', TVROWS[0].code === '', TVROWS[0]);
+
+  section('nothing waiting');
+  reset(); primetv._internal.reset();
+  ok('the worker is told so plainly rather than given a half job', (await primetv.claim('laptop')).job === null);
 
   console.log('\n---------------------------------------');
   console.log('prime-tv: PASS ' + pass + '   FAIL ' + fail);
