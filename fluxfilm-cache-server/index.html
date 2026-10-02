@@ -987,6 +987,32 @@ button:active:where(:not(:disabled)) { filter: brightness(.94); }
   .ff-hello-orb, .ff-hello-kick, .ff-hello-w, .ff-hello-emo, .ff-bnav-btn.on .ff-bnav-ic { animation: none !important; }
   .ff-bnav-btn, .ff-bnav-btn::before, button { transition: none; }
 }
+/* 🟢 The trust scoreboard (owner, 2 Oct 2026). All decoration, no information: the text underneath is already
+   correct and already readable, so the reduced-motion block at the bottom can simply turn the lot off. */
+@keyframes ffTsGlow { 0%, 100% { text-shadow: 0 0 6px rgba(34,197,94,.26), 0 0 15px rgba(34,197,94,.11); } 50% { text-shadow: 0 0 12px rgba(34,197,94,.52), 0 0 26px rgba(34,197,94,.26); } }
+.ff-ts-neon { animation: ffTsGlow 2.8s ease-in-out infinite; }
+/* …and it burns faster for a moment after the figure actually moves. Must stay AFTER .ff-ts-neon. */
+.ff-ts-hot { animation-duration: .5s; }
+/* The live dots are status lights, so they behave like them: mostly steady, with the occasional stutter. */
+@keyframes ffTsFlick { 0%, 6%, 13%, 60%, 100% { opacity: 1; transform: scale(1); } 8% { opacity: .28; transform: scale(.8); } 10.5% { opacity: 1; transform: scale(1.16); } 64% { opacity: .38; transform: scale(.86); } 68% { opacity: 1; } }
+.ff-ts-dot { box-shadow: 0 0 5px rgba(34,197,94,.85), 0 0 11px rgba(34,197,94,.4); animation: ffTsFlick 3.6s ease-in-out infinite; }
+/* The ticker types itself on. clip-path reveals the line WITHOUT changing its width, so nothing reflows and a
+   row cannot jump about while it is being written; the caret walks the same steps, so the two stay together. */
+.ff-ts-line { position: relative; display: inline-block; max-width: 100%; }
+.ff-ts-typed { display: inline-block; }
+@keyframes ffTsType { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes ffTsRun { 0% { left: 0; opacity: 1; } 92% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+.ff-ts-caret { position: absolute; top: 1px; height: 1em; width: 2px; border-radius: 1px; background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,.75); opacity: 0; pointer-events: none; }
+/* The three lines under the figures arrive in turn when the section is opened: three things at once is a
+   flash, three things in turn is a shop with something going on in it. */
+@keyframes ffTsBul { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.ff-ts-bullet { animation: ffTsBul .5s cubic-bezier(.2,.8,.2,1) both; }
+@media (prefers-reduced-motion: reduce) {
+  /* !important on purpose: the per-line timings are set inline, and an inline style otherwise wins. Every
+     resting state above is the finished state, so switching the animation off leaves the section complete. */
+  .ff-ts-neon, .ff-ts-dot, .ff-ts-typed, .ff-ts-bullet { animation: none !important; }
+  .ff-ts-caret { display: none; }
+}
 </style>
 <script>
 // Low-end phone (≤2 CPU cores or ≤2 GB RAM): html.ff-lite trims the extra 3D flourishes (stagger, shine, rings).
@@ -4303,6 +4329,8 @@ function ScoreNum({
       flex: '1 1 86px'
     }
   }, React.createElement("div", {
+    // Neon, breathing; and burning faster for a moment after the figure has actually moved.
+    className: "ff-ts-neon" + (bumped ? ' ff-ts-hot' : ''),
     style: {
       fontFamily: PJS,
       fontSize: 24,
@@ -4324,6 +4352,22 @@ function ScoreNum({
       marginTop: 3
     }
   }, label));
+}
+
+// The same rolling figure, inline and small: the count on a service badge. Owner: "each subs wise numbers".
+// These move for exactly the reason the headline does — somebody has just bought that one.
+function ScoreBit({
+  value
+}) {
+  const [n, hot] = useCountUp(value);
+  return React.createElement("b", {
+    className: "ff-ts-neon" + (hot ? ' ff-ts-hot' : ''),
+    style: {
+      color: hot ? C.green2 : C.green,
+      transition: 'color .25s ease',
+      fontVariantNumeric: 'tabular-nums'
+    }
+  }, Number(n || 0).toLocaleString('en-IN'));
 }
 
 // 🏆 Why trust us (trust.js → getTrust). The four cards above are CLAIMS; this is the evidence under them.
@@ -4414,12 +4458,22 @@ function TrustProof({
       flex: 1,
       minWidth: 0
     }
-  }, T.orders > 0 ? nf(T.orders) + ' orders' : 'Why trust us', T.customers > 0 ? React.createElement("span", {
+  }, T.orders > 0 ? React.createElement("span", {
+    className: "ff-ts-neon",
+    style: {
+      color: C.green
+    }
+  }, nf(T.orders)) : null, T.orders > 0 ? ' orders' : 'Why trust us', T.customers > 0 ? React.createElement("span", {
     style: {
       color: C.muted,
       fontWeight: 600
     }
-  }, " · ", nf(T.customers), " customers served") : null), React.createElement("span", {
+  }, " · ", React.createElement("span", {
+    className: "ff-ts-neon",
+    style: {
+      color: C.green
+    }
+  }, nf(T.customers)), " customers served") : null), React.createElement("span", {
     style: {
       fontFamily: PJS,
       fontSize: 11,
@@ -4474,7 +4528,13 @@ function TrustProof({
       lineHeight: 1.7
     }
   }, small.map((x, i) => React.createElement("div", {
-    key: i
+    // Keyed by the WORDS, not the position: a line whose number has changed is a new line and arrives again,
+    // while the two that have not changed are left alone instead of being replayed every refresh.
+    key: x,
+    className: "ff-ts-bullet",
+    style: {
+      animationDelay: (i * 0.12).toFixed(2) + 's'
+    }
   }, "· ", x))) : null, (t.services || []).length ? React.createElement("div", {
     style: {
       display: 'flex',
@@ -4493,11 +4553,9 @@ function TrustProof({
       borderRadius: R.badge,
       padding: '5px 10px'
     }
-  }, sv.service, ' ', React.createElement("b", {
-    style: {
-      color: C.green
-    }
-  }, sv.n)))) : null, (t.recent || []).length ? React.createElement("div", {
+  }, sv.service, ' ', React.createElement(ScoreBit, {
+    value: sv.n
+  })))) : null, (t.recent || []).length ? React.createElement("div", {
     style: {
       marginTop: 14,
       paddingTop: 14,
@@ -4513,36 +4571,61 @@ function TrustProof({
       textTransform: 'uppercase',
       marginBottom: 8
     }
-  }, "Just now on FluxFilm"), t.recent.slice(0, 4).map((x, i) => React.createElement("div", {
-    key: i,
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      fontFamily: PJS,
-      fontSize: 12,
-      color: C.muted,
-      fontWeight: 500,
-      padding: '3px 0'
-    }
-  }, React.createElement("span", {
-    style: {
-      width: 6,
-      height: 6,
-      borderRadius: 999,
-      background: C.green2,
-      flex: 'none'
-    }
-  }), React.createElement("span", null, "Someone ", x.kind, " ", React.createElement("b", {
-    style: {
-      color: C.text,
-      fontWeight: 700
-    }
-  }, x.service), x.plan ? ' ' + x.plan : '', React.createElement("span", {
-    style: {
-      color: C.subtle
-    }
-  }, " · ", x.ago))))) : null, (t.journey || []).length ? React.createElement("div", {
+  }, "Just now on FluxFilm"), t.recent.slice(0, 4).map((x, i) => {
+    // Typed on at about the speed a person types, each line waiting its turn. The duration comes from the
+    // line's OWN length, so a short one is not left with the caret parked at the end of it.
+    const len = Math.max(8, Math.min(48, ('Someone ' + x.kind + ' ' + x.service + (x.plan || '') + ' ' + x.ago).length));
+    // One timing string for both: the caret steps in lockstep with the reveal, which is what makes it read
+    // as typing rather than as a wipe.
+    const run = ' ' + (len * 0.032).toFixed(2) + 's steps(' + len + ', end) ' + (i * 0.26).toFixed(2) + 's both';
+    return React.createElement("div", {
+      // Keyed by what the line SAYS: a genuinely new event types itself on, an unchanged one is left alone
+      // rather than being retyped every minute when the board refreshes.
+      key: x.service + '|' + x.kind + '|' + x.ago + '|' + i,
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        fontFamily: PJS,
+        fontSize: 12,
+        color: C.muted,
+        fontWeight: 500,
+        padding: '3px 0'
+      }
+    }, React.createElement("span", {
+      className: "ff-ts-dot",
+      style: {
+        width: 6,
+        height: 6,
+        borderRadius: 999,
+        background: C.green2,
+        flex: 'none',
+        // Its own beat, or four dots blink together and it looks like one thing, not four.
+        animationDelay: (i * 0.55).toFixed(2) + 's'
+      }
+    }), React.createElement("span", {
+      className: "ff-ts-line"
+    }, React.createElement("span", {
+      className: "ff-ts-typed",
+      style: {
+        animation: 'ffTsType' + run
+      }
+    }, "Someone ", x.kind, " ", React.createElement("b", {
+      style: {
+        color: C.text,
+        fontWeight: 700
+      }
+    }, x.service), x.plan ? ' ' + x.plan : '', React.createElement("span", {
+      style: {
+        color: C.subtle
+      }
+    }, " · ", x.ago)), React.createElement("i", {
+      className: "ff-ts-caret",
+      style: {
+        animation: 'ffTsRun' + run
+      }
+    })));
+  })) : null, (t.journey || []).length ? React.createElement("div", {
     style: {
       marginTop: 14,
       paddingTop: 14,
