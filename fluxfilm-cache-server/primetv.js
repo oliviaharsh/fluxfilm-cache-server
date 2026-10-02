@@ -46,6 +46,50 @@ const WHY_REPLACED = 'replaced by a newer code';
 // goes back in the queue — a crashed worker should cost a minute, not a stuck customer at one in the morning.
 const CLAIM_STUCK_MIN = 3;
 
+/**
+ * 📺 The things only the WORKER says, in both voices.
+ *
+ * 🔒 mine() hands `why` straight to the storefront, so whatever the worker writes there is a sentence a
+ * paying customer reads on their phone at one in the morning. "the browser is signed out of this account"
+ * is a note to the owner; it tells the customer nothing, and it tells them something is broken on our side.
+ * So the worker now posts a CODE, and the code has two translations: one for admin, one for the customer.
+ *
+ * Anything that is not a code passes through untouched — the owner types his own wording into the "Could
+ * not" box in admin, and that is already meant for the customer.
+ */
+const WORKER_WHY = {
+  'worker:signedout': {
+    owner: 'the browser is signed out of this account - run `login` again',
+    customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
+  },
+  'worker:security': {
+    owner: 'Amazon put a security check in the way - open the account by hand',
+    customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
+  },
+  'worker:unreadable': {
+    owner: 'the device list did not load, so we could not tell what changed',
+    customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
+  },
+  'worker:noform': {
+    owner: 'the registration box was not where we expected it - Amazon may have changed the page',
+    customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
+  },
+  'worker:stuck': {
+    owner: 'this account has failed repeatedly - the worker has stopped touching it',
+    customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
+  },
+  'worker:crashed': {
+    owner: 'the worker could not finish it',
+    customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
+  },
+  'worker:notregistered': {
+    owner: 'the code was entered but no new device appeared - most likely it had expired',
+    customer: 'That code did not go through - it had probably expired. Codes last about ten minutes, so get a fresh one on your TV and send it again.',
+  },
+};
+const ownerWhy = (why) => (WORKER_WHY[s(why)] ? WORKER_WHY[s(why)].owner : s(why));
+const customerWhy = (why) => (WORKER_WHY[s(why)] ? WORKER_WHY[s(why)].customer : s(why));
+
 const s = (v) => String(v == null ? '' : v).trim();
 const up = (v) => s(v).toUpperCase();
 const norm = (v) => s(v).replace(/\D/g, '').slice(-10);
@@ -225,7 +269,7 @@ async function mine(phone, token, deps) {
   return {
     ok: true, ready: true, found: true,
     status: up(r.status),
-    why: s(r.why) || '',
+    why: customerWhy(r.why),
     deviceName: s(r.device_name) || '',
     at: r.created_at || null,
   };
@@ -251,6 +295,8 @@ function mount(app, deps) {
         "WHERE t.status IN ('PENDING', 'CLAIMED') ORDER BY t.id ASC LIMIT 50");
       const recent = await db.query(
         "SELECT id, sub_id, account_id, service, status, why, device_name, created_at, finished_at FROM tv_activations WHERE status NOT IN ('PENDING', 'CLAIMED') ORDER BY id DESC LIMIT 25");
+      // The owner gets the real sentence, the customer got the kind one. Same row, two readers.
+      (recent || []).forEach((r) => { r.why = ownerWhy(r.why); });
       res.json({ ok: true, ready: true, pending: pending || [], recent: recent || [] });
     } catch (e) { fail(res, e); }
   });
@@ -299,7 +345,7 @@ function mount(app, deps) {
 }
 
 module.exports = {
-  submit, mine, mount, ready, expireStale, claim, reapClaims,
-  STALE_MIN, PER_SUB_DAY, WHY_STALE, WHY_REPLACED, CLAIM_STUCK_MIN,
+  submit, mine, mount, ready, expireStale, claim, reapClaims, ownerWhy, customerWhy,
+  STALE_MIN, PER_SUB_DAY, WHY_STALE, WHY_REPLACED, CLAIM_STUCK_MIN, WORKER_WHY,
   _internal: { cleanCode, hasTv, isPrime, primeRowsFor, reset: () => { readyCache = null; } },
 };

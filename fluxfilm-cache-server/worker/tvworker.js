@@ -41,6 +41,18 @@ const CFG = {
 };
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
+
+// Only for what this worker prints on screen. The customer's wording lives in primetv.js, deliberately in
+// one place, so the two can never drift into saying different things.
+const WORKER_SAYS = {
+  'worker:signedout': 'signed out of this account - run `login` again',
+  'worker:security': 'Amazon put a security check in the way',
+  'worker:unreadable': 'the device list did not load',
+  'worker:noform': 'the registration box was not where we expected it',
+  'worker:stuck': 'this account keeps failing - leaving it alone',
+  'worker:crashed': 'the worker could not finish it',
+  'worker:notregistered': 'no new device appeared - the code had probably expired',
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function playwright() {
@@ -153,9 +165,11 @@ async function deviceList(page) {
 }
 
 /** Why we had to stop, in words the owner can act on. */
-const whyKind = (kind) => kind === 'signin' ? 'the browser is signed out of this account'
-  : kind === 'unreadable' ? 'the device list did not load, so we could not tell what changed'
-  : 'the page asked for a security check';
+// A CODE, not a sentence: the shop turns it into one line for the owner and a different one for the
+// customer, because `why` is handed straight to the customer's screen. See WORKER_WHY in primetv.js.
+const whyKind = (kind) => kind === 'signin' ? 'worker:signedout'
+  : kind === 'unreadable' ? 'worker:unreadable'
+  : 'worker:security';
 
 async function doJob(ctx, job) {
   const page = await ctx.newPage();
@@ -172,12 +186,12 @@ async function doJob(ctx, job) {
     // second because the page also carries a hidden Search field that could open and match first.
     let box = page.locator('#av-cbl-code, input[name="code"]:visible').first();
     if (!(await box.count())) box = page.locator('input[type="text"]:visible').first();
-    if (!(await box.count())) return { ok: false, why: 'the registration box was not where we expected it' , needsOwner: true };
+    if (!(await box.count())) return { ok: false, why: 'worker:noform', needsOwner: true };
     // 🔒 That box carries maxlength=6. A longer code would be silently CLIPPED by the browser and we would
     // register something the customer never typed, so refuse and say why instead.
     const max = await box.evaluate((el) => (el.maxLength > 0 ? el.maxLength : 0)).catch(() => 0);
     if (max && job.code.length > max) {
-      return { ok: false, why: 'that code is ' + job.code.length + ' characters and the TV code box only takes ' + max };
+      return { ok: false, why: 'That code is ' + job.code.length + ' characters long - the box on Prime Video takes ' + max + '. Check the code on your TV and send it again.' };
     }
     await box.fill(job.code);
     const btn = page.getByRole('button', { name: /register/i }).first();
@@ -187,11 +201,11 @@ async function doJob(ctx, job) {
 
     // 🔒 The only thing that counts as success: a device that was not there before, is there now.
     const after = await deviceList(page);
-    if (!after.ok) return { ok: false, why: 'could not read the device list back', needsOwner: true };
+    if (!after.ok) return { ok: false, why: 'worker:unreadable', needsOwner: true };
     // If the account itself still says it has nothing registered, nothing was registered. No diff needed.
-    if (after.empty) return { ok: false, why: 'the code did not register — the account still shows no devices' };
+    if (after.empty) return { ok: false, why: 'worker:notregistered' };
     const fresh = deviceLines(before.lines, after.lines);
-    if (!fresh.length) return { ok: false, why: 'the code did not register — it may have expired' };
+    if (!fresh.length) return { ok: false, why: 'worker:notregistered' };
     // Everything new, joined: usually the device's name and the date it was registered, which is exactly
     // the handle we will need in order to take it off again when the plan ends.
     return { ok: true, deviceName: fresh.join(' · ').slice(0, 160) };
@@ -216,7 +230,7 @@ async function run() {
     const n = fails.get(job.accountId) || 0;
     if (n >= CFG.maxFailsPerAccount) {
       log('⛔ circuit open on ' + job.accountId + ' — not touching it again until this worker restarts');
-      await api('/admin/api/prime-tv/fail', { id: job.id, why: 'this account needs the owner to look at it' });
+      await api('/admin/api/prime-tv/fail', { id: job.id, why: 'worker:stuck' });
       continue;
     }
 
@@ -233,11 +247,11 @@ async function run() {
       } else {
         fails.set(job.accountId, n + 1);
         await api('/admin/api/prime-tv/fail', { id: job.id, why: out.why });
-        log('   ❌ ' + out.why + (out.needsOwner ? '  ← needs the owner' : ''));
+        log('   ❌ ' + (WORKER_SAYS[out.why] || out.why) + (out.needsOwner ? '  ← needs the owner' : ''));
       }
     } catch (e) {
       fails.set(job.accountId, n + 1);
-      await api('/admin/api/prime-tv/fail', { id: job.id, why: 'the worker could not finish it' });
+      await api('/admin/api/prime-tv/fail', { id: job.id, why: 'worker:crashed' });
       log('   ❌ ' + e.message);
     } finally {
       if (ctx) await ctx.close().catch(() => {});
