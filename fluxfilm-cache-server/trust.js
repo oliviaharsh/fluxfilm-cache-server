@@ -294,11 +294,19 @@ function suggestBaselines(cfg, l) {
 
 // ---------------- what the storefront gets ----------------
 /** Public. Never throws: on any trouble it answers { ok: true, on: false } and the home screen shows nothing. */
-async function getTrust() {
+/**
+ * The whole section, as the storefront receives it.
+ * `now` is for tests. live() has always accepted a clock; this did not pass one, so the ticker's "4 min ago"
+ * was worked out from the real Date.now() even when the caller had handed everything else a fixed time. A
+ * test fixture dated yesterday therefore started reading "yesterday" the moment the real clock crossed 24
+ * hours past it, and turned main red at 21:55 one evening with no commit behind it.
+ * CLAUDE.md, bought three times now: if the code under test is handed a `now`, the fake gets the same one.
+ */
+async function getTrust(now) {
   try {
     const cfg = await getSettings();
     if (!cfg.enabled) return { ok: true, on: false };
-    const l = await live();
+    const l = await live(false, now);
     await carryOverBaseline(cfg, l.paidOrders);
     const tt = totalsOf(await getSettings(), l);
     const out = {
