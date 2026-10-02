@@ -1,0 +1,220 @@
+/* 📺 Activate my TV — the queue (primetv.js).
+ *
+ * Owner, 3 Oct 2026: *"can we not just start building a system which does that... test it with one customer
+ * who wants to login on tv"*. So this is Phase 1: the customer types the code off their TV into the shop, it
+ * is queued against the account they are ALREADY on, and the owner registers it. The private worker replaces
+ * the owner later without any of this changing.
+ *
+ * What is worth protecting, and what most of the locked tests below are about:
+ *   · the customer never names an account — it comes from their own subscription row
+ *   · the gate is Get OTP's, not a second one written specially for this
+ *   · the code is never logged, and never left in the database after the row is finished
+ *   · nothing is reported as registered that was not seen to be registered
+ *
+ * Run: npm test */
+process.env.TZ = 'Asia/Kolkata';
+process.env.NODE_ENV = 'test';
+const Module = require('module');
+const path = require('path');
+
+let pass = 0, fail = 0;
+const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x).slice(0, 300) : '')); } };
+const section = (t) => console.log('\n=== ' + t + ' ===');
+
+// ── a database that is just rows in memory ────────────────────────────────────────────────────────────────
+let SUBS, TVROWS, SQL, NEXT_ID, TABLE_MISSING;
+const reset = () => {
+  SUBS = [
+    { sub_id: 'S-TV', service: 'Prime Video', inventory_ref: 'PRI-13', device_type: 'TV', device_count: 1, tv_count: 1 },
+    { sub_id: 'S-PHONE', service: 'Prime Video', inventory_ref: 'PRI-20', device_type: 'NON_TV', device_count: 1, tv_count: 0 },
+    { sub_id: 'S-NFLX', service: 'Netflix', inventory_ref: 'NFLX-1', device_type: '', device_count: 1, tv_count: 0 },
+    { sub_id: 'S-NOACC', service: 'Prime Video', inventory_ref: '', device_type: 'TV', device_count: 1, tv_count: 1 },
+  ];
+  TVROWS = []; SQL = []; NEXT_ID = 1; TABLE_MISSING = false;
+};
+const noTable = () => { const e = new Error("Table 'u.tv_activations' doesn't exist"); return e; };
+
+const db = {
+  query: async (sql, params) => {
+    SQL.push({ sql, params });
+    const p = params || [];
+    if (/FROM tv_activations/.test(sql) || /INTO tv_activations/.test(sql) || /UPDATE tv_activations/.test(sql)) {
+      if (TABLE_MISSING) throw noTable();
+    }
+    if (/SELECT 1 FROM tv_activations/.test(sql)) return [{ 1: 1 }];
+    if (/FROM subscriptions WHERE sub_id IN/.test(sql)) return SUBS.filter((s) => p.indexOf(s.sub_id) >= 0);
+    if (/INSERT INTO tv_activations/.test(sql)) {
+      TVROWS.push({ id: NEXT_ID++, sub_id: p[0], account_id: p[1], phone_norm: p[2], service: p[3], code: p[4], status: p[5], created_at: p[6], why: null, device_name: null, finished_at: null });
+      return { affectedRows: 1 };
+    }
+    if (/UPDATE tv_activations SET status = 'EXPIRED'/.test(sql)) {
+      let n = 0;
+      for (const r of TVROWS) {
+        if (r.status !== 'PENDING') continue;
+        if (/sub_id = \?/.test(sql) && r.sub_id !== p[2]) continue;
+        if (/created_at < \?/.test(sql) && !(r.created_at < p[2])) continue;
+        r.status = 'EXPIRED'; r.code = ''; r.why = p[0]; n++;
+      }
+      return { affectedRows: n };
+    }
+    if (/UPDATE tv_activations SET status = 'DONE'/.test(sql)) {
+      const r = TVROWS.find((x) => x.id === p[2] && x.status === 'PENDING');
+      if (!r) return { affectedRows: 0 };
+      r.status = 'DONE'; r.code = ''; r.device_name = p[0]; r.finished_at = p[1];
+      return { affectedRows: 1 };
+    }
+    if (/UPDATE tv_activations SET status = 'FAILED'/.test(sql)) {
+      const r = TVROWS.find((x) => x.id === p[2] && x.status === 'PENDING');
+      if (!r) return { affectedRows: 0 };
+      r.status = 'FAILED'; r.code = ''; r.why = p[0]; r.finished_at = p[1];
+      return { affectedRows: 1 };
+    }
+    if (/SELECT COUNT\(\*\) n FROM tv_activations/.test(sql)) {
+      return [{ n: TVROWS.filter((r) => r.sub_id === p[0] && !(r.status === 'EXPIRED' && r.why === p[2])).length }];
+    }
+    if (/SELECT status, why, device_name/.test(sql)) {
+      const mine = TVROWS.filter((r) => r.phone_norm === p[0]);
+      return mine.length ? [mine[mine.length - 1]] : [];
+    }
+    if (/t.status = 'PENDING'/.test(sql)) return TVROWS.filter((r) => r.status === 'PENDING');
+    if (/status <> 'PENDING'/.test(sql)) return TVROWS.filter((r) => r.status !== 'PENDING');
+    return [];
+  },
+};
+
+// ── the access gate, faked at its own boundary ────────────────────────────────────────────────────────────
+let ACCESS, UNLOCKED;
+const access = {
+  checkGetOtp: async () => ACCESS,
+  unlockedForToken: async () => UNLOCKED,
+};
+
+const origLoad = Module._load;
+Module._load = function (req, parent, isMain) {
+  if (req === './db') return db;
+  if (req === './otpaccess') return access;
+  return origLoad.apply(this, arguments);
+};
+const primetv = require(path.join(__dirname, '..', 'primetv.js'));
+Module._load = origLoad;
+
+const LOGS = [];
+const realLog = console.log;
+
+const sub = (rows) => ({ rows });
+const okAccess = { ok: true, eh: 'hash' };
+
+// primetv requires ./otpaccess lazily, INSIDE the call — so restoring Module._load before calling it would
+// hand the real module back. (Same trap as about-figures earlier today.) The module takes injected deps for
+// exactly this reason, and injecting is the honest seam anyway: it is what the server would override.
+const submit = (ph, tok, code, ref, extra) => primetv.submit(ph, tok, code, ref || '', Object.assign({ access: access }, extra || {}));
+const mine = (ph, tok) => primetv.mine(ph, tok, { access: access });
+
+(async () => {
+  // ── the gate ──────────────────────────────────────────────────────────────────────────────────────────────
+  section('🔒 who may ask');
+  reset(); primetv._internal.reset();
+  ACCESS = { ok: false, needsVerify: true, message: 'Confirm your email first.' };
+  UNLOCKED = [];
+  let r = await submit('9000000001', 'tok', 'ABC123');
+  ok('a device that has not proved an email is refused', r.queued === false && r.why === 'locked' && r.needsVerify === true, r);
+  ok('…and nothing was queued', TVROWS.length === 0);
+
+  ACCESS = okAccess;
+  UNLOCKED = [sub([{ sub_id: 'S-NFLX', order_id: 'O1' }])];
+  r = await submit('9000000001', 'tok', 'ABC123');
+  ok('a Netflix customer gets no Prime TV activation', r.queued === false && r.why === 'noplan', r);
+
+  UNLOCKED = [sub([{ sub_id: 'S-PHONE', order_id: 'O2' }])];
+  r = await submit('9000000001', 'tok', 'ABC123');
+  ok('🔒 a Prime plan WITHOUT a TV slot is refused — the slot is what was paid for',
+    r.queued === false && r.why === 'notv', r);
+
+  UNLOCKED = [sub([{ sub_id: 'S-NOACC', order_id: 'O3' }])];
+  r = await submit('9000000001', 'tok', 'ABC123');
+  ok('a plan not yet allocated to an account is refused rather than guessed at', r.queued === false && r.why === 'noaccount', r);
+
+  section('the code itself');
+  reset(); primetv._internal.reset();
+  ACCESS = okAccess; UNLOCKED = [sub([{ sub_id: 'S-TV', order_id: 'O4' }])];
+  for (const bad of ['', '  ', 'ab', '12345678901234']) {
+    r = await submit('9000000001', 'tok', bad);
+    ok('"' + bad + '" is not a code', r.queued === false && r.why === 'badcode', { bad, r: r.why });
+  }
+  ok('people type it with spaces and dashes, as it looks on the TV', primetv._internal.cleanCode(' a1b-2 c3 ') === 'A1B2C3');
+
+  // ── the happy path ────────────────────────────────────────────────────────────────────────────────────────
+  section('a real request');
+  reset(); primetv._internal.reset();
+  ACCESS = okAccess; UNLOCKED = [sub([{ sub_id: 'S-TV', order_id: 'O5' }])];
+  r = await submit('9000000001', 'tok', 'a1b2c3');
+  ok('it is queued', r.queued === true && /registering your TV/i.test(r.message), r);
+  ok('🔒 against the account from THEIR OWN subscription row — nothing they sent chose it',
+    TVROWS.length === 1 && TVROWS[0].account_id === 'PRI-13' && TVROWS[0].sub_id === 'S-TV', TVROWS[0]);
+  ok('the code is stored upper-cased and stripped', TVROWS[0].code === 'A1B2C3', TVROWS[0].code);
+  ok('it starts PENDING', TVROWS[0].status === 'PENDING');
+
+  section('🔒 the code never reaches a log');
+  reset(); primetv._internal.reset();
+  ACCESS = okAccess; UNLOCKED = [sub([{ sub_id: 'S-TV', order_id: 'O6' }])];
+  LOGS.length = 0;
+  console.log = (...a) => { LOGS.push(a.join(' ')); };
+  await submit('9000000001', 'tok', 'SECRET9');
+  console.log = realLog;
+  ok('it logged that something was queued', LOGS.some((l) => /primetv/.test(l)), LOGS);
+  ok('🔒 …and the code is not in any of it', !LOGS.some((l) => /SECRET9/.test(l)), LOGS);
+
+  section('one code at a time per plan');
+  reset(); primetv._internal.reset();
+  ACCESS = okAccess; UNLOCKED = [sub([{ sub_id: 'S-TV', order_id: 'O7' }])];
+  await submit('9000000001', 'tok', 'AAA111');
+  await submit('9000000001', 'tok', 'BBB222');
+  ok('the older code is retired, not left in the owner\'s queue twice',
+    TVROWS.filter((x) => x.status === 'PENDING').length === 1, TVROWS.map((x) => x.status));
+  ok('…and the one left is the new one', TVROWS.find((x) => x.status === 'PENDING').code === 'BBB222');
+  ok('🔒 the retired row keeps no code', TVROWS.find((x) => x.status === 'EXPIRED').code === '');
+
+  section('a flood is stopped');
+  reset(); primetv._internal.reset();
+  ACCESS = okAccess; UNLOCKED = [sub([{ sub_id: 'S-TV', order_id: 'O8' }])];
+  let last;
+  for (let i = 0; i < primetv.PER_SUB_DAY + 2; i++) last = await submit('9000000001', 'tok', 'C0DE' + i);
+  ok('after the daily cap it is refused with a reason', last.queued === false && last.why === 'quota', last);
+
+  section('a code that nobody got to');
+  reset(); primetv._internal.reset();
+  ACCESS = okAccess; UNLOCKED = [sub([{ sub_id: 'S-TV', order_id: 'O9' }])];
+  const t0 = Date.now();
+  await submit('9000000001', 'tok', 'OLD111', '', { now: t0 });
+  await primetv.expireStale(t0 + (primetv.STALE_MIN + 1) * 60e3);
+  ok('is marked expired once it cannot possibly work', TVROWS[0].status === 'EXPIRED', TVROWS[0]);
+  ok('🔒 and the dead code is cleared out of the database', TVROWS[0].code === '', TVROWS[0]);
+
+  section('what the customer sees while waiting');
+  reset(); primetv._internal.reset();
+  ACCESS = okAccess; UNLOCKED = [sub([{ sub_id: 'S-TV', order_id: 'O10' }])];
+  await submit('9000000001', 'tok', 'DDD444');
+  let m = await mine('9000000001', 'tok');
+  ok('their own request is reported back', m.found === true && m.status === 'PENDING', m);
+  ok('🔒 the reply never carries the code back out', !/DDD444/.test(JSON.stringify(m)), m);
+  ACCESS = { ok: false, needsVerify: true };
+  m = await mine('9000000001', 'tok');
+  ok('🔒 an unproved device is told nothing about anybody\'s activation', m.found === false, m);
+
+  // ── before the migration ──────────────────────────────────────────────────────────────────────────────────
+  section('🔒 before db/schema-v35.sql has been run');
+  reset(); primetv._internal.reset();
+  TABLE_MISSING = true;
+  ACCESS = okAccess; UNLOCKED = [sub([{ sub_id: 'S-TV', order_id: 'O11' }])];
+  let threw = false;
+  try {
+    r = await submit('9000000001', 'tok', 'EEE555');
+    m = await mine('9000000001', 'tok');
+  } catch (e) { threw = true; }
+  ok('nothing throws', !threw);
+  ok('…it just says it is not ready, so the storefront draws no tool', r.ready === false && m.ready === false, { r, m });
+
+  console.log('\n---------------------------------------');
+  console.log('prime-tv: PASS ' + pass + '   FAIL ' + fail);
+  process.exitCode = fail ? 1 : 0;
+})().catch((e) => { console.log = realLog; console.log('CRASH', e); process.exitCode = 1; });

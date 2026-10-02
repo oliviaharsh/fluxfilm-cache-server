@@ -46,7 +46,8 @@ section('tiles');
 let H = harness('');
 let tree = H.render();
 const tiles = find(tree, (n) => n.p && String(n.p.className || '').split(' ').includes('ff-tool'));
-ok('two big tiles: Get OTP + Netflix Household', tiles.length === 2 && /Get OTP/.test(textOf(tiles[0])) && /Netflix Household/.test(textOf(tiles[1])), tiles.length);
+ok('three big tiles: Get OTP + Netflix Household + Activate my TV', tiles.length === 3
+  && /Get OTP/.test(textOf(tiles[0])) && /Netflix Household/.test(textOf(tiles[1])) && /Activate my TV/.test(textOf(tiles[2])), tiles.length);
 ok('tiles are real buttons with a clear action word', tiles.every((t) => t.t === 'button' && t.p.type === 'button') && /Get my OTP/.test(textOf(tiles[0])) && /Fix it/.test(textOf(tiles[1])));
 ok('without onFeed: no Movies chip, and no "Soon" chips left (Games removed, owner 2026-09-15)', !byTool(tree, 'movies') && !byTool(tree, 'games') && !/Soon/.test(textOf(tree)));
 ok('no sheet open at start', !find(tree, (n) => n.p && n.p.className === 'ff-sheet').length);
