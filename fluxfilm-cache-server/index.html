@@ -3795,6 +3795,178 @@ function ToolsSheet({
     className: "ff-sheet-grip"
   }), children));
 }
+/* ================= 📺 Activate my TV (primetv.js) =================
+ * The customer reads the code off their TV and we register it against the account they are already on, so
+ * they never need the password and never have to sign in on a phone first.
+ * We only QUEUE it here — the registering happens on our side — so the honest thing to show is "we are doing
+ * it", not "done". The screen polls until it really is done, and says what went wrong when it does not.
+ */
+function TvActivate({
+  onClose
+}) {
+  const [phone, setPhone] = useState(null);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [out, setOut] = useState(null);
+  const [job, setJob] = useState(null);
+  useEffect(() => {
+    ffEnsureLogin_('', p => {
+      const ph = normPhone_(p || '');
+      if (ph) setPhone(ph);else onClose();
+    });
+  }, []);
+  // While one is in flight, keep asking. The owner (or the worker) finishes it on our side, so the customer
+  // has no other way of knowing.
+  useEffect(() => {
+    if (!phone) return undefined;
+    let alive = true;
+    const look = () => API.myTvActivation(phone, r => {
+      if (alive && r && r.ok && r.found) setJob(r);
+    }, () => {});
+    look();
+    const iv = setInterval(look, 10000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, [phone]);
+  if (!phone) return React.createElement(ToolsSheet, {
+    onClose: onClose
+  }, React.createElement("div", {
+    className: "ff-hh-load"
+  }, React.createElement(Spinner, null), " One moment…"));
+  const waiting = job && job.status === 'PENDING';
+  const send = () => {
+    const c = String(code || '').trim();
+    if (!c) return;
+    setBusy(true);
+    API.activateTv(phone, c, r => {
+      setBusy(false);
+      setOut(r || {
+        ok: false
+      });
+      if (r && r.queued) {
+        setCode('');
+        setJob({
+          status: 'PENDING'
+        });
+      }
+    }, () => {
+      setBusy(false);
+      setOut({
+        ok: false,
+        message: 'Could not reach us just now. Try again in a moment.'
+      });
+    });
+  };
+  const line = (n, t) => React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13,
+      color: C.muted,
+      padding: '3px 0'
+    }
+  }, React.createElement("b", {
+    style: {
+      color: C.text
+    }
+  }, n), ' ', t);
+  return React.createElement(ToolsSheet, {
+    onClose: onClose
+  }, React.createElement("div", {
+    className: "ff-sheet-emoji"
+  }, "📺"), React.createElement("h3", null, "Activate my TV"), React.createElement("p", null, "Type the code your TV is showing and we will switch it on for you — no password needed."),
+  // Done: the only place this says yes, and only because the server said so.
+  job && job.status === 'DONE' ? React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 14,
+      fontWeight: 700,
+      color: C.green,
+      background: '#f0fdf4',
+      border: '1px solid #bbf7d0',
+      borderRadius: 14,
+      padding: '12px 14px',
+      margin: '10px 0'
+    }
+  }, "✅ Your TV is ready — open Prime Video on it.") : null, job && job.status === 'FAILED' ? React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13,
+      color: C.text,
+      background: '#fef2f2',
+      border: '1px solid #fecaca',
+      borderRadius: 14,
+      padding: '12px 14px',
+      margin: '10px 0'
+    }
+  }, "We could not register it", job.why ? ' — ' + job.why : '', ". Message us on WhatsApp and we will finish it by hand.") : null, waiting ? React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 13.5,
+      color: C.text,
+      background: C.chip,
+      borderRadius: 14,
+      padding: '12px 14px',
+      margin: '10px 0',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10
+    }
+  }, React.createElement(Spinner, null), React.createElement("span", null, React.createElement("b", null, "Registering your TV…"), React.createElement("br", null), "Keep the code on the screen. This usually takes a couple of minutes.")) : React.createElement("div", null, React.createElement("div", {
+    style: {
+      background: C.chip,
+      borderRadius: 14,
+      padding: '10px 14px',
+      margin: '10px 0'
+    }
+  }, line('1️⃣', 'Open Prime Video on your TV'), line('2️⃣', 'Choose “Register on the Prime website”'), line('3️⃣', 'Type the code it shows, below')), React.createElement("input", {
+    value: code,
+    onChange: e => setCode(e.target.value.toUpperCase()),
+    placeholder: "Code from the TV",
+    autoCapitalize: "characters",
+    autoCorrect: "off",
+    spellCheck: false,
+    maxLength: 12,
+    style: {
+      width: '100%',
+      fontFamily: PJS,
+      fontSize: 20,
+      fontWeight: 800,
+      letterSpacing: '3px',
+      textAlign: 'center',
+      textTransform: 'uppercase',
+      padding: '12px 14px',
+      borderRadius: 14,
+      border: '1px solid ' + C.borderMd,
+      outline: 'none',
+      boxSizing: 'border-box'
+    }
+  }), React.createElement(Btn, {
+    full: true,
+    onClick: send,
+    disabled: busy || !code.trim(),
+    style: {
+      marginTop: 10
+    }
+  }, busy ? 'Sending…' : '📺 Register my TV')), out && !out.queued && out.message ? React.createElement("div", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 12.5,
+      color: C.muted,
+      marginTop: 10,
+      lineHeight: 1.5
+    }
+  }, out.message) : null, React.createElement("p", {
+    style: {
+      fontFamily: PJS,
+      fontSize: 11.5,
+      color: C.subtle,
+      marginTop: 12
+    }
+  }, "The code is only good for about ten minutes. If it runs out, your TV will show a new one."));
+}
+
 /* ================= 🏠 Netflix Household, the customer's own tool (householdhelp.js) ================= */
 // The old sheet asked "Link 1 or Link 2?" and customers guessed wrong. The shop knows which Netflix account they
 // are on, so it decides. Three steps, and never more than one question on screen:
@@ -4202,6 +4374,14 @@ function ToolsGrid({
     sub: 'Fix “not part of household” / TV code',
     go: 'Fix it',
     fn: () => setSheet('household')
+  }, {
+    id: 'tv',
+    icon: '📺',
+    tone: 'otp',
+    title: 'Activate my TV',
+    sub: 'Prime Video on your TV — no password needed',
+    go: 'Switch it on',
+    fn: () => setSheet('tv')
   }];
   const soon = TOOLS_SOON_[sheet];
   return React.createElement("section", {
@@ -4252,6 +4432,8 @@ function ToolsGrid({
     "data-tool": k,
     onClick: () => setSheet(k)
   }, TOOLS_SOON_[k][0], " ", TOOLS_SOON_[k][3], React.createElement("b", null, "Soon")))),   sheet === 'household' && React.createElement(HouseholdGate, {
+    onClose: close
+  }), sheet === 'tv' && React.createElement(TvActivate, {
     onClose: close
   }), soon && React.createElement(ToolsSheet, {
     onClose: close
@@ -20500,6 +20682,13 @@ const API = {
   },
   householdFix(phone, accountId, what, onSuccess, onFailure) {
     apiCall_('householdFix', [phone, accountId, what], onSuccess, onFailure);
+  },
+  // 📺 Activate my TV. Same device proof as Get OTP — the server will not take a code without it.
+  activateTv(phone, code, onSuccess, onFailure, subRef) {
+    apiCall_('activateTv', [phone, getGetOtpToken_(phone), code, String(subRef || '')], onSuccess, onFailure);
+  },
+  myTvActivation(phone, onSuccess, onFailure) {
+    apiCall_('myTvActivation', [phone, getGetOtpToken_(phone)], onSuccess, onFailure);
   },
   getNetflixHouseholdLink(email, onSuccess, onFailure) {
     apiCall_('getNetflixHouseholdLink', [email], onSuccess, onFailure);

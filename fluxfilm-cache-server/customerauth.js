@@ -249,6 +249,9 @@ const POLICY = {
   emailLockStatus: S(0), emailSendCode: S(0), emailVerifyCode: S(0),
   getResumePaymentByPhone: S(0), getReferralInfo: S(0), getCoinQuote: S(0), getCoinHistory: S(0),
   pushSubscribe: S(0), addFeedComment: S(0), getMyReview: S(0), addReview: S(0), anniversaryNotify: S(0), householdStart: S(0), householdFix: S(0),
+  // 📺 Activate my TV (primetv.js): the phone is the first argument, and the session must own it. The
+  // device token in args[1] is a second proof on top, not a substitute for the session.
+  activateTv: S(0), myTvActivation: S(0),
   // checkout + payment (buying needs login: phone → email code → pay)
   createOrder: S({ i: 0, key: 'phone' }), createRenewOrder: S(null, { sub: 0 }),
   validateCoupon: SOFT({ i: 1, key: 'phone' }),

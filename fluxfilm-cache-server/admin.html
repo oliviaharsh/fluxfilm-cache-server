@@ -769,7 +769,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['receivables', '💳', 'Receivables'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['reviews', '⭐', 'Reviews'], ['trust', '🏆', 'Why trust us'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'], ['ytfamily', '▶️', 'YouTube families'], ['wagroup', '👥', 'WhatsApp group'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['receivables', '💳', 'Receivables'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['reviews', '⭐', 'Reviews'], ['trust', '🏆', 'Why trust us'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'], ['primetv', '📺', 'TV activations'], ['ytfamily', '▶️', 'YouTube families'], ['wagroup', '👥', 'WhatsApp group'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['duplicates', '🧑‍🤝‍🧑', 'Same person'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
   ['DATA'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'], ['integrations', '🔗', 'Integrations'],
 ];
@@ -836,7 +836,7 @@ function wireSideClose() {
   }, { passive: true });
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, promos: promosView, reviews: reviewsView, trust: trustView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView, ytfamily: ytFamilyView, wagroup: groupView, duplicates: duplicatesView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, promos: promosView, reviews: reviewsView, trust: trustView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView, primetv: primeTvView, ytfamily: ytFamilyView, wagroup: groupView, duplicates: duplicatesView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -2962,6 +2962,72 @@ var PW = { q: '', accounts: null, pick: null, impact: null, result: null, showAl
 function pwAgeText(d, short) {
   if (!d || !d.at) return 'unknown';
   return esc(short ? d.short : prettyDate(d.at)) + ' (' + esc(d.ago) + ')';
+}
+/* ================= 📺 TV activations (primetv.js) =================
+ * A customer typed the code off their TV into the shop. We register it on the account they are already on,
+ * so they never get the password. Codes die in about ten minutes, so this screen is about speed: the code is
+ * one tap to copy, and the page to paste it into is one tap to open.
+ * Marking it done REQUIRES the new device's name, because that is the handle we will need to remove it when
+ * their plan ends. "It looked fine" is not a result.
+ */
+var PT = { data: null, busy: 0 };
+function primeTvView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>📺 TV activations</h1><p>Codes customers have typed in — register them on Prime Video, then paste the new device\'s name back</p></div><button class="btn ghost" id="ptref">⟳ Refresh</button></div><div id="ptbody"><p class="muted">Loading…</p></div>';
+  $('#ptref').onclick = ptLoad;
+  ptLoad();
+}
+function ptLoad() {
+  api('/admin/api/prime-tv').then(function (r) { PT.data = r; ptRender(); });
+}
+function ptRender() {
+  var el = $('#ptbody'); if (!el) return;
+  var d = PT.data || {};
+  if (!d.ok) return (el.innerHTML = '<div class="card"><div class="qnote bad">' + esc((d && d.message) || 'Could not load.') + '</div></div>');
+  if (!d.ready) return (el.innerHTML = '<div class="card"><div class="qnote warn">📺 Not set up yet — run <b>db/schema-v35.sql</b> in phpMyAdmin, then refresh.</div></div>');
+  var pend = d.pending || [], done = d.recent || [];
+  var h = '';
+  h += !pend.length
+    ? '<div class="card" style="text-align:center;padding:26px"><div style="font-size:2.2rem">📺</div><h3>Nothing waiting</h3><p class="muted">When a customer types their TV code into the shop, it appears here.</p></div>'
+    : '<div class="card qsec"><h3>Waiting (' + pend.length + ')</h3>' + pend.map(function (p) {
+      return '<div class="li" style="display:block;padding:12px 0;border-bottom:1px solid var(--bd)">' +
+        '<div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px">' +
+        '<div class="grow"><b>' + esc(p.name || p.phone_norm || '—') + '</b> <span class="muted">· ' + esc(p.service || 'Prime') + ' · ' + esc(p.account_id) + '</span>' +
+        '<div class="muted" style="font-size:.74rem">' + esc(p.login_id || '') + ' · ' + esc(p.sub_id) + ' · ' + prettyDate(p.created_at) + '</div></div>' +
+        '<code style="font-size:1.25rem;font-weight:800;letter-spacing:3px">' + esc(p.code) + '</code>' +
+        '<button class="copy" data-copy="' + esc(p.code) + '">Copy</button></div>' +
+        '<div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap">' +
+        '<a class="btn ghost sm" target="_blank" rel="noopener" href="https://www.primevideo.com/region/in/ontv/devices">Open Prime Video ↗</a>' +
+        '<input class="inp sm" id="ptn' + p.id + '" placeholder="New device name, copied from Prime Video" style="flex:1;min-width:200px"/>' +
+        '<button class="btn dark sm" data-ptdone="' + p.id + '">✅ Registered</button>' +
+        '<button class="btn ghost sm" data-ptfail="' + p.id + '">Could not</button>' +
+        '</div></div>';
+    }).join('') + '</div>';
+  if (done.length) {
+    h += '<div class="card qsec"><h3>Recent</h3><div class="list">' + done.map(function (p) {
+      var pill = p.status === 'DONE' ? '<span class="pill p-green">done</span>' : p.status === 'FAILED' ? '<span class="pill p-red">failed</span>' : '<span class="pill p-grey">expired</span>';
+      return '<div class="li" style="padding:7px 0"><div class="grow"><b>' + esc(p.account_id) + '</b> <span class="muted">· ' + esc(p.sub_id) + '</span>' +
+        '<div class="muted" style="font-size:.72rem">' + esc(p.device_name || p.why || '') + ' · ' + prettyDate(p.finished_at || p.created_at) + '</div></div>' + pill + '</div>';
+    }).join('') + '</div></div>';
+  }
+  el.innerHTML = h;
+  el.onclick = function (e) {
+    var dn = e.target.closest('[data-ptdone]');
+    if (dn) {
+      var id = dn.getAttribute('data-ptdone');
+      var nm = ($('#ptn' + id) || {}).value || '';
+      if (!nm.trim()) { toast('Copy the new device name from Prime Video first — we need it to remove the TV later.'); return; }
+      dn.disabled = true;
+      post('/admin/api/prime-tv/done', { id: +id, deviceName: nm.trim() }).then(function (r) { toast((r && r.message) || 'Saved.'); ptLoad(); });
+      return;
+    }
+    var f = e.target.closest('[data-ptfail]');
+    if (f) {
+      var why = prompt('What went wrong? (the customer sees this)', 'the code had already expired');
+      if (why == null) return;
+      f.disabled = true;
+      post('/admin/api/prime-tv/fail', { id: +f.getAttribute('data-ptfail'), why: why }).then(function (r) { toast((r && r.message) || 'Noted.'); ptLoad(); });
+    }
+  };
 }
 function passwordView() {
   $('#view').innerHTML = '<div class="ph"><div><h1>🔑 Password change</h1><p>Change an account\'s password: expired customers are ticked as removed and active customers get the new password saved</p></div></div><div id="pwbody"></div>';

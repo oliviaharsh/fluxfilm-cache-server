@@ -198,6 +198,8 @@ function mountAdmin(app, deps) {
   require('./adminpromos').mount(app, Object.assign({ db, auth, audit }, deps.promos || {}));
   // 🏆 Why trust us: the headline claim, the journey, and the switches for the ticker / badges (trust.js).
   require('./trust').mount(app, Object.assign({ db, auth, audit }, deps.trust || {}));
+  // 📺 TV activations: the queue of codes customers have typed in, waiting to be registered (primetv.js).
+  require('./primetv').mount(app, Object.assign({ db, auth, audit }, deps.primetv || {}));
   // ⭐ Reviews: approve, hide, delete, and reply underneath (reviews.js).
   require('./reviews').mount(app, Object.assign({ db, auth, audit }, deps.reviews || {}));
   // 🍿 What's new feed: posts, pictures, TMDB search / suggestions (adminfeed.js).
