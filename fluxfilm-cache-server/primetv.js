@@ -42,6 +42,9 @@ const PER_SUB_DAY = 6;
 // one is the customer trying again, the other is us being slow, and only the first is their fault.
 const WHY_STALE = 'the code expired before it was used';
 const WHY_REPLACED = 'replaced by a newer code';
+// A worker that dies mid-job leaves a CLAIMED row behind. Anything claimed and still unfinished after this
+// goes back in the queue — a crashed worker should cost a minute, not a stuck customer at one in the morning.
+const CLAIM_STUCK_MIN = 3;
 
 const s = (v) => String(v == null ? '' : v).trim();
 const up = (v) => s(v).toUpperCase();
@@ -92,6 +95,51 @@ async function expireStale(now) {
   } catch (e) {
     if (!missingTable(e)) console.log('[primetv] could not expire stale codes:', e.message);
   }
+}
+
+/**
+ * Put back anything a worker claimed and never finished. Called before every claim and before the admin
+ * queue is drawn, so a dead worker heals itself without anybody noticing.
+ */
+async function reapClaims(now) {
+  const at = now || Date.now();
+  try {
+    await db.query(
+      "UPDATE tv_activations SET status = 'PENDING', claimed_at = NULL, claimed_by = NULL WHERE status = 'CLAIMED' AND claimed_at < ?",
+      [new Date(at - CLAIM_STUCK_MIN * 60e3)]);
+  } catch (e) {
+    if (!missingTable(e)) console.log('[primetv] could not reap stale claims:', e.message);
+  }
+}
+
+/**
+ * Hand exactly one waiting job to a worker, atomically.
+ *
+ * 🔒 The UPDATE is the lock: the row is only ours if it was still PENDING at the moment we asked, so two
+ * workers — or a worker and the owner tapping in admin — can never register the same code twice. Reading
+ * first and writing second would be a race, and a race here means a customer's code burned twice.
+ */
+async function claim(who, deps) {
+  const d = deps || {};
+  const now = d.now || Date.now();
+  if (!(await ready())) return { ok: true, ready: false };
+  await expireStale(now);
+  await reapClaims(now);
+  const label = s(who).slice(0, 64) || 'worker';
+  for (let tries = 0; tries < 5; tries++) {
+    const next = await db.query("SELECT id FROM tv_activations WHERE status = 'PENDING' ORDER BY id ASC LIMIT 1");
+    const id = next && next[0] && next[0].id;
+    if (!id) return { ok: true, ready: true, job: null };
+    const got = await db.query(
+      "UPDATE tv_activations SET status = 'CLAIMED', claimed_at = ?, claimed_by = ? WHERE id = ? AND status = 'PENDING'",
+      [new Date(now), label, id]);
+    if (!got || !got.affectedRows) continue;            // somebody else got there first — try the next one
+    const rows = await db.query('SELECT id, sub_id, account_id, service, code FROM tv_activations WHERE id = ? LIMIT 1', [id]);
+    const r = rows && rows[0];
+    if (!r) continue;
+    return { ok: true, ready: true, job: { id: r.id, subId: s(r.sub_id), accountId: s(r.account_id), service: s(r.service), code: s(r.code) } };
+  }
+  return { ok: true, ready: true, job: null };
 }
 
 /**
@@ -194,15 +242,26 @@ function mount(app, deps) {
     try {
       if (!(await ready(true))) return res.json({ ok: true, ready: false, message: 'Run db/schema-v35.sql first.' });
       await expireStale(Date.now());
+      await reapClaims(Date.now());
       const pending = await db.query(
-        "SELECT t.id, t.sub_id, t.account_id, t.phone_norm, t.service, t.code, t.created_at, a.login_id, c.name " +
+        "SELECT t.id, t.sub_id, t.account_id, t.phone_norm, t.service, t.code, t.status, t.claimed_by, t.created_at, a.login_id, c.name " +
         'FROM tv_activations t ' +
         'LEFT JOIN inventory_accounts a ON a.account_id = t.account_id AND LOWER(a.service) LIKE \'%prime%\' ' +
         'LEFT JOIN customers c ON c.phone_norm = t.phone_norm ' +
-        "WHERE t.status = 'PENDING' ORDER BY t.id ASC LIMIT 50");
+        "WHERE t.status IN ('PENDING', 'CLAIMED') ORDER BY t.id ASC LIMIT 50");
       const recent = await db.query(
-        "SELECT id, sub_id, account_id, service, status, why, device_name, created_at, finished_at FROM tv_activations WHERE status <> 'PENDING' ORDER BY id DESC LIMIT 25");
+        "SELECT id, sub_id, account_id, service, status, why, device_name, created_at, finished_at FROM tv_activations WHERE status NOT IN ('PENDING', 'CLAIMED') ORDER BY id DESC LIMIT 25");
       res.json({ ok: true, ready: true, pending: pending || [], recent: recent || [] });
+    } catch (e) { fail(res, e); }
+  });
+
+  // 📺 The worker asks for one job. Admin-key protected like every other /admin route — `who` is only a
+  // label for the owner's eyes ("laptop", "vps"), never a credential, and grants nothing on its own.
+  app.post('/admin/api/prime-tv/claim', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      const r = await claim((req.body && req.body.who) || 'worker');
+      res.json(r);
     } catch (e) { fail(res, e); }
   });
 
@@ -216,7 +275,8 @@ function mount(app, deps) {
       const name = s(req.body && req.body.deviceName).slice(0, 160);
       if (!id) return res.status(400).json({ ok: false, message: 'Which activation?' });
       if (!name) return res.status(400).json({ ok: false, message: 'Copy the new device\'s name from Prime Video first — it is what we will need to remove it later.' });
-      const r = await db.query("UPDATE tv_activations SET status = 'DONE', code = '', device_name = ?, why = NULL, finished_at = ? WHERE id = ? AND status = 'PENDING'", [name, new Date(), id]);
+      // PENDING (the owner tapped) or CLAIMED (a worker is holding it) — both are legitimately in flight.
+      const r = await db.query("UPDATE tv_activations SET status = 'DONE', code = '', device_name = ?, why = NULL, finished_at = ? WHERE id = ? AND status IN ('PENDING', 'CLAIMED')", [name, new Date(), id]);
       if (!r || !r.affectedRows) return res.status(409).json({ ok: false, message: 'That one is no longer waiting — it may have expired.' });
       audit.record(req, { action: 'primetv.done', entity: 'tv_activation', id: String(id), summary: ('📺 TV registered: ' + name).slice(0, 500), details: { deviceName: name } });
       res.json({ ok: true, message: '📺 Registered.' });
@@ -230,7 +290,7 @@ function mount(app, deps) {
       const id = parseInt(req.body && req.body.id, 10);
       const why = s(req.body && req.body.why).slice(0, 160) || 'could not be registered';
       if (!id) return res.status(400).json({ ok: false, message: 'Which activation?' });
-      const r = await db.query("UPDATE tv_activations SET status = 'FAILED', code = '', why = ?, finished_at = ? WHERE id = ? AND status = 'PENDING'", [why, new Date(), id]);
+      const r = await db.query("UPDATE tv_activations SET status = 'FAILED', code = '', why = ?, finished_at = ? WHERE id = ? AND status IN ('PENDING', 'CLAIMED')", [why, new Date(), id]);
       if (!r || !r.affectedRows) return res.status(409).json({ ok: false, message: 'That one is no longer waiting.' });
       audit.record(req, { action: 'primetv.fail', entity: 'tv_activation', id: String(id), summary: ('📺 TV activation failed: ' + why).slice(0, 500), details: { why } });
       res.json({ ok: true, message: 'Noted.' });
@@ -239,7 +299,7 @@ function mount(app, deps) {
 }
 
 module.exports = {
-  submit, mine, mount, ready, expireStale,
-  STALE_MIN, PER_SUB_DAY, WHY_STALE, WHY_REPLACED,
+  submit, mine, mount, ready, expireStale, claim, reapClaims,
+  STALE_MIN, PER_SUB_DAY, WHY_STALE, WHY_REPLACED, CLAIM_STUCK_MIN,
   _internal: { cleanCode, hasTv, isPrime, primeRowsFor, reset: () => { readyCache = null; } },
 };

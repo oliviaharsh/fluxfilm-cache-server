@@ -2993,6 +2993,7 @@ function ptRender() {
         '<div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px">' +
         '<div class="grow"><b>' + esc(p.name || p.phone_norm || '—') + '</b> <span class="muted">· ' + esc(p.service || 'Prime') + ' · ' + esc(p.account_id) + '</span>' +
         '<div class="muted" style="font-size:.74rem">' + esc(p.login_id || '') + ' · ' + esc(p.sub_id) + ' · ' + prettyDate(p.created_at) + '</div></div>' +
+        (p.status === 'CLAIMED' ? '<span class="pill p-grey">🤖 ' + esc(p.claimed_by || 'worker') + '</span>' : '') +
         '<code style="font-size:1.25rem;font-weight:800;letter-spacing:3px">' + esc(p.code) + '</code>' +
         '<button class="copy" data-copy="' + esc(p.code) + '">Copy</button></div>' +
         '<div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap">' +
