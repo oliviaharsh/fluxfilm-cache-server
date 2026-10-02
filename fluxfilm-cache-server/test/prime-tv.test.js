@@ -319,6 +319,16 @@ const mine = (ph, tok) => primetv.mine(ph, tok, { access: access });
   const src = fs.readFileSync(path.join(__dirname, '..', 'worker', 'tvworker.js'), 'utf8');
   const posted = (src.match(/why: '[^']+'/g) || []).map((m) => m.slice(6, -1));
   ok('the worker does post reasons, so this is actually checking something', posted.length >= 5, posted);
+  // 🔒 Wider, and the one that actually holds: every worker: code ANYWHERE in the worker, however it is
+  // returned, must have a translation. A ternary, a variable or a helper hides a code from the narrow scan
+  // above, and a code with no translation is shown to the customer raw.
+  const codes = Array.from(new Set(src.match(/'worker:[a-z]+'/g) || [])).map((m) => m.slice(1, -1));
+  ok('the worker does use codes, so this is checking something', codes.length >= 6, codes);
+  codes.forEach((code) => {
+    ok('every code the worker can emit has a translation: ' + code, !!WW[code], code);
+    ok('…and the customer is not shown the code itself: ' + code, primetv.customerWhy(code).indexOf('worker:') < 0);
+  });
+
   posted.forEach((why) => {
     if (why.indexOf('worker:') === 0) {
       ok('a posted code has a translation: ' + why, !!WW[why], why);

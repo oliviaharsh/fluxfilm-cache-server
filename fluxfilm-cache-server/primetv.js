@@ -82,6 +82,14 @@ const WORKER_WHY = {
     owner: 'the worker could not finish it',
     customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
   },
+  'worker:needsotp': {
+    owner: 'Amazon asked for a one-time code sent to the account mailbox - this one needs you by hand',
+    customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
+  },
+  'worker:badpassword': {
+    owner: 'the saved password was not accepted - check it before this account is used again',
+    customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
+  },
   'worker:notregistered': {
     owner: 'the code was entered but no new device appeared - most likely it had expired',
     customer: 'That code did not go through - it had probably expired. Codes last about ten minutes, so get a fresh one on your TV and send it again.',

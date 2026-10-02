@@ -2,3 +2,7 @@
 profiles/
 node_modules/
 .env
+
+# The account logins, and the sign-in counter beside the profiles. Never committed, never uploaded.
+accounts.json
+logins.json
