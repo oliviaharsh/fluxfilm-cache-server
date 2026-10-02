@@ -2971,10 +2971,14 @@ function renderPassword() {
   var el = $('#pwbody'); if (!el) return;
   if (PW.result) return renderPwResult();
   if (!PW.pick) {
+    // Back on the list = the drill-in is over, so its history entry goes. Same place Offers does it.
+    hSubDone('pwacct');
     el.innerHTML = '<div class="card"><h3>1 · Pick the account</h3><div class="search"><input class="inp" id="pwq" placeholder="Account ID, login email/phone or service…" value="' + esc(PW.q) + '"/></div><div class="list" id="pwlist"><p class="muted">Loading…</p></div></div>';
     var t; $('#pwq').addEventListener('input', function () { PW.q = $('#pwq').value.trim(); clearTimeout(t); t = setTimeout(loadPwAccounts, 250); });
     $('#pwq').focus();
-    $('#pwlist').onclick = function (e) { var b = e.target.closest('[data-i]'); if (!b) return; var a = PW.accounts[+b.getAttribute('data-i')]; PW.pick = { service: a.service, accountId: a.account_id }; PW.impact = null; renderPassword(); loadImpact(); };
+    // 🔑 Picking an account is a drill-in, not a new screen: hSub gives it its own history entry so Back
+    // (phone, browser, or the ← in the header) returns to this list instead of dropping out to Today.
+    $('#pwlist').onclick = function (e) { var b = e.target.closest('[data-i]'); if (!b) return; var a = PW.accounts[+b.getAttribute('data-i')]; PW.pick = { service: a.service, accountId: a.account_id }; PW.impact = null; hSub('pwacct', function () { PW.pick = null; PW.impact = null; renderPassword(); }); renderPassword(); loadImpact(); };
     loadPwAccounts();
     return;
   }
@@ -2989,7 +2993,7 @@ function renderPassword() {
       (rows.length > 5 ? '<button class="chip" data-more="' + key + '">' + (PW.showAll[key] ? '▴ Show less' : '▾ Show all ' + rows.length) + '</button>' : '');
   };
   el.innerHTML = '<div class="qgrid"><div>' +
-    '<div class="card qsec"><div class="row" style="justify-content:space-between"><h3 style="margin:0">' + svcIcon(im.account.service) + ' ' + esc(im.account.accountId) + ' <span class="muted" style="font-weight:400">· ' + esc(im.account.service) + '</span></h3><button class="btn ghost sm" data-back="1">Change</button></div>' +
+    '<div class="card qsec"><div class="row" style="justify-content:space-between"><h3 style="margin:0">' + svcIcon(im.account.service) + ' ' + esc(im.account.accountId) + ' <span class="muted" style="font-weight:400">· ' + esc(im.account.service) + '</span></h3><button class="btn ghost sm" data-back="1">← Pick another account</button></div>' +
     '<div class="creds" style="margin-top:10px"><div class="cr"><span>Login</span><code>' + esc(im.account.login) + '</code><button class="copy" data-copy="' + esc(im.account.login) + '">Copy</button></div>' +
     '<div class="cr"><span>Current</span><code id="pwcur" data-p="' + esc(im.account.password) + '">••••••••</code><button class="copy" id="pwreveal">Show</button></div>' +
     '<div class="cr" id="pwage"><span>Last changed</span><span' + (im.account.passwordChangedAt ? '' : ' class="muted"') + '>' + pwAgeText(im.account.passwordChangedAt) + '</span></div></div>' +
