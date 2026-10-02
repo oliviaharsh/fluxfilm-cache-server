@@ -1,0 +1,5 @@
+{
+  "_README": "Copy this to accounts.json and fill it in. accounts.json is git-ignored and never leaves this machine - the shop does not serve passwords and this worker never asks it for one. Only add the accounts you actually want signed in automatically; anything missing here simply comes back to you by hand.",
+  "PRI-13": { "login": "the account email", "password": "the account password" },
+  "PRI-27": { "login": "the account email", "password": "the account password" }
+}

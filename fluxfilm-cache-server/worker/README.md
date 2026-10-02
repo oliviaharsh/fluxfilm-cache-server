@@ -38,6 +38,30 @@ zero cannot tell you apart "this account has no devices" from "we could not read
 decides whether a registration worked by spotting a line that was not there before — so you should be able
 to see the same thing it sees. An account with nothing on it says so in words.
 
+## Signing itself back in (optional, off by default)
+
+A profile can go stale. With this on, the worker signs the account back in by itself instead of handing
+the job back to you.
+
+```bash
+copy accounts.example.json accounts.json     # then fill in the accounts you want covered
+```
+
+Set `FF_AUTO_LOGIN=on` in `.env`. Both files are git-ignored and neither is ever uploaded: **the shop
+does not serve passwords and this worker never asks it for one**, so the admin key cannot be turned into
+your inventory. Only the accounts you list are covered; anything else still comes back to you.
+
+**What it will not do.** It stops dead at a one-time code, a CAPTCHA or a verification page, and says
+which one it hit. It does not retry and does not look for a way round. 37 of 39 Prime logins are Outlook
+or Hotmail and we cannot read those mailboxes, so a one-time code is a dead end rather than a puzzle.
+That is the ceiling on this feature, and it is a real one.
+
+It also ticks **Keep me signed in**, which is the part that actually makes sessions last. Tick it
+yourself too when you sign in by hand.
+
+Three attempts per account per day, counted in `profiles/logins.json`. More than that is not a bad minute,
+it is a problem worth your eyes - repeated sign-ins are how an account with paying customers gets locked.
+
 ## Run it
 
 ```bash

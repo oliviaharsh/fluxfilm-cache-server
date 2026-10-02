@@ -38,6 +38,23 @@ const CFG = {
   pollMs: Number(process.env.FF_POLL_MS || 15000),
   headless: process.env.FF_HEADLESS !== 'off',
   maxFailsPerAccount: Number(process.env.FF_MAX_FAILS || 3),
+  // 🔒 Signing in by itself is OFF unless this says on. See signIn() for why that default is not timidity.
+  autoLogin: String(process.env.FF_AUTO_LOGIN || '').trim().toLowerCase() === 'on',
+  // Where the logins live. THIS FILE NEVER LEAVES THIS MACHINE: the shop does not serve passwords and this
+  // worker never asks it for one, so a stolen admin key cannot be turned into the inventory.
+  accountsFile: process.env.FF_ACCOUNTS_FILE || path.join(__dirname, 'accounts.json'),
+  // Sign-in attempts per account per day. More than this is not a bad minute, it is a problem, and
+  // hammering Amazon with sign-ins is how an account with paying customers behind it gets locked.
+  maxLoginsPerDay: Number(process.env.FF_MAX_LOGINS_DAY || 3),
+};
+
+// 🔒 Never let a login or a password reach a log line, an error message or a screenshot caption. Anything
+// that passes through here is safe to print; anything that does not go through here must not be printed.
+const SECRETS = [];
+const redact = (text) => {
+  let out = String(text == null ? '' : text);
+  SECRETS.forEach((v) => { if (v && v.length > 3) out = out.split(v).join('***'); });
+  return out;
 };
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
@@ -74,6 +91,44 @@ async function api(route, body) {
 }
 
 const profileFor = (accountId) => path.join(CFG.profiles, String(accountId).replace(/[^A-Za-z0-9_-]/g, '_'));
+
+/**
+ * The logins, read from a local file the owner fills in by hand. Shape:
+ *   { "PRI-13": { "login": "someone@example.com", "password": "…" } }
+ *
+ * 🔒 Deliberately NOT fetched from the shop. An endpoint that serves account passwords to whoever holds the
+ * admin key is a far bigger thing than the problem it solves, and the owner's own rule is that secrets stay
+ * on the server. So they stay here instead, on one machine, in a file git ignores.
+ */
+function credentialsFor(accountId) {
+  let raw = null;
+  try { raw = fs.readFileSync(CFG.accountsFile, 'utf8'); } catch (e) { return null; }
+  let all = null;
+  try { all = JSON.parse(raw); } catch (e) { throw new Error('accounts.json is not valid JSON - fix the file'); }
+  const row = all && all[accountId];
+  if (!row || !row.login || !row.password) return null;
+  if (SECRETS.indexOf(row.password) < 0) SECRETS.push(row.password);
+  if (SECRETS.indexOf(row.login) < 0) SECRETS.push(row.login);
+  return { login: String(row.login), password: String(row.password) };
+}
+
+/** Sign-ins today, per account, kept beside the profiles so a restart does not forget them. */
+const countsFile = () => path.join(CFG.profiles, 'logins.json');
+function loginsToday(accountId) {
+  const day = new Date().toISOString().slice(0, 10);
+  let all = {};
+  try { all = JSON.parse(fs.readFileSync(countsFile(), 'utf8')); } catch (e) { all = {}; }
+  if (all.day !== day) all = { day: day, counts: {} };
+  return { all: all, n: Number((all.counts || {})[accountId] || 0) };
+}
+function noteLogin(accountId) {
+  const { all } = loginsToday(accountId);
+  all.counts = all.counts || {};
+  all.counts[accountId] = Number(all.counts[accountId] || 0) + 1;
+  try { fs.mkdirSync(CFG.profiles, { recursive: true }); fs.writeFileSync(countsFile(), JSON.stringify(all)); } catch (e) {
+    log('could not record the sign-in count:', e.message);
+  }
+}
 
 async function openProfile(accountId, headless) {
   const dir = profileFor(accountId);
@@ -171,11 +226,105 @@ const whyKind = (kind) => kind === 'signin' ? 'worker:signedout'
   : kind === 'unreadable' ? 'worker:unreadable'
   : 'worker:security';
 
+/**
+ * 📺 Sign one account back in.
+ *
+ * 🔒 This is the most dangerous thing in the program, so read the rules before changing it:
+ *   1. It is OFF unless FF_AUTO_LOGIN=on. Every automated sign-in is another chance to trip a control on an
+ *      account with paying customers behind it.
+ *   2. It gives up the moment Amazon wants anything it cannot honestly supply - a one-time code, a CAPTCHA,
+ *      a verification page. It does not retry, does not look for another way round, and says which it was.
+ *      37 of 39 Prime logins are Outlook or Hotmail and we cannot read those mailboxes, so a one-time code
+ *      is a dead end, not a puzzle.
+ *   3. Every element is checked before it is used. If Amazon has changed the page, that is a clear refusal,
+ *      not a guess at what the fields might be now.
+ *   4. Nothing it touches is ever logged. See redact().
+ *
+ * Returns 'ok' | 'otp' | 'captcha' | 'badpassword' | 'noform'.
+ */
+async function signIn(page, creds) {
+  await page.goto(CFG.devicesUrl, { waitUntil: 'domcontentloaded' });
+  await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(1500);
+
+  // Step one: the email. Amazon splits this across two pages.
+  const email = page.locator('#ap_email, input[name="email"]').first();
+  if (!(await email.count())) return 'noform';
+  await email.fill(creds.login);
+  const go = page.locator('#continue, input[type="submit"]').first();
+  if (await go.count()) { await go.click(); } else { await email.press('Enter'); }
+  await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(1500);
+  if (await isCaptcha(page)) return 'captcha';
+
+  // Step two: the password.
+  const pass = page.locator('#ap_password, input[type="password"]').first();
+  if (!(await pass.count())) return (await isOtp(page)) ? 'otp' : 'noform';
+  // Ask to be remembered. A session that lasts is the whole point of signing in at all, and if this box is
+  // not ticked we are back here tomorrow - which is itself a way to get an account noticed.
+  const keep = page.locator('#rememberMe, input[name="rememberMe"]').first();
+  if (await keep.count()) { await keep.check().catch(() => {}); }
+  await pass.fill(creds.password);
+  const submit = page.locator('#signInSubmit, input[type="submit"]').first();
+  if (!(await submit.count())) return 'noform';
+  await submit.click();
+  await page.waitForLoadState('networkidle', { timeout: 25000 }).catch(() => {});
+  await page.waitForTimeout(2500);
+
+  // What did we land on? Elements and visible text, never a grep of the raw HTML.
+  if (await isCaptcha(page)) return 'captcha';
+  if (await isOtp(page)) return 'otp';
+  if (await page.locator('#ap_password, input[type="password"]').count()) return 'badpassword';
+  const check = await deviceList(page);
+  return check.ok ? 'ok' : (check.kind === 'signin' ? 'badpassword' : 'captcha');
+}
+
+const isCaptcha = async (page) =>
+  (await page.locator('.g-recaptcha, iframe[src*="recaptcha"], #auth-captcha-image, img[src*="captcha"]').count()) > 0;
+
+// A one-time code page. Amazon has several; all of them carry a short numeric field that is not a password.
+const isOtp = async (page) =>
+  (await page.locator('#auth-mfa-otpcode, input[name="otpCode"], input[name="code"], #cvf-input-code').count()) > 0;
+
+/**
+ * Make sure we are signed in before a job, signing in only if we are allowed to and it is worth trying.
+ * Returns null when all is well, or the reason to hand back.
+ */
+async function ensureSignedIn(page, accountId) {
+  const before = await deviceList(page);
+  if (before.ok) return { ok: true, list: before };
+  if (before.kind !== 'signin') return { ok: false, why: whyKind(before.kind) };
+  if (!CFG.autoLogin) return { ok: false, why: 'worker:signedout' };
+
+  let creds = null;
+  try { creds = credentialsFor(accountId); } catch (e) { log('   ' + e.message); return { ok: false, why: 'worker:signedout' }; }
+  if (!creds) return { ok: false, why: 'worker:signedout' };     // nothing saved for this one: owner's job
+
+  const { n } = loginsToday(accountId);
+  if (n >= CFG.maxLoginsPerDay) {
+    log('   ⛔ ' + accountId + ' has been signed in ' + n + ' times today - not trying again');
+    return { ok: false, why: 'worker:signedout' };
+  }
+  noteLogin(accountId);                                           // count the ATTEMPT, not the success
+  log('   🔑 signing ' + accountId + ' back in (' + (n + 1) + ' today)');
+  let how = 'noform';
+  try { how = await signIn(page, creds); } catch (e) { log('   sign-in failed: ' + redact(e.message)); how = 'noform'; }
+  if (how !== 'ok') {
+    log('   ❌ could not sign in: ' + how);
+    return { ok: false, why: how === 'otp' ? 'worker:needsotp' : how === 'captcha' ? 'worker:security' : how === 'badpassword' ? 'worker:badpassword' : 'worker:noform' };
+  }
+  const after = await deviceList(page);
+  if (!after.ok) return { ok: false, why: whyKind(after.kind) };
+  log('   ✅ signed back in');
+  return { ok: true, list: after };
+}
+
 async function doJob(ctx, job) {
   const page = await ctx.newPage();
   try {
-    const before = await deviceList(page);
-    if (!before.ok) return { ok: false, why: whyKind(before.kind), needsOwner: true };
+    const ready = await ensureSignedIn(page, job.accountId);
+    if (!ready.ok) return { ok: false, why: ready.why, needsOwner: true };
+    const before = ready.list;
 
     await page.goto(CFG.registerUrl, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2000);
@@ -218,6 +367,9 @@ async function run() {
   const fails = new Map();
   log('worker "' + CFG.who + '" watching ' + CFG.base + ' every ' + Math.round(CFG.pollMs / 1000) + 's');
   log('profiles in ' + CFG.profiles);
+  log(CFG.autoLogin
+    ? 'automatic sign-in is ON - it will stop at a one-time code or a CAPTCHA, never push past one'
+    : 'automatic sign-in is off - a signed-out account comes back to you');
   for (;;) {
     let job = null;
     try {
@@ -286,7 +438,7 @@ async function check(accountId) {
 
 // The reading rules are exported so the suite can hold them to a real page with no browser anywhere near
 // it. Playwright is only ever loaded inside playwright(), so requiring this file costs nothing.
-module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE };
+module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, CFG };
 
 if (require.main === module) {
   const [cmd, arg] = process.argv.slice(2);
