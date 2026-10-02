@@ -30,8 +30,13 @@ page, then close the window. The session is kept in `profiles/PRI-13/` and shoul
 Repeat for each Prime account you want covered. Start with one.
 
 ```bash
-node tvworker.js check PRI-13          # still signed in? how many devices?
+node tvworker.js check PRI-13          # still signed in? what does the devices page say?
 ```
+
+`check` prints the devices page back to you as lines of text rather than a count, on purpose. A count of
+zero cannot tell you apart "this account has no devices" from "we could not read the page", and the worker
+decides whether a registration worked by spotting a line that was not there before — so you should be able
+to see the same thing it sees. An account with nothing on it says so in words.
 
 ## Run it
 
