@@ -12,6 +12,62 @@ const section = (t) => console.log('\n=== ' + t + ' ===');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ROOT = path.join(__dirname, '..');
 
+// A cold start of server.js was MEASURED at 18.9s on a Windows box with nothing in the file cache, and at
+// ~0.6s on every run after it. The old wait was 5s, which is why this file went red for no reason anybody
+// could see. 45s costs a healthy run nothing: the loop stops the moment /health answers.
+const BOOT_MS = 45000;
+
+const freePort = () => new Promise((res) => {
+  const srv = net.createServer();
+  srv.listen(0, '127.0.0.1', () => { const p = srv.address().port; srv.close(() => res(p)); });
+});
+
+/**
+ * Start server.js on a free port and wait until it actually answers.
+ * Returns { base, child, log } on success, or { why, log } saying what went wrong — never a bare throw on an
+ * unrelated line thirty lines later.
+ */
+async function startServer() {
+  let why = '', log = '';
+  // Three goes, because the port is found by binding and releasing it: there is a gap in which something else
+  // can take it, and that is the one failure here worth simply trying again.
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const port = await freePort();
+    const child = spawn(process.execPath, ['server.js'], {
+      cwd: ROOT,
+      env: Object.assign({}, process.env, { PORT: String(port), DB_HOST: '', DB_USER: '', DB_NAME: '', CACHE_CLEAR_KEY: 'oldkey', ADMIN_PASSWORD: 'correct horse battery', IMAP_USER: '', IMAP_PASS: '', SYNC_INTERVAL_MIN: '0', DOTENV_CONFIG_PATH: path.join(ROOT, '.no-such-env') }),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    log = '';
+    let gone = '';
+    child.stdout.on('data', (d) => { log += d; });
+    child.stderr.on('data', (d) => { log += d; });
+    // Without this the loop waits the full 45s for a process that died in the first 200ms, and then blames
+    // the network for it.
+    child.on('exit', (code, sig) => { gone = 'server.js exited while starting (code ' + code + (sig ? ', signal ' + sig : '') + ')'; });
+
+    const base = 'http://127.0.0.1:' + port;
+    const until = Date.now() + BOOT_MS;
+    let up = false;
+    while (Date.now() < until && !gone) {
+      try { await fetch(base + '/health'); up = true; break; } catch (_) { await sleep(100); }
+    }
+    if (up) return { base, child, log: () => log };
+
+    try { child.kill(); } catch (_) {}
+    why = gone || ('server.js did not answer /health on port ' + port + ' within ' + (BOOT_MS / 1000) + 's');
+    if (/EADDRINUSE/.test(log)) {
+      console.log('  (port ' + port + ' was taken between finding it and using it — trying another)');
+      continue;
+    }
+    break;
+  }
+  return { why, log: () => log };
+}
+
+/** The last few lines the server printed — the bit that actually says what happened. */
+const tailOf = (text) => String(text || '').split('\n').filter((x) => x.trim()).slice(-15).join('\n    ');
+
 (async () => {
   const sec = require('../security');
 
@@ -91,15 +147,19 @@ const ROOT = path.join(__dirname, '..');
   ok('index.html has no FF_GO key', !/FF_GO_20\d\d/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
 
   section('live server');
-  const port = await new Promise((res) => { const srv = net.createServer(); srv.listen(0, () => { const p = srv.address().port; srv.close(() => res(p)); }); });
-  const child = spawn(process.execPath, ['server.js'], {
-    cwd: ROOT,
-    env: Object.assign({}, process.env, { PORT: String(port), DB_HOST: '', DB_USER: '', DB_NAME: '', CACHE_CLEAR_KEY: 'oldkey', ADMIN_PASSWORD: 'correct horse battery', IMAP_USER: '', IMAP_PASS: '', SYNC_INTERVAL_MIN: '0', DOTENV_CONFIG_PATH: path.join(ROOT, '.no-such-env') }),
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let log = ''; child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
-  const base = 'http://127.0.0.1:' + port;
-  for (let i = 0; i < 50; i++) { try { await fetch(base + '/health'); break; } catch (_) { await sleep(100); } }
+  const server = await startServer();
+  // 🔒 Say it here, by name, with the server's own words underneath. The old code carried on without a server
+  // and let the next ordinary assertion die of a connection error, which told nobody anything.
+  ok('the test server starts and answers /health', !server.why, server.why);
+  if (server.why) {
+    console.log('    ' + tailOf(server.log()));
+    console.log('\n  (the checks below need a server; none of them ran)');
+    console.log('\n---------------------------------------');
+    console.log('PASS ' + pass + '   FAIL ' + fail);
+    process.exit(1);
+  }
+  const child = server.child;
+  const base = server.base;
   try {
     let res = await fetch(base + '/admin/db-ping?key=oldkey');
     ok('?key= in the URL is refused', res.status === 403 && /no longer accepted/.test((await res.json()).message));
@@ -152,10 +212,14 @@ const ROOT = path.join(__dirname, '..');
     statuses = [];
     for (let i = 0; i < 60; i++) statuses.push((await act('getOrderStatus', ['FF1'], '203.0.113.60')).status);
     ok('payment-status polling is not blocked (60 polls)', statuses.every((x) => x !== 429));
+  } catch (e) {
+    // If the server falls over halfway, that is worth knowing as itself rather than as a stack trace from
+    // whichever assertion happened to be next.
+    ok('the live-server checks ran to the end', false, String((e && e.message) || e));
   } finally {
     child.kill();
   }
-  if (fail) console.log(log.split('\n').slice(-15).join('\n'));
+  if (fail) console.log(tailOf(server.log()));
 
   console.log('\n---------------------------------------');
   console.log('PASS ' + pass + '   FAIL ' + fail);
