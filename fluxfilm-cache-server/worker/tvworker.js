@@ -87,39 +87,95 @@ async function pageKind(page) {
   return 'ok';
 }
 
-/** The device list, as names and dates. Used to tell what is new after a registration. */
+/**
+ * The furniture that is on every Prime Video page. Taken from what the real page prints, not guessed.
+ * The footer arrives as one run-together line, so it is matched by shape below rather than listed here.
+ */
+const CHROME = ['home', 'movies', 'tv shows', 'sports', 'devices', 'register new device', 'register a device',
+  'search', 'help', 'send us feedback', 'cookies notice', 'registration code:', 'register device'];
+
+/**
+ * The lines a person would actually read on the devices page, with the furniture taken out.
+ *
+ * 🔒 Deliberately TEXT, not markup. The first version of this filtered rows by the words "registration
+ * date" — which that page never says — so it returned an empty list for every account, and an empty list
+ * is indistinguishable from an empty account. A selector that quietly matches nothing is the same bug that
+ * made the Netflix household tool fail 33 times out of 33 (CLAUDE.md). Markup is Amazon's to change;
+ * whatever a device is called, its name is a line of text that was not on the page before.
+ */
+function contentLines(text) {
+  return String(text || '')
+    .split('\n')
+    .map((l) => l.replace(/\s+/g, ' ').trim())
+    .filter((l) => l && l.length < 200)
+    .filter((l) => CHROME.indexOf(l.toLowerCase()) < 0)
+    .filter((l) => !/©|^terms and privacy notice/i.test(l));
+}
+
+/**
+ * Prose that appears on the devices page but is plainly not the name of anybody's television.
+ *
+ * 🔒 This exists because a device going AWAY also changes the page: the empty-state sentence turns up as a
+ * brand-new line, and without this the worker would hand that sentence back as the device it had just
+ * registered — a success it never saw, which rule 3 at the top of this file forbids. The owner sees the
+ * device name in admin, so a nonsense name is also caught by eye; this is the belt, that is the braces.
+ */
+const NOT_A_DEVICE = /don.?t have any registered devices|no registered devices|^watch your favou?rite|premium add-on subscriptions/i;
+
+/** What is on the page now that was not before. A multiset, so two TVs with the same name both count. */
+function newLines(before, after) {
+  const was = Object.create(null);
+  (before || []).forEach((l) => { was[l] = (was[l] || 0) + 1; });
+  const fresh = [];
+  (after || []).forEach((l) => { if (was[l] > 0) was[l] -= 1; else fresh.push(l); });
+  return fresh;
+}
+
+/** The lines that are new AND could actually be a device. This is what decides whether a job worked. */
+const deviceLines = (before, after) => newLines(before, after).filter((l) => !NOT_A_DEVICE.test(l));
+
+/** The device list as readable lines. */
 async function deviceList(page) {
   await page.goto(CFG.devicesUrl, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2500);
+  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(1500);
   const kind = await pageKind(page);
   if (kind !== 'ok') return { ok: false, kind };
-  const names = await page.evaluate(() => {
-    const out = [];
-    document.querySelectorAll('*').forEach((el) => {
-      if (el.children.length) return;
-      const t = (el.textContent || '').trim();
-      if (t && t.length < 120 && /registration date/i.test(el.parentElement ? el.parentElement.textContent || '' : '')) out.push(t);
-    });
-    return out;
-  });
-  // Belt and braces: the shape of this page is Amazon's to change, so also take every row's whole text.
-  const rows = await page.locator('li, .pv-device, [data-automation-id*="device"]').allTextContents().catch(() => []);
-  return { ok: true, names, rows: rows.filter((r) => /registration date/i.test(r)).map((r) => r.replace(/\s+/g, ' ').trim()) };
+  const text = await page.evaluate(() => document.body.innerText || '');
+  const lines = contentLines(text);
+  // 🔒 A page we could not read is NOT an empty account. Reporting "no devices" when we simply did not see
+  // is how a silent zero becomes a wrong answer, and here it would become a wrongly-failed customer.
+  if (!lines.length) return { ok: false, kind: 'unreadable' };
+  return { ok: true, lines, empty: /don.?t have any registered devices|no registered devices/i.test(text) };
 }
+
+/** Why we had to stop, in words the owner can act on. */
+const whyKind = (kind) => kind === 'signin' ? 'the browser is signed out of this account'
+  : kind === 'unreadable' ? 'the device list did not load, so we could not tell what changed'
+  : 'the page asked for a security check';
 
 async function doJob(ctx, job) {
   const page = await ctx.newPage();
   try {
     const before = await deviceList(page);
-    if (!before.ok) return { ok: false, why: before.kind === 'signin' ? 'the browser is signed out of this account' : 'the page asked for a security check', needsOwner: true };
+    if (!before.ok) return { ok: false, why: whyKind(before.kind), needsOwner: true };
 
     await page.goto(CFG.registerUrl, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2000);
     const kind = await pageKind(page);
-    if (kind !== 'ok') return { ok: false, why: kind === 'signin' ? 'the browser is signed out of this account' : 'the page asked for a security check', needsOwner: true };
+    if (kind !== 'ok') return { ok: false, why: whyKind(kind), needsOwner: true };
 
-    const box = page.locator('input[type="text"]:visible, input[name*="code" i]:visible').first();
+    // The real box is #av-cbl-code / name="code"; the loose selector is only a fallback, and it comes
+    // second because the page also carries a hidden Search field that could open and match first.
+    let box = page.locator('#av-cbl-code, input[name="code"]:visible').first();
+    if (!(await box.count())) box = page.locator('input[type="text"]:visible').first();
     if (!(await box.count())) return { ok: false, why: 'the registration box was not where we expected it' , needsOwner: true };
+    // 🔒 That box carries maxlength=6. A longer code would be silently CLIPPED by the browser and we would
+    // register something the customer never typed, so refuse and say why instead.
+    const max = await box.evaluate((el) => (el.maxLength > 0 ? el.maxLength : 0)).catch(() => 0);
+    if (max && job.code.length > max) {
+      return { ok: false, why: 'that code is ' + job.code.length + ' characters and the TV code box only takes ' + max };
+    }
     await box.fill(job.code);
     const btn = page.getByRole('button', { name: /register/i }).first();
     if (!(await btn.count())) return { ok: false, why: 'the Register button was not where we expected it', needsOwner: true };
@@ -129,9 +185,13 @@ async function doJob(ctx, job) {
     // 🔒 The only thing that counts as success: a device that was not there before, is there now.
     const after = await deviceList(page);
     if (!after.ok) return { ok: false, why: 'could not read the device list back', needsOwner: true };
-    const fresh = after.rows.filter((r) => before.rows.indexOf(r) < 0);
+    // If the account itself still says it has nothing registered, nothing was registered. No diff needed.
+    if (after.empty) return { ok: false, why: 'the code did not register — the account still shows no devices' };
+    const fresh = deviceLines(before.lines, after.lines);
     if (!fresh.length) return { ok: false, why: 'the code did not register — it may have expired' };
-    return { ok: true, deviceName: fresh[0].slice(0, 160) };
+    // Everything new, joined: usually the device's name and the date it was registered, which is exactly
+    // the handle we will need in order to take it off again when the plan ends.
+    return { ok: true, deviceName: fresh.join(' · ').slice(0, 160) };
   } finally {
     await page.close().catch(() => {});
   }
@@ -198,21 +258,28 @@ async function check(accountId) {
   const ctx = await openProfile(accountId, true);
   const page = await ctx.newPage();
   const list = await deviceList(page);
-  if (!list.ok) console.log('❌ ' + accountId + ': ' + (list.kind === 'signin' ? 'signed out — run `login` again' : 'a security check is in the way'));
+  if (!list.ok) console.log('❌ ' + accountId + ': ' + (list.kind === 'signin' ? 'signed out — run `login` again' : whyKind(list.kind)));
+  else if (list.empty) console.log('✅ ' + accountId + ': signed in — the account says it has no registered devices');
   else {
-    console.log('✅ ' + accountId + ': signed in, ' + list.rows.length + ' device(s)');
-    list.rows.forEach((r) => console.log('   · ' + r));
+    console.log('✅ ' + accountId + ': signed in, this is what the devices page says:');
+    list.lines.forEach((r) => console.log('   · ' + r));
   }
   await ctx.close().catch(() => {});
 }
 
-const [cmd, arg] = process.argv.slice(2);
-if (cmd === 'run') run();
-else if (cmd === 'login') login(arg);
-else if (cmd === 'check') check(arg);
-else {
-  console.log('\n📺 FluxFilm TV worker\n');
-  console.log('  node tvworker.js login PRI-13    sign an account in, once, by hand');
-  console.log('  node tvworker.js check PRI-13    is that profile still signed in?');
-  console.log('  node tvworker.js run             the loop\n');
+// The reading rules are exported so the suite can hold them to a real page with no browser anywhere near
+// it. Playwright is only ever loaded inside playwright(), so requiring this file costs nothing.
+module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE };
+
+if (require.main === module) {
+  const [cmd, arg] = process.argv.slice(2);
+  if (cmd === 'run') run();
+  else if (cmd === 'login') login(arg);
+  else if (cmd === 'check') check(arg);
+  else {
+    console.log('\n📺 FluxFilm TV worker\n');
+    console.log('  node tvworker.js login PRI-13    sign an account in, once, by hand');
+    console.log('  node tvworker.js check PRI-13    is that profile still signed in?');
+    console.log('  node tvworker.js run             the loop\n');
+  }
 }
