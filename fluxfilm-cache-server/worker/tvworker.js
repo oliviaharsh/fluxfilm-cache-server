@@ -81,6 +81,38 @@ const SEL = {
 // Declining an offer is safe; accepting one is not. Only these exact words are ever clicked, so a button
 // we have not seen before stops the run and is reported rather than guessed at. "Cancel" is deliberately
 // NOT here — on Amazon it can mean cancelling the sign-in itself.
+/**
+ * What Amazon says for itself after the Register button.
+ *
+ * Captured from the real pages on 4 Oct 2026, not guessed: the owner's screenshot of a working
+ * registration ("Success! Your device is registered to your Prime Video account.") and the dry run with a
+ * made-up code ("That's an invalid code.").
+ *
+ * 🔒 These NEVER decide that a registration worked - a device appearing in the list does, and that is the
+ * only thing that can. They are used for two narrower jobs, both of which can only make the answer kinder
+ * or more precise, never falsely positive:
+ *   · an "invalid code" line turns "it may have expired" into something the customer can act on
+ *   · a "registered" line stops us telling a customer it FAILED when Amazon has just told them it worked
+ *     and our device list simply has not caught up
+ */
+const SAID_REGISTERED = /your device is registered|successfully registered|device is now registered/i;
+const SAID_BADCODE = /invalid code|not a valid code|code is invalid|code you entered/i;
+
+/**
+ * What the page said that it was not saying before we pressed the button.
+ *
+ * 🔒 Before and after, exactly like the device list. A banner left over from an earlier registration, or
+ * boilerplate that was always on the page, is not news - and news is the only thing worth reading.
+ */
+function readOutcome(linesBefore, linesAfter) {
+  const fresh = newLines(linesBefore || [], linesAfter || []);
+  return {
+    registered: fresh.some((l) => SAID_REGISTERED.test(l)),
+    badcode: fresh.some((l) => SAID_BADCODE.test(l)),
+    lines: fresh,
+  };
+}
+
 const PASSKEY_DECLINE = /^(not now|maybe later|skip for now|skip|no thanks|remind me later)$/i;
 
 /**
@@ -113,6 +145,7 @@ const WORKER_SAYS = {
   'worker:notregistered': 'no new device appeared - the code had probably expired',
   'worker:passkey': 'Amazon pushed a passkey prompt we are not allowed to answer',
   'worker:wrongaccount': 'the login in accounts.json is not the one admin has for this account',
+  'worker:badcode': 'Amazon said the code was not valid',
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -462,6 +495,9 @@ async function registerCode(page, code, before, notes) {
   if (max && code.length > max) {
     return { ok: false, why: 'That code is ' + code.length + ' characters long - the box on Prime Video takes ' + max + '. Check the code on your TV and send it again.' };
   }
+  // What the page says BEFORE we touch anything, so we can tell afterwards what is new.
+  let textBefore = [];
+  try { textBefore = contentLines(await page.evaluate(() => document.body.innerText || '')); } catch (e) { textBefore = []; }
   await box.fill(code);
   say('typed the code in');
   const btn = page.getByRole('button', { name: /register/i }).first();
@@ -470,18 +506,39 @@ async function registerCode(page, code, before, notes) {
   await btn.click();
   say('clicked Register');
   await page.waitForTimeout(4000);
+  let textAfter = [];
+  try { textAfter = contentLines(await page.evaluate(() => document.body.innerText || '')); } catch (e) { textAfter = []; }
+  const heard = readOutcome(textBefore, textAfter);
   // Only ever shown to whoever is watching a rehearsal. Never posted, never shown to a customer.
-  let said = '';
-  try { said = contentLines(await page.evaluate(() => document.body.innerText || '')).slice(0, 4).join(DOT_); } catch (e) { said = ''; }
+  const said = heard.lines.slice(0, 4).join(DOT_);
+  if (heard.registered) say('Amazon says it registered');
+  if (heard.badcode) say('Amazon says the code is not valid');
 
   // 🔒 The only thing that counts as success: a device that was not there before, is there now.
-  const after = await deviceList(page);
+  let after = await deviceList(page);
   if (!after.ok) return { ok: false, why: 'worker:unreadable', needsOwner: true, said: said };
   say('read the device list back: ' + after.lines.length + ' line(s)');
-  // If the account itself still says it has nothing registered, nothing was registered. No diff needed.
-  if (after.empty) return { ok: false, why: 'worker:notregistered', said: said };
-  const fresh = deviceLines(before.lines, after.lines);
-  if (!fresh.length) return { ok: false, why: 'worker:notregistered', said: said };
+  let fresh = after.empty ? [] : deviceLines(before.lines, after.lines);
+
+  // Amazon said it worked and we cannot see it yet. That page can lag, so look once more before deciding.
+  if (!fresh.length && heard.registered) {
+    say('Amazon says it worked but the list has not caught up - looking again');
+    await page.waitForTimeout(5000);
+    after = await deviceList(page);
+    if (after.ok && !after.empty) fresh = deviceLines(before.lines, after.lines);
+  }
+
+  if (!fresh.length) {
+    // 🔒 Still nothing in the list, but Amazon told the CUSTOMER it registered. Saying "it failed" here is
+    // the worst answer available: their TV is on, and we would send them for another code. So this counts
+    // as done, with the name marked unread - the owner can read it off the account and the removal ledger
+    // knows not to trust it. A device appearing is still the only thing that produces a REAL name.
+    if (heard.registered) {
+      return { ok: true, deviceName: 'registered - device name not read back, check the account', unnamed: true, said: said };
+    }
+    if (heard.badcode) return { ok: false, why: 'worker:badcode', said: said };
+    return { ok: false, why: 'worker:notregistered', said: said };
+  }
   // Everything new, joined: usually the device's name and the date it was registered, which is exactly
   // the handle we will need in order to take it off again when the plan ends.
   return { ok: true, deviceName: fresh.join(DOT_).slice(0, 160) };
@@ -533,6 +590,7 @@ async function run() {
         fails.delete(job.accountId);
         await api('/admin/api/prime-tv/done', { id: job.id, deviceName: out.deviceName });
         log('   ✅ registered: ' + out.deviceName);
+        if (out.unnamed) log('   ⚠️  Amazon confirmed it but the device list had not caught up - read the name off the account when you can');
       } else {
         fails.set(job.accountId, n + 1);
         await api('/admin/api/prime-tv/fail', { id: job.id, why: out.why });
@@ -629,6 +687,8 @@ async function dryrun(accountId, code) {
     } else if (out.why === 'worker:notregistered') {
       console.log('✅ the whole path ran, and the code did not register - exactly right for a made-up code.');
       console.log('   Every step up to the last one worked: page, box, typing, the button, reading back.');
+    } else if (out.why === 'worker:badcode') {
+      console.log('✅ the whole path ran, and Amazon itself called the code invalid - the clearest possible pass.');
     } else {
       console.log('❌ stopped early: ' + (WORKER_SAYS[out.why] || out.why));
     }
@@ -652,7 +712,7 @@ async function check(accountId) {
 
 // The reading rules are exported so the suite can hold them to a real page with no browser anywhere near
 // it. Playwright is only ever loaded inside playwright(), so requiring this file costs nothing.
-module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, registerCode };
+module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, registerCode, readOutcome, SAID_REGISTERED, SAID_BADCODE };
 
 if (require.main === module) {
   const [cmd, arg, arg2] = process.argv.slice(2);
