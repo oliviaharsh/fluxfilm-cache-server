@@ -80,6 +80,29 @@ const writeAccounts = (o) => fs.writeFileSync(ACCOUNTS, JSON.stringify(o));
   fs.writeFileSync(f, JSON.stringify({ day: '2020-01-01', counts: { 'PRI-13': 99 } }));
   ok('yesterday is not held against today', loginsToday('PRI-13').n === 0, loginsToday('PRI-13'));
 
+  section('the rehearsal runs the real registration, not a copy of it');
+  // 🔒 The whole value of `dryrun` is that it exercises the REAL registration. A rehearsal with its own
+  // copy of the steps proves only that the copy works, and this half of the worker had never executed
+  // once before the rehearsal existed - so the one thing worth locking is that there is ONE path.
+  const src0 = fs.readFileSync(path.join(__dirname, '..', 'worker', 'tvworker.js'), 'utf8');
+  // Counting the string would count the comment that explains it too, so count the USE.
+  ok('the code box is looked up in exactly one place - the steps are not duplicated',
+    (src0.match(/locator\('#av-cbl-code/g) || []).length === 1,
+    (src0.match(/locator\('#av-cbl-code/g) || []).length);
+  ok('the Register button is found in exactly one place',
+    (src0.match(/name: \/register\/i/g) || []).length === 1);
+  ok('…and both the job and the rehearsal go through it',
+    (src0.match(/await registerCode\(/g) || []).length >= 2, (src0.match(/await registerCode\(/g) || []).length);
+  ok('registerCode is reachable from the suite', typeof worker.registerCode === 'function');
+  // 🔒 A rehearsal must not touch the shop: no job claimed, nothing marked done or failed.
+  const dry = src0.slice(src0.indexOf('async function dryrun'), src0.indexOf('async function check'));
+  ok('the rehearsal exists', dry.length > 200);
+  ok('the rehearsal never calls the shop', dry.indexOf('api(') < 0, dry.indexOf('api('));
+  ok('…and never marks anything done or failed', !/prime-tv\/(done|fail|claim)/.test(dry));
+  // The sentence that used to be posted here went straight to the customer's screen.
+  ok('the Register-button failure is a code, not a sentence',
+    src0.indexOf('the Register button was not where we expected it') < 0);
+
   section('🔒 the worker must be on the account it thinks it is on');
   // 4 Oct 2026, a real incident: a swapped id in accounts.json left profiles/PRI-31 signed into PRI-27's
   // Amazon account. A job on that profile would have registered a customer's TV on an account they never

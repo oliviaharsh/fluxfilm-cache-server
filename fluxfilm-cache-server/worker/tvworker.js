@@ -97,6 +97,8 @@ function sameLogin(expectedHash, login) {
   return got === want ? 'ok' : 'wrong';
 }
 
+const DOT_ = ' \u00b7 ';
+
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 // Only for what this worker prints on screen. The customer's wording lives in primetv.js, deliberately in
@@ -433,6 +435,58 @@ async function ensureSignedIn(page, accountId, force, expectedHash) {
   return { ok: true, list: after };
 }
 
+/**
+ * 📺 Type the code in, press the button, and find out whether a device appeared.
+ *
+ * 🔒 THE one registration path. A real job and `dryrun` both come through here, deliberately: a rehearsal
+ * that runs different code from the performance proves nothing at all, and this half of the worker had
+ * never once executed before the rehearsal existed. `notes` only narrates; it changes nothing.
+ */
+async function registerCode(page, code, before, notes) {
+  const say = notes || (() => {});
+  await page.goto(CFG.registerUrl, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2000);
+  const kind = await pageKind(page);
+  if (kind !== 'ok') return { ok: false, why: whyKind(kind), needsOwner: true };
+  say('the register page loaded');
+
+  // The real box is #av-cbl-code / name="code"; the loose selector is only a fallback, and it comes
+  // second because the page also carries a hidden Search field that could open and match first.
+  let box = page.locator('#av-cbl-code, input[name="code"]:visible').first();
+  if (!(await box.count())) box = page.locator('input[type="text"]:visible').first();
+  if (!(await box.count())) return { ok: false, why: 'worker:noform', needsOwner: true };
+  // 🔒 That box carries maxlength=6. A longer code would be silently CLIPPED by the browser and we would
+  // register something the customer never typed, so refuse and say why instead.
+  const max = await box.evaluate((el) => (el.maxLength > 0 ? el.maxLength : 0)).catch(() => 0);
+  say('found the code box' + (max ? ' (it takes ' + max + ' characters)' : ''));
+  if (max && code.length > max) {
+    return { ok: false, why: 'That code is ' + code.length + ' characters long - the box on Prime Video takes ' + max + '. Check the code on your TV and send it again.' };
+  }
+  await box.fill(code);
+  say('typed the code in');
+  const btn = page.getByRole('button', { name: /register/i }).first();
+  // 🔒 A code, not a sentence: this is posted as `why` and `why` is shown to the customer.
+  if (!(await btn.count())) return { ok: false, why: 'worker:noform', needsOwner: true };
+  await btn.click();
+  say('clicked Register');
+  await page.waitForTimeout(4000);
+  // Only ever shown to whoever is watching a rehearsal. Never posted, never shown to a customer.
+  let said = '';
+  try { said = contentLines(await page.evaluate(() => document.body.innerText || '')).slice(0, 4).join(DOT_); } catch (e) { said = ''; }
+
+  // 🔒 The only thing that counts as success: a device that was not there before, is there now.
+  const after = await deviceList(page);
+  if (!after.ok) return { ok: false, why: 'worker:unreadable', needsOwner: true, said: said };
+  say('read the device list back: ' + after.lines.length + ' line(s)');
+  // If the account itself still says it has nothing registered, nothing was registered. No diff needed.
+  if (after.empty) return { ok: false, why: 'worker:notregistered', said: said };
+  const fresh = deviceLines(before.lines, after.lines);
+  if (!fresh.length) return { ok: false, why: 'worker:notregistered', said: said };
+  // Everything new, joined: usually the device's name and the date it was registered, which is exactly
+  // the handle we will need in order to take it off again when the plan ends.
+  return { ok: true, deviceName: fresh.join(DOT_).slice(0, 160) };
+}
+
 async function doJob(ctx, job) {
   const page = await ctx.newPage();
   try {
@@ -440,38 +494,7 @@ async function doJob(ctx, job) {
     if (!ready.ok) return { ok: false, why: ready.why, needsOwner: true };
     const before = ready.list;
 
-    await page.goto(CFG.registerUrl, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(2000);
-    const kind = await pageKind(page);
-    if (kind !== 'ok') return { ok: false, why: whyKind(kind), needsOwner: true };
-
-    // The real box is #av-cbl-code / name="code"; the loose selector is only a fallback, and it comes
-    // second because the page also carries a hidden Search field that could open and match first.
-    let box = page.locator('#av-cbl-code, input[name="code"]:visible').first();
-    if (!(await box.count())) box = page.locator('input[type="text"]:visible').first();
-    if (!(await box.count())) return { ok: false, why: 'worker:noform', needsOwner: true };
-    // 🔒 That box carries maxlength=6. A longer code would be silently CLIPPED by the browser and we would
-    // register something the customer never typed, so refuse and say why instead.
-    const max = await box.evaluate((el) => (el.maxLength > 0 ? el.maxLength : 0)).catch(() => 0);
-    if (max && job.code.length > max) {
-      return { ok: false, why: 'That code is ' + job.code.length + ' characters long - the box on Prime Video takes ' + max + '. Check the code on your TV and send it again.' };
-    }
-    await box.fill(job.code);
-    const btn = page.getByRole('button', { name: /register/i }).first();
-    if (!(await btn.count())) return { ok: false, why: 'the Register button was not where we expected it', needsOwner: true };
-    await btn.click();
-    await page.waitForTimeout(4000);
-
-    // 🔒 The only thing that counts as success: a device that was not there before, is there now.
-    const after = await deviceList(page);
-    if (!after.ok) return { ok: false, why: 'worker:unreadable', needsOwner: true };
-    // If the account itself still says it has nothing registered, nothing was registered. No diff needed.
-    if (after.empty) return { ok: false, why: 'worker:notregistered' };
-    const fresh = deviceLines(before.lines, after.lines);
-    if (!fresh.length) return { ok: false, why: 'worker:notregistered' };
-    // Everything new, joined: usually the device's name and the date it was registered, which is exactly
-    // the handle we will need in order to take it off again when the plan ends.
-    return { ok: true, deviceName: fresh.join(' · ').slice(0, 160) };
+    return await registerCode(page, job.code, before);
   } finally {
     await page.close().catch(() => {});
   }
@@ -580,6 +603,40 @@ async function relogin(accountId, mode) {
   } finally { await ctx.close().catch(() => {}); }
 }
 
+/**
+ * 📺 `node tvworker.js dryrun PRI-27 ABC123` - run the whole registration against the real page, with a
+ * code of your choosing, and report. **Nothing is sent to the shop**: no job is claimed, nothing is marked
+ * done or failed, no customer is involved. With a made-up code the honest result is "no new device
+ * appeared", and getting that result is the proof that every step before it worked.
+ */
+async function dryrun(accountId, code) {
+  if (!accountId || !code) { console.error('Usage: node tvworker.js dryrun PRI-27 ABC123'); process.exit(1); }
+  const clean = String(code).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!clean) { console.error('That code has no letters or numbers in it.'); process.exit(1); }
+  console.log('\nRehearsal on ' + accountId + '. Nothing is claimed, nothing is reported, no customer is involved.');
+  console.log('A made-up code SHOULD fail at the last step - that is the result we are looking for.\n');
+  const ctx = await openProfile(accountId);
+  const page = await ctx.newPage();
+  try {
+    const ready = await ensureSignedIn(page, accountId, true);
+    if (!ready.ok) { console.log('\n❌ could not even get signed in: ' + (WORKER_SAYS[ready.why] || ready.why)); return; }
+    console.log('   . signed in, ' + (ready.list.empty ? 'no devices on the account' : ready.list.lines.length + ' line(s) on the devices page'));
+    const out = await registerCode(page, clean, ready.list, (m) => console.log('   . ' + m));
+    console.log('');
+    if (out.ok) {
+      console.log('✅ A NEW DEVICE APPEARED: ' + out.deviceName);
+      console.log('   If the code you used was made up, that is WRONG and worth telling me about.');
+    } else if (out.why === 'worker:notregistered') {
+      console.log('✅ the whole path ran, and the code did not register - exactly right for a made-up code.');
+      console.log('   Every step up to the last one worked: page, box, typing, the button, reading back.');
+    } else {
+      console.log('❌ stopped early: ' + (WORKER_SAYS[out.why] || out.why));
+    }
+    if (out.said) console.log('\n   the page said: ' + redact(out.said));
+  } finally { await ctx.close().catch(() => {}); }
+  console.log('\nNothing was reported to the shop.');
+}
+
 async function check(accountId) {
   const ctx = await openProfile(accountId, true);
   const page = await ctx.newPage();
@@ -595,7 +652,7 @@ async function check(accountId) {
 
 // The reading rules are exported so the suite can hold them to a real page with no browser anywhere near
 // it. Playwright is only ever loaded inside playwright(), so requiring this file costs nothing.
-module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin };
+module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, registerCode };
 
 if (require.main === module) {
   const [cmd, arg, arg2] = process.argv.slice(2);
@@ -603,11 +660,13 @@ if (require.main === module) {
   else if (cmd === 'login') login(arg);
   else if (cmd === 'check') check(arg);
   else if (cmd === 'relogin') relogin(arg, arg2);
+  else if (cmd === 'dryrun') dryrun(arg, arg2);
   else {
     console.log('\n📺 FluxFilm TV worker\n');
     console.log('  node tvworker.js login PRI-13    sign an account in, once, by hand');
     console.log('  node tvworker.js check PRI-13    is that profile still signed in?');
     console.log('  node tvworker.js relogin PRI-13  test signing back in (add `fresh` to start from nothing)');
+    console.log('  node tvworker.js dryrun PRI-13 ABC123   run a real registration with a code of your own');
     console.log('  node tvworker.js run             the loop\n');
   }
 }
