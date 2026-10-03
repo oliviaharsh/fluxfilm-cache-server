@@ -162,6 +162,9 @@ function mountAdmin(app, deps) {
   require('./accounttools').mount(app, Object.assign({ db, auth, audit }, deps.tools || {}));
   // Profit view + extend subscription days (profit.js).
   require('./profit').mount(app, Object.assign({ db, auth, audit }, deps.profit || {}));
+  // ➕ Add account: one form that writes inventory_accounts + capacity + profiles together
+  // (adminnewaccount.js). Before it, a Netflix account was seven row-adds across three tables.
+  require('./adminnewaccount').mount(app, Object.assign({ db, auth, audit }, deps.newAccount || {}));
   // Rename / split an inventory AccountID everywhere, in one transaction (accountid.js).
   require('./accountid').mount(app, Object.assign({ db, auth, audit }, deps.accountId || {}));
   // Refer & earn settings, overview and "fix missed rewards" (adminreferrals.js).
