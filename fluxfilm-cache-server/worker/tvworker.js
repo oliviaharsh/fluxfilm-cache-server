@@ -112,6 +112,20 @@ function credentialsFor(accountId) {
   return { login: String(row.login), password: String(row.password) };
 }
 
+/**
+ * Move a profile out of the way so a sign-in starts from nothing.
+ *
+ * 🔒 RENAME, never delete. These folders ARE the signed-in sessions; losing one costs a sign-in on a live
+ * account, and a sign-in is the thing we are trying not to spend. Returns where it went, or null.
+ */
+function setAsideProfile(accountId) {
+  const dir = profileFor(accountId);
+  if (!fs.existsSync(dir)) return null;
+  const bak = dir + '.bak-' + Date.now();
+  fs.renameSync(dir, bak);
+  return bak;
+}
+
 /** Sign-ins today, per account, kept beside the profiles so a restart does not forget them. */
 const countsFile = () => path.join(CFG.profiles, 'logins.json');
 function loginsToday(accountId) {
@@ -290,11 +304,13 @@ const isOtp = async (page) =>
  * Make sure we are signed in before a job, signing in only if we are allowed to and it is worth trying.
  * Returns null when all is well, or the reason to hand back.
  */
-async function ensureSignedIn(page, accountId) {
+async function ensureSignedIn(page, accountId, force) {
   const before = await deviceList(page);
   if (before.ok) return { ok: true, list: before };
   if (before.kind !== 'signin') return { ok: false, why: whyKind(before.kind) };
-  if (!CFG.autoLogin) return { ok: false, why: 'worker:signedout' };
+  // `force` is the owner typing `relogin` himself. The switch guards the UNATTENDED loop; a command
+  // he just ran is consent enough on its own. The daily cap below still applies either way.
+  if (!CFG.autoLogin && !force) return { ok: false, why: 'worker:signedout' };
 
   let creds = null;
   try { creds = credentialsFor(accountId); } catch (e) { log('   ' + e.message); return { ok: false, why: 'worker:signedout' }; }
@@ -423,6 +439,49 @@ async function login(accountId) {
   await ctx.close().catch(() => {});
 }
 
+/**
+ * 📺 Test the sign-in on purpose: `node tvworker.js relogin PRI-13 [fresh]`.
+ *
+ * Without this the only way to find out whether auto-login works is to wait for a real job at one in the
+ * morning, which is the worst possible moment to learn that it does not. `fresh` puts the existing profile
+ * aside first (it is RENAMED, never deleted) so a dead session can be simulated without losing a good one.
+ */
+async function relogin(accountId, mode) {
+  if (!accountId) { console.error('Which account? e.g. node tvworker.js relogin PRI-13'); process.exit(1); }
+  let creds = null;
+  try { creds = credentialsFor(accountId); } catch (e) { console.log(e.message); process.exit(1); }
+  if (!creds) {
+    console.log('No login saved for ' + accountId + ' in ' + CFG.accountsFile);
+    console.log('Copy accounts.example.json to accounts.json and fill that account in.');
+    return;
+  }
+  console.log('a login IS saved for ' + accountId);        // never which, never what
+  if (String(mode || '').trim().toLowerCase() === 'fresh') {
+    const bak = setAsideProfile(accountId);
+    if (bak) console.log('old profile put aside as ' + path.basename(bak) + ' - nothing was deleted, move it back to undo');
+  }
+  const { n } = loginsToday(accountId);
+  if (n >= CFG.maxLoginsPerDay) {
+    console.log('already ' + n + ' sign-ins today for ' + accountId + ' - the cap is ' + CFG.maxLoginsPerDay + '. Stopping.');
+    return;
+  }
+  const ctx = await openProfile(accountId);
+  const page = await ctx.newPage();
+  try {
+    const r = await ensureSignedIn(page, accountId, true);
+    if (r.ok) {
+      console.log('\n✅ signed in. The devices page says:');
+      (r.list.empty ? ['(no registered devices)'] : r.list.lines).forEach((l) => console.log('   . ' + l));
+    } else {
+      console.log('\n❌ did not get in: ' + (WORKER_SAYS[r.why] || r.why));
+      if (r.why === 'worker:needsotp') {
+        console.log('   Amazon wanted a one-time code from that account mailbox. We cannot read Outlook or');
+        console.log('   Hotmail, so this account will always need you by hand until Phase 4 is built.');
+      }
+    }
+  } finally { await ctx.close().catch(() => {}); }
+}
+
 async function check(accountId) {
   const ctx = await openProfile(accountId, true);
   const page = await ctx.newPage();
@@ -438,17 +497,19 @@ async function check(accountId) {
 
 // The reading rules are exported so the suite can hold them to a real page with no browser anywhere near
 // it. Playwright is only ever loaded inside playwright(), so requiring this file costs nothing.
-module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, CFG };
+module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG };
 
 if (require.main === module) {
-  const [cmd, arg] = process.argv.slice(2);
+  const [cmd, arg, arg2] = process.argv.slice(2);
   if (cmd === 'run') run();
   else if (cmd === 'login') login(arg);
   else if (cmd === 'check') check(arg);
+  else if (cmd === 'relogin') relogin(arg, arg2);
   else {
     console.log('\n📺 FluxFilm TV worker\n');
     console.log('  node tvworker.js login PRI-13    sign an account in, once, by hand');
     console.log('  node tvworker.js check PRI-13    is that profile still signed in?');
+    console.log('  node tvworker.js relogin PRI-13  test signing back in (add `fresh` to start from nothing)');
     console.log('  node tvworker.js run             the loop\n');
   }
 }

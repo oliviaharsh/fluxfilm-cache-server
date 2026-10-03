@@ -62,6 +62,20 @@ yourself too when you sign in by hand.
 Three attempts per account per day, counted in `profiles/logins.json`. More than that is not a bad minute,
 it is a problem worth your eyes - repeated sign-ins are how an account with paying customers gets locked.
 
+### Testing it before a customer does
+
+```bash
+node tvworker.js relogin PRI-13           # sign in now, if the profile is signed out
+node tvworker.js relogin PRI-13 fresh     # put the profile aside first, so it starts from nothing
+```
+
+`fresh` **renames** the profile, it does not delete it - move the `.bak-…` folder back to undo. Starting
+from nothing is the hardest case there is: a browser Amazon has never seen is the most likely to be
+challenged, so if it gets through that, an expired session will be easier.
+
+This command works whether or not `FF_AUTO_LOGIN` is on - the switch guards the unattended loop, and a
+command you just typed is consent enough on its own. The three-a-day cap still applies.
+
 ## Run it
 
 ```bash

@@ -24,7 +24,7 @@ process.env.FF_PROFILE_DIR = path.join(TMP, 'profiles');
 delete process.env.FF_AUTO_LOGIN;
 
 const worker = require(path.join(__dirname, '..', 'worker', 'tvworker.js'));
-const { credentialsFor, loginsToday, noteLogin, redact, CFG } = worker;
+const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG } = worker;
 
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x).slice(0, 300) : '')); } };
@@ -79,6 +79,19 @@ const writeAccounts = (o) => fs.writeFileSync(ACCOUNTS, JSON.stringify(o));
   const f = path.join(CFG.profiles, 'logins.json');
   fs.writeFileSync(f, JSON.stringify({ day: '2020-01-01', counts: { 'PRI-13': 99 } }));
   ok('yesterday is not held against today', loginsToday('PRI-13').n === 0, loginsToday('PRI-13'));
+
+  section('`fresh` puts a profile aside - it never deletes one');
+  // 🔒 These folders ARE the signed-in sessions. Deleting one costs a sign-in on a live account, and a
+  // sign-in is exactly the thing we are trying not to spend.
+  ok('nothing to move is not an error', setAsideProfile('PRI-NOTHERE') === null);
+  const live = profileFor('PRI-13');
+  fs.mkdirSync(live, { recursive: true });
+  fs.writeFileSync(path.join(live, 'Cookies'), 'pretend-session');
+  const bak = setAsideProfile('PRI-13');
+  ok('the profile is gone from where it was', !fs.existsSync(live));
+  ok('…because it was MOVED, not deleted', !!bak && fs.existsSync(bak), bak);
+  ok('…and the session inside it is intact', fs.readFileSync(path.join(bak, 'Cookies'), 'utf8') === 'pretend-session');
+  ok('the backup is named so it can be moved back', /\.bak-\d+$/.test(bak || ''), bak);
 
   section('the counter survives a restart');
   noteLogin('PRI-13');
