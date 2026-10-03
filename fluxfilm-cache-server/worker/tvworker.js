@@ -26,6 +26,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const CFG = {
   base: process.env.FF_BASE || 'https://shop.fluxfilm.in',
@@ -82,6 +83,20 @@ const SEL = {
 // NOT here — on Amazon it can mean cancelling the sign-in itself.
 const PASSKEY_DECLINE = /^(not now|maybe later|skip for now|skip|no thanks|remind me later)$/i;
 
+/**
+ * Is the login we hold for this account the one the shop says it should be?
+ *
+ * 🔒 Returns 'ok', 'wrong' or 'unknown'. 'unknown' (the shop has no login saved, so there is nothing to
+ * compare) does NOT block: refusing work because the shop's record is incomplete would turn a data gap
+ * into a failed customer. 'wrong' always blocks.
+ */
+function sameLogin(expectedHash, login) {
+  const want = String(expectedHash == null ? '' : expectedHash).trim();
+  if (!want) return 'unknown';
+  const got = crypto.createHash('sha256').update(String(login == null ? '' : login).trim().toLowerCase()).digest('hex').slice(0, 16);
+  return got === want ? 'ok' : 'wrong';
+}
+
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 // Only for what this worker prints on screen. The customer's wording lives in primetv.js, deliberately in
@@ -95,6 +110,7 @@ const WORKER_SAYS = {
   'worker:crashed': 'the worker could not finish it',
   'worker:notregistered': 'no new device appeared - the code had probably expired',
   'worker:passkey': 'Amazon pushed a passkey prompt we are not allowed to answer',
+  'worker:wrongaccount': 'the login in accounts.json is not the one admin has for this account',
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -376,7 +392,16 @@ const isOtp = async (page) => (await page.locator(SEL.otp).count()) > 0;
  * Make sure we are signed in before a job, signing in only if we are allowed to and it is worth trying.
  * Returns null when all is well, or the reason to hand back.
  */
-async function ensureSignedIn(page, accountId, force) {
+async function ensureSignedIn(page, accountId, force, expectedHash) {
+  // 🔒 First, and before any page is touched: are we even holding the right account?
+  if (expectedHash) {
+    let have = null;
+    try { have = credentialsFor(accountId); } catch (e) { have = null; }
+    if (have && sameLogin(expectedHash, have.login) === 'wrong') {
+      log('   ⛔ ' + accountId + ': the login in accounts.json is not the one admin has for it');
+      return { ok: false, why: 'worker:wrongaccount' };
+    }
+  }
   const before = await deviceList(page);
   if (before.ok) return { ok: true, list: before };
   if (before.kind !== 'signin') return { ok: false, why: whyKind(before.kind) };
@@ -411,7 +436,7 @@ async function ensureSignedIn(page, accountId, force) {
 async function doJob(ctx, job) {
   const page = await ctx.newPage();
   try {
-    const ready = await ensureSignedIn(page, job.accountId);
+    const ready = await ensureSignedIn(page, job.accountId, false, job.loginHash);
     if (!ready.ok) return { ok: false, why: ready.why, needsOwner: true };
     const before = ready.list;
 
@@ -570,7 +595,7 @@ async function check(accountId) {
 
 // The reading rules are exported so the suite can hold them to a real page with no browser anywhere near
 // it. Playwright is only ever loaded inside playwright(), so requiring this file costs nothing.
-module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE };
+module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin };
 
 if (require.main === module) {
   const [cmd, arg, arg2] = process.argv.slice(2);

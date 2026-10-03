@@ -31,6 +31,7 @@
  *              POST /admin/api/prime-tv/fail       { id, why }
  */
 const db = require('./db');
+const crypto = require('crypto');
 
 // Amazon expires a registration code in roughly ten minutes. Fifteen gives the owner a little room and still
 // guarantees we never hand the worker a code that cannot possibly work.
@@ -94,6 +95,10 @@ const WORKER_WHY = {
     owner: 'Amazon pushed a passkey prompt we are not allowed to answer - sign in by hand once and decline it',
     customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
   },
+  'worker:wrongaccount': {
+    owner: 'the login saved on the worker for this account is NOT the one in admin - fix accounts.json before using it again',
+    customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
+  },
   'worker:notregistered': {
     owner: 'the code was entered but no new device appeared - most likely it had expired',
     customer: 'That code did not go through - it had probably expired. Codes last about ten minutes, so get a fresh one on your TV and send it again.',
@@ -101,6 +106,16 @@ const WORKER_WHY = {
 };
 const ownerWhy = (why) => (WORKER_WHY[s(why)] ? WORKER_WHY[s(why)].owner : s(why));
 const customerWhy = (why) => (WORKER_WHY[s(why)] ? WORKER_WHY[s(why)].customer : s(why));
+
+/**
+ * A fingerprint of an account's login, for the worker to check itself against.
+ *
+ * 🔒 A HASH, not the address. The worker already holds the login in its own file; it does not need to be
+ * sent one, and an identifier that never crosses the wire cannot be harvested from the wire. All the
+ * worker has to answer is "is the login I hold the one this account is supposed to have?" — and a
+ * fingerprint answers that exactly as well as the address would.
+ */
+const loginHash = (v) => crypto.createHash('sha256').update(String(v == null ? '' : v).trim().toLowerCase()).digest('hex').slice(0, 16);
 
 const s = (v) => String(v == null ? '' : v).trim();
 const up = (v) => s(v).toUpperCase();
@@ -193,7 +208,16 @@ async function claim(who, deps) {
     const rows = await db.query('SELECT id, sub_id, account_id, service, code FROM tv_activations WHERE id = ? LIMIT 1', [id]);
     const r = rows && rows[0];
     if (!r) continue;
-    return { ok: true, ready: true, job: { id: r.id, subId: s(r.sub_id), accountId: s(r.account_id), service: s(r.service), code: s(r.code) } };
+    // 🔒 Which account this job is FOR, as a fingerprint the worker can check its own file against.
+    // 4 Oct 2026: a swapped id in the worker's accounts.json had profiles/PRI-31 signed into PRI-27's
+    // Amazon account. A job on that profile would have registered a customer's TV on an account they never
+    // bought. The worker cannot see admin, so the shop has to tell it, and this is the smallest way to.
+    let hash = '';
+    try {
+      const a = await db.query("SELECT login_id FROM inventory_accounts WHERE account_id = ? AND LOWER(service) LIKE '%prime%' LIMIT 1", [s(r.account_id)]);
+      if (a && a[0] && s(a[0].login_id)) hash = loginHash(a[0].login_id);
+    } catch (e) { hash = ''; }
+    return { ok: true, ready: true, job: { id: r.id, subId: s(r.sub_id), accountId: s(r.account_id), service: s(r.service), code: s(r.code), loginHash: hash } };
   }
   return { ok: true, ready: true, job: null };
 }
@@ -357,7 +381,7 @@ function mount(app, deps) {
 }
 
 module.exports = {
-  submit, mine, mount, ready, expireStale, claim, reapClaims, ownerWhy, customerWhy,
+  submit, mine, mount, ready, expireStale, claim, reapClaims, ownerWhy, customerWhy, loginHash,
   STALE_MIN, PER_SUB_DAY, WHY_STALE, WHY_REPLACED, CLAIM_STUCK_MIN, WORKER_WHY,
   _internal: { cleanCode, hasTv, isPrime, primeRowsFor, reset: () => { readyCache = null; } },
 };
