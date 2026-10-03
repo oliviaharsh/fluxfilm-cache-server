@@ -337,6 +337,39 @@ const mine = (ph, tok) => primetv.mine(ph, tok, { access: access });
     }
   });
 
+  // ── 🔒 a NO that is never asked again, and a reply with nothing to say ────────────────────────────
+  // 4 Oct 2026, found while the owner's customers could not use the tool: any storefront call that ran
+  // before schema-v35 was applied latched readyCache to false and nothing ever re-checked, so the
+  // storefront stayed broken after the migration while admin - which forces a refresh - said it was fine.
+  // On Hostinger that cache is per process, so the two can disagree for as long as the app is up.
+  section('a "not ready" is re-checked, and never silent');
+  reset(); primetv._internal.reset();
+  TABLE_MISSING = true;
+  ACCESS = okAccess; UNLOCKED = [sub([{ sub_id: 'S-TV', order_id: 'O-R1' }])];
+  let nr = await submit('9000000001', 'tok', 'ABC123');
+  ok('a customer is told something, never shown a blank screen', !!nr.message, nr);
+  ok('…and it is in words they can act on', /WhatsApp|by hand/i.test(nr.message || ''), nr.message);
+  ok('nothing was queued', TVROWS.length === 0);
+
+  // The table arrives (the owner runs the migration). Nothing restarts.
+  // The owner runs the migration. NOTHING restarts, and nothing resets the cache by hand - that is the
+  // whole point: the shop has to heal itself.
+  TABLE_MISSING = false;
+  const T0 = Date.UTC(2026, 9, 4, 7, 0, 0);
+  primetv._internal.reset();
+  TABLE_MISSING = true;
+  ok('it says no while the table really is missing', (await primetv.ready(false, T0)) === false);
+  TABLE_MISSING = false;
+  ok('a no is still cached a second later - a cache is a cache', (await primetv.ready(false, T0 + 1000)) === false);
+  ok('the retry window is short enough to matter', primetv._internal.READY_RETRY_MS <= 300000, primetv._internal.READY_RETRY_MS);
+  // 🔒 This is the bug: the old code latched that no for ever and the storefront never recovered.
+  ok('but once the window passes it asks again, and heals itself',
+    (await primetv.ready(false, T0 + primetv._internal.READY_RETRY_MS + 1000)) === true);
+  TABLE_MISSING = true;
+  ok('and a yes is cached for good, because a table does not un-exist',
+    (await primetv.ready(false, T0 + 999999)) === true);
+  TABLE_MISSING = false;
+
   section('nothing waiting');
   reset(); primetv._internal.reset();
   ok('the worker is told so plainly rather than given a half job', (await primetv.claim('laptop')).job === null);

@@ -129,9 +129,27 @@ const cleanCode = (v) => s(v).toUpperCase().replace(/[^A-Z0-9]/g, '');
 const missingTable = (e) => /doesn't exist|ER_NO_SUCH_TABLE|Unknown column/i.test(String(e && e.message));
 
 let readyCache = null;
+let readyCheckedAt = 0;
 /** Has schema-v35 been run? Cached, because the storefront asks on every screen draw. */
-async function ready(fresh) {
-  if (!fresh && readyCache !== null) return readyCache;
+/**
+ * Is the table there?
+ *
+ * 🔒 A YES is cached for good - a table does not un-exist. A **NO is only cached briefly**, and that
+ * distinction is the whole point of this function.
+ *
+ * 4 Oct 2026: the owner's customers could not use the tool. Any storefront call that ran before
+ * schema-v35 was applied latched readyCache to false, and nothing ever asked again, so the storefront
+ * stayed broken after the migration while admin - which forces a refresh - reported it fine. On Hostinger
+ * the cache is per process, so the two can disagree indefinitely. A negative that is never re-checked is
+ * a decision, not a cache.
+ */
+const READY_RETRY_MS = 60e3;
+async function ready(fresh, now) {
+  // The clock is handed in wherever there is one, so the retry window can be tested without waiting a
+  // minute and without a fake ever reading the real clock. (CLAUDE.md: fix the class, not the instance.)
+  const at = now || Date.now();
+  if (!fresh && readyCache === true) return true;
+  if (!fresh && readyCache === false && at - readyCheckedAt < READY_RETRY_MS) return false;
   try {
     await db.query('SELECT 1 FROM tv_activations LIMIT 1');
     readyCache = true;
@@ -139,6 +157,7 @@ async function ready(fresh) {
     if (!missingTable(e)) throw e;
     readyCache = false;
   }
+  readyCheckedAt = at;
   return readyCache;
 }
 
@@ -233,7 +252,11 @@ async function claim(who, deps) {
 async function submit(phone, token, code, subRef, deps) {
   const d = deps || {};
   const now = d.now || Date.now();
-  if (!(await ready())) return { ok: true, ready: false };
+  // A reply with no message is a blank screen for the customer: the tool had no branch for this one, so a
+  // click did nothing at all and nobody could tell why. Every refusal says something now.
+  if (!(await ready(false, now))) {
+    return { ok: true, ready: false, queued: false, why: 'notready', message: 'We cannot take TV codes just this minute. Message us on WhatsApp and we will switch it on by hand.' };
+  }
   const ph = norm(phone);
   if (!ph || ph.length < 10) return { ok: true, queued: false, why: 'phone', message: 'Enter the phone number you bought with.' };
   const cd = cleanCode(code);
@@ -387,5 +410,5 @@ function mount(app, deps) {
 module.exports = {
   submit, mine, mount, ready, expireStale, claim, reapClaims, ownerWhy, customerWhy, loginHash,
   STALE_MIN, PER_SUB_DAY, WHY_STALE, WHY_REPLACED, CLAIM_STUCK_MIN, WORKER_WHY,
-  _internal: { cleanCode, hasTv, isPrime, primeRowsFor, reset: () => { readyCache = null; } },
+  _internal: { cleanCode, hasTv, isPrime, primeRowsFor, READY_RETRY_MS, reset: () => { readyCache = null; readyCheckedAt = 0; } },
 };

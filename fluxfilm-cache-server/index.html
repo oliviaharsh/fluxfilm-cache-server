@@ -3949,7 +3949,7 @@ function TvActivate({
     style: {
       marginTop: 10
     }
-  }, busy ? 'Sending…' : '📺 Register my TV')), out && !out.queued && out.message ? React.createElement("div", {
+  }, busy ? 'Sending…' : '📺 Register my TV')), out && !out.queued ? React.createElement("div", {
     style: {
       fontFamily: PJS,
       fontSize: 12.5,
@@ -3957,7 +3957,7 @@ function TvActivate({
       marginTop: 10,
       lineHeight: 1.5
     }
-  }, out.message) : null, React.createElement("p", {
+  }, out.message || 'Something went wrong at our end. Message us on WhatsApp and we will switch it on by hand.') : null, React.createElement("p", {
     style: {
       fontFamily: PJS,
       fontSize: 11.5,
