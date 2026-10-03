@@ -24,7 +24,7 @@ process.env.FF_PROFILE_DIR = path.join(TMP, 'profiles');
 delete process.env.FF_AUTO_LOGIN;
 
 const worker = require(path.join(__dirname, '..', 'worker', 'tvworker.js'));
-const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, readOutcome } = worker;
+const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, readOutcome, loadAccounts } = worker;
 
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x).slice(0, 300) : '')); } };
@@ -83,6 +83,40 @@ const writeAccounts = (o) => fs.writeFileSync(ACCOUNTS, JSON.stringify(o));
   const f = path.join(CFG.profiles, 'logins.json');
   fs.writeFileSync(f, JSON.stringify({ day: '2020-01-01', counts: { 'PRI-13': 99 } }));
   ok('yesterday is not held against today', loginsToday('PRI-13').n === 0, loginsToday('PRI-13'));
+
+  section('the accounts file is checked before a customer checks it for us');
+  // Two things that actually happened: a broken file used to degrade SILENTLY (every account looked
+  // signed out, which is indistinguishable from a real problem), and the same credentials were pasted
+  // under two ids, which left a profile signed into somebody else's account.
+  const good = { 'PRI-13': { login: 'a@x.com', password: 'p1' }, 'PRI-27': { login: 'b@y.com', password: 'p2' } };
+  writeAccounts(good);
+  let a = loadAccounts();
+  ok('a good file is clean', a.ok === true, a.problems);
+  ok('…and lists what it covers', a.ids.length === 2 && a.ids.indexOf('PRI-27') >= 0, a.ids);
+
+  writeAccounts({ 'PRI-27': { login: 'b@y.com', password: 'p2' }, 'PRI-31': { login: 'B@Y.com', password: 'p2' } });
+  a = loadAccounts();
+  ok('the SAME login under two ids is caught', !a.ok && a.problems.some((x) => /SAME login/.test(x)), a.problems);
+  ok('…even when the capitals differ, which is how it would really look', a.problems.join(' ').indexOf('PRI-31') >= 0);
+  ok('…and it names BOTH ids, so the owner knows which two lines to open',
+    a.problems.some((x) => x.indexOf('PRI-31') >= 0 && x.indexOf('PRI-27') >= 0), a.problems);
+
+  fs.writeFileSync(ACCOUNTS, '{"PRI-13":{"login":"a@x.com","password":"p1"},}');
+  a = loadAccounts();
+  ok('a stray comma is caught and named', a.broken === true && /valid JSON/.test(a.problems[0]), a.problems);
+
+  writeAccounts({ 'PRI-13': { login: 'a@x.com' } });
+  ok('a missing password is caught', loadAccounts().problems.some((x) => /missing its password/.test(x)));
+  writeAccounts({ 'PRI-13': { login: 'the account email', password: 'the account password' } });
+  ok('leftover example text is caught', loadAccounts().problems.some((x) => /example text/.test(x)));
+  writeAccounts({ '_README': 'ignore me', 'PRI-13': { login: 'a@x.com', password: 'p1' } });
+  ok('the _README line is not treated as an account', loadAccounts().ids.length === 1, loadAccounts().ids);
+
+  // 🔒 It reports ids and counts. Never a login, never a password - not even inside a complaint.
+  writeAccounts({ 'PRI-13': { login: LOGIN, password: PW }, 'PRI-27': { login: LOGIN, password: PW } });
+  const told = JSON.stringify(loadAccounts());
+  ok('no login leaks into the report', told.indexOf(LOGIN) < 0, told.slice(0, 200));
+  ok('no password leaks into the report', told.indexOf(PW) < 0, told.slice(0, 200));
 
   section('what Amazon says for itself');
   // Both strings are real, captured 4 Oct 2026: the owner's screenshot of a working registration, and the
