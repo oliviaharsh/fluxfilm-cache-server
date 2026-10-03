@@ -769,7 +769,7 @@ function doLogin() { var b = $('#kbtn'); b.disabled = true; $('#err').textConten
 function logout() { post('/admin/api/logout', {}).then(function () { loginView('Signed out.'); }); }
 var MENU = [
   ['OVERVIEW'], ['today', '✅', 'Today'], ['dashboard', '📊', 'Dashboard'],
-  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['receivables', '💳', 'Receivables'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['reviews', '⭐', 'Reviews'], ['trust', '🏆', 'Why trust us'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'], ['primetv', '📺', 'TV activations'], ['ytfamily', '▶️', 'YouTube families'], ['wagroup', '👥', 'WhatsApp group'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
+  ['TOOLS'], ['quick', '⚡', 'Quick order'], ['receivables', '💳', 'Receivables'], ['orders', '🧾', 'Orders'], ['refunds', '↩️', 'Refunds'], ['payments', '💸', 'Payments'], ['bank', '🏦', 'Bank payments'], ['promos', '📣', 'Offers'], ['reviews', '⭐', 'Reviews'], ['trust', '🏆', 'Why trust us'], ['feed', '🍿', "What's new"], ['maintenance', '🚧', 'Maintenance'], ['olivia', '🤖', 'Olivia AI'], ['stock', '📦', 'Stock'], ['removeusers', '🚪', 'Remove users'], ['otpdevices', '📱', 'OTP devices'], ['primetv', '📺', 'TV activations'], ['addacct', '➕', 'Add account'], ['ytfamily', '▶️', 'YouTube families'], ['wagroup', '👥', 'WhatsApp group'],['password', '🔑', 'Password change'], ['profit', '💰', 'Profit'],
   ['CUSTOMERS'], ['customer', '🔍', 'Customer 360'], ['duplicates', '🧑‍🤝‍🧑', 'Same person'], ['reminders', '🔔', 'Reminders'], ['push', '🔔', 'Notifications'], ['referrals', '🎁', 'Referrals'], ['coins', '🪙', 'Coins'], ['games', '🎮', 'Games'],
   ['DATA'], ['data', '📋', 'Sheets'], ['plans', '🧾', 'Plans'], ['coupons', '🎟️', 'Coupons'], ['audit', '🕘', 'Change log'], ['integrations', '🔗', 'Integrations'],
 ];
@@ -836,7 +836,7 @@ function wireSideClose() {
   }, { passive: true });
 }
 function viewMap() {
-  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, promos: promosView, reviews: reviewsView, trust: trustView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView, primetv: primeTvView, ytfamily: ytFamilyView, wagroup: groupView, duplicates: duplicatesView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
+  return { today: todayView, audit: auditView, password: passwordView, reminders: remindersView, profit: profitView, referrals: referralsView, coins: coinsView, games: gamesView, payments: paymentsView, bank: bankView, maintenance: maintenanceView, olivia: oliviaView, promos: promosView, reviews: reviewsView, trust: trustView, feed: feedView, push: pushView, plans: plansView, dashboard: dashboard, quick: quickView, receivables: receivablesView, orders: ordersView, refunds: refundsView, stock: stockView, removeusers: removeUsersView, otpdevices: otpDevicesView, primetv: primeTvView, addacct: addAccountView, ytfamily: ytFamilyView, wagroup: groupView, duplicates: duplicatesView,customer: customerView, expiring: expiringView, data: dataView, coupons: couponsView, integrations: integrationsView };
 }
 function route() {
   MENU.forEach(function (m) { var e = m.length > 1 && $('#nav-' + m[0]); if (e) e.className = m[0] === S.view ? 'on' : ''; });
@@ -2963,6 +2963,155 @@ function pwAgeText(d, short) {
   if (!d || !d.at) return 'unknown';
   return esc(short ? d.short : prettyDate(d.at)) + ' (' + esc(d.ago) + ')';
 }
+/* ================= ➕ Add account (adminnewaccount.js) =================
+ * Buying a new account used to mean seven row-adds across three tables in 📋 Sheets, with Service and
+ * AccountID retyped into every one. This is the same work as one form: the login once, the capacity once,
+ * the profiles as a list, written together or not at all.
+ * The shape of the form follows the service's own policy - profiles for Netflix, device limits for Prime -
+ * and every number is prefilled from what that service's existing accounts already use.
+ */
+var NA = { info: null, busy: 0 };
+function addAccountView() {
+  $('#view').innerHTML = '<div class="ph"><div><h1>➕ Add account</h1><p>A new account for stock - login, limits and profiles in one go</p></div></div><div id="nabody"><p class="muted">Loading…</p></div>';
+  api('/admin/api/account/new').then(function (r) { NA.info = r; naPickService(); });
+}
+function naPickService() {
+  var r = NA.info || {};
+  var el = $('#nabody'); if (!el) return;
+  if (!r.ok) return (el.innerHTML = '<div class="card"><div class="qnote bad">' + esc((r && r.message) || 'Could not load.') + '</div></div>');
+  el.innerHTML = '<div class="card qsec"><h3>Which service?</h3><div class="row" style="flex-wrap:wrap;gap:8px">' +
+    (r.services || []).map(function (sv) { return '<button class="btn ghost sm" data-nasvc="' + esc(sv) + '">' + esc(sv) + '</button>'; }).join('') +
+    '</div></div>';
+  el.onclick = function (e) {
+    var b = e.target.closest('[data-nasvc]');
+    if (b) naLoad(b.getAttribute('data-nasvc'));
+  };
+}
+function naLoad(service) {
+  $('#nabody').innerHTML = '<p class="muted">Loading ' + esc(service) + '…</p>';
+  api('/admin/api/account/new?service=' + encodeURIComponent(service)).then(function (r) { NA.info = r; naForm(); });
+}
+function naForm() {
+  var d = NA.info || {}; var el = $('#nabody'); if (!el) return;
+  if (!d.ok) return (el.innerHTML = '<div class="card"><div class="qnote bad">' + esc(d.message || 'Could not load.') + '</div></div>');
+  var profile = d.policy === 'PROFILE';
+  var h = '<div class="card qsec"><div class="row" style="justify-content:space-between;align-items:center">' +
+    '<h3 style="margin:0">' + esc(d.service) + '</h3>' +
+    '<button class="btn ghost sm" id="nachg">change</button></div>' +
+    '<p class="muted" style="font-size:.78rem;margin:6px 0 0">' +
+    (profile ? 'Sold by profile - this account needs its profiles listed below.'
+             : 'Sold by device - this account needs a device limit, and how many of those may be TVs.') + '</p></div>';
+
+  h += '<div class="card qsec"><h3>The account</h3>' +
+    '<label class="lbl">Account ID</label><input class="inp" id="naid" value="' + esc(d.nextId || '') + '" placeholder="e.g. ' + esc(d.nextId || 'NFLX-10') + '"/>' +
+    '<label class="lbl">Login</label><input class="inp" id="nalogin" autocomplete="off" placeholder="the account email"/>' +
+    '<label class="lbl">Password</label><input class="inp" id="napass" autocomplete="new-password" placeholder="the account password"/>' +
+    '<label class="lbl">Plan <span class="muted">(optional)</span></label><input class="inp" id="naplan" placeholder=""/>' +
+    '<label class="lbl">Notes <span class="muted">(optional)</span></label><input class="inp" id="nanotes" placeholder=""/>' +
+    '<label class="row" style="gap:8px;margin-top:10px;align-items:center"><input type="checkbox" id="naactive" checked/> <span>Ready to sell</span></label>' +
+    '</div>';
+
+  if (profile) {
+    h += '<div class="card qsec"><h3>Seats</h3>' +
+      '<label class="lbl">Devices this account can hold at once</label>' +
+      '<input class="inp" id="natotal" type="number" min="1" value="' + (d.maxTotal || 5) + '"/>' +
+      '<p class="muted" style="font-size:.76rem">Prefilled from what your other ' + esc(d.service) + ' accounts use.</p></div>';
+    h += '<div class="card qsec"><h3>Profiles</h3><p class="muted" style="font-size:.78rem;margin-top:0">' +
+      'The first is the sharing one - the rest are sold privately. Names and PINs are optional.</p><div id="naprofs">' +
+      (d.profiles || []).map(naProfRow).join('') + '</div>' +
+      '<button class="btn ghost sm" id="naaddprof" style="margin-top:8px">+ one more profile</button></div>';
+  } else {
+    var lim = d.primeLimits;
+    h += '<div class="card qsec"><h3>Devices</h3>' +
+      '<div class="row" style="gap:10px;flex-wrap:wrap">' +
+      '<div style="flex:1;min-width:130px"><label class="lbl">Devices in total</label><input class="inp" id="natotal" type="number" min="1" value="' + (d.maxTotal || 5) + '"/></div>' +
+      '<div style="flex:1;min-width:130px"><label class="lbl">…of which TVs</label><input class="inp" id="natv" type="number" min="0" value="' + (d.maxTv || 0) + '"/></div>' +
+      '</div>' +
+      (lim ? '<p class="muted" style="font-size:.76rem">Amazon allows ' + lim.maxTotal + ' devices including ' + lim.maxTv + ' TVs. Above that the extra TV is refused when a customer registers it.</p>' : '') +
+      '<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px">' +
+      '<button class="btn ghost sm" data-napreset="2,2">2 TVs only</button>' +
+      '<button class="btn ghost sm" data-napreset="5,2">2 TVs + 3 others</button>' +
+      '<button class="btn ghost sm" data-napreset="4,1">1 TV + 3 others</button>' +
+      '<button class="btn ghost sm" data-napreset="3,0">3, no TV</button>' +
+      '</div></div>';
+  }
+
+  h += '<div id="nasay"></div><button class="btn dark" id="nasave" style="width:100%;margin-top:4px">➕ Create ' + esc(d.service) + ' account</button>';
+  el.innerHTML = h;
+  $('#nachg').onclick = function () { api('/admin/api/account/new').then(function (r) { NA.info = r; naPickService(); }); };
+  if ($('#naaddprof')) $('#naaddprof').onclick = function () {
+    var n = $('#naprofs').children.length + 1;
+    $('#naprofs').insertAdjacentHTML('beforeend', naProfRow({ number: n, type: 'PRIVATE_ROTATING', name: '', pin: '' }));
+  };
+  el.addEventListener('click', function (e) {
+    var p = e.target.closest('[data-napreset]');
+    if (p) {
+      var v = p.getAttribute('data-napreset').split(',');
+      if ($('#natotal')) $('#natotal').value = v[0];
+      if ($('#natv')) $('#natv').value = v[1];
+    }
+  });
+  $('#nasave').onclick = function () { naSave(false); };
+}
+function naProfRow(p) {
+  var sharing = String(p.type || '').indexOf('SHARING') === 0;
+  return '<div class="row naprof" style="gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">' +
+    '<span class="pill ' + (sharing ? 'p-green' : 'p-grey') + '" style="min-width:74px">' + (sharing ? 'sharing' : 'private') + '</span>' +
+    '<input class="inp sm napno" type="number" min="1" value="' + (p.number || '') + '" style="width:64px"/>' +
+    '<input class="inp sm naname" placeholder="name (optional)" value="' + esc(p.name || '') + '" style="flex:1;min-width:110px"/>' +
+    '<input class="inp sm napin" placeholder="PIN" value="' + esc(p.pin || '') + '" style="width:76px"/>' +
+    '<input type="hidden" class="natype" value="' + esc(p.type || 'PRIVATE_ROTATING') + '"/></div>';
+}
+function naSave(confirm) {
+  if (NA.busy) return;
+  var d = NA.info || {};
+  var profs = [].map.call(document.querySelectorAll('.naprof'), function (row) {
+    return {
+      number: +row.querySelector('.napno').value,
+      name: row.querySelector('.naname').value.trim(),
+      pin: row.querySelector('.napin').value.trim(),
+      type: row.querySelector('.natype').value,
+      reserved: row.querySelector('.natype').value.indexOf('SHARING') === 0,
+    };
+  });
+  var body = {
+    service: d.service, accountId: ($('#naid').value || '').trim(),
+    login: ($('#nalogin').value || '').trim(), password: $('#napass').value || '',
+    plan: ($('#naplan').value || '').trim(), notes: ($('#nanotes').value || '').trim(),
+    isActive: $('#naactive').checked,
+    maxTotal: +($('#natotal') ? $('#natotal').value : 0),
+    maxTv: +($('#natv') ? $('#natv').value : 0),
+    profiles: profs, confirm: !!confirm,
+  };
+  NA.busy = 1; $('#nasave').disabled = true;
+  post('/admin/api/account/create', body).then(function (r) {
+    NA.busy = 0; $('#nasave').disabled = false;
+    if (r && r.ok) {
+      $('#nabody').innerHTML = '<div class="card" style="text-align:center;padding:26px"><div style="font-size:2.2rem">✅</div>' +
+        '<h3>' + esc(r.accountId) + ' is in stock</h3><p class="muted">' + esc(r.service) + ' · ' +
+        (r.profiles ? r.profiles + ' profiles' : 'device limits set') + '</p>' +
+        '<button class="btn ghost sm" id="naagain">Add another</button></div>';
+      $('#naagain').onclick = addAccountView;
+      return;
+    }
+    var say = $('#nasay'); if (!say) return;
+    // 🔒 Problems stop it. Warnings are said once, and then the owner decides.
+    if (r && r.problems && r.problems.length) {
+      say.innerHTML = '<div class="card"><div class="qnote bad"><b>Not created:</b><ul style="margin:6px 0 0 18px">' +
+        r.problems.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>';
+      return;
+    }
+    if (r && r.warnings && r.warnings.length) {
+      say.innerHTML = '<div class="card"><div class="qnote warn"><b>Worth a look first:</b><ul style="margin:6px 0 0 18px">' +
+        r.warnings.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') +
+        '</ul><button class="btn dark sm" id="nayes" style="margin-top:8px">Create it anyway</button></div></div>';
+      $('#nayes').onclick = function () { naSave(true); };
+      return;
+    }
+    say.innerHTML = '<div class="card"><div class="qnote bad">' + esc((r && r.message) || 'Could not create it.') + '</div></div>';
+  });
+}
+
 /* ================= 📺 TV activations (primetv.js) =================
  * A customer typed the code off their TV into the shop. We register it on the account they are already on,
  * so they never get the password. Codes die in about ten minutes, so this screen is about speed: the code is
