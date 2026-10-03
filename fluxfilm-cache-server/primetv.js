@@ -99,6 +99,10 @@ const WORKER_WHY = {
     owner: 'the login saved on the worker for this account is NOT the one in admin - fix accounts.json before using it again',
     customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
   },
+  'worker:badcode': {
+    owner: 'Amazon said the code was not valid',
+    customer: 'That code was not accepted. Check the code on your TV screen and send us the one showing now - they only last about ten minutes.',
+  },
   'worker:notregistered': {
     owner: 'the code was entered but no new device appeared - most likely it had expired',
     customer: 'That code did not go through - it had probably expired. Codes last about ten minutes, so get a fresh one on your TV and send it again.',

@@ -24,11 +24,15 @@ process.env.FF_PROFILE_DIR = path.join(TMP, 'profiles');
 delete process.env.FF_AUTO_LOGIN;
 
 const worker = require(path.join(__dirname, '..', 'worker', 'tvworker.js'));
-const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin } = worker;
+const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, readOutcome } = worker;
 
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x).slice(0, 300) : '')); } };
 const section = (t) => console.log('\n=== ' + t + ' ===');
+
+// 🔒 Source assertions must read CODE, not prose. Twice in one day a check passed because the phrase it
+// looked for also appeared in the comment explaining it, while the code itself had been removed.
+const codeOnly = (src) => String(src).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
 const PW = 'not-a-real-password-8812';
 const LOGIN = 'someone@example.com';
@@ -80,11 +84,46 @@ const writeAccounts = (o) => fs.writeFileSync(ACCOUNTS, JSON.stringify(o));
   fs.writeFileSync(f, JSON.stringify({ day: '2020-01-01', counts: { 'PRI-13': 99 } }));
   ok('yesterday is not held against today', loginsToday('PRI-13').n === 0, loginsToday('PRI-13'));
 
+  section('what Amazon says for itself');
+  // Both strings are real, captured 4 Oct 2026: the owner's screenshot of a working registration, and the
+  // dry run with a made-up code. Neither is invented.
+  const REG = 'Success! Your device is registered to your Prime Video account.';
+  const BAD = "That's an invalid code.";
+  const PAGE = ['Register a device', 'Register your compatible TV or device', 'Register Device'];
+
+  ok('a real success line is heard', readOutcome(PAGE, PAGE.concat([REG])).registered);
+  ok('a real rejection line is heard', readOutcome(PAGE, PAGE.concat([BAD])).badcode);
+  ok('a success is not mistaken for a rejection', !readOutcome(PAGE, PAGE.concat([REG])).badcode);
+  ok('a rejection is not mistaken for a success', !readOutcome(PAGE, PAGE.concat([BAD])).registered);
+  ok('an unchanged page says neither', !readOutcome(PAGE, PAGE).registered && !readOutcome(PAGE, PAGE).badcode);
+  // 🔒 Before and after, exactly like the device list: a banner already on the page is not news. Without
+  // this, a leftover success message from an earlier registration would read as this one succeeding.
+  ok('a banner that was ALREADY there is not news', !readOutcome(PAGE.concat([REG]), PAGE.concat([REG])).registered);
+  ok('…and the same for a leftover error', !readOutcome(PAGE.concat([BAD]), PAGE.concat([BAD])).badcode);
+  ok('ordinary page furniture triggers nothing',
+    !readOutcome([], PAGE).registered && !readOutcome([], PAGE).badcode, PAGE);
+  // 🔒 The page text must never be able to MANUFACTURE a success on its own.
+  const wsrc2 = fs.readFileSync(path.join(__dirname, '..', 'worker', 'tvworker.js'), 'utf8');
+  // The invariant worth holding is not how `fresh` is declared, it is WHERE a real name comes from.
+  ok('a real device name comes from the list diff and nowhere else',
+    /deviceName: fresh\.join\(/.test(wsrc2) && /deviceLines\(before\.lines, after\.lines\)/.test(wsrc2));
+  ok('the page text is never used as a device name',
+    !/deviceName: said/.test(wsrc2) && !/deviceName: heard/.test(wsrc2));
+  ok('when Amazon says it worked but we cannot see it, the name is marked unread',
+    /unnamed: true/.test(wsrc2) && /name not read back/.test(wsrc2));
+  // Not the wording - the behaviour. The device list is read TWICE inside registerCode: once normally,
+  // and once more only when Amazon says it worked and we cannot see it yet.
+  const clean2 = codeOnly(wsrc2);
+  const reg = clean2.slice(clean2.indexOf('async function registerCode'), clean2.indexOf('async function doJob'));
+  ok('the device list is read TWICE in registerCode - we look again before deciding',
+    (reg.match(/await deviceList\(page\)/g) || []).length === 2, (reg.match(/await deviceList\(page\)/g) || []).length);
+  ok('…and the second look is gated on Amazon having said it worked', /heard\.registered/.test(reg));
+
   section('the rehearsal runs the real registration, not a copy of it');
   // 🔒 The whole value of `dryrun` is that it exercises the REAL registration. A rehearsal with its own
   // copy of the steps proves only that the copy works, and this half of the worker had never executed
   // once before the rehearsal existed - so the one thing worth locking is that there is ONE path.
-  const src0 = fs.readFileSync(path.join(__dirname, '..', 'worker', 'tvworker.js'), 'utf8');
+  const src0 = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'worker', 'tvworker.js'), 'utf8'));
   // Counting the string would count the comment that explains it too, so count the USE.
   ok('the code box is looked up in exactly one place - the steps are not duplicated',
     (src0.match(/locator\('#av-cbl-code/g) || []).length === 1,
