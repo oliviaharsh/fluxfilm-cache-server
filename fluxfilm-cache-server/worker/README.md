@@ -90,6 +90,24 @@ only, never a login or a password.
 `run` does the same check at startup and refuses to start on a broken file. Before, a stray comma made
 every account look signed out, which looks exactly like a real problem and is not.
 
+### Keeping the sessions alive
+
+```bash
+node tvworker.js touch
+```
+
+Opens every account's devices page, confirms it is still signed in, and names the ones that are not.
+`run` does the same by itself every `FF_TOUCH_HOURS` hours (12 by default, 0 turns it off), between
+jobs and never during one.
+
+Two things at once. A session that gets used lasts longer than one that sits. And anything that HAS died
+is found here, in a log, instead of by a customer whose television is waiting - you seed it again at a
+civilised hour instead of at one in the morning.
+
+**It never signs in.** Deliberately: this runs at three in the morning with nobody watching, and an
+automatic sign-in there would spend attempts and walk into a one-time code wall only a person can
+answer. Finding out is its job; fixing it is yours.
+
 ## Run it
 
 ```bash

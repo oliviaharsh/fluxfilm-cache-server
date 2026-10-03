@@ -24,7 +24,7 @@ process.env.FF_PROFILE_DIR = path.join(TMP, 'profiles');
 delete process.env.FF_AUTO_LOGIN;
 
 const worker = require(path.join(__dirname, '..', 'worker', 'tvworker.js'));
-const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, readOutcome, loadAccounts, loadEnvFile } = worker;
+const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, readOutcome, loadAccounts, loadEnvFile, knownAccounts } = worker;
 
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x).slice(0, 300) : '')); } };
@@ -33,6 +33,16 @@ const section = (t) => console.log('\n=== ' + t + ' ===');
 // 🔒 Source assertions must read CODE, not prose. Twice in one day a check passed because the phrase it
 // looked for also appeared in the comment explaining it, while the code itself had been removed.
 const codeOnly = (src) => String(src).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
+// The body of one function. Ends at the NEXT top-level function, whatever that happens to be - slicing
+// "from this name to that name" breaks silently the moment something is added between the two.
+function fnBody(src, name) {
+  const i = src.indexOf('function ' + name);
+  if (i < 0) return '';
+  const rest = src.slice(i + 8);
+  const m = rest.search(/\n(?:async )?function /);
+  return m < 0 ? rest : rest.slice(0, m);
+}
 
 const PW = 'not-a-real-password-8812';
 const LOGIN = 'someone@example.com';
@@ -83,6 +93,37 @@ const writeAccounts = (o) => fs.writeFileSync(ACCOUNTS, JSON.stringify(o));
   const f = path.join(CFG.profiles, 'logins.json');
   fs.writeFileSync(f, JSON.stringify({ day: '2020-01-01', counts: { 'PRI-13': 99 } }));
   ok('yesterday is not held against today', loginsToday('PRI-13').n === 0, loginsToday('PRI-13'));
+
+  section('looking in on the accounts, to keep them warm');
+  // Owner, 4 Oct: "if we login each account everyday maybe it wont logout??" - and PRI-13 was still signed
+  // in seven hours after being seeded. A daily look-in keeps a session used, and - the bigger half - finds
+  // a dead one in a log at 3am instead of by a customer whose television is waiting.
+  const PROF = CFG.profiles;
+  fs.mkdirSync(path.join(PROF, 'PRI-77'), { recursive: true });
+  fs.mkdirSync(path.join(PROF, 'PRI-88'), { recursive: true });
+  fs.mkdirSync(path.join(PROF, 'PRI-77.bak-1759500000000'), { recursive: true });
+  fs.writeFileSync(path.join(PROF, 'logins.json'), '{}');
+  writeAccounts({ 'PRI-99': { login: 'z@x.com', password: 'p' } });
+  const known = knownAccounts();
+  ok('a profile folder counts as an account', known.indexOf('PRI-77') >= 0 && known.indexOf('PRI-88') >= 0, known);
+  ok('an account in the file counts even with no profile yet', known.indexOf('PRI-99') >= 0, known);
+  // A .bak- folder is last week's dead session, not an account to go poking at.
+  ok('a .bak- folder is not an account', !known.some((k) => /\.bak-/.test(k)), known);
+  ok('a loose file is not an account', known.indexOf('logins.json') < 0, known);
+  ok('no duplicates when it is in both places', known.length === new Set(known).size, known);
+
+  // 🔒 The look-in must never sign in. It runs at 3am with nobody watching, and an automatic sign-in there
+  // would spend attempts and walk into a one-time code wall that only a person can answer.
+  const tsrc = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'worker', 'tvworker.js'), 'utf8'));
+  const touchFn = fnBody(tsrc, 'touchOne');
+  ok('touchOne exists', touchFn.length > 100);
+  ok('the look-in never signs in', touchFn.indexOf('signIn(') < 0 && touchFn.indexOf('ensureSignedIn(') < 0, touchFn.length);
+  ok('…and never opens a window at 3am', /openProfile\(accountId, true\)/.test(touchFn));
+  const allFn = fnBody(tsrc, 'touchAll');
+  ok('the whole sweep never signs in either', allFn.indexOf('signIn(') < 0 && allFn.indexOf('ensureSignedIn(') < 0);
+  ok('and it pauses between accounts rather than firing 39 page loads at once', /sleep\(CFG\.touchGapMs\)/.test(allFn));
+  // 🔒 Never while a job is in flight: the sweep is inside the "no job" branch of run().
+  ok('the sweep only runs when there is no job waiting', /if \(!job && CFG\.touchHours > 0/.test(tsrc));
 
   section('.env is actually read');
   // 4 Oct 2026: the README told the owner to copy .env.example to .env and fill it in, and NOTHING read
@@ -184,8 +225,7 @@ const writeAccounts = (o) => fs.writeFileSync(ACCOUNTS, JSON.stringify(o));
     /unnamed: true/.test(wsrc2) && /name not read back/.test(wsrc2));
   // Not the wording - the behaviour. The device list is read TWICE inside registerCode: once normally,
   // and once more only when Amazon says it worked and we cannot see it yet.
-  const clean2 = codeOnly(wsrc2);
-  const reg = clean2.slice(clean2.indexOf('async function registerCode'), clean2.indexOf('async function doJob'));
+  const reg = fnBody(codeOnly(wsrc2), 'registerCode');
   ok('the device list is read TWICE in registerCode - we look again before deciding',
     (reg.match(/await deviceList\(page\)/g) || []).length === 2, (reg.match(/await deviceList\(page\)/g) || []).length);
   ok('…and the second look is gated on Amazon having said it worked', /heard\.registered/.test(reg));
@@ -205,7 +245,7 @@ const writeAccounts = (o) => fs.writeFileSync(ACCOUNTS, JSON.stringify(o));
     (src0.match(/await registerCode\(/g) || []).length >= 2, (src0.match(/await registerCode\(/g) || []).length);
   ok('registerCode is reachable from the suite', typeof worker.registerCode === 'function');
   // 🔒 A rehearsal must not touch the shop: no job claimed, nothing marked done or failed.
-  const dry = src0.slice(src0.indexOf('async function dryrun'), src0.indexOf('async function check'));
+  const dry = fnBody(src0, 'dryrun');
   ok('the rehearsal exists', dry.length > 200);
   ok('the rehearsal never calls the shop', dry.indexOf('api(') < 0, dry.indexOf('api('));
   ok('…and never marks anything done or failed', !/prime-tv\/(done|fail|claim)/.test(dry));
