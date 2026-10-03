@@ -21,7 +21,16 @@ const ACCOUNTS = path.join(TMP, 'accounts.json');
 // 🔒 Set BEFORE the worker is required: it reads its configuration once, at load.
 process.env.FF_ACCOUNTS_FILE = ACCOUNTS;
 process.env.FF_PROFILE_DIR = path.join(TMP, 'profiles');
-delete process.env.FF_AUTO_LOGIN;
+// 🔒 And point it at an .env that does not exist.
+//
+// 4 Oct 2026: the worker learned to read worker/.env this morning, and this file promptly started failing
+// on the owner's own laptop - his .env has FF_AUTO_LOGIN=on, so "off by default" was false there and true
+// on a fresh clone. A test that answers differently depending on the machine it runs on is worthless in
+// BOTH directions: it cries wolf here, and it would go green over a real regression. Same family as the
+// clock leak in CLAUDE.md - the thing under test must not read the real world.
+process.env.FF_ENV_FILE = path.join(TMP, 'no-env-file-here');
+['FF_AUTO_LOGIN', 'FF_HEADLESS', 'FF_WORKER_NAME', 'FF_MAX_LOGINS_DAY', 'FF_TOUCH_HOURS', 'FF_POLL_MS', 'FF_ADMIN_KEY', 'FF_BASE']
+  .forEach((k) => { delete process.env[k]; });
 
 const worker = require(path.join(__dirname, '..', 'worker', 'tvworker.js'));
 const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, readOutcome, loadAccounts, loadEnvFile, knownAccounts } = worker;
@@ -52,7 +61,10 @@ const writeAccounts = (o) => fs.writeFileSync(ACCOUNTS, JSON.stringify(o));
 
 (function () {
   section('it is off unless the machine says otherwise');
+  // 🔒 These are the DEFAULTS, so the real machine's .env must not be able to reach them.
+  ok('the real .env is not read by this file', !fs.existsSync(process.env.FF_ENV_FILE), process.env.FF_ENV_FILE);
   ok('automatic sign-in is off by default', CFG.autoLogin === false, CFG.autoLogin);
+  ok('headless is on by default', CFG.headless === true, CFG.headless);
   ok('three attempts a day unless told otherwise', CFG.maxLoginsPerDay === 3, CFG.maxLoginsPerDay);
   // 🔒 The worker must never go looking to the shop for a password. If this ever fetches, the admin key
   // becomes a key to the whole inventory, which is a far bigger thing than the problem it solves.
