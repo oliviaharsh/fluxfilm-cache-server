@@ -90,6 +90,10 @@ const WORKER_WHY = {
     owner: 'the saved password was not accepted - check it before this account is used again',
     customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
   },
+  'worker:passkey': {
+    owner: 'Amazon pushed a passkey prompt we are not allowed to answer - sign in by hand once and decline it',
+    customer: 'We could not finish this one automatically. We are on it - you will have it shortly.',
+  },
   'worker:notregistered': {
     owner: 'the code was entered but no new device appeared - most likely it had expired',
     customer: 'That code did not go through - it had probably expired. Codes last about ten minutes, so get a fresh one on your TV and send it again.',
