@@ -28,6 +28,44 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+/**
+ * 📺 Read .env.
+ *
+ * 🔒 This was missing for a day. The README told the owner to copy .env.example to .env and fill it in,
+ * and nothing ever read the file — so FF_HEADLESS=off was ignored (he asked why no browser appeared and
+ * got the wrong answer from me), and FF_ADMIN_KEY was empty, which only showed up when he started the
+ * worker with a real customer waiting. A setting a program documents and then ignores is worse than one
+ * it never offered.
+ *
+ * Written by hand rather than with dotenv so the worker keeps a single dependency: Playwright, and
+ * nothing else that has to be installed before a customer can be served.
+ *
+ * A value already in the real environment WINS, so an inline
+ * `FF_ADMIN_KEY=... node tvworker.js run` still overrides the file.
+ */
+function loadEnvFile(file) {
+  let raw = null;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch (e) { return 0; }
+  let n = 0;
+  raw.split(/\r?\n/).forEach((line) => {
+    const t = line.trim();
+    if (!t || t.charAt(0) === '#') return;
+    const eq = t.indexOf('=');
+    if (eq < 1) return;
+    const key = t.slice(0, eq).trim().replace(/^export\s+/, '');
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return;
+    let val = t.slice(eq + 1).trim();
+    // Quotes are the owner being careful, not part of the value.
+    if (val.length > 1 && ((val.charAt(0) === '"' && val.slice(-1) === '"') || (val.charAt(0) === "'" && val.slice(-1) === "'"))) {
+      val = val.slice(1, -1);
+    }
+    if (process.env[key] === undefined) { process.env[key] = val; n++; }
+  });
+  return n;
+}
+const ENV_FILE = process.env.FF_ENV_FILE || path.join(__dirname, '.env');
+const ENV_LOADED = loadEnvFile(ENV_FILE);
+
 const CFG = {
   base: process.env.FF_BASE || 'https://shop.fluxfilm.in',
   key: process.env.FF_ADMIN_KEY || '',
@@ -157,7 +195,12 @@ function playwright() {
 }
 
 async function api(route, body) {
-  if (!CFG.key) { console.error('FF_ADMIN_KEY is not set. Copy .env.example to .env and fill it in.'); process.exit(1); }
+  if (!CFG.key) {
+    console.error('\nFF_ADMIN_KEY is not set.');
+    console.error('  Put it in ' + ENV_FILE + ' as  FF_ADMIN_KEY=your-admin-key');
+    console.error('  (this run read ' + ENV_LOADED + ' setting(s) from that file)\n');
+    process.exit(1);
+  }
   const res = await fetch(CFG.base + route, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Admin-Key': CFG.key },
@@ -605,6 +648,8 @@ async function run() {
   const fails = new Map();
   log('worker "' + CFG.who + '" watching ' + CFG.base + ' every ' + Math.round(CFG.pollMs / 1000) + 's');
   log('profiles in ' + CFG.profiles);
+  log(ENV_LOADED ? 'read ' + ENV_LOADED + ' setting(s) from ' + ENV_FILE
+    : 'no settings read from ' + ENV_FILE + ' - using the defaults and whatever is already in the environment');
   log(CFG.autoLogin
     ? 'automatic sign-in is ON - it will stop at a one-time code or a CAPTCHA, never push past one'
     : 'automatic sign-in is off - a signed-out account comes back to you');
@@ -780,7 +825,7 @@ async function check(accountId) {
 
 // The reading rules are exported so the suite can hold them to a real page with no browser anywhere near
 // it. Playwright is only ever loaded inside playwright(), so requiring this file costs nothing.
-module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, registerCode, readOutcome, SAID_REGISTERED, SAID_BADCODE, loadAccounts };
+module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, registerCode, readOutcome, SAID_REGISTERED, SAID_BADCODE, loadAccounts, loadEnvFile };
 
 if (require.main === module) {
   const [cmd, arg, arg2] = process.argv.slice(2);
