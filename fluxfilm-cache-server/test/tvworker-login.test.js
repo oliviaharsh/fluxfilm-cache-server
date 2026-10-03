@@ -24,7 +24,7 @@ process.env.FF_PROFILE_DIR = path.join(TMP, 'profiles');
 delete process.env.FF_AUTO_LOGIN;
 
 const worker = require(path.join(__dirname, '..', 'worker', 'tvworker.js'));
-const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE } = worker;
+const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin } = worker;
 
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x).slice(0, 300) : '')); } };
@@ -79,6 +79,28 @@ const writeAccounts = (o) => fs.writeFileSync(ACCOUNTS, JSON.stringify(o));
   const f = path.join(CFG.profiles, 'logins.json');
   fs.writeFileSync(f, JSON.stringify({ day: '2020-01-01', counts: { 'PRI-13': 99 } }));
   ok('yesterday is not held against today', loginsToday('PRI-13').n === 0, loginsToday('PRI-13'));
+
+  section('🔒 the worker must be on the account it thinks it is on');
+  // 4 Oct 2026, a real incident: a swapped id in accounts.json left profiles/PRI-31 signed into PRI-27's
+  // Amazon account. A job on that profile would have registered a customer's TV on an account they never
+  // bought, and nothing in the system would have noticed. The shop now sends a fingerprint of the login it
+  // has on file and the worker checks its own against it.
+  const primetv = require(path.join(__dirname, '..', 'primetv.js'));
+  const H = primetv.loginHash;
+  ok('the same login matches', sameLogin(H('someone@example.com'), 'someone@example.com') === 'ok');
+  ok('case and spacing do not matter', sameLogin(H('Someone@Example.com'), '  someone@example.com ') === 'ok');
+  ok('a DIFFERENT login is refused', sameLogin(H('someone@example.com'), 'other@example.com') === 'wrong');
+  ok('…which is exactly the PRI-31 / PRI-27 mix-up', sameLogin(H('la@outlook.com'), 'wa@hotmail.com') === 'wrong');
+  // A gap in the shop's records must not become a failed customer, so nothing to compare does NOT block.
+  ok('nothing to compare against does not block the job', sameLogin('', 'someone@example.com') === 'unknown');
+  ok('neither does a missing field', sameLogin(undefined, 'someone@example.com') === 'unknown');
+  ok('…but a wrong login still blocks even if ours is blank', sameLogin(H('someone@example.com'), '') === 'wrong');
+  // 🔒 The address itself never crosses the wire - only a fingerprint of it.
+  ok('the fingerprint is not the address', H('someone@example.com').indexOf('@') < 0);
+  ok('it is short and fixed-width', /^[0-9a-f]{16}$/.test(H('someone@example.com')), H('someone@example.com'));
+  ok('different logins fingerprint differently', H('a@b.com') !== H('c@d.com'));
+  const claimSrc = fs.readFileSync(path.join(__dirname, '..', 'primetv.js'), 'utf8');
+  ok('the claim sends the fingerprint, never the login', /loginHash: hash/.test(claimSrc) && !/loginId: /.test(claimSrc));
 
   section('an invisible field is not a field');
   // 4 Oct 2026, from a real run: Amazon's sign-in page carries a HIDDEN password box for autofill hints,
