@@ -203,6 +203,50 @@ function setAsideProfile(accountId) {
   return bak;
 }
 
+/**
+ * 📺 Read the whole accounts file and say what is wrong with it.
+ *
+ * 🔒 This exists because of two things that actually happened. A broken file used to degrade SILENTLY:
+ * every account simply looked signed out, so a customer failed and nobody knew why. And on 4 Oct the same
+ * credentials were pasted under two different ids, which left a profile signed into somebody else's
+ * account - the kind of slip that is almost invisible in a long hand-typed file and obvious in a summary.
+ *
+ * Returns ids and counts only. No login, no password, ever - not even in the problems it reports.
+ */
+function loadAccounts() {
+  let raw = null;
+  try { raw = fs.readFileSync(CFG.accountsFile, 'utf8'); } catch (e) {
+    return { ok: false, missing: true, problems: ['there is no ' + CFG.accountsFile + ' yet - copy accounts.example.json to accounts.json'] };
+  }
+  let all = null;
+  try { all = JSON.parse(raw); } catch (e) {
+    return { ok: false, broken: true, problems: ['accounts.json is not valid JSON (' + e.message + ') - a stray comma will do it'] };
+  }
+  if (!all || typeof all !== 'object') return { ok: false, broken: true, problems: ['accounts.json should be one object of accounts'] };
+
+  const ids = [], problems = [];
+  const seen = Object.create(null);
+  Object.keys(all).forEach((id) => {
+    if (id.charAt(0) === '_') return;                     // the _README line in the template
+    const row = all[id] || {};
+    const login = String(row.login || '').trim();
+    const pass = String(row.password || '').trim();
+    if (!login || !pass) { problems.push(id + ' is missing its ' + (!login ? 'login' : 'password')); return; }
+    if (login.indexOf('@') < 0) problems.push(id + ' has a login that is not an email address - is it the right field?');
+    if (/the account (email|password)/i.test(login) || /the account password/i.test(pass)) {
+      problems.push(id + ' still has the example text in it'); return;
+    }
+    // 🔒 Two ids sharing one login means a profile will sign into the wrong account. Compared as hashes so
+    // nothing readable is held, and reported by id so the owner knows exactly which two lines to look at.
+    const key = crypto.createHash('sha256').update(login.toLowerCase()).digest('hex');
+    if (seen[key]) problems.push(id + ' and ' + seen[key] + ' have the SAME login - one of them is wrong');
+    else seen[key] = id;
+    ids.push(id);
+  });
+  if (!ids.length && !problems.length) problems.push('accounts.json has no accounts in it');
+  return { ok: !problems.length, ids: ids, problems: problems };
+}
+
 /** Sign-ins today, per account, kept beside the profiles so a restart does not forget them. */
 const countsFile = () => path.join(CFG.profiles, 'logins.json');
 function loginsToday(accountId) {
@@ -564,6 +608,14 @@ async function run() {
   log(CFG.autoLogin
     ? 'automatic sign-in is ON - it will stop at a one-time code or a CAPTCHA, never push past one'
     : 'automatic sign-in is off - a signed-out account comes back to you');
+  // 🔒 Fail at the start, loudly, not quietly at one in the morning on a customer's job. A broken file
+  // used to make every account look signed out, which is indistinguishable from a real problem.
+  if (CFG.autoLogin) {
+    const acc = loadAccounts();
+    (acc.problems || []).forEach((p) => log('   ⚠️  ' + p));
+    if (acc.broken || acc.missing) { log('   refusing to start on a broken accounts file - run: node tvworker.js accounts'); process.exit(1); }
+    log('can sign in by itself for ' + ((acc.ids || []).length) + ' account(s); anything else comes back to you');
+  }
   for (;;) {
     let job = null;
     try {
@@ -697,6 +749,22 @@ async function dryrun(accountId, code) {
   console.log('\nNothing was reported to the shop.');
 }
 
+/** 📺 `node tvworker.js accounts` - what is in the file, and what is wrong with it. */
+function accountsCommand() {
+  const a = loadAccounts();
+  if (a.ids && a.ids.length) {
+    console.log('\n' + a.ids.length + ' account(s) the worker can sign in by itself:');
+    for (let i = 0; i < a.ids.length; i += 8) console.log('   ' + a.ids.slice(i, i + 8).join('  '));
+  }
+  if (a.problems && a.problems.length) {
+    console.log('\n' + (a.ok ? '' : '⚠️  ') + 'problems:');
+    a.problems.forEach((p) => console.log('   . ' + p));
+  } else {
+    console.log('\nNo problems found.');
+  }
+  console.log('\nAnything not listed here still comes back to you by hand - which is the same as today.\n');
+}
+
 async function check(accountId) {
   const ctx = await openProfile(accountId, true);
   const page = await ctx.newPage();
@@ -712,7 +780,7 @@ async function check(accountId) {
 
 // The reading rules are exported so the suite can hold them to a real page with no browser anywhere near
 // it. Playwright is only ever loaded inside playwright(), so requiring this file costs nothing.
-module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, registerCode, readOutcome, SAID_REGISTERED, SAID_BADCODE };
+module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, registerCode, readOutcome, SAID_REGISTERED, SAID_BADCODE, loadAccounts };
 
 if (require.main === module) {
   const [cmd, arg, arg2] = process.argv.slice(2);
@@ -721,12 +789,14 @@ if (require.main === module) {
   else if (cmd === 'check') check(arg);
   else if (cmd === 'relogin') relogin(arg, arg2);
   else if (cmd === 'dryrun') dryrun(arg, arg2);
+  else if (cmd === 'accounts') accountsCommand();
   else {
     console.log('\n📺 FluxFilm TV worker\n');
     console.log('  node tvworker.js login PRI-13    sign an account in, once, by hand');
     console.log('  node tvworker.js check PRI-13    is that profile still signed in?');
     console.log('  node tvworker.js relogin PRI-13  test signing back in (add `fresh` to start from nothing)');
     console.log('  node tvworker.js dryrun PRI-13 ABC123   run a real registration with a code of your own');
+    console.log('  node tvworker.js accounts        check accounts.json before a customer does');
     console.log('  node tvworker.js run             the loop\n');
   }
 }

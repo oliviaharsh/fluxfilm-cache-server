@@ -76,6 +76,20 @@ challenged, so if it gets through that, an expired session will be easier.
 This command works whether or not `FF_AUTO_LOGIN` is on - the switch guards the unattended loop, and a
 command you just typed is consent enough on its own. The three-a-day cap still applies.
 
+### Check the file before a customer does
+
+```bash
+node tvworker.js accounts
+```
+
+Lists the accounts the worker can sign in by itself, and what is wrong with the file: broken JSON, a
+missing password, leftover example text, or - the one worth having - **two accounts sharing the same
+login**, which is how a profile ends up signed into somebody else's account. It prints ids and counts
+only, never a login or a password.
+
+`run` does the same check at startup and refuses to start on a broken file. Before, a stray comma made
+every account look signed out, which looks exactly like a real problem and is not.
+
 ## Run it
 
 ```bash
