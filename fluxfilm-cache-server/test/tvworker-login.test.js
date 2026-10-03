@@ -24,7 +24,7 @@ process.env.FF_PROFILE_DIR = path.join(TMP, 'profiles');
 delete process.env.FF_AUTO_LOGIN;
 
 const worker = require(path.join(__dirname, '..', 'worker', 'tvworker.js'));
-const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG } = worker;
+const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE } = worker;
 
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x).slice(0, 300) : '')); } };
@@ -79,6 +79,37 @@ const writeAccounts = (o) => fs.writeFileSync(ACCOUNTS, JSON.stringify(o));
   const f = path.join(CFG.profiles, 'logins.json');
   fs.writeFileSync(f, JSON.stringify({ day: '2020-01-01', counts: { 'PRI-13': 99 } }));
   ok('yesterday is not held against today', loginsToday('PRI-13').n === 0, loginsToday('PRI-13'));
+
+  section('an invisible field is not a field');
+  // 4 Oct 2026, from a real run: Amazon's sign-in page carries a HIDDEN password box for autofill hints,
+  // <input type="password" class="hide" id="ap-credential-autofill-hint">, EARLIER in the document than
+  // the real one. A comma-selector resolves in DOM order, so '#ap_password, input[type=password]' with
+  // .first() picked the decoy: typing into it timed out, and COUNTING it reported a good password as
+  // refused. Every selector that decides something must therefore be visible-scoped.
+  ['password', 'anyPassword', 'email', 'otp', 'captcha'].forEach((k) => {
+    ok('SEL.' + k + ' only matches what is actually on the screen', /:visible/.test(SEL[k]), SEL[k]);
+  });
+  ok('the real password box is asked for by its own id first', SEL.password.indexOf('#ap_password') === 0, SEL.password);
+  ok('the autofill decoy is never named', JSON.stringify(SEL).indexOf('autofill-hint') < 0);
+
+  section('a passkey prompt is declined, never guessed at');
+  ['Not now', 'not now', 'Maybe later', 'Skip', 'Skip for now', 'No thanks'].forEach((w) => {
+    ok('declines: ' + w, PASSKEY_DECLINE.test(w));
+  });
+  // 🔒 Accepting one, or cancelling the sign-in itself, must never be clicked by accident.
+  ['Cancel', 'Continue', 'Sign in', 'Create a passkey', 'Set up', 'Use a passkey', 'Submit', 'Remove', 'Sign out'].forEach((w) => {
+    ok('never clicks: ' + w, !PASSKEY_DECLINE.test(w));
+  });
+  ok('it is anchored, so "Skip the queue and continue" is not a decline', !PASSKEY_DECLINE.test('Skip the queue and continue'));
+
+  section('WebAuthn is taken off the table before any page loads');
+  // The Windows "Making sure it's you - scan your finger" box is an OPERATING SYSTEM dialog. Playwright
+  // drives the page, not the desktop, so it cannot close it; the run just hangs behind it. A site cannot
+  // offer what the browser does not advertise.
+  const wsrc = fs.readFileSync(path.join(__dirname, '..', 'worker', 'tvworker.js'), 'utf8');
+  ok('an init script runs before page scripts', /addInitScript/.test(wsrc));
+  ok('PublicKeyCredential is removed', /delete window\.PublicKeyCredential/.test(wsrc));
+  ok('navigator.credentials is removed', /navigator, 'credentials'/.test(wsrc));
 
   section('`fresh` puts a profile aside - it never deletes one');
   // 🔒 These folders ARE the signed-in sessions. Deleting one costs a sign-in on a live account, and a

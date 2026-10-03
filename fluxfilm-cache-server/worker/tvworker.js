@@ -57,6 +57,31 @@ const redact = (text) => {
   return out;
 };
 
+// 🔒 EVERY one of these is :visible, and that is the whole point.
+//
+// Amazon's sign-in page carries a HIDDEN password box for autofill hints — <input type="password"
+// class="hide" id="ap-credential-autofill-hint"> — and it sits EARLIER in the document than the real one.
+// A comma-separated selector resolves in DOM ORDER, not in the order it is written, so '#ap_password,
+// input[type=password]' with .first() picked the decoy and typing into it timed out. Worse, the same
+// selector was being COUNTED to decide "is this a sign-in page" and "was the password rejected", so an
+// invisible box could condemn a perfectly good session or report a perfectly good password as wrong.
+// This is the same family as the Netflix recaptcha bug in CLAUDE.md: something that is in the markup but
+// not on the screen is not evidence of anything.
+const SEL = {
+  password: '#ap_password:visible',
+  anyPassword: 'input[type="password"]:visible, input[name="password"]:visible',
+  email: '#ap_email:visible, input[name="email"]:visible',
+  otp: '#auth-mfa-otpcode:visible, input[name="otpCode"]:visible, #cvf-input-code:visible',
+  // Visible too, for the same reason: an ordinary Amazon page can carry a recaptcha iframe that is never
+  // shown, and treating that as a challenge is precisely how the Netflix tool failed 33 times out of 33.
+  captcha: '.g-recaptcha:visible, iframe[src*="recaptcha"]:visible, #auth-captcha-image:visible, img[src*="captcha"]:visible',
+};
+
+// Declining an offer is safe; accepting one is not. Only these exact words are ever clicked, so a button
+// we have not seen before stops the run and is reported rather than guessed at. "Cancel" is deliberately
+// NOT here — on Amazon it can mean cancelling the sign-in itself.
+const PASSKEY_DECLINE = /^(not now|maybe later|skip for now|skip|no thanks|remind me later)$/i;
+
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 // Only for what this worker prints on screen. The customer's wording lives in primetv.js, deliberately in
@@ -69,6 +94,7 @@ const WORKER_SAYS = {
   'worker:stuck': 'this account keeps failing - leaving it alone',
   'worker:crashed': 'the worker could not finish it',
   'worker:notregistered': 'no new device appeared - the code had probably expired',
+  'worker:passkey': 'Amazon pushed a passkey prompt we are not allowed to answer',
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -148,11 +174,23 @@ async function openProfile(accountId, headless) {
   const dir = profileFor(accountId);
   fs.mkdirSync(dir, { recursive: true });
   const { chromium } = playwright();
-  return chromium.launchPersistentContext(dir, {
+  const ctx = await chromium.launchPersistentContext(dir, {
     headless: headless === undefined ? CFG.headless : headless,
     viewport: { width: 1280, height: 900 },
     args: ['--disable-blink-features=AutomationControlled'],
   });
+  // 🔒 Take WebAuthn off the table before any page loads.
+  //
+  // Amazon offers a passkey, and on Windows that opens "Making sure it's you - scan your finger": a NATIVE
+  // operating-system dialog. Playwright drives the page, not the desktop, so it cannot close that window —
+  // the run simply hangs behind it until it times out. A site cannot offer what the browser does not
+  // advertise, so the cleanest fix is to stop advertising it. Password sign-in is unaffected.
+  await ctx.addInitScript(() => {
+    try { Object.defineProperty(navigator, 'credentials', { get: () => undefined, configurable: true }); } catch (e) {}
+    try { delete window.PublicKeyCredential; } catch (e) {}
+    try { delete window.AuthenticatorAssertionResponse; } catch (e) {}
+  });
+  return ctx;
 }
 
 /**
@@ -161,9 +199,9 @@ async function openProfile(accountId, headless) {
  * Netflix household tool fail 33 times out of 33 (CLAUDE.md).
  */
 async function pageKind(page) {
-  if (await page.locator('input[type="password"], input[name="password"]').count()) return 'signin';
-  if (await page.locator('#ap_email, input[name="email"]').count()) return 'signin';
-  if (await page.locator('.g-recaptcha, iframe[src*="recaptcha"], img[src*="captcha"], #auth-captcha-image').count()) return 'captcha';
+  if (await page.locator(SEL.anyPassword).count()) return 'signin';
+  if (await page.locator(SEL.email).count()) return 'signin';
+  if (await page.locator(SEL.captcha).count()) return 'captcha';
   if (/account.{0,12}(locked|hold)|verify your identity|suspicious/i.test(await page.title())) return 'challenge';
   return 'ok';
 }
@@ -262,7 +300,7 @@ async function signIn(page, creds) {
   await page.waitForTimeout(1500);
 
   // Step one: the email. Amazon splits this across two pages.
-  const email = page.locator('#ap_email, input[name="email"]').first();
+  const email = page.locator(SEL.email).first();
   if (!(await email.count())) return 'noform';
   await email.fill(creds.login);
   const go = page.locator('#continue, input[type="submit"]').first();
@@ -271,34 +309,68 @@ async function signIn(page, creds) {
   await page.waitForTimeout(1500);
   if (await isCaptcha(page)) return 'captcha';
 
-  // Step two: the password.
-  const pass = page.locator('#ap_password, input[type="password"]').first();
-  if (!(await pass.count())) return (await isOtp(page)) ? 'otp' : 'noform';
+  // Step two: the password. The real box by its id first, and only a VISIBLE one.
+  if (await dismissPasskey(page)) await page.waitForTimeout(1200);
+  let pass = page.locator(SEL.password).first();
+  if (!(await pass.count())) pass = page.locator(SEL.anyPassword).first();
+  if (!(await pass.count())) {
+    if (await isOtp(page)) return 'otp';
+    if (await looksLikePasskey(page)) return 'passkey';
+    return 'noform';
+  }
   // Ask to be remembered. A session that lasts is the whole point of signing in at all, and if this box is
   // not ticked we are back here tomorrow - which is itself a way to get an account noticed.
   const keep = page.locator('#rememberMe, input[name="rememberMe"]').first();
   if (await keep.count()) { await keep.check().catch(() => {}); }
   await pass.fill(creds.password);
-  const submit = page.locator('#signInSubmit, input[type="submit"]').first();
+  const submit = page.locator('#signInSubmit:visible, input[type="submit"]:visible').first();
   if (!(await submit.count())) return 'noform';
   await submit.click();
   await page.waitForLoadState('networkidle', { timeout: 25000 }).catch(() => {});
   await page.waitForTimeout(2500);
 
   // What did we land on? Elements and visible text, never a grep of the raw HTML.
+  if (await dismissPasskey(page)) await page.waitForTimeout(1500);
   if (await isCaptcha(page)) return 'captcha';
   if (await isOtp(page)) return 'otp';
-  if (await page.locator('#ap_password, input[type="password"]').count()) return 'badpassword';
+  if (await looksLikePasskey(page)) return 'passkey';
+  // 🔒 VISIBLE only. Counting the hidden autofill box here is what reported a good password as refused.
+  if (await page.locator(SEL.anyPassword).count()) return 'badpassword';
   const check = await deviceList(page);
   return check.ok ? 'ok' : (check.kind === 'signin' ? 'badpassword' : 'captcha');
 }
 
-const isCaptcha = async (page) =>
-  (await page.locator('.g-recaptcha, iframe[src*="recaptcha"], #auth-captcha-image, img[src*="captcha"]').count()) > 0;
+const isCaptcha = async (page) => (await page.locator(SEL.captcha).count()) > 0;
+
+/**
+ * Turn down an offer to make or use a passkey.
+ *
+ * 🔒 Only the exact words in PASSKEY_DECLINE are ever clicked. Declining an offer cannot do harm; guessing
+ * at an unfamiliar button on somebody's account can, and CLAUDE.md is explicit that in a security-adjacent
+ * place a best guess is worse than returning nothing. Anything we do not recognise stops the run instead.
+ */
+async function dismissPasskey(page) {
+  const buttons = page.getByRole('button');
+  const n = Math.min(await buttons.count().catch(() => 0), 12);
+  for (let i = 0; i < n; i++) {
+    const b = buttons.nth(i);
+    const name = ((await b.textContent().catch(() => '')) || '').replace(/\s+/g, ' ').trim();
+    if (PASSKEY_DECLINE.test(name) && (await b.isVisible().catch(() => false))) {
+      await b.click().catch(() => {});
+      log('   declined a passkey prompt (' + name + ')');
+      return true;
+    }
+  }
+  return false;
+}
+
+/** A passkey page we could not get past — reported as itself, never as a wrong password. */
+const looksLikePasskey = async (page) =>
+  (await page.locator('[data-testid*="passkey" i], [id*="passkey" i], [class*="passkey" i]').count()) > 0 ||
+  /passkey|security key|fingerprint|windows hello/i.test(((await page.title().catch(() => '')) || ''));
 
 // A one-time code page. Amazon has several; all of them carry a short numeric field that is not a password.
-const isOtp = async (page) =>
-  (await page.locator('#auth-mfa-otpcode, input[name="otpCode"], input[name="code"], #cvf-input-code').count()) > 0;
+const isOtp = async (page) => (await page.locator(SEL.otp).count()) > 0;
 
 /**
  * Make sure we are signed in before a job, signing in only if we are allowed to and it is worth trying.
@@ -327,7 +399,8 @@ async function ensureSignedIn(page, accountId, force) {
   try { how = await signIn(page, creds); } catch (e) { log('   sign-in failed: ' + redact(e.message)); how = 'noform'; }
   if (how !== 'ok') {
     log('   ❌ could not sign in: ' + how);
-    return { ok: false, why: how === 'otp' ? 'worker:needsotp' : how === 'captcha' ? 'worker:security' : how === 'badpassword' ? 'worker:badpassword' : 'worker:noform' };
+    const code = { otp: 'worker:needsotp', captcha: 'worker:security', badpassword: 'worker:badpassword', passkey: 'worker:passkey' }[how] || 'worker:noform';
+    return { ok: false, why: code };
   }
   const after = await deviceList(page);
   if (!after.ok) return { ok: false, why: whyKind(after.kind) };
@@ -497,7 +570,7 @@ async function check(accountId) {
 
 // The reading rules are exported so the suite can hold them to a real page with no browser anywhere near
 // it. Playwright is only ever loaded inside playwright(), so requiring this file costs nothing.
-module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG };
+module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE };
 
 if (require.main === module) {
   const [cmd, arg, arg2] = process.argv.slice(2);
