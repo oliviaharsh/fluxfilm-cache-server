@@ -37,9 +37,11 @@ const codeOnly = (src) => String(src).replace(/\/\*[\s\S]*?\*\//g, '').replace(/
 // The body of one function. Ends at the NEXT top-level function, whatever that happens to be - slicing
 // "from this name to that name" breaks silently the moment something is added between the two.
 function fnBody(src, name) {
-  const i = src.indexOf('function ' + name);
+  // The bracket matters: 'function login' also matches 'function loginsToday', and a body that is
+  // silently the wrong function is a test that silently proves nothing.
+  const i = src.indexOf('function ' + name + '(');
   if (i < 0) return '';
-  const rest = src.slice(i + 8);
+  const rest = src.slice(i + 9 + name.length);
   const m = rest.search(/\n(?:async )?function /);
   return m < 0 ? rest : rest.slice(0, m);
 }
@@ -93,6 +95,23 @@ const writeAccounts = (o) => fs.writeFileSync(ACCOUNTS, JSON.stringify(o));
   const f = path.join(CFG.profiles, 'logins.json');
   fs.writeFileSync(f, JSON.stringify({ day: '2020-01-01', counts: { 'PRI-13': 99 } }));
   ok('yesterday is not held against today', loginsToday('PRI-13').n === 0, loginsToday('PRI-13'));
+
+  section('"Keep me signed in" is not left to anyone remembering');
+  // 4 Oct 2026: PRI-13 and PRI-27, both signed in BY THE WORKER (which ticks the box), were still alive
+  // hours later. PRI-05, signed in BY HAND after a one-time code, was signed out again within the hour.
+  // Without that box Amazon hands back a cookie that dies with the browser, and the difference is
+  // invisible until a customer is waiting.
+  const ksrc = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'worker', 'tvworker.js'), 'utf8'));
+  ok('there is one function that ticks it', /function keepMeSignedIn\(/.test(ksrc));
+  ok('it only ever ticks a box that is actually on the screen', /#rememberMe:visible/.test(ksrc));
+  // One implementation, used by both paths - the automatic sign-in and the owner's by-hand one. Two copies
+  // would drift, and the by-hand one is exactly where it was missing.
+  ok('the automatic sign-in uses it', fnBody(ksrc, 'signIn').indexOf('keepMeSignedIn(page)') >= 0);
+  ok('and so does the by-hand sign-in', fnBody(ksrc, 'login').indexOf('keepMeSignedIn(page)') >= 0);
+  ok('it is written once, not copied', (ksrc.match(/#rememberMe:visible/g) || []).length === 1);
+  // 🔒 "I signed in" and "there is a session on disk" are not the same thing, and the gap between them is
+  // only ever found by a customer. The by-hand sign-in now checks before it says it worked.
+  ok('a by-hand sign-in verifies itself afterwards', fnBody(ksrc, 'login').indexOf('touchOne(accountId)') >= 0);
 
   section('looking in on the accounts, to keep them warm');
   // Owner, 4 Oct: "if we login each account everyday maybe it wont logout??" - and PRI-13 was still signed

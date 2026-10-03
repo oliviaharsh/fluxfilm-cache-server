@@ -155,6 +155,25 @@ function readOutcome(linesBefore, linesAfter) {
   };
 }
 
+/**
+ * 📺 "Keep me signed in", ticked for the owner while he signs in by hand.
+ *
+ * 4 Oct 2026: PRI-13 and PRI-27 - both signed in by the worker, which ticks this - were still alive hours
+ * later. PRI-05, signed in BY HAND after a one-time code, was signed out again within the hour. Without
+ * that box Amazon hands back a session cookie that dies with the browser, and the difference is invisible
+ * until a customer is waiting. The owner should not have to remember a tick-box at one in the morning, so
+ * this watches the page while he works and ticks it whenever it appears.
+ */
+async function keepMeSignedIn(page) {
+  const box = page.locator('#rememberMe:visible, input[name="rememberMe"]:visible').first();
+  try {
+    if (!(await box.count())) return false;
+    if (await box.isChecked()) return false;
+    await box.check({ timeout: 2000 });
+    return true;
+  } catch (e) { return false; }
+}
+
 const PASSKEY_DECLINE = /^(not now|maybe later|skip for now|skip|no thanks|remind me later)$/i;
 
 /**
@@ -479,8 +498,7 @@ async function signIn(page, creds) {
   }
   // Ask to be remembered. A session that lasts is the whole point of signing in at all, and if this box is
   // not ticked we are back here tomorrow - which is itself a way to get an account noticed.
-  const keep = page.locator('#rememberMe, input[name="rememberMe"]').first();
-  if (await keep.count()) { await keep.check().catch(() => {}); }
+  await keepMeSignedIn(page);
   await pass.fill(creds.password);
   const submit = page.locator('#signInSubmit:visible, input[type="submit"]:visible').first();
   if (!(await submit.count())) return 'noform';
@@ -787,9 +805,29 @@ async function login(accountId) {
   await page.goto(CFG.devicesUrl, { waitUntil: 'domcontentloaded' });
   console.log('\n  A browser has opened for ' + accountId + '.');
   console.log('  Sign in by hand, get to the Devices page, then close the browser window.');
-  console.log('  The session is kept in ' + profileFor(accountId) + ' and should last months.\n');
+  console.log('  "Keep me signed in" is ticked for you - without it the session dies within the hour.\n');
+  // Watch while he works and tick the box the moment it appears. He is typing a one-time code at one in
+  // the morning; remembering a tick-box is not a reasonable thing to ask of him.
+  let watching = true;
+  const watch = async () => {
+    while (watching) {
+      if (await keepMeSignedIn(page)) console.log('  (ticked "Keep me signed in" for you)');
+      await sleep(1200);
+    }
+  };
+  watch().catch(() => {});
   await page.waitForEvent('close', { timeout: 0 }).catch(() => {});
+  watching = false;
   await ctx.close().catch(() => {});
+
+  // 🔒 Say whether it actually took. "I signed in" and "there is a session on disk" are not the same thing,
+  // and the gap between them is only ever discovered by a customer.
+  const after = await touchOne(accountId);
+  if (after.ok) console.log('\n✅ ' + accountId + ' is signed in and saved.\n');
+  else {
+    console.log('\n❌ ' + accountId + ' still does not look signed in (' + (after.why || 'unknown') + ').');
+    console.log('   Run it again, and make sure you reach the Devices page before closing the window.\n');
+  }
 }
 
 /**
