@@ -85,6 +85,10 @@ const CFG = {
   // Sign-in attempts per account per day. More than this is not a bad minute, it is a problem, and
   // hammering Amazon with sign-ins is how an account with paying customers behind it gets locked.
   maxLoginsPerDay: Number(process.env.FF_MAX_LOGINS_DAY || 3),
+  // How often to look in on every signed-in account. 0 turns it off.
+  touchHours: Number(process.env.FF_TOUCH_HOURS || 12),
+  // A pause between accounts. Thirty-nine page loads in one burst is a pattern; spread out it is browsing.
+  touchGapMs: Number(process.env.FF_TOUCH_GAP_MS || 4000),
 };
 
 // 🔒 Never let a login or a password reach a log line, an error message or a screenshot caption. Anything
@@ -238,6 +242,23 @@ function credentialsFor(accountId) {
  * 🔒 RENAME, never delete. These folders ARE the signed-in sessions; losing one costs a sign-in on a live
  * account, and a sign-in is the thing we are trying not to spend. Returns where it went, or null.
  */
+/**
+ * Every account we have a session for: a profile folder on disk, plus anything listed in accounts.json.
+ * The .bak- folders a `fresh` run leaves behind are old sessions, not accounts.
+ */
+function knownAccounts() {
+  const out = {};
+  try {
+    fs.readdirSync(CFG.profiles, { withFileTypes: true }).forEach((e) => {
+      if (!e.isDirectory() || /\.bak-\d+$/.test(e.name)) return;
+      out[e.name] = true;
+    });
+  } catch (e) { /* no profiles yet */ }
+  const a = loadAccounts();
+  (a.ids || []).forEach((id) => { out[id] = true; });
+  return Object.keys(out).sort();
+}
+
 function setAsideProfile(accountId) {
   const dir = profileFor(accountId);
   if (!fs.existsSync(dir)) return null;
@@ -631,6 +652,51 @@ async function registerCode(page, code, before, notes) {
   return { ok: true, deviceName: fresh.join(DOT_).slice(0, 160) };
 }
 
+/**
+ * 📺 Look in on one account without doing anything to it.
+ *
+ * 🔒 It NEVER signs in. That is the whole design: a look-in runs at three in the morning with nobody
+ * watching, and an automatic sign-in there would spend attempts and walk into a one-time code wall that
+ * only a person can answer. Finding out is the job; fixing it is the owner's, at a civilised hour.
+ */
+async function touchOne(accountId) {
+  let ctx = null;
+  try {
+    ctx = await openProfile(accountId, true);          // always headless: nobody is watching at 3am
+    const page = await ctx.newPage();
+    const list = await deviceList(page);
+    if (list.ok) return { id: accountId, ok: true, devices: list.empty ? 0 : list.lines.length };
+    return { id: accountId, ok: false, why: list.kind };
+  } catch (e) {
+    return { id: accountId, ok: false, why: 'error', detail: redact(e.message) };
+  } finally {
+    if (ctx) await ctx.close().catch(() => {});
+  }
+}
+
+/**
+ * Look in on all of them, one at a time with a pause between.
+ *
+ * Two jobs at once: a session that gets used stays alive longer than one that sits, and anything that has
+ * died is found HERE, in a log, rather than by a customer whose television is waiting.
+ */
+async function touchAll(notes) {
+  const say = notes || log;
+  const ids = knownAccounts();
+  if (!ids.length) { say('no accounts to look in on yet'); return { ids: [], bad: [] }; }
+  say('looking in on ' + ids.length + ' account(s) to keep the sessions warm');
+  const bad = [];
+  for (let i = 0; i < ids.length; i++) {
+    const r = await touchOne(ids[i]);
+    if (r.ok) say('   . ' + r.id + ': signed in' + (r.devices ? ', ' + r.devices + ' line(s)' : ', nothing registered'));
+    else { bad.push(r); say('   ⚠️  ' + r.id + ': ' + (r.why === 'signin' ? 'SIGNED OUT - run: node tvworker.js login ' + r.id : whyKind(r.why))); }
+    if (i < ids.length - 1) await sleep(CFG.touchGapMs);
+  }
+  if (bad.length) say('⚠️  ' + bad.length + ' account(s) need you: ' + bad.map((b) => b.id).join(', '));
+  else say('all ' + ids.length + ' still signed in');
+  return { ids: ids, bad: bad };
+}
+
 async function doJob(ctx, job) {
   const page = await ctx.newPage();
   try {
@@ -646,10 +712,14 @@ async function doJob(ctx, job) {
 
 async function run() {
   const fails = new Map();
+  let touchedAt = 0;
   log('worker "' + CFG.who + '" watching ' + CFG.base + ' every ' + Math.round(CFG.pollMs / 1000) + 's');
   log('profiles in ' + CFG.profiles);
   log(ENV_LOADED ? 'read ' + ENV_LOADED + ' setting(s) from ' + ENV_FILE
     : 'no settings read from ' + ENV_FILE + ' - using the defaults and whatever is already in the environment');
+  log(CFG.touchHours > 0
+    ? 'looking in on every account every ' + CFG.touchHours + 'h, to keep the sessions warm and to notice a dead one early'
+    : 'the periodic look-in is off (FF_TOUCH_HOURS=0)');
   log(CFG.autoLogin
     ? 'automatic sign-in is ON - it will stop at a one-time code or a CAPTCHA, never push past one'
     : 'automatic sign-in is off - a signed-out account comes back to you');
@@ -668,6 +738,13 @@ async function run() {
       if (r && r.ready === false) { log('the shop has no tv_activations table yet — run db/schema-v35.sql and v36'); await sleep(60000); continue; }
       job = r && r.job;
     } catch (e) { log('could not reach the shop:', e.message); }
+    // 🔒 Only ever between jobs, never while one is in flight, and never on the very first loop - the
+    // owner starting the worker should see it ask for work, not sit through 39 page loads.
+    if (!job && CFG.touchHours > 0 && touchedAt && Date.now() - touchedAt > CFG.touchHours * 3600e3) {
+      touchedAt = Date.now();
+      try { await touchAll(); } catch (e) { log('the look-in did not finish:', redact(e.message)); }
+    }
+    if (!touchedAt) touchedAt = Date.now();
     if (!job) { await sleep(CFG.pollMs); continue; }
 
     const n = fails.get(job.accountId) || 0;
@@ -810,6 +887,12 @@ function accountsCommand() {
   console.log('\nAnything not listed here still comes back to you by hand - which is the same as today.\n');
 }
 
+/** 📺 `node tvworker.js touch` - look in on every account now, and say which ones need you. */
+async function touchCommand() {
+  const r = await touchAll((m) => console.log(m));
+  if (r.bad.length) process.exitCode = 1;    // so a scheduled run can be seen to have found something
+}
+
 async function check(accountId) {
   const ctx = await openProfile(accountId, true);
   const page = await ctx.newPage();
@@ -825,7 +908,7 @@ async function check(accountId) {
 
 // The reading rules are exported so the suite can hold them to a real page with no browser anywhere near
 // it. Playwright is only ever loaded inside playwright(), so requiring this file costs nothing.
-module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, registerCode, readOutcome, SAID_REGISTERED, SAID_BADCODE, loadAccounts, loadEnvFile };
+module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, registerCode, readOutcome, SAID_REGISTERED, SAID_BADCODE, loadAccounts, loadEnvFile, knownAccounts, touchAll, touchOne };
 
 if (require.main === module) {
   const [cmd, arg, arg2] = process.argv.slice(2);
@@ -835,6 +918,7 @@ if (require.main === module) {
   else if (cmd === 'relogin') relogin(arg, arg2);
   else if (cmd === 'dryrun') dryrun(arg, arg2);
   else if (cmd === 'accounts') accountsCommand();
+  else if (cmd === 'touch') touchCommand();
   else {
     console.log('\n📺 FluxFilm TV worker\n');
     console.log('  node tvworker.js login PRI-13    sign an account in, once, by hand');
@@ -842,6 +926,7 @@ if (require.main === module) {
     console.log('  node tvworker.js relogin PRI-13  test signing back in (add `fresh` to start from nothing)');
     console.log('  node tvworker.js dryrun PRI-13 ABC123   run a real registration with a code of your own');
     console.log('  node tvworker.js accounts        check accounts.json before a customer does');
+    console.log('  node tvworker.js touch           look in on every account, keep sessions warm');
     console.log('  node tvworker.js run             the loop\n');
   }
 }
