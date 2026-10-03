@@ -125,6 +125,24 @@ const writeAccounts = (o) => fs.writeFileSync(ACCOUNTS, JSON.stringify(o));
   // only ever found by a customer. The by-hand sign-in now checks before it says it worked.
   ok('a by-hand sign-in verifies itself afterwards', fnBody(ksrc, 'login').indexOf('touchOne(accountId)') >= 0);
 
+  section('a retired account is left alone');
+  // 4 Oct 2026: PRI-31 is inactive in admin; it was signed in twice anyway, was logged out, and got
+  // blocked. Pointless at best. The worker cannot see admin, so the shop tells it what is in service.
+  const asrc = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'worker', 'tvworker.js'), 'utf8'));
+  ok('the worker asks the shop which accounts are live', /prime-tv\/accounts/.test(asrc));
+  // 🔒 "We could not ask" is NOT "none". A network hiccup turning into "you cannot sign in" would be the
+  // worse bug, so only a definite no stops anything.
+  const svc = fnBody(asrc, 'inService');
+  ok('not knowing is its own answer', /return 'unknown'/.test(svc), svc);
+  ok('no admin key means unknown, not blocked', /if \(!CFG\.key\) return null/.test(fnBody(asrc, 'activeAccounts')));
+  ok('and a failed request means unknown too', /catch \(e\) \{ return null; \}/.test(fnBody(asrc, 'activeAccounts')));
+  const lg = fnBody(asrc, 'login');
+  ok('a by-hand sign-in refuses a retired account', /inService\(accountId\)\) === 'no'/.test(lg), lg.slice(0, 200));
+  ok('…and only a definite no refuses it', lg.indexOf("=== 'no'") >= 0 && lg.indexOf("!== 'yes'") < 0);
+  ok('…with a way to override it deliberately', /anyway/.test(lg));
+  ok('the sweep skips retired accounts entirely', /marked inactive in admin/.test(fnBody(asrc, 'touchAll')));
+  ok('and the accounts check names them', /take it out of accounts.json/.test(asrc));
+
   section('looking in on the accounts, to keep them warm');
   // Owner, 4 Oct: "if we login each account everyday maybe it wont logout??" - and PRI-13 was still signed
   // in seven hours after being seeded. A daily look-in keeps a session used, and - the bigger half - finds

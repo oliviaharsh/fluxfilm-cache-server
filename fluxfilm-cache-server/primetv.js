@@ -366,6 +366,19 @@ function mount(app, deps) {
 
   // 📺 The worker asks for one job. Admin-key protected like every other /admin route — `who` is only a
   // label for the owner's eyes ("laptop", "vps"), never a credential, and grants nothing on its own.
+  // 📺 Which Prime accounts are still in service. **Account ids only** - no logins, no passwords, nothing
+  // the worker does not already hold. It needs this because the worker cannot see admin, and signing into
+  // a retired account is at best pointless and at worst how one gets locked.
+  // UPPER(is_active)='TRUE' is fulfil.js's own test, reused rather than re-invented: the column is a
+  // STRING, and a cleverer comparison here would quietly disagree with the code that allocates accounts.
+  app.get('/admin/api/prime-tv/accounts', async (req, res) => {
+    if (!auth(req, res)) return;
+    try {
+      const rows = await db.query("SELECT account_id FROM inventory_accounts WHERE LOWER(service) LIKE '%prime%' AND UPPER(is_active) = 'TRUE' ORDER BY account_id");
+      res.json({ ok: true, active: (rows || []).map((r) => s(r.account_id)).filter(Boolean) });
+    } catch (e) { fail(res, e); }
+  });
+
   app.post('/admin/api/prime-tv/claim', async (req, res) => {
     if (!auth(req, res)) return;
     try {

@@ -370,6 +370,24 @@ const mine = (ph, tok) => primetv.mine(ph, tok, { access: access });
     (await primetv.ready(false, T0 + 999999)) === true);
   TABLE_MISSING = false;
 
+  // 4 Oct 2026: PRI-31 is marked inactive in admin, and I told the owner to sign it in twice anyway. It
+  // was logged out, it got blocked, and the exercise was pointless. The worker cannot see admin, so the
+  // shop has to tell it which accounts are still in service.
+  section('the shop says which accounts are still in service');
+  const SQLBEFORE = SQL.length;
+  reset(); primetv._internal.reset();
+  ok('the route exists', typeof primetv.mount === 'function');
+  // 🔒 The SAME test fulfil.js uses. The column is a STRING, and a cleverer comparison here would quietly
+  // disagree with the code that actually allocates accounts to customers.
+  const psrc = fs.readFileSync(path.join(__dirname, '..', 'primetv.js'), 'utf8');
+  ok("it asks for active accounts the way fulfil.js does", /UPPER\(is_active\) = 'TRUE'/.test(psrc));
+  ok('it asks only for Prime', /prime-tv\/accounts[\s\S]{0,400}LIKE '%prime%'/.test(psrc));
+  // 🔒 Account ids and nothing else - no login, no password, nothing the worker does not already hold.
+  const route = psrc.slice(psrc.indexOf("prime-tv/accounts"), psrc.indexOf("prime-tv/claim"));
+  ok('it returns account ids only', route.indexOf('login_id') < 0 && route.indexOf('password') < 0, route.length);
+  ok('and it is admin-key protected like every other admin route', /auth\(req, res\)/.test(route));
+  void SQLBEFORE;
+
   section('nothing waiting');
   reset(); primetv._internal.reset();
   ok('the worker is told so plainly rather than given a half job', (await primetv.claim('laptop')).job === null);

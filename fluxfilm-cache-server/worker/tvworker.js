@@ -265,6 +265,36 @@ function credentialsFor(accountId) {
  * Every account we have a session for: a profile folder on disk, plus anything listed in accounts.json.
  * The .bak- folders a `fresh` run leaves behind are old sessions, not accounts.
  */
+/**
+ * The accounts the shop still considers in service, or null when we could not ask.
+ *
+ * 🔒 null is NOT "none". If the shop is unreachable or no admin key is set, we simply do not know, and not
+ * knowing must never block the owner - turning a network hiccup into "you cannot sign in" would be the
+ * worse bug. Only a definite "that one is retired" stops anything.
+ *
+ * 4 Oct 2026: PRI-31 is marked inactive in admin, and I told the owner to sign it in twice anyway. It was
+ * logged out, it got blocked, and the whole exercise was pointless. The tooling should have known.
+ */
+let activeCache = null;
+async function activeAccounts() {
+  if (activeCache) return activeCache;
+  if (!CFG.key) return null;
+  try {
+    const res = await fetch(CFG.base + '/admin/api/prime-tv/accounts', { headers: { 'X-Admin-Key': CFG.key } });
+    const d = await res.json();
+    if (!d || !d.ok || !Array.isArray(d.active)) return null;
+    activeCache = d.active.map((x) => String(x).trim()).filter(Boolean);
+    return activeCache;
+  } catch (e) { return null; }
+}
+
+/** 'yes' | 'no' | 'unknown' - and only a definite 'no' is ever allowed to stop anything. */
+async function inService(accountId) {
+  const list = await activeAccounts();
+  if (!list) return 'unknown';
+  return list.indexOf(String(accountId)) >= 0 ? 'yes' : 'no';
+}
+
 function knownAccounts() {
   const out = {};
   try {
@@ -700,8 +730,16 @@ async function touchOne(accountId) {
  */
 async function touchAll(notes) {
   const say = notes || log;
-  const ids = knownAccounts();
+  let ids = knownAccounts();
   if (!ids.length) { say('no accounts to look in on yet'); return { ids: [], bad: [] }; }
+  // Leave retired accounts alone entirely: poking a dead account every twelve hours is noise at best.
+  const live = await activeAccounts();
+  if (live) {
+    const skip = ids.filter((id) => live.indexOf(id) < 0);
+    if (skip.length) say('skipping ' + skip.length + ' account(s) marked inactive in admin: ' + skip.join(', '));
+    ids = ids.filter((id) => live.indexOf(id) >= 0);
+    if (!ids.length) { say('nothing left to look in on'); return { ids: [], bad: [] }; }
+  }
   say('looking in on ' + ids.length + ' account(s) to keep the sessions warm');
   const bad = [];
   for (let i = 0; i < ids.length; i++) {
@@ -798,8 +836,15 @@ async function run() {
   }
 }
 
-async function login(accountId) {
+async function login(accountId, force) {
   if (!accountId) { console.error('Which account? e.g. node tvworker.js login PRI-13'); process.exit(1); }
+  // 🔒 Signing into an account the business has retired achieves nothing and risks the account.
+  if (String(force || '').toLowerCase() !== 'anyway' && (await inService(accountId)) === 'no') {
+    console.log('\n' + accountId + ' is marked INACTIVE in admin, so nothing should be signing into it.');
+    console.log('  If that is wrong, make it active in admin first.');
+    console.log('  If you really mean to: node tvworker.js login ' + accountId + ' anyway\n');
+    return;
+  }
   const ctx = await openProfile(accountId, false);
   const page = await ctx.newPage();
   await page.goto(CFG.devicesUrl, { waitUntil: 'domcontentloaded' });
@@ -910,8 +955,14 @@ async function dryrun(accountId, code) {
 }
 
 /** 📺 `node tvworker.js accounts` - what is in the file, and what is wrong with it. */
-function accountsCommand() {
+async function accountsCommand() {
   const a = loadAccounts();
+  const live = await activeAccounts();
+  if (live && a.ids) {
+    const dead = a.ids.filter((id) => live.indexOf(id) < 0);
+    dead.forEach((id) => (a.problems = (a.problems || []).concat([id + ' is marked INACTIVE in admin - take it out of accounts.json'])));
+    if (dead.length) a.ok = false;
+  }
   if (a.ids && a.ids.length) {
     console.log('\n' + a.ids.length + ' account(s) the worker can sign in by itself:');
     for (let i = 0; i < a.ids.length; i += 8) console.log('   ' + a.ids.slice(i, i + 8).join('  '));
@@ -946,12 +997,12 @@ async function check(accountId) {
 
 // The reading rules are exported so the suite can hold them to a real page with no browser anywhere near
 // it. Playwright is only ever loaded inside playwright(), so requiring this file costs nothing.
-module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, registerCode, readOutcome, SAID_REGISTERED, SAID_BADCODE, loadAccounts, loadEnvFile, knownAccounts, touchAll, touchOne };
+module.exports = { contentLines, newLines, deviceLines, CHROME, NOT_A_DEVICE, credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, registerCode, readOutcome, SAID_REGISTERED, SAID_BADCODE, loadAccounts, loadEnvFile, knownAccounts, touchAll, touchOne, inService, activeAccounts };
 
 if (require.main === module) {
   const [cmd, arg, arg2] = process.argv.slice(2);
   if (cmd === 'run') run();
-  else if (cmd === 'login') login(arg);
+  else if (cmd === 'login') login(arg, arg2);
   else if (cmd === 'check') check(arg);
   else if (cmd === 'relogin') relogin(arg, arg2);
   else if (cmd === 'dryrun') dryrun(arg, arg2);
@@ -960,6 +1011,7 @@ if (require.main === module) {
   else {
     console.log('\n📺 FluxFilm TV worker\n');
     console.log('  node tvworker.js login PRI-13    sign an account in, once, by hand');
+    console.log('                                   (add `anyway` to override the inactive check)');
     console.log('  node tvworker.js check PRI-13    is that profile still signed in?');
     console.log('  node tvworker.js relogin PRI-13  test signing back in (add `fresh` to start from nothing)');
     console.log('  node tvworker.js dryrun PRI-13 ABC123   run a real registration with a code of your own');
