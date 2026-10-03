@@ -24,7 +24,7 @@ process.env.FF_PROFILE_DIR = path.join(TMP, 'profiles');
 delete process.env.FF_AUTO_LOGIN;
 
 const worker = require(path.join(__dirname, '..', 'worker', 'tvworker.js'));
-const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, readOutcome, loadAccounts } = worker;
+const { credentialsFor, loginsToday, noteLogin, redact, setAsideProfile, profileFor, CFG, SEL, PASSKEY_DECLINE, sameLogin, readOutcome, loadAccounts, loadEnvFile } = worker;
 
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) pass++; else { fail++; console.log('  FAIL ' + n + (x !== undefined ? '  -> ' + JSON.stringify(x).slice(0, 300) : '')); } };
@@ -83,6 +83,43 @@ const writeAccounts = (o) => fs.writeFileSync(ACCOUNTS, JSON.stringify(o));
   const f = path.join(CFG.profiles, 'logins.json');
   fs.writeFileSync(f, JSON.stringify({ day: '2020-01-01', counts: { 'PRI-13': 99 } }));
   ok('yesterday is not held against today', loginsToday('PRI-13').n === 0, loginsToday('PRI-13'));
+
+  section('.env is actually read');
+  // 4 Oct 2026: the README told the owner to copy .env.example to .env and fill it in, and NOTHING read
+  // the file. FF_HEADLESS=off was ignored - he asked why no browser appeared and I gave him the wrong
+  // reason - and FF_ADMIN_KEY stayed empty, which only surfaced when he started the worker with a real
+  // customer waiting. A setting a program documents and then ignores is worse than one it never offered.
+  const ENVF = path.join(TMP, 'dotenv');
+  fs.writeFileSync(ENVF, [
+    '# a comment',
+    'FFT_PLAIN=one',
+    'FFT_SPACED = two',
+    'FFT_QUOTED="three"',
+    "FFT_SINGLE='four'",
+    'export FFT_EXPORTED=five',
+    'FFT_EMPTY=',
+    'not a line at all',
+    'FFT_ALREADY=from-the-file',
+  ].join('\n'));
+  process.env.FFT_ALREADY = 'from-the-environment';
+  const n = loadEnvFile(ENVF);
+  ok('plain key=value is read', process.env.FFT_PLAIN === 'one');
+  ok('spaces around the = are the owner being tidy, not part of it', process.env.FFT_SPACED === 'two');
+  ok('double quotes are stripped', process.env.FFT_QUOTED === 'three');
+  ok('single quotes too', process.env.FFT_SINGLE === 'four');
+  ok('an export prefix is tolerated', process.env.FFT_EXPORTED === 'five');
+  ok('an empty value is still a value', process.env.FFT_EMPTY === '');
+  ok('comments and junk lines are skipped', process.env['not a line at all'] === undefined);
+  // 🔒 So `FF_ADMIN_KEY=... node tvworker.js run` still beats the file.
+  ok('something already in the environment WINS over the file', process.env.FFT_ALREADY === 'from-the-environment');
+  ok('it reports how many it read', n >= 6, n);
+  ok('a missing file is 0, not a crash', loadEnvFile(path.join(TMP, 'no-such-env')) === 0);
+
+  // 🔒 The bug was not the parser - there was no parser. Order is what matters: the file has to be read
+  // BEFORE CFG is built, or every setting in it is read too late to do anything.
+  const envsrc = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'worker', 'tvworker.js'), 'utf8'));
+  ok('.env is read before the settings are built',
+    envsrc.indexOf('loadEnvFile(ENV_FILE)') > 0 && envsrc.indexOf('loadEnvFile(ENV_FILE)') < envsrc.indexOf('const CFG = {'));
 
   section('the accounts file is checked before a customer checks it for us');
   // Two things that actually happened: a broken file used to degrade SILENTLY (every account looked
